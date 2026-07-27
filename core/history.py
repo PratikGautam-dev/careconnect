@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from collections import defaultdict
 
 MAX_MESSAGES = 20
@@ -55,3 +56,73 @@ def get_history() -> InMemoryHistory | RedisHistory:
         except Exception:
             pass
     return InMemoryHistory()
+
+
+# --- Conversation state (SPEC Section 3.3 state machine) ---
+# Same storage mechanism as message history above (Redis with in-memory fallback),
+# just a separate key namespace/shape: {"state": str, "context": dict, "updated_at": epoch}.
+
+DEFAULT_STATE = "IDLE"
+SESSION_TIMEOUT_SECONDS = 30 * 60  # 30 min inactivity -> treat as IDLE on next message
+
+
+class InMemorySessionStore:
+    def __init__(self, timeout_seconds: int = SESSION_TIMEOUT_SECONDS):
+        self._store: dict[str, dict] = {}
+        self._timeout = timeout_seconds
+
+    def get(self, phone: str) -> dict:
+        session = self._store.get(phone)
+        if session is None or (time.time() - session["updated_at"]) > self._timeout:
+            return {"state": DEFAULT_STATE, "context": {}}
+        return {"state": session["state"], "context": session["context"]}
+
+    def set(self, phone: str, state: str, context: dict | None = None) -> None:
+        self._store[phone] = {
+            "state": state,
+            "context": context or {},
+            "updated_at": time.time(),
+        }
+
+    def reset(self, phone: str) -> None:
+        self._store.pop(phone, None)
+
+
+class RedisSessionStore:
+    def __init__(self, redis_url: str, timeout_seconds: int = SESSION_TIMEOUT_SECONDS):
+        import redis
+        self._redis = redis.from_url(redis_url, decode_responses=True)
+        self._timeout = timeout_seconds
+
+    def _key(self, phone: str) -> str:
+        return f"session:{phone}"
+
+    def get(self, phone: str) -> dict:
+        raw = self._redis.get(self._key(phone))
+        if not raw:
+            return {"state": DEFAULT_STATE, "context": {}}
+        session = json.loads(raw)
+        if (time.time() - session["updated_at"]) > self._timeout:
+            return {"state": DEFAULT_STATE, "context": {}}
+        return {"state": session["state"], "context": session["context"]}
+
+    def set(self, phone: str, state: str, context: dict | None = None) -> None:
+        session = {"state": state, "context": context or {}, "updated_at": time.time()}
+        # Redis TTL is just a cleanup backstop (generous buffer over the soft timeout above,
+        # which is what actually governs "reset to IDLE after 30 min").
+        self._redis.setex(self._key(phone), self._timeout + 300, json.dumps(session))
+
+    def reset(self, phone: str) -> None:
+        self._redis.delete(self._key(phone))
+
+
+def get_session_store() -> InMemorySessionStore | RedisSessionStore:
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            s = RedisSessionStore(redis_url)
+            s._redis.ping()
+            return s
+        except Exception:
+            pass
+    return InMemorySessionStore()

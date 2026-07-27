@@ -1,5 +1,14 @@
+import time
+
 import pytest
-from core.history import InMemoryHistory, RedisHistory, get_history
+from core.history import (
+    InMemoryHistory,
+    InMemorySessionStore,
+    RedisHistory,
+    RedisSessionStore,
+    get_history,
+    get_session_store,
+)
 
 MAX = 20
 
@@ -29,3 +38,47 @@ def test_get_history_returns_in_memory_without_redis(monkeypatch):
     monkeypatch.delenv("REDIS_URL", raising=False)
     h = get_history()
     assert isinstance(h, InMemoryHistory)
+
+
+# --- Session store (conversation state machine, SPEC Section 3.3) ---
+
+def test_session_defaults_to_idle_with_empty_context():
+    s = InMemorySessionStore()
+    session = s.get("phone1")
+    assert session == {"state": "IDLE", "context": {}}
+
+
+def test_session_set_and_get_roundtrip():
+    s = InMemorySessionStore()
+    s.set("phone1", "AWAITING_DEPARTMENT", {"foo": "bar"})
+    session = s.get("phone1")
+    assert session["state"] == "AWAITING_DEPARTMENT"
+    assert session["context"] == {"foo": "bar"}
+
+
+def test_session_reset_returns_to_idle():
+    s = InMemorySessionStore()
+    s.set("phone1", "AWAITING_DOCTOR", {"department_id": "cardiology"})
+    s.reset("phone1")
+    assert s.get("phone1") == {"state": "IDLE", "context": {}}
+
+
+def test_session_different_phones_isolated():
+    s = InMemorySessionStore()
+    s.set("phone1", "AWAITING_SLOT", {"doctor_id": "doc1"})
+    session = s.get("phone2")
+    assert session == {"state": "IDLE", "context": {}}
+
+
+def test_session_times_out_after_timeout_window():
+    s = InMemorySessionStore(timeout_seconds=1)
+    s.set("phone1", "AWAITING_CONFIRMATION", {"slot_id": "x"})
+    assert s.get("phone1")["state"] == "AWAITING_CONFIRMATION"
+    time.sleep(1.1)
+    assert s.get("phone1") == {"state": "IDLE", "context": {}}
+
+
+def test_get_session_store_returns_in_memory_without_redis(monkeypatch):
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    s = get_session_store()
+    assert isinstance(s, InMemorySessionStore)

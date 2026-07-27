@@ -1,7 +1,9 @@
 import hashlib
 import hmac
+import json
+
 import pytest
-from core.whatsapp import validate_webhook_signature, WhatsAppClient
+from core.whatsapp import parse_incoming_message, validate_webhook_signature, WhatsAppClient
 
 SECRET = "test_app_secret"
 BODY = b'{"test": "data"}'
@@ -26,3 +28,69 @@ async def test_client_send_calls_api(httpx_mock):
     client = WhatsAppClient(phone_number_id="123", access_token="token")
     await client.send_text("54911111111", "hola")
     # No exception = pass
+
+
+@pytest.mark.asyncio
+async def test_send_list_builds_interactive_list_payload(httpx_mock):
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", json={"messages": [{"id": "msg_id"}]})
+    client = WhatsAppClient(phone_number_id="123", access_token="token")
+    sections = [{"title": "Departments", "rows": [{"id": "cardiology", "title": "Cardiology"}]}]
+    await client.send_list(to="54911111111", body_text="Pick one", button_text="View", sections=sections)
+
+    request = httpx_mock.get_requests()[0]
+    payload = json.loads(request.content)
+    assert payload["type"] == "interactive"
+    assert payload["interactive"]["type"] == "list"
+    assert payload["interactive"]["body"]["text"] == "Pick one"
+    assert payload["interactive"]["action"]["button"] == "View"
+    assert payload["interactive"]["action"]["sections"] == sections
+
+
+@pytest.mark.asyncio
+async def test_send_buttons_builds_interactive_button_payload(httpx_mock):
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", json={"messages": [{"id": "msg_id"}]})
+    client = WhatsAppClient(phone_number_id="123", access_token="token")
+    buttons = [{"id": "confirm", "title": "Confirm"}, {"id": "cancel", "title": "Cancel"}]
+    await client.send_buttons(to="54911111111", body_text="Confirm?", buttons=buttons)
+
+    request = httpx_mock.get_requests()[0]
+    payload = json.loads(request.content)
+    assert payload["type"] == "interactive"
+    assert payload["interactive"]["type"] == "button"
+    assert payload["interactive"]["action"]["buttons"] == [
+        {"type": "reply", "reply": {"id": "confirm", "title": "Confirm"}},
+        {"type": "reply", "reply": {"id": "cancel", "title": "Cancel"}},
+    ]
+
+
+def test_parse_incoming_message_text():
+    message = {"type": "text", "text": {"body": "hello"}}
+    assert parse_incoming_message(message) == {"type": "text", "text": "hello"}
+
+
+def test_parse_incoming_message_list_reply():
+    message = {
+        "type": "interactive",
+        "interactive": {"type": "list_reply", "list_reply": {"id": "cardiology", "title": "Cardiology"}},
+    }
+    assert parse_incoming_message(message) == {
+        "type": "interactive_reply", "id": "cardiology", "title": "Cardiology",
+    }
+
+
+def test_parse_incoming_message_button_reply():
+    message = {
+        "type": "interactive",
+        "interactive": {"type": "button_reply", "button_reply": {"id": "confirm", "title": "Confirm"}},
+    }
+    assert parse_incoming_message(message) == {
+        "type": "interactive_reply", "id": "confirm", "title": "Confirm",
+    }
+
+
+def test_parse_incoming_message_audio():
+    assert parse_incoming_message({"type": "audio", "audio": {"id": "media123"}}) == {"type": "audio"}
+
+
+def test_parse_incoming_message_unsupported():
+    assert parse_incoming_message({"type": "image", "image": {"id": "img123"}}) == {"type": "unsupported"}
