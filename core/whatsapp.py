@@ -10,9 +10,12 @@ WA_API_VERSION = "v22.0"
 WA_API_BASE = f"https://graph.facebook.com/{WA_API_VERSION}"
 
 
-def validate_webhook_signature(body: bytes, signature: str, app_secret: str) -> bool:
-    """Validate Meta webhook HMAC-SHA256 signature."""
-    if not signature.startswith("sha256="):
+def validate_webhook_signature(body: bytes, signature: str, app_secret: str | None) -> bool:
+    """Validate Meta webhook HMAC-SHA256 signature. app_secret is per-hospital
+    (SPEC Section 12.2/Phase 9) and can be None for a hospital that hasn't had
+    one configured yet (e.g. mid-onboarding) — fail closed rather than raising,
+    since hmac.new(None...) would otherwise crash the webhook handler."""
+    if not app_secret or not signature.startswith("sha256="):
         return False
     expected = "sha256=" + hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
@@ -37,9 +40,16 @@ class WhatsAppClient:
             "type": "text",
             "text": {"body": text},
         }
-        resp = await self._client.post(url, json=payload, headers=self._headers)
-        if not resp.is_success:
-            logger.error("WhatsApp send error %s: %s", resp.status_code, resp.text)
+        logger.info("WhatsApp send_text: POSTing to %s for %s", url, to)
+        try:
+            resp = await self._client.post(url, json=payload, headers=self._headers)
+        except httpx.HTTPError:
+            logger.exception("WhatsApp send_text request to %s failed (network/transport error)", url)
+            return
+        if resp.is_success:
+            logger.info("WhatsApp send_text: %s OK for %s", resp.status_code, to)
+        else:
+            logger.error("WhatsApp send_text error %s: %s", resp.status_code, resp.text)
 
     async def download_media(self, media_id: str) -> tuple[bytes, str]:
         url = f"{WA_API_BASE}/{media_id}"
@@ -84,8 +94,15 @@ class WhatsAppClient:
             "type": "interactive",
             "interactive": interactive,
         }
-        resp = await self._client.post(url, json=payload, headers=self._headers)
-        if not resp.is_success:
+        logger.info("WhatsApp send_list: POSTing to %s for %s", url, to)
+        try:
+            resp = await self._client.post(url, json=payload, headers=self._headers)
+        except httpx.HTTPError:
+            logger.exception("WhatsApp send_list request to %s failed (network/transport error)", url)
+            return
+        if resp.is_success:
+            logger.info("WhatsApp send_list: %s OK for %s", resp.status_code, to)
+        else:
             logger.error("WhatsApp send_list error %s: %s", resp.status_code, resp.text)
 
     async def send_buttons(
@@ -122,8 +139,15 @@ class WhatsAppClient:
             "type": "interactive",
             "interactive": interactive,
         }
-        resp = await self._client.post(url, json=payload, headers=self._headers)
-        if not resp.is_success:
+        logger.info("WhatsApp send_buttons: POSTing to %s for %s", url, to)
+        try:
+            resp = await self._client.post(url, json=payload, headers=self._headers)
+        except httpx.HTTPError:
+            logger.exception("WhatsApp send_buttons request to %s failed (network/transport error)", url)
+            return
+        if resp.is_success:
+            logger.info("WhatsApp send_buttons: %s OK for %s", resp.status_code, to)
+        else:
             logger.error("WhatsApp send_buttons error %s: %s", resp.status_code, resp.text)
 
 
@@ -156,3 +180,14 @@ def parse_incoming_message(message: dict) -> dict:
         return {"type": "audio"}
 
     return {"type": "unsupported"}
+
+
+def extract_phone_number_id(change: dict) -> str | None:
+    """
+    The `value.metadata.phone_number_id` field in a Meta webhook payload identifies
+    *which* WhatsApp number received the message — i.e. which hospital it's for
+    (SPEC Section 12.2 multi-tenant routing). Not to be confused with `message["from"]`,
+    which is the sending *patient's* number. Centralized here for the same reason
+    as parse_incoming_message: nothing else in the app should touch Meta's raw shape.
+    """
+    return change.get("metadata", {}).get("phone_number_id")

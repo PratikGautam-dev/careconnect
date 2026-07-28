@@ -94,3 +94,30 @@ def test_parse_incoming_message_audio():
 
 def test_parse_incoming_message_unsupported():
     assert parse_incoming_message({"type": "image", "image": {"id": "img123"}}) == {"type": "unsupported"}
+
+
+# --- Phase 8 item 6: delivery failures must not raise ---
+
+@pytest.mark.asyncio
+async def test_send_text_does_not_raise_on_401_expired_token(httpx_mock):
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", status_code=401,
+                             json={"error": {"message": "Invalid OAuth access token", "code": 190}})
+    client = WhatsAppClient(phone_number_id="123", access_token="expired-token")
+    await client.send_text("54911111111", "hola")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_send_list_does_not_raise_on_5xx(httpx_mock):
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", status_code=503)
+    client = WhatsAppClient(phone_number_id="123", access_token="token")
+    await client.send_list(to="54911111111", body_text="Pick one", button_text="View",
+                            sections=[{"title": "Departments", "rows": [{"id": "cardiology", "title": "Cardiology"}]}])
+
+
+@pytest.mark.asyncio
+async def test_send_buttons_does_not_raise_on_network_error(httpx_mock):
+    import httpx
+    httpx_mock.add_exception(httpx.ConnectError("connection refused"))
+    client = WhatsAppClient(phone_number_id="123", access_token="token")
+    await client.send_buttons(to="54911111111", body_text="Confirm?",
+                               buttons=[{"id": "confirm", "title": "Confirm"}, {"id": "cancel", "title": "Cancel"}])
