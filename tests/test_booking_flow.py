@@ -142,6 +142,47 @@ async def test_slot_menu_capped_to_whatsapp_list_limit(hospital_id):
 
 
 @pytest.mark.asyncio
+async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
+    """A patient stuck mid-flow (e.g. from the list-limit bug above, or just
+    confusion) must be able to type a common greeting/reset word and get back
+    to the main menu immediately -- not stay stuck re-prompted with "please
+    choose from the list" until the 30-minute session timeout."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Hi"), hospital_name="City Hospital")
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert "City Hospital" in kwargs["body_text"]
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}
+    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
+async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_id):
+    """Only the recognized reset keywords escape a mid-flow state -- ordinary
+    free text (not a valid list tap) still gets the existing "please choose
+    from the list" re-prompt, unchanged."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("whatever"))
+
+    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_SLOT"
+
+
+@pytest.mark.asyncio
 async def test_full_happy_path_through_confirmation(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()

@@ -618,6 +618,15 @@ async def _handle_awaiting_reschedule_confirm(
     await _send_reschedule_confirm(wa, phone, context)
 
 
+# A patient can always escape a stuck or confusing mid-flow state by typing
+# one of these, regardless of which state they're in -- without this, the
+# only ways out of e.g. AWAITING_SLOT were correctly tapping a list option or
+# waiting out the 30-minute session timeout (core/history.py), and neither is
+# a real patient's first instinct when a bot stops responding (see the
+# 10-row list-limit bug above: a stuck session from that had no self-serve
+# way out at all before this). Matches common WhatsApp bot convention.
+_RESET_KEYWORDS = {"hi", "hello", "hey", "menu", "start", "restart"}
+
 _HANDLERS = {
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
@@ -657,6 +666,15 @@ async def handle_incoming(
     session = sessions.get(hospital_id, phone)
     state = session["state"]
     context = session["context"]
+
+    if (
+        state != STATE_IDLE
+        and reply["type"] == "text"
+        and reply["text"].strip().lower() in _RESET_KEYWORDS
+    ):
+        sessions.reset(hospital_id, phone)
+        await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector)
+        return
 
     handler = _HANDLERS.get(state)
     if handler is None:
