@@ -183,6 +183,181 @@ def test_edit_tenant_can_set_portal_password(hospital_id):
     client.cookies.clear()
 
 
+def _login(hospital_id, password):
+    _set_portal_password(hospital_id, password)
+    resp = client.post("/portal/login", data={"password": password}, follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_settings_page_requires_login(hospital_id):
+    resp = client.get("/portal/settings", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/portal/login"
+
+
+def test_settings_update_changes_only_the_allowed_fields(hospital_id):
+    before = db.get_hospital(hospital_id)
+    _login(hospital_id, "settings-pw")
+    try:
+        resp = client.post("/portal/settings", data={
+            "welcome_message_text": "New welcome text",
+            "reminder_offsets_hours": "48,4",
+            "reminder_template_name": "new_template",
+        })
+        assert resp.status_code == 200
+        assert "Saved" in resp.text
+
+        after = db.get_hospital(hospital_id)
+        assert after.welcome_message_text == "New welcome text"
+        assert sorted(after.reminder_offsets_hours) == [4, 48]
+        assert after.reminder_template_name == "new_template"
+        # Credentials/tier untouched by this form.
+        assert after.access_token == before.access_token
+        assert after.app_secret == before.app_secret
+        assert after.data_tier == before.data_tier
+        assert after.whatsapp_phone_number_id == before.whatsapp_phone_number_id
+    finally:
+        client.cookies.clear()
+
+
+def test_doctors_page_requires_login(hospital_id):
+    resp = client.get("/portal/doctors", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/portal/login"
+
+
+def test_doctors_page_lists_existing_departments_and_doctors(hospital_id):
+    _login(hospital_id, "doctors-pw")
+    try:
+        resp = client.get("/portal/doctors")
+        assert resp.status_code == 200
+        assert "Dr. Anjali Rao" in resp.text
+        assert "Cardiology" in resp.text
+    finally:
+        client.cookies.clear()
+
+
+def test_add_department_and_doctor(hospital_id):
+    _login(hospital_id, "add-doc-pw")
+    try:
+        resp = client.post("/portal/departments", data={"name": "Dermatology"}, follow_redirects=False)
+        assert resp.status_code == 303
+
+        departments = db.get_departments(hospital_id)
+        dermatology = next(d for d in departments if d["name"] == "Dermatology")
+
+        resp = client.post("/portal/doctors", data={
+            "department_id": dermatology["id"],
+            "name": "Dr. Skin Expert",
+            "specialization": "Dermatologist",
+            "qualification": "MBBS, MD",
+            "years_experience": "8",
+            "working_days": ["Mon", "Wed", "Fri"],
+            "shift1_start": "10:00",
+            "shift1_end": "13:00",
+            "shift2_start": "",
+            "shift2_end": "",
+            "slot_duration_minutes": "20",
+        }, follow_redirects=False)
+        assert resp.status_code == 303
+
+        doctors = db.get_doctors(hospital_id, dermatology["id"])
+        assert len(doctors) == 1
+        new_doctor = db.get_doctor_full(hospital_id, doctors[0]["id"])
+        assert new_doctor["working_days"] == ["Mon", "Wed", "Fri"]
+        assert new_doctor["working_hours"] == ["10:00-13:00"]
+
+        # Slot generation actually ran (Section 12.1.1) -- not left empty.
+        slots = db.get_slots(hospital_id, new_doctor["id"])
+        assert slots
+    finally:
+        client.cookies.clear()
+
+
+def test_add_doctor_invalid_department_rejected(hospital_id):
+    _login(hospital_id, "bad-dept-pw")
+    try:
+        resp = client.post("/portal/doctors", data={
+            "department_id": "does-not-exist",
+            "name": "Dr. Ghost",
+            "working_days": ["Mon"],
+            "shift1_start": "10:00",
+            "shift1_end": "11:00",
+            "slot_duration_minutes": "30",
+        })
+        assert resp.status_code == 400
+        assert "valid department" in resp.text.lower()
+    finally:
+        client.cookies.clear()
+
+
+def test_edit_doctor_form_requires_login(hospital_id):
+    doctors = db.get_doctors(hospital_id, db.get_departments(hospital_id)[0]["id"])
+    resp = client.get(f"/portal/doctors/{doctors[0]['id']}/edit", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/portal/login"
+
+
+def test_edit_doctor_updates_pattern_and_regenerates_slots_without_touching_bookings(hospital_id):
+    dept = db.get_departments(hospital_id)[0]
+    doctor = db.get_doctors(hospital_id, dept["id"])[0]
+
+    # Book this doctor's existing (seeded) slot before editing their schedule.
+    existing_slots = db.get_slots(hospital_id, doctor["id"])
+    target = existing_slots[0]
+    scheduled_at = datetime.fromisoformat(f"{target['date']}T{target['time']}:00")
+    appt = db.create_appointment(hospital_id, "5490001111", dept["id"], doctor["id"], scheduled_at)
+
+    _login(hospital_id, "edit-doc-pw")
+    try:
+        resp = client.post(f"/portal/doctors/{doctor['id']}/edit", data={
+            "name": doctor["name"],
+            "specialization": "",
+            "qualification": "",
+            "years_experience": "",
+            "working_days": ["Tue", "Thu"],
+            "shift1_start": "09:00",
+            "shift1_end": "11:00",
+            "shift2_start": "",
+            "shift2_end": "",
+            "slot_duration_minutes": "45",
+        }, follow_redirects=False)
+        assert resp.status_code == 303
+
+        updated = db.get_doctor_full(hospital_id, doctor["id"])
+        assert updated["working_days"] == ["Tue", "Thu"]
+        assert updated["working_hours"] == ["09:00-11:00"]
+        assert updated["slot_duration_minutes"] == 45
+
+        # The already-booked appointment survives the schedule change untouched
+        # (doctor_slots carries no FK from appointments -- see update_doctor()'s
+        # docstring) even though its own slot may no longer match the new pattern.
+        still_there = db.get_appointment(hospital_id, appt.id)
+        assert still_there is not None
+        assert still_there.status == "booked"
+        assert still_there.scheduled_at == scheduled_at
+
+        # New slots follow the NEW pattern only.
+        new_slots = db.get_slots(hospital_id, doctor["id"])
+        for s in new_slots:
+            from datetime import date as _date
+            assert _date.fromisoformat(s["date"]).strftime("%a") in ("Tue", "Thu")
+    finally:
+        client.cookies.clear()
+
+
+def test_edit_doctor_from_other_hospital_rejected(hospital_id, second_hospital_id):
+    other_dept = db.get_departments(second_hospital_id)[0]
+    other_doctor = db.get_doctors(second_hospital_id, other_dept["id"])[0]
+
+    _login(hospital_id, "cross-tenant-pw")
+    try:
+        resp = client.get(f"/portal/doctors/{other_doctor['id']}/edit")
+        assert resp.status_code == 404
+    finally:
+        client.cookies.clear()
+
+
 def test_edit_tenant_blank_portal_password_keeps_existing(hospital_id):
     _set_portal_password(hospital_id, "keep-me-pw")
     resp = client.post(f"/admin/edit-tenant/{hospital_id}", data={

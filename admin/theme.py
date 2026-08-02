@@ -117,7 +117,7 @@ STYLE = _FONT_LINKS + """
      wrapper divs, :first-of-type matches the first label in EVERY such div,
      not just the first label in a whole panel, which would zero out spacing
      on every second-column field. Uniform label spacing throughout instead. */
-  input[type=text], input[type=password], input[type=number], textarea {
+  input[type=text], input[type=password], input[type=number], input[type=time], textarea {
     width: 100%; font-family: var(--font-body); font-size: 14px; padding: 10px 12px;
     border: 1px solid var(--sage-line); border-radius: 8px; background: var(--paper); color: var(--ink);
   }
@@ -184,6 +184,12 @@ STYLE = _FONT_LINKS + """
   }
   .day-toggle.on { background: var(--sage-deep); border-color: var(--sage-deep); color: #fff; }
   .remove-link { background: none; border: none; color: var(--clay); font-size: 12.5px; font-weight: 600; padding: 2px 4px; cursor: pointer; }
+
+  .shift-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .shift-row:first-child { margin-top: 6px; }
+  .shift-row input[type=time] { width: auto; flex: 1; }
+  .shift-sep { font-size: 13px; color: var(--ink-faint); flex-shrink: 0; }
+  .add-shift-btn { margin-top: 10px; width: auto; padding: 8px 14px; }
 
   .review-block { margin-top: 16px; }
   .review-section {

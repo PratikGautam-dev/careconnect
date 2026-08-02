@@ -450,8 +450,11 @@ _WIZARD_TEMPLATE = """<!doctype html>
     <input type="hidden" class="doctor-working-days" name="doctor_working_days" value="">
     <div class="field-row">
       <div>
-        <label>Working hours (comma-separated ranges)</label>
-        <input type="text" class="doctor-hours" name="doctor_working_hours" placeholder="e.g. 10:00-13:00, 17:00-20:00 — separate multiple shifts with a comma">
+        <label>Working hours</label>
+        <div class="shifts-row"></div>
+        <button type="button" class="add-doctor add-shift-btn small">+ Add another shift</button>
+        <input type="hidden" class="doctor-hours" name="doctor_working_hours" value="">
+        <p class="field-hint">Pick start/end times — most doctors only need one shift. Add another row for a split shift (e.g. morning + evening).</p>
       </div>
       <div>
         <label>Slot duration (minutes)</label>
@@ -459,6 +462,15 @@ _WIZARD_TEMPLATE = """<!doctype html>
         <p class="field-hint">This is how long each appointment lasts — e.g. 20 means patients can book a new slot every 20 minutes.</p>
       </div>
     </div>
+  </div>
+</template>
+
+<template id="shift-row-template">
+  <div class="shift-row">
+    <input type="time" class="shift-start">
+    <span class="shift-sep">to</span>
+    <input type="time" class="shift-end">
+    <button type="button" class="remove-link remove-shift-btn">Remove</button>
   </div>
 </template>
 
@@ -583,6 +595,39 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
   var deptContainer = document.getElementById("departments-container");
   var deptTemplate = document.getElementById("department-card-template");
   var doctorTemplate = document.getElementById("doctor-card-template");
+  var shiftTemplate = document.getElementById("shift-row-template");
+
+  // Native <input type="time"> always yields zero-padded 24h "HH:MM" (browser-
+  // enforced, no way to type "10-12:00" or "9:00" into it) -- replaces the old
+  // free-text "comma-separated HH:MM-HH:MM ranges" field, which was the most
+  // common submission error (missing leading zero, wrong separator, etc.).
+  // The hidden .doctor-hours input is recomputed from these on every change,
+  // so the backend's existing _TIME_RANGE_RE validation/format is untouched.
+  function addShiftRow(shiftsRow, hiddenHours, start, end) {
+    var node = shiftTemplate.content.cloneNode(true);
+    var row = node.querySelector(".shift-row");
+    row.querySelector(".shift-start").value = start || "";
+    row.querySelector(".shift-end").value = end || "";
+
+    function recompute() {
+      var ranges = [];
+      shiftsRow.querySelectorAll(".shift-row").forEach(function (r) {
+        var s = r.querySelector(".shift-start").value;
+        var e = r.querySelector(".shift-end").value;
+        if (s && e) ranges.push(s + "-" + e);
+      });
+      hiddenHours.value = ranges.join(",");
+    }
+
+    row.querySelector(".shift-start").addEventListener("change", recompute);
+    row.querySelector(".shift-end").addEventListener("change", recompute);
+    row.querySelector(".remove-shift-btn").addEventListener("click", function () {
+      row.remove();
+      recompute();
+    });
+    shiftsRow.appendChild(row);
+    recompute();
+  }
 
   function addDoctorCard(deptCard, data) {
     data = data || {};
@@ -594,8 +639,22 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     card.querySelector(".doctor-specialization").value = data.specialization || "";
     card.querySelector(".doctor-qualification").value = data.qualification || "";
     card.querySelector(".doctor-years").value = data.years_experience || "";
-    card.querySelector(".doctor-hours").value = (data.working_hours || []).join(", ");
     card.querySelector(".doctor-duration").value = data.slot_duration_minutes || "";
+
+    var shiftsRow = card.querySelector(".shifts-row");
+    var hiddenHours = card.querySelector(".doctor-hours");
+    var existingHours = data.working_hours || [];
+    if (existingHours.length) {
+      existingHours.forEach(function (range) {
+        var parts = range.split("-");
+        addShiftRow(shiftsRow, hiddenHours, parts[0], parts[1]);
+      });
+    } else {
+      addShiftRow(shiftsRow, hiddenHours, "", "");
+    }
+    card.querySelector(".add-shift-btn").addEventListener("click", function () {
+      addShiftRow(shiftsRow, hiddenHours, "", "");
+    });
 
     var selectedDays = data.working_days || [];
     var daysRow = card.querySelector(".days-row");
@@ -810,6 +869,20 @@ def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> s
         "tier3": "Flagged for direct database connection (Tier 3) — this is a manually-assisted "
                  "engagement, not self-serve; we'll be in touch to arrange secure access.",
     }[hospital.data_tier]
+
+    if hospital.portal_password_hash:
+        portal_cta = (
+            '<p style="margin-top: 20px;"><a class="btn-secondary" style="background: var(--sage-deep); '
+            'color: #fff; border: none;" href="/portal/login">Log into bookings dashboard</a></p>'
+            '<p class="hint">Use the bookings portal password you set in Step 7.</p>'
+        )
+    else:
+        edit_url = f"/admin/edit-tenant/{hospital.id}?secret={html.escape(secret, quote=True)}"
+        portal_cta = (
+            '<div class="warning-banner" style="margin-top: 20px;">No bookings portal password was set, '
+            f'so there\'s no way to log in yet — <a href="{edit_url}">edit this tenant</a> to add one.</div>'
+        )
+
     return f"""<!doctype html>
 <html>
 <head><title>Hospital onboarded</title>{_STYLE}</head>
@@ -825,6 +898,9 @@ def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> s
     <strong>{html.escape(hospital.name)}</strong> was created with hospital ID
     <strong>{hospital.id}</strong> (phone_number_id: {html.escape(hospital.whatsapp_phone_number_id)}).
   </div>
+
+  {portal_cta}
+
   <p>{html.escape(tier_note)}</p>
   <h3>Departments</h3>
   <ul>{dept_items}</ul>
@@ -834,10 +910,6 @@ def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> s
     already have been set up on Meta's side beforehand (Section 12.3). If that
     wasn't done first, outbound messages and webhook signature validation for
     this hospital will fail until it is.
-  </p>
-  <p class="hint">
-    {"Your bookings portal password is set — your staff can log in at " if hospital.portal_password_hash else "No bookings portal password was set — your staff won't be able to log in at "}
-    <a href="/portal/login">/portal/login</a>{" to see every WhatsApp booking." if hospital.portal_password_hash else " until you set one (edit this tenant to add it)."}
   </p>
   <p>
     <a href="/admin/onboard-hospital">Onboard another hospital</a>

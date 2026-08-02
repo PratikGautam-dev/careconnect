@@ -372,6 +372,79 @@ def create_doctor(
     return {"id": doctor_id, "name": name}
 
 
+def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
+    """Every column, not just {id, name} like get_doctors()/find_doctor() --
+    portal.py's doctor-edit form (Section 12.7 follow-up: self-serve doctor
+    management) needs the full working pattern to pre-fill, and needs
+    department_id from the doctor_id alone (the edit URL only carries the
+    doctor's id, not which department it's under)."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, department_id, name, specialization, qualification, years_experience, "
+        "working_days, working_hours, slot_duration_minutes FROM doctors WHERE hospital_id = ? AND id = ?",
+        (hospital_id, doctor_id),
+    ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    d["working_days"] = [x for x in d["working_days"].split(",") if x]
+    d["working_hours"] = [x for x in d["working_hours"].split(",") if x]
+    return d
+
+
+def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
+    """Every doctor at this hospital with its department name attached --
+    portal.py's doctors list page (Section 12.7 follow-up), one query instead
+    of walking get_departments() -> get_doctors() per department."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT doc.id, doc.department_id, d.name AS department_name, doc.name, doc.specialization "
+        "FROM doctors doc JOIN departments d ON d.id = doc.department_id "
+        "WHERE doc.hospital_id = ? ORDER BY d.name, doc.name",
+        (hospital_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_doctor(
+    hospital_id: int,
+    doctor_id: str,
+    name: str,
+    specialization: str | None = None,
+    qualification: str | None = None,
+    years_experience: int | None = None,
+    working_days: list[str] | None = None,
+    working_hours: list[str] | None = None,
+    slot_duration_minutes: int = 30,
+) -> dict | None:
+    """portal.py's doctor-edit form. Returns None if no such doctor exists at
+    this hospital (nothing updated), same "hospital_id in the WHERE clause is
+    the actual guard, not application logic" discipline as every other
+    hospital-scoped write here.
+
+    Regenerates this doctor's ENTIRE doctor_slots window from scratch against
+    the (possibly changed) working pattern, rather than trying to reconcile
+    old vs. new slots row by row -- safe to do because doctor_slots carries no
+    foreign key from appointments (get_slots() matches them only by
+    scheduled_at string equality, see that function's docstring), so dropping
+    and rebuilding a doctor's still-just-offered slots never touches an
+    appointment a patient has already booked."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE doctors SET name = ?, specialization = ?, qualification = ?, years_experience = ?, "
+        "working_days = ?, working_hours = ?, slot_duration_minutes = ? WHERE hospital_id = ? AND id = ?",
+        (name, specialization, qualification, years_experience,
+         ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
+         hospital_id, doctor_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id))
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return {"id": doctor_id, "name": name}
+
+
 def list_doctor_ids(hospital_id: int) -> list[str]:
     """Used by the slot top-up job (slots/scheduler.py) to loop every doctor
     at a hospital without needing to walk departments first."""
@@ -418,7 +491,7 @@ def generate_slots_for_doctor(
         return 0
 
     today = now or date.today()
-    inserted = 0
+    candidates: list[tuple] = []
     for i in range(1, days_ahead + 1):
         d = today + timedelta(days=i)
         if _WEEKDAY_ABBREVS[d.weekday()] not in working_days:
@@ -429,13 +502,28 @@ def generate_slots_for_doctor(
             end = datetime.combine(d, datetime.strptime(end_str, "%H:%M").time())
             step = timedelta(minutes=slot_duration)
             while current + step <= end:
-                cur = conn.execute(
-                    "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?) "
-                    "ON CONFLICT (doctor_id, scheduled_at) DO NOTHING",
-                    (hospital_id, doctor_id, current.isoformat()),
-                )
-                inserted += cur.rowcount
+                candidates.append((hospital_id, doctor_id, current.isoformat()))
                 current += step
+
+    if not candidates:
+        return 0
+
+    # One multi-row INSERT instead of one round-trip per slot -- this used to
+    # be a per-slot conn.execute() in a loop, which against a real (non-local)
+    # Postgres like Neon meant one network round-trip per slot: a doctor with
+    # even a single ordinary shift over a 14-day window is 100+ slots, so
+    # onboarding a hospital with a few doctors could take tens of seconds just
+    # here. Building one INSERT with all rows' worth of "(?, ?, ?)" placeholders
+    # (well within Postgres's ~65535 parameter limit for any realistic doctor
+    # count/window) turns that into a single round-trip per doctor.
+    placeholders = ", ".join(["(?, ?, ?)"] * len(candidates))
+    flat_params = [value for row in candidates for value in row]
+    cur = conn.execute(
+        f"INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES {placeholders} "
+        "ON CONFLICT (doctor_id, scheduled_at) DO NOTHING",
+        flat_params,
+    )
+    inserted = cur.rowcount
     conn.commit()
     return inserted
 

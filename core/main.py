@@ -133,6 +133,12 @@ app.include_router(onboarding_router)
 app.include_router(portal_router)
 
 
+# /admin/onboard-hospital IS the client-facing signup flow (gated by
+# ADMIN_SECRET only at the final submit step -- "basic protection" against a
+# random stranger creating fake hospital rows, not a wall meant to keep real
+# prospective hospitals out), so it belongs on the homepage as the main CTA.
+# /admin/tenants (every hospital on the whole platform) is different -- that
+# one stays off this page; a client has no reason to see or reach it.
 _LANDING_HTML = f"""<!doctype html>
 <html>
 <head><title>Hospital Onboarding — WhatsApp appointment booking</title>{_STYLE}</head>
@@ -148,8 +154,7 @@ _LANDING_HTML = f"""<!doctype html>
     No AI, no per-conversation cost: menu-driven, tap-to-select booking that just works.
   </p>
   <div style="display: flex; gap: 12px; justify-content: center; margin-top: 32px; flex-wrap: wrap;">
-    <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Onboard a hospital</a>
-    <a class="btn-secondary" href="/admin/tenants">View all tenants</a>
+    <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Onboard your hospital</a>
     <a class="btn-secondary" href="/portal/login">Staff bookings portal</a>
   </div>
 </div>
