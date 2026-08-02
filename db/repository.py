@@ -128,6 +128,16 @@ def get_active_hospitals() -> list[Hospital]:
     return [_row_to_hospital(r) for r in rows]
 
 
+def get_all_hospitals() -> list[Hospital]:
+    """Every hospital regardless of is_active -- admin/onboarding.py's tenant
+    list page (Section 12.1 follow-up: closing the "onboarding is self-serve,
+    correcting it isn't" gap) needs to show every onboarded tenant, not just
+    active ones, so there's somewhere to find a deactivated tenant's id too."""
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM hospitals ORDER BY id").fetchall()
+    return [_row_to_hospital(r) for r in rows]
+
+
 def get_hospital(hospital_id: int) -> Hospital | None:
     conn = get_connection()
     row = conn.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,)).fetchone()
@@ -171,6 +181,48 @@ def create_hospital(
     new_id = cur.fetchone()["id"]
     conn.commit()
     return get_hospital(new_id)
+
+
+def update_hospital(
+    hospital_id: int,
+    name: str,
+    whatsapp_phone_number_id: str,
+    access_token: str | None = None,
+    app_secret: str | None = None,
+    timezone: str = "UTC",
+    welcome_message_text: str | None = None,
+    reminder_offsets_hours: list[float] | None = None,
+    reminder_template_name: str | None = None,
+    data_tier: str = "tier1",
+    external_api_base_url: str | None = None,
+    external_api_key: str | None = None,
+) -> Hospital:
+    """admin/onboarding.py's tenant edit form -- the only way to correct an
+    already-onboarded hospital's stored values (there's no way to change
+    departments/doctors here, only the hospitals row itself). Raises
+    db.connection.IntegrityError if whatsapp_phone_number_id is changed to a
+    value another hospital already uses -- same UNIQUE constraint create_hospital()
+    relies on; a hospital keeping its own existing phone_number_id unchanged
+    never conflicts with itself. Callers (admin/onboarding.py) are responsible
+    for catching it, same as create_hospital().
+
+    Deliberately does NOT touch _wa_clients (core/main.py's per-hospital
+    WhatsAppClient cache) -- it can't, from here; a hospital whose credentials
+    just changed keeps using its OLD cached client until the process restarts.
+    See core/main.py's _wa_clients comment and the post-edit confirmation page."""
+    conn = get_connection()
+    offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
+    conn.execute(
+        "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
+        "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
+        "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ? "
+        "WHERE id = ?",
+        (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
+         welcome_message_text, offsets_json, reminder_template_name,
+         data_tier, external_api_base_url, external_api_key, hospital_id),
+    )
+    conn.commit()
+    return get_hospital(hospital_id)
 
 
 # --- Departments / doctors ---

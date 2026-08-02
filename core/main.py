@@ -13,6 +13,7 @@ from fastapi.responses import PlainTextResponse
 
 import db.repository as db
 from admin.onboarding import router as onboarding_router
+from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 from core.booking_flow import handle_incoming
 from core.history import get_history, get_session_store
 from core.whatsapp import WhatsAppClient, extract_phone_number_id, parse_incoming_message, validate_webhook_signature
@@ -47,6 +48,19 @@ _message_locks: dict[str, float] = {}  # "hospital_id:phone" -> lock expiry time
 # One WhatsAppClient per hospital, built lazily from that hospital's own DB-stored
 # credentials (SPEC Section 12.2) and reused for the life of the process — avoids
 # re-creating an httpx.AsyncClient (connection pool) on every message.
+#
+# IMPORTANT — this cache is keyed by hospital.id only, never invalidated, and
+# never re-reads the DB once populated: if a hospital's access_token/app_secret
+# row is updated directly in the database (e.g. rotating an expired Meta
+# token) while this process is already running, that change is NOT picked up
+# until the process restarts. A running process will keep using the OLD
+# credentials for that hospital indefinitely — sends will keep failing with
+# Meta's 401 even after the DB row is fixed — until you restart it. This is
+# the single most likely reason a "I already updated the token in the DB"
+# report doesn't actually resolve a 401: the fix is a process restart, not a
+# second DB update. Verified live (SPEC Section 0's product-readiness pass):
+# a same-process re-fetch after a direct DB update still returns the old
+# cached client; only a fresh process picks up the new value.
 _wa_clients: dict[int, WhatsAppClient] = {}
 
 
@@ -202,6 +216,12 @@ async def receive_message(request: Request):
     logger.info("Message lock acquired for %s (hospital %s), type=%s", phone, hospital.id, reply["type"])
     try:
         await _process_message(wa, hospital, phone, reply)
+    except ConnectorNotImplementedError:
+        # SPEC Section 12.6.2: this hospital is configured for a tier with no
+        # real connector yet -- a real, loud problem, but not one that should
+        # ever crash the webhook itself (same "always ack Meta with 200"
+        # pattern as every other failure mode in this handler).
+        logger.error("Hospital %s has no working connector for data_tier -- message from %s dropped", hospital.id, phone)
     finally:
         _release_message_lock(hospital.id, phone)
 
@@ -212,7 +232,11 @@ async def _process_message(wa: WhatsAppClient, hospital: db.Hospital, phone: str
     """Process a single already-parsed incoming message with the (hospital, phone) lock already held."""
     logger.info("Dispatching message from %s (hospital %s) to booking_flow: %s", phone, hospital.id, reply)
     HISTORY.add(phone, "user", reply.get("text") or reply.get("title") or f"[{reply.get('type')}]")
-    await handle_incoming(wa, SESSIONS, phone, hospital.id, reply, hospital.name)
+    # SPEC Section 12.6.2: resolve this hospital's data_tier to a concrete
+    # connector exactly once, here, and hand it down -- booking_flow.py never
+    # looks at hospital.data_tier itself.
+    connector = get_connector_for_hospital(hospital)
+    await handle_incoming(wa, SESSIONS, phone, hospital.id, reply, hospital.name, connector)
     logger.info("booking_flow.handle_incoming returned for %s", phone)
 
 
@@ -227,8 +251,19 @@ async def trigger_reminders(request: Request):
 
     sent_by_hospital = {}
     for hospital in db.get_active_hospitals():
-        wa = _get_whatsapp_client(hospital)
-        sent_by_hospital[hospital.name] = await send_reminders(wa, hospital.id, hospital.reminder_offsets_hours)
+        # SPEC Section 12.6.2: resolved once per hospital, same as the webhook
+        # handler above -- one hospital with no working connector must not
+        # stop every other hospital's reminders from sending. The whole
+        # per-hospital attempt (dispatch AND the actual send) is guarded,
+        # since get_connector_for_hospital() succeeding doesn't mean the
+        # connector's methods will -- Tier2Connector/Tier3Connector only
+        # raise once a method is actually called, inside send_reminders().
+        try:
+            connector = get_connector_for_hospital(hospital)
+            wa = _get_whatsapp_client(hospital)
+            sent_by_hospital[hospital.name] = await send_reminders(wa, hospital.id, hospital.reminder_offsets_hours, connector)
+        except ConnectorNotImplementedError:
+            logger.error("Hospital %s has no working connector for data_tier -- skipping its reminders", hospital.id)
 
     return {"sent": sum(sent_by_hospital.values()), "by_hospital": sent_by_hospital}
 

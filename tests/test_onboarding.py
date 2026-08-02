@@ -1,11 +1,19 @@
 # tests/test_onboarding.py
 """
-SPEC Section 12.1 / Phase 10: the guided onboarding wizard. Proves a new
-hospital can be added end-to-end through the plain HTML form (POST /admin/
-onboard-hospital) without touching the database or code directly, and that
-the newly created hospital immediately works with Phase 9's per-message
-routing (a webhook for its own phone_number_id, signed with its own
-app_secret, is accepted and processed).
+SPEC Section 12.1 / Phase 10 (multi-step wizard rebuild): the guided
+onboarding wizard. Proves a new hospital can be added end-to-end through the
+form (POST /admin/onboard-hospital) without touching the database or code
+directly, and that the newly created hospital immediately works with Phase
+9's per-message routing (a webhook for its own phone_number_id, signed with
+its own app_secret, is accepted and processed).
+
+The wizard's Step 7 is now real repeatable doctor-card inputs (JS-driven),
+not a pipe-delimited textarea DSL -- POST requests here build the equivalent
+parallel-array form fields (department_name[], doctor_department_index[],
+doctor_name[], ...) that the JS would normally construct from the on-screen
+cards, since TestClient posts form data directly without running the page's
+JS. _build_form()'s (scalars, departments) shape mirrors what
+admin/onboarding.py's _build_departments() reconstructs server-side.
 """
 import hashlib
 import hmac
@@ -41,13 +49,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)
 
-VALID_DEPARTMENTS_TEXT = (
-    "# Pediatrics\n"
-    "Dr. Meera Nair | Pediatrician | MBBS, MD | 10 | Mon,Tue,Wed,Thu,Fri | 09:00-13:00 | 20\n"
-    "Dr. Arjun Singh | Pediatrician | MBBS | 5 | Mon,Wed,Fri | 14:00-17:00 | 30\n"
-)
-
-VALID_FORM = {
+_DEFAULT_SCALARS = {
     "admin_secret": "test-admin-secret",
     "name": "St. Jude Community Hospital",
     "whatsapp_phone_number_id": "NEW_HOSPITAL_PHONE_ID",
@@ -57,8 +59,55 @@ VALID_FORM = {
     "reminder_offsets_hours": "24,1",
     "reminder_template_name": "appointment_reminder",
     "data_tier": "tier1",
-    "departments_text": VALID_DEPARTMENTS_TEXT,
+    "api_base_url": "",
+    "api_key": "",
 }
+
+
+def _valid_departments():
+    return [
+        {"name": "Pediatrics", "doctors": [
+            {"name": "Dr. Meera Nair", "specialization": "Pediatrician", "qualification": "MBBS, MD",
+             "years_experience": "10", "working_days": "Mon,Tue,Wed,Thu,Fri", "working_hours": "09:00-13:00",
+             "slot_duration_minutes": "20"},
+            {"name": "Dr. Arjun Singh", "specialization": "Pediatrician", "qualification": "MBBS",
+             "years_experience": "5", "working_days": "Mon,Wed,Fri", "working_hours": "14:00-17:00",
+             "slot_duration_minutes": "30"},
+        ]},
+    ]
+
+
+def _build_form(scalars=None, departments=None):
+    """Returns a dict suitable for TestClient's data= -- httpx's form
+    encoding (httpx._content.encode_urlencoded_data) represents a repeated
+    field name as a dict value that's a list, NOT a list of (key, value)
+    tuples the way `requests` does it. scalars values of None omit that
+    field entirely (for "field missing" tests); departments=None uses a
+    valid single department/two-doctor default; departments=[] submits none."""
+    fields = dict(_DEFAULT_SCALARS)
+    if scalars:
+        fields.update(scalars)
+    if departments is None:
+        departments = _valid_departments()
+
+    data: dict = {k: v for k, v in fields.items() if v is not None}
+    doctor_fields = [
+        "department_index", "name", "specialization", "qualification",
+        "years_experience", "working_days", "working_hours", "slot_duration_minutes",
+    ]
+    department_name = []
+    doctor_columns = {f"doctor_{f}": [] for f in doctor_fields}
+
+    for dept_idx, dept in enumerate(departments):
+        department_name.append(dept["name"])
+        for doc in dept.get("doctors", []):
+            doctor_columns["doctor_department_index"].append(str(dept_idx))
+            for f in doctor_fields[1:]:
+                doctor_columns[f"doctor_{f}"].append(str(doc.get(f, "")))
+
+    data["department_name"] = department_name
+    data.update(doctor_columns)
+    return data
 
 
 def _sign(body: bytes, secret: str) -> str:
@@ -77,12 +126,13 @@ def _webhook_body(phone_number_id: str, from_phone: str, text: str) -> bytes:
 def test_get_form_renders(hospital_id):
     resp = client.get("/admin/onboard-hospital")
     assert resp.status_code == 200
-    assert "Onboard a new hospital" in resp.text
-    assert "departments_text" in resp.text
+    assert "Onboard a hospital" in resp.text
+    assert "Meta Business Account" in resp.text  # Step 1 rail entry
+    assert 'name="department_name"' in resp.text  # Step 7's doctor-card template
 
 
 def test_successful_onboarding_creates_real_rows_and_routing_works(hospital_id, httpx_mock):
-    resp = client.post("/admin/onboard-hospital", data=VALID_FORM)
+    resp = client.post("/admin/onboard-hospital", data=_build_form())
     assert resp.status_code == 200
     assert "Hospital created" in resp.text
     assert "St. Jude Community Hospital" in resp.text
@@ -130,7 +180,7 @@ def test_successful_onboarding_creates_real_rows_and_routing_works(hospital_id, 
     # hospital: a webhook signed with ITS OWN app_secret, for ITS OWN
     # phone_number_id, must be accepted and processed (not silently ignored).
     httpx_mock.add_response(
-        url=f"https://graph.facebook.com/v22.0/NEW_HOSPITAL_PHONE_ID/messages",
+        url="https://graph.facebook.com/v22.0/NEW_HOSPITAL_PHONE_ID/messages",
         json={"messages": [{"id": "wamid.new"}]},
     )
     body = _webhook_body("NEW_HOSPITAL_PHONE_ID", "5490009999", "hi")
@@ -144,9 +194,8 @@ def test_successful_onboarding_creates_real_rows_and_routing_works(hospital_id, 
 
 
 def test_duplicate_phone_number_id_rejected(hospital_id):
-    form = dict(VALID_FORM, whatsapp_phone_number_id="123")  # "123" is the already-seeded hospital's number
-    before = db.find_hospital_by_phone_number_id("123")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    before = db.find_hospital_by_phone_number_id("123")  # "123" is the already-seeded hospital's number
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"whatsapp_phone_number_id": "123"}))
     assert resp.status_code == 400
     assert "already exists" in resp.text
 
@@ -155,52 +204,67 @@ def test_duplicate_phone_number_id_rejected(hospital_id):
 
 
 def test_missing_departments_rejected(hospital_id):
-    form = dict(VALID_FORM, departments_text="")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(departments=[]))
     assert resp.status_code == 400
     assert "at least one department" in resp.text.lower()
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
 def test_department_with_no_doctors_rejected(hospital_id):
-    form = dict(VALID_FORM, departments_text="# Pediatrics\n")  # header only, no doctor lines
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(departments=[{"name": "Pediatrics", "doctors": []}]))
     assert resp.status_code == 400
     assert "at least one department" in resp.text.lower()
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
-def test_doctor_line_with_invalid_working_day_rejected(hospital_id):
-    form = dict(VALID_FORM, departments_text=(
-        "# Pediatrics\n"
-        "Dr. Bad Day |||| Mon,Funday | 09:00-13:00 | 20\n"
-    ))
-    resp = client.post("/admin/onboard-hospital", data=form)
+def test_doctor_with_invalid_working_day_rejected(hospital_id):
+    departments = [{"name": "Pediatrics", "doctors": [
+        {"name": "Dr. Bad Day", "working_days": "Mon,Funday", "working_hours": "09:00-13:00", "slot_duration_minutes": "20"},
+    ]}]
+    resp = client.post("/admin/onboard-hospital", data=_build_form(departments=departments))
     assert resp.status_code == 400
     assert "invalid working day" in resp.text.lower()
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
-def test_doctor_line_with_invalid_hour_range_rejected(hospital_id):
-    form = dict(VALID_FORM, departments_text=(
-        "# Pediatrics\n"
-        "Dr. Bad Hours |||| Mon | not-a-range | 20\n"
-    ))
-    resp = client.post("/admin/onboard-hospital", data=form)
+def test_doctor_with_invalid_hour_range_rejected(hospital_id):
+    departments = [{"name": "Pediatrics", "doctors": [
+        {"name": "Dr. Bad Hours", "working_days": "Mon", "working_hours": "not-a-range", "slot_duration_minutes": "20"},
+    ]}]
+    resp = client.post("/admin/onboard-hospital", data=_build_form(departments=departments))
     assert resp.status_code == 400
     assert "invalid working hour" in resp.text.lower()
 
 
-def test_doctor_line_missing_fields_rejected(hospital_id):
-    form = dict(VALID_FORM, departments_text="# Pediatrics\nDr. Too Few Fields | only two\n")
-    resp = client.post("/admin/onboard-hospital", data=form)
+def test_doctor_missing_required_fields_rejected(hospital_id):
+    """A doctor card with a name but nothing else filled in -- working days,
+    working hours, and slot duration are all required (SPEC Section 12.1.1
+    needs them to generate real slots)."""
+    departments = [{"name": "Pediatrics", "doctors": [
+        {"name": "Dr. Empty Fields", "working_days": "", "working_hours": "", "slot_duration_minutes": ""},
+    ]}]
+    resp = client.post("/admin/onboard-hospital", data=_build_form(departments=departments))
     assert resp.status_code == 400
-    assert "7" in resp.text
+    text = resp.text.lower()
+    assert "working day is required" in text
+    assert "working hour range is required" in text
+    assert "slot duration" in text
+    assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
+
+
+def test_doctor_missing_name_rejected(hospital_id):
+    departments = [{"name": "Pediatrics", "doctors": [
+        {"name": "", "working_days": "Mon", "working_hours": "09:00-13:00", "slot_duration_minutes": "20"},
+    ]}]
+    resp = client.post("/admin/onboard-hospital", data=_build_form(departments=departments))
+    assert resp.status_code == 400
+    assert "name is required" in resp.text.lower()
 
 
 def test_tier2_fields_save_correctly(hospital_id):
-    form = dict(VALID_FORM, data_tier="tier2", api_base_url="https://erp.stjude.example/api", api_key="tier2-secret-key")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={
+        "data_tier": "tier2", "api_base_url": "https://erp.stjude.example/api", "api_key": "tier2-secret-key",
+    }))
     assert resp.status_code == 200
     assert "Tier 2" in resp.text or "tier2" in resp.text.lower()
 
@@ -211,8 +275,7 @@ def test_tier2_fields_save_correctly(hospital_id):
 
 
 def test_tier2_without_api_fields_rejected(hospital_id):
-    form = dict(VALID_FORM, data_tier="tier2", api_base_url="", api_key="")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"data_tier": "tier2"}))
     assert resp.status_code == 400
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
@@ -222,8 +285,7 @@ def test_tier3_shows_contact_us_message_with_no_fields_required(hospital_id):
     it must succeed with zero API fields submitted, and the confirmation page
     must make clear this is a manually-assisted follow-up, not something the
     wizard itself completed."""
-    form = dict(VALID_FORM, data_tier="tier3", api_base_url="", api_key="")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"data_tier": "tier3"}))
     assert resp.status_code == 200
     assert "manually-assisted" in resp.text.lower() or "contact" in resp.text.lower() or "we'll be in touch" in resp.text.lower()
 
@@ -234,21 +296,28 @@ def test_tier3_shows_contact_us_message_with_no_fields_required(hospital_id):
 
 
 def test_missing_hospital_name_rejected(hospital_id):
-    form = dict(VALID_FORM, name="")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"name": ""}))
     assert resp.status_code == 400
     assert "name is required" in resp.text.lower()
 
 
+def test_error_response_repopulates_entered_departments_and_doctors(hospital_id):
+    """A rejected submission (e.g. missing hospital name) must not silently
+    drop the departments/doctors already entered -- the bootstrap JSON the
+    page re-renders with must still carry them so the wizard's JS can
+    restore the cards, not force starting over from scratch."""
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"name": ""}))
+    assert resp.status_code == 400
+    assert "Dr. Meera Nair" in resp.text
+    assert "Pediatrics" in resp.text
+
+
 def test_wrong_admin_secret_rejected(hospital_id):
-    form = dict(VALID_FORM, admin_secret="wrong-secret")
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"admin_secret": "wrong-secret"}))
     assert resp.status_code == 403
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
 def test_missing_admin_secret_rejected(hospital_id):
-    form = dict(VALID_FORM)
-    del form["admin_secret"]
-    resp = client.post("/admin/onboard-hospital", data=form)
+    resp = client.post("/admin/onboard-hospital", data=_build_form(scalars={"admin_secret": None}))
     assert resp.status_code == 403
