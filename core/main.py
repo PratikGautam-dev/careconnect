@@ -9,10 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()  # must run before os.environ[...] reads below, or db.init_db()'s env reads
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 import db.repository as db
 from admin.onboarding import router as onboarding_router
+from admin.theme import STYLE as _STYLE
 from portal import router as portal_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 from core.booking_flow import handle_incoming
@@ -132,7 +133,36 @@ app.include_router(onboarding_router)
 app.include_router(portal_router)
 
 
-@app.get("/")
+_LANDING_HTML = f"""<!doctype html>
+<html>
+<head><title>Hospital Onboarding — WhatsApp appointment booking</title>{_STYLE}</head>
+<body>
+<div class="ok-page" style="max-width: 720px; text-align: center; padding-top: 96px;">
+  <div class="brand" style="justify-content: center; margin-bottom: 28px;">
+    <div class="brand-mark">H</div>
+    <span class="brand-name">Hospital Onboarding</span>
+  </div>
+  <h1 style="font-size: 34px;">WhatsApp appointment booking &amp; reminders for hospitals</h1>
+  <p class="step-desc" style="max-width: 52ch; margin-left: auto; margin-right: auto; font-size: 16px;">
+    Patients book, reschedule, and cancel appointments over WhatsApp — no app to install.
+    No AI, no per-conversation cost: menu-driven, tap-to-select booking that just works.
+  </p>
+  <div style="display: flex; gap: 12px; justify-content: center; margin-top: 32px; flex-wrap: wrap;">
+    <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Onboard a hospital</a>
+    <a class="btn-secondary" href="/admin/tenants">View all tenants</a>
+    <a class="btn-secondary" href="/portal/login">Staff bookings portal</a>
+  </div>
+</div>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse)
+async def landing_page():
+    return _LANDING_HTML
+
+
+@app.get("/health")
 async def health():
     return {"status": "ok"}
 
