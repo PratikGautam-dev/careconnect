@@ -32,6 +32,7 @@ from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse
 
 import db.repository as db
+from admin.theme import STYLE as _STYLE
 from db.connection import IntegrityError
 
 router = APIRouter()
@@ -175,212 +176,7 @@ def _parse_offsets(text: str) -> list[float]:
     return offsets or [24]
 
 
-# --- HTML/CSS/JS ---
-# Plain triple-quoted strings (NOT f-strings) for the CSS/JS blocks below, on
-# purpose — both are full of literal `{`/`}` and f-string-escaping every one
-# of them would be unreadable and error-prone. Dynamic values (the bootstrap
-# JSON re-populating the form after a validation error, admin secret status)
-# are injected via .replace() on unique tokens instead — see _wizard_html().
-
-# Design reference: onboarding-wizard-design.html (sage/clay palette,
-# Fraunces/Inter pairing, "intake checklist" rail). CSS/markup only below —
-# no selector that admin/onboarding.py's <script> block queries (ids, or
-# classes like .rail-step/.dot/.step-panel/.tier-card/.dept-card/.doctor-card/
-# .doctor-*/.day-toggle/etc.) was renamed or removed; only their styling and
-# surrounding static markup changed.
-_FONT_LINKS = """
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-"""
-
-_STYLE = _FONT_LINKS + """
-<style>
-  :root {
-    --paper: #F7F5F0; --card: #FFFFFF; --ink: #26332E; --ink-muted: #5B6B63; --ink-faint: #8B968F;
-    --sage-deep: #2B4C43; --sage-line: #D8DDD4; --clay: #C9603C; --clay-tint: #F4E2D9;
-    --success: #3E7A5D; --success-tint: #DEEEE4; --error: #B3432F; --error-tint: #F7E3DE;
-    --radius: 10px;
-    --font-display: 'Fraunces', serif; --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--paper); color: var(--ink);
-    font-family: var(--font-body); font-size: 15px; line-height: 1.6;
-  }
-
-  .shell { max-width: 980px; margin: 0 auto; padding: 48px 24px 80px; display: grid; grid-template-columns: 260px 1fr; gap: 40px; align-items: start; }
-  .brand { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-  .brand-mark {
-    width: 28px; height: 28px; border-radius: 8px; background: var(--sage-deep);
-    display: flex; align-items: center; justify-content: center; color: #fff;
-    font-family: var(--font-display); font-weight: 600; font-size: 15px; flex-shrink: 0;
-  }
-  .brand-name { font-family: var(--font-display); font-weight: 500; font-size: 17px; color: var(--sage-deep); }
-  .brand-sub { color: var(--ink-faint); font-size: 13px; }
-
-  /* Intake checklist rail */
-  .rail {
-    background: var(--card); border: 1px solid var(--sage-line); border-radius: 14px;
-    padding: 24px 20px; align-self: start; position: sticky; top: 40px;
-  }
-  .rail h1 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
-    margin: 0 0 18px; font-weight: 600; font-family: var(--font-body);
-  }
-  .rail-step {
-    display: flex; gap: 12px; padding-bottom: 22px; position: relative; align-items: flex-start; cursor: default;
-  }
-  .rail-step:last-child { padding-bottom: 0; }
-  .rail-step::before {
-    content: ''; position: absolute; left: 11px; top: 26px; bottom: 0; width: 1px; background: var(--sage-line);
-  }
-  .rail-step:last-child::before { display: none; }
-  .rail-step .dot {
-    width: 23px; height: 23px; border-radius: 50%; border: 1.5px solid var(--sage-line); background: var(--paper);
-    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 600; color: var(--ink-faint); z-index: 1;
-  }
-  .rail-step span:last-child { font-size: 13.5px; color: var(--ink-faint); padding-top: 2px; }
-  .rail-step.done .dot { background: var(--success); border-color: var(--success); color: #fff; }
-  .rail-step.active .dot { background: var(--clay); border-color: var(--clay); color: #fff; }
-  .rail-step.active span:last-child { color: var(--ink); font-weight: 500; }
-  .rail-step.done span:last-child { color: var(--ink-muted); }
-  .rail-step.clickable { cursor: pointer; }
-
-  /* Main panel */
-  .main {
-    background: var(--card); border: 1px solid var(--sage-line); border-radius: 14px; padding: 40px 44px;
-  }
-  .step-panel { display: none; }
-  .step-panel.active { display: block; }
-  .eyebrow { font-size: 12px; color: var(--clay); font-weight: 600; letter-spacing: 0.03em; margin: 0 0 6px; }
-  .step-panel h2 {
-    font-family: var(--font-display); font-weight: 500; font-size: 26px; margin: 0 0 10px; color: var(--ink);
-  }
-  .step-desc { color: var(--ink-muted); margin: 0 0 28px; max-width: 46ch; }
-
-  .guide-box {
-    background: var(--paper); border: 1px solid var(--sage-line); border-radius: var(--radius);
-    padding: 18px 20px; margin-bottom: 18px; display: flex; gap: 14px; align-items: flex-start;
-  }
-  .guide-num { font-family: var(--font-display); color: var(--sage-deep); font-size: 20px; font-weight: 500; flex-shrink: 0; width: 24px; }
-  .guide-text { flex: 1; }
-  .guide-text p { margin: 0 0 8px; font-size: 14px; }
-  .guide-text p:last-child { margin-bottom: 0; }
-  .guide-text ol { margin: 0 0 10px; padding-left: 20px; font-size: 14px; }
-  .guide-text ol li { margin-bottom: 6px; }
-  .guide-text ol li:last-child { margin-bottom: 0; }
-  .guide-text ol + .ext-link, .guide-text ol + p { margin-top: 4px; }
-  .guide-box a, .ext-link {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: var(--sage-deep); font-weight: 500; font-size: 13.5px; text-decoration: none;
-    border-bottom: 1px solid var(--sage-deep); padding-bottom: 1px;
-  }
-
-  label {
-    display: block; font-size: 13px; font-weight: 500; color: var(--ink); margin: 18px 0 6px;
-  }
-  /* Deliberately no label:first-of-type margin-collapse rule here (the design
-     reference has one) -- with .field-row splitting fields into per-field
-     wrapper divs, :first-of-type matches the first label in EVERY such div,
-     not just the first label in a whole panel, which would zero out spacing
-     on every second-column field. Uniform label spacing throughout instead. */
-  input[type=text], input[type=password], input[type=number], textarea {
-    width: 100%; font-family: var(--font-body); font-size: 14px; padding: 10px 12px;
-    border: 1px solid var(--sage-line); border-radius: 8px; background: var(--paper); color: var(--ink);
-  }
-  input:focus, textarea:focus { outline: none; border-color: var(--clay); box-shadow: 0 0 0 3px var(--clay-tint); }
-  .hint, .field-hint { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0 0; }
-  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 18px; font-weight: 500; font-size: 14px; color: var(--ink); }
-  .checkbox-row input { width: auto; }
-
-  .nav-buttons { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--sage-line); }
-  button {
-    font-family: var(--font-body); font-weight: 500; font-size: 14px; padding: 11px 22px;
-    border-radius: 8px; cursor: pointer; border: none; background: var(--sage-deep); color: #fff;
-  }
-  button.secondary, button.back-btn {
-    background: transparent; color: var(--ink-muted); border: 1px solid var(--sage-line);
-  }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.small { padding: 8px 14px; font-size: 13px; }
-  .add-doctor {
-    background: none; border: 1.5px dashed var(--sage-line); color: var(--sage-deep);
-    font-weight: 500; font-size: 13.5px; padding: 10px; width: 100%; border-radius: var(--radius); cursor: pointer;
-  }
-
-  .error-banner {
-    background: var(--error-tint); border: 1px solid #E8B3A2; color: var(--error);
-    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 24px;
-  }
-  .error-banner ul { margin: 8px 0 0; padding-left: 20px; }
-
-  .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
-  .tier-card { border: 1.5px solid var(--sage-line); border-radius: var(--radius); padding: 16px; cursor: pointer; background: var(--card); }
-  .tier-card.selected { border-color: var(--clay); background: var(--clay-tint); }
-  .tier-card h3 { font-family: var(--font-body); font-weight: 600; font-size: 13.5px; margin: 0 0 4px; color: var(--ink); }
-  .tier-card p { font-size: 12.5px; color: var(--ink-muted); margin: 0; }
-  .tier-card .tier-consequence { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--sage-line); font-style: italic; color: var(--ink-faint); }
-  .tier-badge {
-    display: inline-block; font-size: 10.5px; font-weight: 600; color: var(--success); background: var(--success-tint);
-    padding: 2px 8px; border-radius: 100px; margin-bottom: 6px;
-  }
-  .tier2-fields, .tier3-note { display: none; margin-top: 20px; }
-  .tier3-note {
-    background: var(--clay-tint); border: 1px solid var(--sage-line); border-radius: var(--radius);
-    padding: 14px 18px; font-size: 13px; color: var(--ink-muted);
-  }
-
-  .dept-card { border: 1px solid var(--sage-line); border-radius: var(--radius); padding: 18px 20px; margin-top: 18px; background: var(--card); }
-  .dept-card-header { display: flex; align-items: center; gap: 12px; }
-  .dept-card-header input { flex: 1; margin-top: 0; font-weight: 600; }
-  .doctor-card { border: 1px solid var(--sage-line); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px; background: var(--paper); }
-  .doctor-card-header { display: flex; justify-content: space-between; align-items: center; }
-  .doctor-card-header strong {
-    font-size: 12.5px; color: var(--ink-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-  .days-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .day-toggle {
-    border: 1px solid var(--sage-line); border-radius: 8px; padding: 6px 11px; font-size: 12.5px;
-    cursor: pointer; background: var(--card); user-select: none; color: var(--ink-muted); font-weight: 500;
-  }
-  .day-toggle.on { background: var(--sage-deep); border-color: var(--sage-deep); color: #fff; }
-  .remove-link { background: none; border: none; color: var(--clay); font-size: 12.5px; font-weight: 600; padding: 2px 4px; cursor: pointer; }
-
-  .review-block { margin-top: 16px; }
-  .review-section {
-    background: var(--paper); border: 1px solid var(--sage-line); border-radius: var(--radius);
-    padding: 16px 20px; margin-top: 12px;
-  }
-  .review-section:first-child { margin-top: 0; }
-  .review-section-header { display: flex; justify-content: space-between; align-items: center; }
-  .review-section-header h4 {
-    margin: 0; font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-muted);
-    text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .edit-link { color: var(--clay); font-size: 12.5px; font-weight: 600; text-decoration: none; cursor: pointer; }
-  .review-section dl { margin: 10px 0 0; }
-  .review-section dt {
-    font-weight: 600; font-size: 12px; color: var(--ink-faint); text-transform: uppercase;
-    letter-spacing: 0.04em; margin-top: 10px;
-  }
-  .review-section dt:first-child { margin-top: 0; }
-  .review-section dd { margin: 3px 0 0; font-size: 14px; }
-  .go-live-note { font-size: 13.5px; color: var(--ink-muted); margin-top: 16px; }
-
-  .ok-page { max-width: 640px; margin: 0 auto; padding: 48px 24px 80px; }
-  .ok-page .brand { margin-bottom: 32px; }
-  .ok-page h1 { font-family: var(--font-display); font-weight: 500; color: var(--ink); }
-  .ok-page h3 {
-    font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-faint);
-    text-transform: uppercase; letter-spacing: 0.04em; margin-top: 28px;
-  }
-  .ok-page ul { padding-left: 20px; }
-  .ok-page a { color: var(--sage-deep); font-weight: 500; }
-  .ok-box { background: var(--success-tint); border: 1px solid var(--success); border-radius: var(--radius); padding: 20px; }
-</style>
-"""
+# --- HTML/CSS/JS --- (shared _STYLE now lives in admin/theme.py)
 
 _RAIL_TITLES = [
     "Meta Business Account",
@@ -600,6 +396,10 @@ _WIZARD_TEMPLATE = """<!doctype html>
             <p class="field-hint">This must match a message template you've submitted for approval in Meta's WhatsApp Manager — we'll help you with the exact wording to submit.</p>
           </div>
         </div>
+
+        <label for="f-portal_password">Bookings portal password (optional)</label>
+        <input type="password" id="f-portal_password" name="portal_password" placeholder="Leave blank to set this later">
+        <p class="field-hint">Your own staff can use this to log into a simple dashboard at /portal/login and see every appointment booked through WhatsApp (Tier 1 only). You can set or change it anytime after onboarding too.</p>
 
         <label style="margin-top: 28px;">Departments &amp; doctors</label>
         <div id="departments-container"></div>
@@ -893,6 +693,7 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     hospitalRows += "<dt>Welcome message</dt><dd>" + escapeHtml(get("f-welcome_message_text") || "(not set)") + "</dd>";
     hospitalRows += "<dt>Reminder offsets (hours)</dt><dd>" + escapeHtml(get("f-reminder_offsets_hours")) + "</dd>";
     hospitalRows += "<dt>Reminder template name</dt><dd>" + escapeHtml(get("f-reminder_template_name") || "(not set)") + "</dd>";
+    hospitalRows += "<dt>Bookings portal password</dt><dd>" + (get("f-portal_password") ? "Set" : "Not set — can add later") + "</dd>";
     hospitalRows += "<dt>Departments &amp; doctors</dt><dd>";
     // Skips cards with no name AND no doctors -- an operator who clicked
     // "+ Add department" but didn't fill it in yet shouldn't see a
@@ -949,7 +750,7 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
   var scalarFields = [
     "admin_secret", "name", "whatsapp_phone_number_id", "access_token", "app_secret",
     "welcome_message_text", "reminder_offsets_hours", "reminder_template_name",
-    "api_base_url", "api_key",
+    "portal_password", "api_base_url", "api_key",
   ];
   scalarFields.forEach(function (field) {
     var el = document.getElementById("f-" + field);
@@ -996,7 +797,7 @@ def _wizard_html(errors: list[str] | None, values: dict, departments: list[dict]
     return page
 
 
-def _confirmation_html(hospital, departments: list[dict]) -> str:
+def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> str:
     dept_items = "".join(
         f"<li>{html.escape(d['name'])}: "
         f"{html.escape(', '.join(doc['name'] for doc in d['doctors']))}</li>"
@@ -1034,10 +835,14 @@ def _confirmation_html(hospital, departments: list[dict]) -> str:
     wasn't done first, outbound messages and webhook signature validation for
     this hospital will fail until it is.
   </p>
+  <p class="hint">
+    {"Your bookings portal password is set — your staff can log in at " if hospital.portal_password_hash else "No bookings portal password was set — your staff won't be able to log in at "}
+    <a href="/portal/login">/portal/login</a>{" to see every WhatsApp booking." if hospital.portal_password_hash else " until you set one (edit this tenant to add it)."}
+  </p>
   <p>
     <a href="/admin/onboard-hospital">Onboard another hospital</a>
     &nbsp;·&nbsp;
-    <a href="/admin/tenants">View all tenants</a>
+    <a href="/admin/tenants?secret={html.escape(secret, quote=True)}">View all tenants</a>
   </p>
 </div>
 </body>
@@ -1069,57 +874,67 @@ def _secret_gate_html(action_path: str, label: str) -> str:
 <html>
 <head><title>{html.escape(label)}</title>{_STYLE}</head>
 <body>
-<div class="ok-page">
-  <div class="brand">
-    <div class="brand-mark">H</div>
-    <span class="brand-name">Hospital Onboarding</span>
-    <span class="brand-sub">— guided setup wizard</span>
+<div class="login-shell">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <span class="brand-name">Hospital Onboarding</span>
+      <span class="brand-sub">— platform admin</span>
+    </div>
+    <h2>{html.escape(label)}</h2>
+    <p class="step-desc">This page shows tenant credentials, so it's gated the same way onboarding is.</p>
+    <form method="get" action="{html.escape(action_path)}">
+      <label for="secret">Admin secret</label>
+      <input type="password" id="secret" name="secret" required autofocus>
+      <button type="submit" style="margin-top: 18px; width: 100%;">Continue</button>
+    </form>
   </div>
-  <h1>{html.escape(label)}</h1>
-  <form method="get" action="{html.escape(action_path)}">
-    <label for="secret">Admin secret</label>
-    <input type="password" id="secret" name="secret" required>
-    <button type="submit" style="margin-top: 18px;">Continue</button>
-  </form>
 </div>
 </body>
 </html>"""
 
 
 def _tenants_list_html(hospitals: list, secret: str) -> str:
-    rows = "".join(
-        f"""<tr>
-          <td>{h.id}</td>
-          <td>{html.escape(h.name)}</td>
-          <td>{html.escape(h.whatsapp_phone_number_id or "(not set)")}</td>
-          <td>{html.escape(h.data_tier)}</td>
-          <td>{"Active" if h.is_active else "Inactive"}</td>
-          <td><a href="/admin/edit-tenant/{h.id}?secret={html.escape(secret, quote=True)}">Edit</a></td>
-        </tr>"""
-        for h in hospitals
-    )
+    def row(h) -> str:
+        status_pill = (
+            '<span class="pill pill-active">Active</span>' if h.is_active
+            else '<span class="pill pill-inactive">Inactive</span>'
+        )
+        return f"""<div class="list-row">
+          <div class="list-row-main">
+            <span class="list-row-title">{html.escape(h.name)}</span>
+            <span class="list-row-sub">#{h.id} · {html.escape(h.whatsapp_phone_number_id or "no phone_number_id set")} · {html.escape(h.data_tier)}</span>
+          </div>
+          <div class="list-row-meta">
+            {status_pill}
+            <a class="btn-secondary" href="/admin/edit-tenant/{h.id}?secret={html.escape(secret, quote=True)}">Edit</a>
+          </div>
+        </div>"""
+
+    rows_html = "".join(row(h) for h in hospitals) or '<div class="empty-note">No tenants onboarded yet.</div>'
+
     return f"""<!doctype html>
 <html>
-<head><title>All tenants</title>{_STYLE}
-<style>
-  table {{ width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }}
-  th, td {{ text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--sage-line); }}
-  th {{ font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-faint); }}
-</style>
-</head>
+<head><title>All tenants</title>{_STYLE}</head>
 <body>
-<div class="ok-page" style="max-width: 860px;">
-  <div class="brand">
-    <div class="brand-mark">H</div>
-    <span class="brand-name">Hospital Onboarding</span>
-    <span class="brand-sub">— guided setup wizard</span>
+<div class="shell no-rail">
+  <div class="brand-row" style="grid-column: 1 / -1;">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <span class="brand-name">Hospital Onboarding</span>
+      <span class="brand-sub">— platform admin</span>
+    </div>
+    <div class="brand-nav">
+      <a href="/admin/onboard-hospital">Onboard a hospital</a>
+    </div>
   </div>
-  <h1>All tenants</h1>
-  <table>
-    <thead><tr><th>ID</th><th>Name</th><th>phone_number_id</th><th>Data tier</th><th>Status</th><th></th></tr></thead>
-    <tbody>{rows or '<tr><td colspan="6">No tenants onboarded yet.</td></tr>'}</tbody>
-  </table>
-  <p style="margin-top: 24px;"><a href="/admin/onboard-hospital">Onboard another hospital</a></p>
+  <main class="main">
+    <div class="page-header">
+      <h2>All tenants</h2>
+      <span class="hint">{len(hospitals)} onboarded</span>
+    </div>
+    <div class="card-list">{rows_html}</div>
+  </main>
 </div>
 </body>
 </html>"""
@@ -1143,11 +958,16 @@ def _edit_tenant_html(hospital, errors: list[str] | None, values: dict | None, s
 <html>
 <head><title>Edit tenant — {html.escape(hospital.name)}</title>{_STYLE}</head>
 <body>
-<div class="shell" style="grid-template-columns: 1fr;">
-  <div class="brand">
-    <div class="brand-mark">H</div>
-    <span class="brand-name">Hospital Onboarding</span>
-    <span class="brand-sub">— guided setup wizard</span>
+<div class="shell no-rail">
+  <div class="brand-row" style="grid-column: 1 / -1;">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <span class="brand-name">Hospital Onboarding</span>
+      <span class="brand-sub">— platform admin</span>
+    </div>
+    <div class="brand-nav">
+      <a href="/admin/tenants?secret={html.escape(secret, quote=True)}">All tenants</a>
+    </div>
   </div>
   <main class="main">
     {error_html}
@@ -1187,6 +1007,11 @@ def _edit_tenant_html(hospital, errors: list[str] | None, values: dict | None, s
         </div>
       </div>
 
+      <label for="portal_password">Bookings portal password</label>
+      <input type="password" id="portal_password" name="portal_password"
+             placeholder="Leave blank to keep current ({'set' if hospital.portal_password_hash else 'not set'})">
+      <p class="field-hint">Your staff logs into <a href="/portal/login">/portal/login</a> with this to see WhatsApp bookings (Tier 1 only).</p>
+
       <fieldset>
         <legend>Data connection</legend>
         <label class="radio-row"><input type="radio" name="data_tier" value="tier1" {checked('tier1')}> Tier 1 — this platform</label>
@@ -1210,7 +1035,7 @@ def _edit_tenant_html(hospital, errors: list[str] | None, values: dict | None, s
 </html>"""
 
 
-def _edit_confirmation_html(hospital) -> str:
+def _edit_confirmation_html(hospital, secret: str = "") -> str:
     return f"""<!doctype html>
 <html>
 <head><title>Tenant updated</title>{_STYLE}</head>
@@ -1219,19 +1044,19 @@ def _edit_confirmation_html(hospital) -> str:
   <div class="brand">
     <div class="brand-mark">H</div>
     <span class="brand-name">Hospital Onboarding</span>
-    <span class="brand-sub">— guided setup wizard</span>
+    <span class="brand-sub">— platform admin</span>
   </div>
   <h1>Tenant updated</h1>
   <div class="ok-box">
     <strong>{html.escape(hospital.name)}</strong> (tenant #{hospital.id}) was updated.
   </div>
-  <div class="error-banner" style="margin-top: 16px;">
+  <div class="warning-banner">
     <strong>This tenant's WhatsApp client is cached — changes take effect after the app restarts, not immediately.</strong>
     Any change to the access token, app secret, or phone_number_id will keep using the OLD cached credentials on an
     already-running process until it is restarted. Updating the database (which this just did) is only half of
     fixing a credential problem — the process also needs to be restarted before the new value is actually used.
   </div>
-  <p><a href="/admin/tenants">Back to all tenants</a></p>
+  <p><a href="/admin/tenants?secret={html.escape(secret, quote=True)}">Back to all tenants</a></p>
 </div>
 </body>
 </html>"""
@@ -1252,6 +1077,7 @@ async def onboard_hospital_submit(
     welcome_message_text: str = Form(""),
     reminder_offsets_hours: str = Form(""),
     reminder_template_name: str = Form(""),
+    portal_password: str = Form(""),
     data_tier: str = Form("tier1"),
     api_base_url: str = Form(""),
     api_key: str = Form(""),
@@ -1274,6 +1100,7 @@ async def onboard_hospital_submit(
         "welcome_message_text": welcome_message_text,
         "reminder_offsets_hours": reminder_offsets_hours,
         "reminder_template_name": reminder_template_name,
+        "portal_password": portal_password,
         "data_tier": data_tier,
         "api_base_url": api_base_url,
         "api_key": api_key,
@@ -1329,6 +1156,7 @@ async def onboard_hospital_submit(
             data_tier=data_tier,
             external_api_base_url=stored_api_base_url,
             external_api_key=stored_api_key,
+            portal_password=portal_password.strip() or None,
         )
     except IntegrityError:
         errors.append(
@@ -1354,7 +1182,7 @@ async def onboard_hospital_submit(
         ]
         created_departments.append({"name": created_dept["name"], "doctors": created_doctors})
 
-    return _confirmation_html(hospital, created_departments)
+    return _confirmation_html(hospital, created_departments, admin_secret)
 
 
 @router.get("/admin/tenants", response_class=HTMLResponse)
@@ -1386,6 +1214,7 @@ async def edit_tenant_submit(
     welcome_message_text: str = Form(""),
     reminder_offsets_hours: str = Form(""),
     reminder_template_name: str = Form(""),
+    portal_password: str = Form(""),
     data_tier: str = Form("tier1"),
     api_base_url: str = Form(""),
     api_key: str = Form(""),
@@ -1433,6 +1262,13 @@ async def edit_tenant_submit(
     # submission is the normal case, not an explicit request to erase it.
     new_access_token = access_token.strip() or hospital.access_token
     new_app_secret = app_secret.strip() or hospital.app_secret
+    # Same "blank keeps current" rule as the token/secret fields above -- the
+    # form never shows the real password (there's nothing to show, it's
+    # hashed), only a "keep current" hint, so hashing a blank submission
+    # would silently replace a real password with a hash of "".
+    new_portal_password_hash = (
+        db.hash_portal_password(portal_password.strip()) if portal_password.strip() else hospital.portal_password_hash
+    )
 
     try:
         updated = db.update_hospital(
@@ -1448,6 +1284,7 @@ async def edit_tenant_submit(
             data_tier=data_tier,
             external_api_base_url=stored_api_base_url,
             external_api_key=stored_api_key,
+            portal_password_hash=new_portal_password_hash,
         )
     except IntegrityError:
         errors.append(
@@ -1456,4 +1293,4 @@ async def edit_tenant_submit(
         )
         return HTMLResponse(_edit_tenant_html(hospital, errors, values, admin_secret), status_code=400)
 
-    return _edit_confirmation_html(updated)
+    return _edit_confirmation_html(updated, admin_secret)

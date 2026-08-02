@@ -13,7 +13,10 @@ synthetic/computed-on-the-fly slots. As of Phase 8 they still exclude slots
 that already have a *booked* appointment, so an already-taken slot is never
 re-offered to another patient.
 """
+import hashlib
+import hmac
 import json as json_lib
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -66,6 +69,32 @@ def _row_to_appointment(row) -> Appointment:
 
 # --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
 
+_PBKDF2_ITERATIONS = 100_000
+
+
+def hash_portal_password(password: str) -> str:
+    """Salted PBKDF2-SHA256, stdlib only (no new dependency for what's still a
+    'basic protection, not production-grade auth' project) -- used for the
+    Section 12.7 hospital-staff bookings portal login, which is stored as an
+    irreversible hash (unlike access_token/app_secret, which the app must be
+    able to read back to call Meta's API with -- a login password never needs
+    to be reversed, only verified, so there's no reason to store it in a
+    reversible form the way those are). Stored as 'salt_hex:hash_hex'."""
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return f"{salt.hex()}:{digest.hex()}"
+
+
+def verify_portal_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt_hex, digest_hex = stored_hash.split(":", 1)
+    except (ValueError, AttributeError):
+        return False
+    salt = bytes.fromhex(salt_hex)
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return hmac.compare_digest(candidate.hex(), digest_hex)
+
+
 @dataclass
 class Hospital:
     id: int
@@ -81,6 +110,7 @@ class Hospital:
     data_tier: str
     external_api_base_url: str | None
     external_api_key: str | None
+    portal_password_hash: str | None
 
 
 def _row_to_hospital(row) -> Hospital:
@@ -104,6 +134,7 @@ def _row_to_hospital(row) -> Hospital:
         data_tier=row["data_tier"],
         external_api_base_url=row["external_api_base_url"],
         external_api_key=row["external_api_key"],
+        portal_password_hash=row["portal_password_hash"],
     )
 
 
@@ -144,6 +175,22 @@ def get_hospital(hospital_id: int) -> Hospital | None:
     return _row_to_hospital(row) if row else None
 
 
+def find_hospital_by_portal_password(password: str) -> Hospital | None:
+    """portal.py's login: which hospital does this password belong to. Each
+    hash carries its own random salt (hash_portal_password()), so two
+    hospitals CAN pick the identical password and still get different stored
+    hashes -- there's no way to look one up by an equality WHERE clause, only
+    by hashing the candidate against every stored hash and checking for a
+    match. Fine at this project's scale (dozens/hundreds of hospitals, not
+    millions); an actual login-throughput bottleneck would need a different
+    scheme, but isn't a real concern yet."""
+    for hospital in get_all_hospitals():
+        if hospital.portal_password_hash and hospital.is_active:
+            if verify_portal_password(password, hospital.portal_password_hash):
+                return hospital
+    return None
+
+
 def create_hospital(
     name: str,
     whatsapp_phone_number_id: str,
@@ -156,6 +203,7 @@ def create_hospital(
     data_tier: str = "tier1",
     external_api_base_url: str | None = None,
     external_api_key: str | None = None,
+    portal_password: str | None = None,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -166,17 +214,23 @@ def create_hospital(
     data_tier (Section 12.6, Step 6 of the wizard): "tier1" (default, this
     product's own database), "tier2" (external_api_base_url/external_api_key
     are only stored here -- no connector logic reads them yet), or "tier3"
-    (direct DB connection, not self-serve -- neither field is meaningful for it)."""
+    (direct DB connection, not self-serve -- neither field is meaningful for it).
+
+    portal_password (Section 12.7): plaintext in, hashed before storage --
+    optional at onboarding time (a hospital can set it later via the edit
+    form); left unset, the bookings portal simply has no way to log into that
+    hospital yet."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
+    portal_password_hash = hash_portal_password(portal_password) if portal_password else None
     cur = conn.execute(
         "INSERT INTO hospitals (name, whatsapp_phone_number_id, meta_access_token_ref, app_secret_ref, "
         "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
-        "data_tier, external_api_base_url, external_api_key) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "data_tier, external_api_base_url, external_api_key, portal_password_hash) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash),
     )
     new_id = cur.fetchone()["id"]
     conn.commit()
@@ -196,6 +250,7 @@ def update_hospital(
     data_tier: str = "tier1",
     external_api_base_url: str | None = None,
     external_api_key: str | None = None,
+    portal_password_hash: str | None = None,
 ) -> Hospital:
     """admin/onboarding.py's tenant edit form -- the only way to correct an
     already-onboarded hospital's stored values (there's no way to change
@@ -206,6 +261,12 @@ def update_hospital(
     never conflicts with itself. Callers (admin/onboarding.py) are responsible
     for catching it, same as create_hospital().
 
+    portal_password_hash takes an ALREADY-HASHED value (or the hospital's
+    existing one, to leave it unchanged) -- unlike create_hospital(), which
+    takes a raw password, because the edit route needs to decide whether a
+    blank submitted field means "keep current hash" *before* this function
+    ever sees it (hashing here would turn a blank field into a real password).
+
     Deliberately does NOT touch _wa_clients (core/main.py's per-hospital
     WhatsAppClient cache) -- it can't, from here; a hospital whose credentials
     just changed keeps using its OLD cached client until the process restarts.
@@ -215,11 +276,11 @@ def update_hospital(
     conn.execute(
         "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
         "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
-        "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ? "
-        "WHERE id = ?",
+        "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
+        "portal_password_hash = ? WHERE id = ?",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, hospital_id),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, hospital_id),
     )
     conn.commit()
     return get_hospital(hospital_id)
@@ -488,6 +549,20 @@ def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: dateti
         ORDER BY a.scheduled_at ASC
         """,
         (hospital_id, STATUS_BOOKED, now.isoformat(), cutoff.isoformat(), offset_hours),
+    ).fetchall()
+    return [_row_to_appointment(r) for r in rows]
+
+
+def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> list[Appointment]:
+    """Every appointment (any status) for a hospital's own bookings dashboard
+    (portal.py, Tier 1 self-serve view) -- most recently scheduled first.
+    Unlike get_upcoming_appointments_for_phone()/get_upcoming_appointments(),
+    this is intentionally not filtered to booked/future-only: hospital staff
+    reviewing their own bookings want to see cancellations/reschedules too."""
+    conn = get_connection()
+    rows = conn.execute(
+        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? ORDER BY a.scheduled_at DESC LIMIT ?",
+        (hospital_id, limit),
     ).fetchall()
     return [_row_to_appointment(r) for r in rows]
 

@@ -37,9 +37,24 @@ CREATE TABLE IF NOT EXISTS hospitals (
     data_tier TEXT NOT NULL DEFAULT 'tier1' CHECK (data_tier IN ('tier1', 'tier2', 'tier3')),
     external_api_base_url TEXT,
     external_api_key TEXT,
+    -- Section 12.7: the hospital-staff bookings portal's login credential --
+    -- salted PBKDF2-SHA256 (db/repository.py:hash_portal_password()), never
+    -- the plaintext password. NULL means the hospital hasn't set one yet
+    -- (portal login is simply unavailable until it does, via onboarding or
+    -- the edit-tenant form) -- not enforced UNIQUE, since two hospitals can
+    -- legitimately pick the same password and get different hashes (each
+    -- has its own random salt); portal.py finds the right hospital by
+    -- hashing the login attempt against every stored hash, not by lookup.
+    portal_password_hash TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (now()::text)
 );
+
+-- CREATE TABLE IF NOT EXISTS above won't retroactively add this column to a
+-- database created before this change (same limitation already noted for
+-- whatsapp_phone_number_id's UNIQUE constraint) -- this makes it idempotent
+-- and self-healing on the next app startup against the live database too.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_password_hash TEXT;
 
 -- id is a human-readable slug (e.g. "cardiology") rather than a surrogate integer,
 -- so it can be used directly as a WhatsApp list-reply id, same as before this

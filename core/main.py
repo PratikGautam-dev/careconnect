@@ -13,6 +13,7 @@ from fastapi.responses import PlainTextResponse
 
 import db.repository as db
 from admin.onboarding import router as onboarding_router
+from portal import router as portal_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 from core.booking_flow import handle_incoming
 from core.history import get_history, get_session_store
@@ -128,6 +129,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(onboarding_router)
+app.include_router(portal_router)
 
 
 @app.get("/")
