@@ -65,6 +65,29 @@ CONFIRM_NO = "cancel"
 
 _PLEASE_CHOOSE = "Please choose an option from the list above"
 
+# Meta hard-limits a WhatsApp interactive list message to 10 rows total across
+# every section (core/whatsapp.py:send_list()'s own docstring already says
+# so) -- nothing enforced that until now. A doctor with a long working-hour
+# range and a short slot duration can easily generate 100+ bookable slots
+# (Section 12.1.1), and an unenforced-limit send silently fails end to end:
+# send_list() catches the resulting 400 from Meta, logs it, and returns
+# without raising -- so the patient just sees nothing after tapping a doctor,
+# with no error surfaced anywhere they'd see it. Found live testing a doctor
+# whose entered hours produced 830 slots. _cap_rows() is the one place this
+# gets enforced, applied at every send_list() call site below that builds its
+# rows from a variable-length source (departments/doctors/slots/appointments).
+_MAX_LIST_ROWS = 10
+
+
+def _cap_rows(rows: list[dict], context: str) -> list[dict]:
+    if len(rows) > _MAX_LIST_ROWS:
+        logger.warning(
+            "%s: %d rows exceeds WhatsApp's %d-row list limit -- truncating to the first %d",
+            context, len(rows), _MAX_LIST_ROWS, _MAX_LIST_ROWS,
+        )
+        return rows[:_MAX_LIST_ROWS]
+    return rows
+
 _FAQ_TEXT = (
     "Frequently Asked Questions:\n\n"
     "- Hours: Mon-Sat, 9:00 AM - 6:00 PM\n"
@@ -102,6 +125,7 @@ async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str) ->
 
 async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector) -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_departments(hospital_id)]
+    rows = _cap_rows(rows, "department menu")
     await wa.send_list(
         to=phone,
         body_text="Please select a department:",
@@ -114,6 +138,7 @@ async def _send_doctor_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, department_id: str, department_name: str, connector: Connector
 ) -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_doctors(hospital_id, department_id)]
+    rows = _cap_rows(rows, "doctor menu")
     await wa.send_list(
         to=phone,
         body_text=f"Please select a doctor in {department_name}:",
@@ -125,7 +150,11 @@ async def _send_doctor_menu(
 async def _send_slot_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, doctor_name: str, connector: Connector
 ) -> None:
+    # get_available_slots() returns soonest-first (db.get_slots()'s ORDER BY
+    # scheduled_at) -- capping to _MAX_LIST_ROWS keeps the soonest bookable
+    # times, not an arbitrary/later slice.
     rows = [{"id": s["id"], "title": s["label"]} for s in connector.get_available_slots(hospital_id, doctor_id)]
+    rows = _cap_rows(rows, f"slot menu for doctor {doctor_id}")
     await wa.send_list(
         to=phone,
         body_text=f"Please select a time slot with {doctor_name}:",
@@ -207,6 +236,7 @@ async def _send_appointment_selection_menu(wa: WhatsAppClient, phone: str, appoi
         }
         for a in appointments
     ]
+    rows = _cap_rows(rows, "appointment selection menu")
     await wa.send_list(
         to=phone,
         body_text=body_text,
