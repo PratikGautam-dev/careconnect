@@ -235,10 +235,10 @@ export function OnboardingWizard() {
             illustrationImageWidth={1584}
             illustrationImageHeight={993}
             resourceLink={{
-              title: "Meta Business Settings",
-              description: "Open Security Center to start verification",
-              displayUrl: "business.facebook.com/settings",
-              href: "https://business.facebook.com/settings",
+              title: "Meta for Developers",
+              description: "Open your app's Production Setup to verify, register your number, and add payment",
+              displayUrl: "developers.facebook.com",
+              href: "https://developers.facebook.com",
             }}
             done={state.verifyBusinessDone}
             onDoneChange={(v) => dispatch({ type: "set", field: "verifyBusinessDone", value: v })}
