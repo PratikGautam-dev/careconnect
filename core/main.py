@@ -16,7 +16,7 @@ from admin.onboarding import router as onboarding_router
 from admin.theme import STYLE as _STYLE
 from portal import router as portal_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
-from core.booking_flow import handle_incoming
+import flows
 from core.history import get_history, get_session_store
 from core.whatsapp import WhatsAppClient, extract_phone_number_id, parse_incoming_message, validate_webhook_signature
 from db.init_db import init_db
@@ -139,23 +139,171 @@ app.include_router(portal_router)
 # prospective hospitals out), so it belongs on the homepage as the main CTA.
 # /admin/tenants (every hospital on the whole platform) is different -- that
 # one stays off this page; a client has no reason to see or reach it.
+#
+# Design reference: design-reference/ "DAAP CareConnect" landing mockup
+# (WhatsApp Image 2026-08-03 at 01.59.58.jpeg) -- reuses admin/theme.py's
+# shared tokens for consistency with the rest of the admin/onboarding/portal
+# surface, plus page-specific hero/phone-mockup CSS below that nothing else
+# needs. The phone mockup is hand-built HTML/CSS (no image asset), including
+# the exact main-menu copy shown in the reference. "Request a product demo"
+# has no backend flow to link to yet -- points at a placeholder mailto;
+# swap in a real address (or a real demo-request flow) once one exists.
 _LANDING_HTML = f"""<!doctype html>
 <html>
-<head><title>Hospital Onboarding — WhatsApp appointment booking</title>{_STYLE}</head>
+<head>
+<title>DAAP CareConnect — WhatsApp Appointment Booking &amp; Reminder Platform for Hospitals</title>
+{_STYLE}
+<style>
+  .hero-wrap {{ max-width: 1180px; margin: 0 auto; padding: 64px 24px 96px; }}
+  .hero-grid {{ display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px; align-items: center; }}
+  .hero-logo {{ display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }}
+  .hero-logo-mark {{
+    width: 52px; height: 52px; border-radius: 14px; background: var(--sage-deep);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 800; font-size: 26px; flex-shrink: 0;
+  }}
+  .hero-logo-super {{ display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-faint); }}
+  .hero-logo-word {{ font-family: var(--font-display); font-weight: 800; font-size: 34px; line-height: 1.1; }}
+  .hero-logo-word .accent {{ color: var(--sage-deep); }}
+  .hero-tagline {{ color: var(--ink-muted); font-size: 14.5px; margin: 0 0 32px; }}
+  .hero-heading {{ font-family: var(--font-display); font-weight: 800; font-size: 40px; line-height: 1.18; margin: 0 0 20px; letter-spacing: -0.01em; }}
+  .hero-heading .accent {{ color: var(--sage-deep); }}
+  .hero-desc {{ color: var(--ink-muted); font-size: 16px; max-width: 46ch; margin: 0 0 32px; }}
+  .hero-features {{ display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 36px; }}
+  .hero-feature {{ display: flex; gap: 8px; align-items: flex-start; max-width: 165px; }}
+  .hero-feature-icon {{
+    width: 34px; height: 34px; border-radius: 10px; background: var(--success-tint); color: var(--success);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }}
+  .hero-feature strong {{ display: block; font-size: 13.5px; color: var(--ink); }}
+  .hero-feature span {{ display: block; font-size: 12.5px; color: var(--ink-muted); margin-top: 2px; }}
+  .hero-ctas {{ display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }}
+  .hero-ctas .btn-secondary {{ padding: 13px 24px; font-size: 14.5px; }}
+  .hero-portal-link {{ display: inline-flex; align-items: center; gap: 4px; color: var(--sage-deep); font-weight: 600; font-size: 14px; text-decoration: none; }}
+  .hero-portal-link:hover {{ text-decoration: underline; }}
+
+  /* Phone mockup -- hand-built HTML/CSS, no image asset. */
+  .hero-phone-wrap {{ display: flex; justify-content: center; }}
+  .phone-frame {{
+    width: 300px; border-radius: 32px; background: #0E0E10; padding: 10px;
+    box-shadow: 0 24px 60px -20px rgba(20, 40, 32, 0.35);
+  }}
+  .phone-screen {{ background: #EDE6DA; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; height: 560px; }}
+  .phone-header {{
+    background: var(--sage-deep); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px;
+  }}
+  .phone-avatar {{
+    width: 30px; height: 30px; border-radius: 50%; background: #fff; color: var(--sage-deep);
+    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0;
+  }}
+  .phone-header-text {{ line-height: 1.25; }}
+  .phone-header-text strong {{ display: block; font-size: 13.5px; }}
+  .phone-header-text span {{ display: block; font-size: 10.5px; color: #D9E9E1; letter-spacing: 0.03em; text-transform: uppercase; }}
+  .phone-body {{ flex: 1; padding: 16px 14px; overflow: hidden; }}
+  .phone-bubble {{
+    background: #fff; border-radius: 10px; padding: 12px 14px; font-size: 12.5px; color: var(--ink);
+    line-height: 1.55; box-shadow: 0 1px 1px rgba(0,0,0,0.06); max-width: 92%;
+  }}
+  .phone-bubble ol {{ margin: 6px 0 0; padding-left: 18px; }}
+  .phone-bubble li {{ margin-bottom: 2px; }}
+  .phone-timestamp {{ display: block; text-align: right; font-size: 10px; color: var(--ink-faint); margin-top: 6px; }}
+  .phone-input-bar {{
+    background: #F7F5F0; border-top: 1px solid var(--sage-line); padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }}
+  .phone-input-bar span:first-child {{ color: var(--ink-faint); font-size: 12.5px; }}
+  .phone-mic {{
+    width: 28px; height: 28px; border-radius: 50%; background: var(--sage-deep); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;
+  }}
+
+  @media (max-width: 860px) {{
+    .hero-grid {{ grid-template-columns: 1fr; }}
+    .hero-phone-wrap {{ order: -1; margin-bottom: 12px; }}
+    .hero-heading {{ font-size: 32px; }}
+  }}
+</style>
+</head>
 <body>
-<div class="ok-page" style="max-width: 720px; text-align: center; padding-top: 96px;">
-  <div class="brand" style="justify-content: center; margin-bottom: 28px;">
-    <div class="brand-mark">H</div>
-    <span class="brand-name">Hospital Onboarding</span>
-  </div>
-  <h1 style="font-size: 34px;">WhatsApp appointment booking &amp; reminders for hospitals</h1>
-  <p class="step-desc" style="max-width: 52ch; margin-left: auto; margin-right: auto; font-size: 16px;">
-    Patients book, reschedule, and cancel appointments over WhatsApp — no app to install.
-    No AI, no per-conversation cost: menu-driven, tap-to-select booking that just works.
-  </p>
-  <div style="display: flex; gap: 12px; justify-content: center; margin-top: 32px; flex-wrap: wrap;">
-    <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Onboard your hospital</a>
-    <a class="btn-secondary" href="/portal/login">Staff bookings portal</a>
+<div class="hero-wrap">
+  <div class="hero-grid">
+    <div>
+      <div class="hero-logo">
+        <div class="hero-logo-mark">H</div>
+        <div>
+          <span class="hero-logo-super">DAAP</span>
+          <span class="hero-logo-word">Care<span class="accent">Connect</span></span>
+        </div>
+      </div>
+      <p class="hero-tagline">WhatsApp Appointment Booking &amp; Reminder Platform for Hospitals</p>
+
+      <h1 class="hero-heading">Appointments on <span class="accent">WhatsApp</span>.<br>Managed from one hospital dashboard.</h1>
+      <p class="hero-desc">
+        Let patients book, reschedule and cancel appointments through WhatsApp. Use this platform's own
+        booking database, connect your existing hospital system, or activate directly inside your hospital ERP.
+      </p>
+
+      <div class="hero-features">
+        <div class="hero-feature">
+          <div class="hero-feature-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12l2.5 2.5L16 9"/></svg>
+          </div>
+          <div><strong>No app for patients</strong><span>Works directly on WhatsApp</span></div>
+        </div>
+        <div class="hero-feature">
+          <div class="hero-feature-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 10h8M8 14h5"/></svg>
+          </div>
+          <div><strong>Simple &amp; guided</strong><span>Menu-driven booking that just works</span></div>
+        </div>
+        <div class="hero-feature">
+          <div class="hero-feature-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 15s1 1.5 2.5 1.5 2.5-.8 2.5-2-1-1.5-2.5-2-2.5-.8-2.5-2 1-2 2.5-2 2.5 1.5 2.5 1.5"/></svg>
+          </div>
+          <div><strong>Transparent pricing</strong><span>Meta messaging charges may apply</span></div>
+        </div>
+      </div>
+
+      <div class="hero-ctas">
+        <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Set up your hospital</a>
+        <a class="btn-secondary" href="mailto:hello@example.com?subject=DAAP%20CareConnect%20demo%20request">Request a product demo</a>
+      </div>
+      <a class="hero-portal-link" href="/portal/login">Open staff booking portal →</a>
+    </div>
+
+    <div class="hero-phone-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="phone-header">
+            <div class="phone-avatar">H</div>
+            <div class="phone-header-text">
+              <strong>ABC Hospital</strong>
+              <span>Business Account</span>
+            </div>
+          </div>
+          <div class="phone-body">
+            <div class="phone-bubble">
+              Hi! Welcome to ABC Hospital.<br>How can we help you today?<br>Please choose an option below.
+              <ol>
+                <li>Book an appointment</li>
+                <li>Reschedule appointment</li>
+                <li>Cancel appointment</li>
+                <li>My appointments</li>
+                <li>Hospital information</li>
+                <li>Talk to reception</li>
+              </ol>
+              <span class="phone-timestamp">10:30 AM</span>
+            </div>
+          </div>
+          <div class="phone-input-bar">
+            <span>Type a message</span>
+            <div class="phone-mic">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19 11a7 7 0 01-14 0M12 18v3"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 </body>
@@ -267,14 +415,24 @@ async def receive_message(request: Request):
 
 async def _process_message(wa: WhatsAppClient, hospital: db.Hospital, phone: str, reply: dict) -> None:
     """Process a single already-parsed incoming message with the (hospital, phone) lock already held."""
-    logger.info("Dispatching message from %s (hospital %s) to booking_flow: %s", phone, hospital.id, reply)
+    logger.info(
+        "Dispatching message from %s (hospital %s), enabled_features=%s: %s",
+        phone, hospital.id, hospital.enabled_features, reply,
+    )
     HISTORY.add(phone, "user", reply.get("text") or reply.get("title") or f"[{reply.get('type')}]")
     # SPEC Section 12.6.2: resolve this hospital's data_tier to a concrete
-    # connector exactly once, here, and hand it down -- booking_flow.py never
-    # looks at hospital.data_tier itself.
+    # connector exactly once, here, and hand it down -- flow handlers never
+    # look at hospital.data_tier themselves.
     connector = get_connector_for_hospital(hospital)
-    await handle_incoming(wa, SESSIONS, phone, hospital.id, reply, hospital.name, connector)
-    logger.info("booking_flow.handle_incoming returned for %s", phone)
+    # SPEC Section 14.5: flows.py is now the actual conversation entry point
+    # (not a lookup returning someone else's handler) -- it builds the IDLE
+    # main menu from hospital.enabled_features and internally delegates to
+    # core/booking_flow.py's/faq_flow.py's own sub-flow logic once a feature
+    # is selected.
+    await flows.handle_incoming(
+        wa, SESSIONS, phone, hospital.id, reply, hospital.name, connector, hospital.enabled_features,
+    )
+    logger.info("Flow router returned for %s (hospital %s)", phone, hospital.id)
 
 
 @app.post("/internal/send-reminders")

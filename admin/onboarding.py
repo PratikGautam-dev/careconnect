@@ -32,6 +32,7 @@ from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse
 
 import db.repository as db
+import flows
 from admin.theme import STYLE as _STYLE
 from db.connection import IntegrityError
 
@@ -160,6 +161,30 @@ def _build_departments(
     return departments, errors
 
 
+def _build_faq_topics(topic_label: list[str], topic_answer: list[str]) -> tuple[list[dict], list[str]]:
+    """Reconstructs topic/answer pairs from the wizard's repeatable topic-card
+    fields (Step 8, faq-flow tenants — Section 14.3), mirroring
+    _build_departments()'s "skip a card that's entirely empty, error on one
+    that's half-filled" shape. Positional pairing (topic_label[i] with
+    topic_answer[i]) matches DOM submit order, same as the doctor-card arrays."""
+    errors: list[str] = []
+    topics: list[dict] = []
+    count = max(len(topic_label), len(topic_answer))
+    for i in range(count):
+        label = (topic_label[i] if i < len(topic_label) else "").strip()
+        answer = (topic_answer[i] if i < len(topic_answer) else "").strip()
+        if not label and not answer:
+            continue  # an untouched "+ Add topic" card -- not an error, just skipped
+        if not label:
+            errors.append(f"Topic #{i + 1}: label is required (it has an answer but no label).")
+            continue
+        if not answer:
+            errors.append(f'Topic #{i + 1} ("{label}"): answer text is required.')
+            continue
+        topics.append({"topic_label": label, "answer_text": answer})
+    return topics, errors
+
+
 def _parse_offsets(text: str) -> list[float]:
     text = (text or "").strip()
     if not text:
@@ -178,14 +203,21 @@ def _parse_offsets(text: str) -> list[float]:
 
 # --- HTML/CSS/JS --- (shared _STYLE now lives in admin/theme.py)
 
+
+# Section 14.6: reordered so the tier (data connection) choice comes first,
+# before any Meta setup steps -- matches the reference design's own Step 0
+# ("Choose your hospital setup") preceding "1. Connect your Meta account".
+# Index 0 in this list is genuinely rendered as "Step 0" (not 1-indexed) --
+# see the wizard JS's rail-building loop below, which starts at 0 to match.
 _RAIL_TITLES = [
+    "Data Connection",
     "Meta Business Account",
     "WhatsApp on Meta App",
     "Verify Business & Number",
     "Permanent Access Token",
     "Phone Number & App Secret",
-    "Data Connection",
-    "Hospital & Doctors",
+    "Patient Experience",
+    "Hospital Details",
     "Review & Submit",
 ]
 
@@ -209,126 +241,10 @@ _WIZARD_TEMPLATE = """<!doctype html>
     <div id="error-banner"></div>
     <form id="wizard-form" method="post" action="/admin/onboard-hospital">
 
-      <section class="step-panel" data-step="1">
-        <p class="eyebrow">Step 1 of 8</p>
-        <h2>Create a Meta Business Account</h2>
-        <p class="step-desc">This is the account Meta uses to identify the hospital as a real business before it can send WhatsApp messages.</p>
-        <div class="guide-box">
-          <span class="guide-num">1</span>
-          <div class="guide-text">
-            <ol>
-              <li>Click <strong>Create Account</strong> (top right).</li>
-              <li>Enter your hospital's name, your own name, and your work email.</li>
-              <li>Check your email inbox and click the verification link Meta sends you.</li>
-              <li>Come back to this wizard and check the box below once done.</li>
-            </ol>
-            <a class="ext-link" href="https://business.facebook.com" target="_blank" rel="noopener">Open business.facebook.com ↗</a>
-          </div>
-        </div>
-        <label class="checkbox-row"><input type="checkbox" class="step-done-checkbox" data-step="1"> I've done this</label>
-        <div class="nav-buttons"><span></span><button type="button" class="next-btn" data-step="1" disabled>Next</button></div>
-      </section>
-
-      <section class="step-panel" data-step="2">
-        <p class="eyebrow">Step 2 of 8</p>
-        <h2>Set up WhatsApp on a Meta app</h2>
-        <p class="step-desc">The app is where the hospital's WhatsApp number and messaging permissions actually live.</p>
-        <div class="guide-box">
-          <span class="guide-num">1</span>
-          <div class="guide-text">
-            <ol>
-              <li>Log in with the <strong>same</strong> account you used in Step 1.</li>
-              <li>Click <strong>My Apps</strong> (top right) → <strong>Create App</strong>.</li>
-              <li>Choose <strong>Business</strong> as the app type → give it any name (e.g. "[Hospital Name] WhatsApp") → enter a contact email → <strong>Create App</strong>.</li>
-              <li>On your new app's dashboard, scroll to <strong>Add Products to Your App</strong> → find <strong>WhatsApp</strong> → click <strong>Set Up</strong>.</li>
-              <li>This takes you to the <strong>API Setup</strong> page — you'll come back here in Step 5 to copy two values.</li>
-            </ol>
-            <a class="ext-link" href="https://developers.facebook.com" target="_blank" rel="noopener">Open developers.facebook.com ↗</a>
-          </div>
-        </div>
-        <label class="checkbox-row"><input type="checkbox" class="step-done-checkbox" data-step="2"> I've done this</label>
-        <div class="nav-buttons">
-          <button type="button" class="back-btn" data-step="2">Back</button>
-          <button type="button" class="next-btn" data-step="2" disabled>Next</button>
-        </div>
-      </section>
-
-      <section class="step-panel" data-step="3">
-        <p class="eyebrow">Step 3 of 8</p>
-        <h2>Verify business, register number, add payment</h2>
-        <p class="step-desc">Genuine per-hospital steps on Meta's side — no wizard can skip these.</p>
-        <div class="guide-box">
-          <span class="guide-num">1</span>
-          <div class="guide-text">
-            <ol>
-              <li>Go to <strong>business.facebook.com/settings</strong> → left sidebar → <strong>Security Center</strong> → <strong>Start Verification</strong>.</li>
-              <li>Follow Meta's prompts — you'll need your hospital's legal business name, address, and a document like a business registration certificate or tax ID.</li>
-              <li>This can take Meta a few hours to a few days to review — you can continue to later wizard steps while waiting, but your number won't be able to message real patients until this completes.</li>
-              <li>Once verified, go back to your app's <strong>WhatsApp → API Setup</strong> page → find <strong>Step 2: Add a phone number</strong> → register your hospital's real WhatsApp number (not a personal number already using regular WhatsApp) and verify it via the code Meta texts you.</li>
-              <li>Still on that page, find <strong>Add payment method</strong> → add a card. This is required before sending messages, but you are only charged for messages actually sent later — adding the card itself is free.</li>
-            </ol>
-          </div>
-        </div>
-        <label class="checkbox-row"><input type="checkbox" class="step-done-checkbox" data-step="3"> I've done this</label>
-        <div class="nav-buttons">
-          <button type="button" class="back-btn" data-step="3">Back</button>
-          <button type="button" class="next-btn" data-step="3" disabled>Next</button>
-        </div>
-      </section>
-
-      <section class="step-panel" data-step="4">
-        <p class="eyebrow">Step 4 of 8</p>
-        <h2>Generate a permanent access token</h2>
-        <p class="step-desc">This avoids the default token expiring every 24 hours.</p>
-        <div class="guide-box">
-          <span class="guide-num">1</span>
-          <div class="guide-text">
-            <ol>
-              <li>Go to <strong>business.facebook.com/settings</strong> → <strong>Users</strong> → <strong>System Users</strong> → <strong>Add</strong>.</li>
-              <li>Give it a name (e.g. "[Hospital Name] Bot") and set its role to <strong>Admin</strong>.</li>
-              <li>Click <strong>Assign Assets</strong> → <strong>Apps</strong> tab → select the app you created in Step 2 → give it <strong>Full Control</strong>.</li>
-              <li>Click <strong>Generate New Token</strong> → select that same app → under permissions, check <strong>whatsapp_business_messaging</strong> and <strong>whatsapp_business_management</strong> → set expiration to <strong>Never</strong> → <strong>Generate Token</strong>.</li>
-              <li><strong>Copy the token immediately and paste it below</strong> — Meta only shows it once; if you lose it, you'll need to generate a new one.</li>
-            </ol>
-          </div>
-        </div>
-        <label for="f-access_token">Access token</label>
-        <input type="text" id="f-access_token" name="access_token" placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxx">
-        <p class="field-hint">You'll find this on the System User's "Generate token" screen.</p>
-        <div class="nav-buttons">
-          <button type="button" class="back-btn" data-step="4">Back</button>
-          <button type="button" class="next-btn" data-step="4">Next</button>
-        </div>
-      </section>
-
-      <section class="step-panel" data-step="5">
-        <p class="eyebrow">Step 5 of 8</p>
-        <h2>Paste your remaining credentials</h2>
-        <p class="step-desc">Both of these come from the app created in Step 2.</p>
-        <div class="guide-box">
-          <span class="guide-num">1</span>
-          <div class="guide-text">
-            <ol>
-              <li>Go back to your app's <strong>WhatsApp → API Setup</strong> page (from Step 2).</li>
-              <li>Copy the <strong>Phone Number ID</strong> shown there and paste it below.</li>
-              <li>Go to your app's <strong>Settings → Basic</strong> → click <strong>Show</strong> next to <strong>App Secret</strong> → copy and paste it below.</li>
-            </ol>
-          </div>
-        </div>
-        <label for="f-whatsapp_phone_number_id">WhatsApp phone_number_id</label>
-        <input type="text" id="f-whatsapp_phone_number_id" name="whatsapp_phone_number_id" required>
-        <label for="f-app_secret">App secret</label>
-        <input type="text" id="f-app_secret" name="app_secret">
-        <div class="nav-buttons">
-          <button type="button" class="back-btn" data-step="5">Back</button>
-          <button type="button" class="next-btn" data-step="5">Next</button>
-        </div>
-      </section>
-
-      <section class="step-panel" data-step="6">
-        <p class="eyebrow">Step 6 of 8</p>
-        <h2>Choose data setup</h2>
-        <p class="step-desc">Does a system you already use manage appointments/doctor scheduling today?</p>
+      <section class="step-panel" data-step="0">
+        <p class="eyebrow">Step 0 of 9</p>
+        <h2>Choose your hospital setup</h2>
+        <p class="step-desc">Does a system you already use manage appointments/doctor scheduling today? This decides how the rest of this wizard is set up, so it comes first.</p>
         <div class="guide-box">
           <span class="guide-num">?</span>
           <div class="guide-text">
@@ -370,40 +286,230 @@ _WIZARD_TEMPLATE = """<!doctype html>
         </div>
 
         <div class="nav-buttons">
+          <span></span>
+          <button type="button" class="next-btn" data-step="0">Next</button>
+        </div>
+      </section>
+
+      <section class="step-panel" data-step="1">
+        <p class="eyebrow">Step 1 of 9</p>
+        <h2>Create a Meta Business Account</h2>
+        <p class="step-desc">This is the account Meta uses to identify the hospital as a real business before it can send WhatsApp messages.</p>
+        <div class="guide-box">
+          <span class="guide-num">1</span>
+          <div class="guide-text">
+            <ol>
+              <li>Click <strong>Create Account</strong> (top right).</li>
+              <li>Enter your hospital's name, your own name, and your work email.</li>
+              <li>Check your email inbox and click the verification link Meta sends you.</li>
+              <li>Come back to this wizard and check the box below once done.</li>
+            </ol>
+            <a class="ext-link" href="https://business.facebook.com" target="_blank" rel="noopener">Open business.facebook.com ↗</a>
+          </div>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" class="step-done-checkbox" data-step="1"> I've done this</label>
+        <div class="nav-buttons">
+          <button type="button" class="back-btn" data-step="1">Back</button>
+          <button type="button" class="next-btn" data-step="1" disabled>Next</button>
+        </div>
+      </section>
+
+      <section class="step-panel" data-step="2">
+        <p class="eyebrow">Step 2 of 9</p>
+        <h2>Set up WhatsApp on a Meta app</h2>
+        <p class="step-desc">The app is where the hospital's WhatsApp number and messaging permissions actually live.</p>
+        <div class="guide-box">
+          <span class="guide-num">1</span>
+          <div class="guide-text">
+            <ol>
+              <li>Log in with the <strong>same</strong> account you used in Step 1.</li>
+              <li>Click <strong>My Apps</strong> (top right) → <strong>Create App</strong>.</li>
+              <li>Choose <strong>Business</strong> as the app type → give it any name (e.g. "[Hospital Name] WhatsApp") → enter a contact email → <strong>Create App</strong>.</li>
+              <li>On your new app's dashboard, scroll to <strong>Add Products to Your App</strong> → find <strong>WhatsApp</strong> → click <strong>Set Up</strong>.</li>
+              <li>This takes you to the <strong>API Setup</strong> page — you'll come back here in Step 5 to copy two values.</li>
+            </ol>
+            <a class="ext-link" href="https://developers.facebook.com" target="_blank" rel="noopener">Open developers.facebook.com ↗</a>
+          </div>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" class="step-done-checkbox" data-step="2"> I've done this</label>
+        <div class="nav-buttons">
+          <button type="button" class="back-btn" data-step="2">Back</button>
+          <button type="button" class="next-btn" data-step="2" disabled>Next</button>
+        </div>
+      </section>
+
+      <section class="step-panel" data-step="3">
+        <p class="eyebrow">Step 3 of 9</p>
+        <h2>Verify business, register number, add payment</h2>
+        <p class="step-desc">Genuine per-hospital steps on Meta's side — no wizard can skip these.</p>
+        <div class="guide-box">
+          <span class="guide-num">1</span>
+          <div class="guide-text">
+            <ol>
+              <li>Go to <strong>business.facebook.com/settings</strong> → left sidebar → <strong>Security Center</strong> → <strong>Start Verification</strong>.</li>
+              <li>Follow Meta's prompts — you'll need your hospital's legal business name, address, and a document like a business registration certificate or tax ID.</li>
+              <li>This can take Meta a few hours to a few days to review — you can continue to later wizard steps while waiting, but your number won't be able to message real patients until this completes.</li>
+              <li>Once verified, go back to your app's <strong>WhatsApp → API Setup</strong> page → find <strong>Step 2: Add a phone number</strong> → register your hospital's real WhatsApp number (not a personal number already using regular WhatsApp) and verify it via the code Meta texts you.</li>
+              <li>Still on that page, find <strong>Add payment method</strong> → add a card. This is required before sending messages, but you are only charged for messages actually sent later — adding the card itself is free.</li>
+            </ol>
+          </div>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" class="step-done-checkbox" data-step="3"> I've done this</label>
+        <div class="nav-buttons">
+          <button type="button" class="back-btn" data-step="3">Back</button>
+          <button type="button" class="next-btn" data-step="3" disabled>Next</button>
+        </div>
+      </section>
+
+      <section class="step-panel" data-step="4">
+        <p class="eyebrow">Step 4 of 9</p>
+        <h2>Generate a permanent access token</h2>
+        <p class="step-desc">This avoids the default token expiring every 24 hours.</p>
+        <div class="guide-box">
+          <span class="guide-num">1</span>
+          <div class="guide-text">
+            <ol>
+              <li>Go to <strong>business.facebook.com/settings</strong> → <strong>Users</strong> → <strong>System Users</strong> → <strong>Add</strong>.</li>
+              <li>Give it a name (e.g. "[Hospital Name] Bot") and set its role to <strong>Admin</strong>.</li>
+              <li>Click <strong>Assign Assets</strong> → <strong>Apps</strong> tab → select the app you created in Step 2 → give it <strong>Full Control</strong>.</li>
+              <li>Click <strong>Generate New Token</strong> → select that same app → under permissions, check <strong>whatsapp_business_messaging</strong> and <strong>whatsapp_business_management</strong> → set expiration to <strong>Never</strong> → <strong>Generate Token</strong>.</li>
+              <li><strong>Copy the token immediately and paste it below</strong> — Meta only shows it once; if you lose it, you'll need to generate a new one.</li>
+            </ol>
+          </div>
+        </div>
+        <label for="f-access_token">Access token</label>
+        <input type="text" id="f-access_token" name="access_token" placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxx">
+        <p class="field-hint">You'll find this on the System User's "Generate token" screen.</p>
+        <div class="nav-buttons">
+          <button type="button" class="back-btn" data-step="4">Back</button>
+          <button type="button" class="next-btn" data-step="4">Next</button>
+        </div>
+      </section>
+
+      <section class="step-panel" data-step="5">
+        <p class="eyebrow">Step 5 of 9</p>
+        <h2>Paste your remaining credentials</h2>
+        <p class="step-desc">Both of these come from the app created in Step 2.</p>
+        <div class="guide-box">
+          <span class="guide-num">1</span>
+          <div class="guide-text">
+            <ol>
+              <li>Go back to your app's <strong>WhatsApp → API Setup</strong> page (from Step 2).</li>
+              <li>Copy the <strong>Phone Number ID</strong> shown there and paste it below.</li>
+              <li>Go to your app's <strong>Settings → Basic</strong> → click <strong>Show</strong> next to <strong>App Secret</strong> → copy and paste it below.</li>
+            </ol>
+          </div>
+        </div>
+        <label for="f-whatsapp_phone_number_id">WhatsApp phone_number_id</label>
+        <input type="text" id="f-whatsapp_phone_number_id" name="whatsapp_phone_number_id" required>
+        <label for="f-app_secret">App secret</label>
+        <input type="text" id="f-app_secret" name="app_secret">
+        <div class="nav-buttons">
+          <button type="button" class="back-btn" data-step="5">Back</button>
+          <button type="button" class="next-btn" data-step="5">Next</button>
+        </div>
+      </section>
+
+      <section class="step-panel" data-step="6">
+        <p class="eyebrow">Step 6 of 9</p>
+        <h2>What should patients be able to do on WhatsApp?</h2>
+        <p class="step-desc">Select every capability this hospital wants to offer — patients only ever see the ones you turn on here. You can change this later.</p>
+        <div class="tier-grid feature-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="booking" checked>
+            <h3>Book Appointment</h3>
+            <p>Patients pick a department, doctor, and time slot.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="reschedule" checked>
+            <h3>Reschedule Appointment</h3>
+            <p>Move an existing booking to a new time.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="cancel" checked>
+            <h3>Cancel Appointment</h3>
+            <p>Cancel an existing booking.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="view_appointments" checked>
+            <h3>View My Appointments</h3>
+            <p>See a list of upcoming bookings.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="hospital_info" checked>
+            <h3>Hospital Information</h3>
+            <p>Hours, location, and general info.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="reception_handoff" checked>
+            <span class="tier-badge">Coming soon</span>
+            <h3>Talk to Reception</h3>
+            <p>Hand off to a human. Shows a "coming soon" message for now.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="faq">
+            <h3>FAQ / Information Bot</h3>
+            <p>Patients pick a topic (hours, pricing...) and get an instant configured answer.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="payment_link">
+            <span class="tier-badge">Coming soon</span>
+            <h3>Payment Link</h3>
+            <p>Send a payment link on request. Shows a "coming soon" message for now.</p>
+          </label>
+          <label class="tier-card feature-card">
+            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="reports">
+            <span class="tier-badge">Coming soon</span>
+            <h3>Reports &amp; Results</h3>
+            <p>Share reports/results securely. Shows a "coming soon" message for now.</p>
+          </label>
+        </div>
+
+        <div class="nav-buttons">
           <button type="button" class="back-btn" data-step="6">Back</button>
           <button type="button" class="next-btn" data-step="6">Next</button>
         </div>
       </section>
 
       <section class="step-panel" data-step="7">
-        <p class="eyebrow">Step 7 of 8</p>
-        <h2>Add departments &amp; doctors</h2>
-        <p class="step-desc">This drives real slot generation — patients only see times a doctor is actually working.</p>
+        <p class="eyebrow">Step 7 of 9</p>
+        <h2 id="hospital-details-heading">Add departments &amp; doctors</h2>
+        <p class="step-desc" id="hospital-details-desc">This drives real slot generation — patients only see times a doctor is actually working.</p>
         <label for="f-name">Hospital name</label>
         <input type="text" id="f-name" name="name" required>
         <label for="f-welcome_message_text">Welcome message text</label>
         <textarea id="f-welcome_message_text" name="welcome_message_text" rows="2"
                   placeholder="Hi! Welcome to [Hospital Name]. How can we help you today?"></textarea>
-        <div class="field-row">
-          <div>
-            <label for="f-reminder_offsets_hours">Reminder offsets (comma-separated hours)</label>
-            <input type="text" id="f-reminder_offsets_hours" name="reminder_offsets_hours" placeholder="24,1" value="24">
-            <p class="field-hint">Enter hours before the appointment, separated by commas — e.g. 24,1 sends a reminder one day before and one hour before.</p>
+
+        <div id="booking-fields">
+          <div class="field-row">
+            <div>
+              <label for="f-reminder_offsets_hours">Reminder offsets (comma-separated hours)</label>
+              <input type="text" id="f-reminder_offsets_hours" name="reminder_offsets_hours" placeholder="24,1" value="24">
+              <p class="field-hint">Enter hours before the appointment, separated by commas — e.g. 24,1 sends a reminder one day before and one hour before.</p>
+            </div>
+            <div>
+              <label for="f-reminder_template_name">Reminder template name</label>
+              <input type="text" id="f-reminder_template_name" name="reminder_template_name">
+              <p class="field-hint">This must match a message template you've submitted for approval in Meta's WhatsApp Manager — we'll help you with the exact wording to submit.</p>
+            </div>
           </div>
-          <div>
-            <label for="f-reminder_template_name">Reminder template name</label>
-            <input type="text" id="f-reminder_template_name" name="reminder_template_name">
-            <p class="field-hint">This must match a message template you've submitted for approval in Meta's WhatsApp Manager — we'll help you with the exact wording to submit.</p>
-          </div>
+
+          <label for="f-portal_password">Bookings portal password (optional)</label>
+          <input type="password" id="f-portal_password" name="portal_password" placeholder="Leave blank to set this later">
+          <p class="field-hint">Your own staff can use this to log into a simple dashboard at /portal/login and see every appointment booked through WhatsApp (Tier 1 only). You can set or change it anytime after onboarding too.</p>
+
+          <label style="margin-top: 28px;">Departments &amp; doctors</label>
+          <div id="departments-container"></div>
+          <button type="button" class="add-doctor" id="add-department-btn" style="margin-top:14px;">+ Add department</button>
         </div>
 
-        <label for="f-portal_password">Bookings portal password (optional)</label>
-        <input type="password" id="f-portal_password" name="portal_password" placeholder="Leave blank to set this later">
-        <p class="field-hint">Your own staff can use this to log into a simple dashboard at /portal/login and see every appointment booked through WhatsApp (Tier 1 only). You can set or change it anytime after onboarding too.</p>
-
-        <label style="margin-top: 28px;">Departments &amp; doctors</label>
-        <div id="departments-container"></div>
-        <button type="button" class="add-doctor" id="add-department-btn" style="margin-top:14px;">+ Add department</button>
+        <div id="faq-fields" style="display:none;">
+          <label style="margin-top: 28px;">Topics &amp; answers</label>
+          <p class="field-hint">Each topic becomes an option patients tap on WhatsApp — e.g. "Hours," "Location," "Pricing." Keep answers short and clear.</p>
+          <div id="topics-container"></div>
+          <button type="button" class="add-doctor" id="add-topic-btn" style="margin-top:14px;">+ Add topic</button>
+        </div>
 
         <div class="nav-buttons">
           <button type="button" class="back-btn" data-step="7">Back</button>
@@ -412,7 +518,7 @@ _WIZARD_TEMPLATE = """<!doctype html>
       </section>
 
       <section class="step-panel" data-step="8">
-        <p class="eyebrow">Step 8 of 8</p>
+        <p class="eyebrow">Step 8 of 9</p>
         <h2>Review &amp; go live</h2>
         <p class="step-desc">One last look before this hospital is created and immediately bookable.</p>
         <div class="review-block" id="review-block"></div>
@@ -485,6 +591,17 @@ _WIZARD_TEMPLATE = """<!doctype html>
   </div>
 </template>
 
+<template id="topic-card-template">
+  <div class="dept-card topic-card">
+    <div class="dept-card-header">
+      <input type="text" class="topic-label" name="topic_label" placeholder="Topic (e.g. Hours)">
+      <button type="button" class="remove-link remove-topic-btn">Remove topic</button>
+    </div>
+    <label>Answer</label>
+    <textarea class="topic-answer" name="topic_answer" rows="2" placeholder="e.g. We're open Mon-Sat, 9:00 AM - 6:00 PM."></textarea>
+  </div>
+</template>
+
 <script>
 window.__WIZARD_BOOTSTRAP__ = __BOOTSTRAP_JSON__;
 window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
@@ -494,13 +611,17 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
   var RAIL_TITLES = __RAIL_TITLES_JSON__;
   var WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   var totalSteps = RAIL_TITLES.length;
-  var currentStep = 1;
-  var maxUnlockedStep = 1;
+  // Section 14.6: Step 0 (tier choice) genuinely IS step zero, not a
+  // 1-indexing quirk -- matches the reference design's own "0. Choose your
+  // hospital setup" preceding "1. Connect your Meta account". Every step
+  // number below is 0-indexed accordingly (0..totalSteps-1).
+  var currentStep = 0;
+  var maxUnlockedStep = 0;
 
   var rail = document.getElementById("rail");
   var railHtml = '<h1>Onboard a hospital</h1>';
-  for (var i = 1; i <= totalSteps; i++) {
-    railHtml += '<div class="rail-step" data-step="' + i + '"><span class="dot">' + i + '</span><span>' + RAIL_TITLES[i - 1] + '</span></div>';
+  for (var i = 0; i < totalSteps; i++) {
+    railHtml += '<div class="rail-step" data-step="' + i + '"><span class="dot">' + i + '</span><span>' + RAIL_TITLES[i] + '</span></div>';
   }
   rail.innerHTML = railHtml;
 
@@ -523,7 +644,7 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     currentStep = step;
     renderRail();
     window.scrollTo(0, 0);
-    if (step === totalSteps) renderReview();
+    if (step === totalSteps - 1) renderReview();
   }
 
   rail.addEventListener("click", function (e) {
@@ -533,6 +654,9 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     if (step <= maxUnlockedStep) goToStep(step);
   });
 
+  // Every back-btn just goes to step-1 -- no more skip-a-step special-casing
+  // now that the data-tier choice (the thing that used to be conditionally
+  // skipped) is Step 0, always shown, never conditional (Section 14.6).
   document.querySelectorAll(".back-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
       goToStep(parseInt(btn.getAttribute("data-step"), 10) - 1);
@@ -548,11 +672,7 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
   });
 
   function validateStep(step) {
-    if (step === 5) {
-      var pid = document.getElementById("f-whatsapp_phone_number_id").value.trim();
-      if (!pid) { alert("WhatsApp phone_number_id is required."); return false; }
-    }
-    if (step === 6) {
+    if (step === 0) {
       var tier = document.getElementById("f-data_tier").value;
       if (tier === "tier2") {
         var base = document.getElementById("f-api_base_url").value.trim();
@@ -560,12 +680,31 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
         if (!base || !key) { alert("API base URL and API key are both required for Tier 2."); return false; }
       }
     }
+    if (step === 5) {
+      var pid = document.getElementById("f-whatsapp_phone_number_id").value.trim();
+      if (!pid) { alert("WhatsApp phone_number_id is required."); return false; }
+    }
+    if (step === 6) {
+      var anyFeatureChecked = document.querySelectorAll(".feature-checkbox:checked").length > 0;
+      if (!anyFeatureChecked) { alert("Select at least one capability for patients to use."); return false; }
+    }
     if (step === 7) {
       var name = document.getElementById("f-name").value.trim();
       if (!name) { alert("Hospital name is required."); return false; }
-      recomputeDepartmentIndices();
-      var doctorCount = document.querySelectorAll(".doctor-card").length;
-      if (doctorCount === 0) { alert("At least one department with at least one doctor is required."); return false; }
+      if (document.querySelector('.feature-checkbox[value="booking"]').checked) {
+        recomputeDepartmentIndices();
+        var doctorCount = document.querySelectorAll(".doctor-card").length;
+        if (doctorCount === 0) { alert("Booking is enabled, so at least one department with at least one doctor is required."); return false; }
+      }
+      if (document.querySelector('.feature-checkbox[value="faq"]').checked) {
+        var topicCount = 0;
+        document.querySelectorAll(".topic-card").forEach(function (card) {
+          var label = card.querySelector(".topic-label").value.trim();
+          var answer = card.querySelector(".topic-answer").value.trim();
+          if (label && answer) topicCount++;
+        });
+        if (topicCount === 0) { alert("FAQ / Information Bot is enabled, so at least one topic with a label and an answer is required."); return false; }
+      }
     }
     return true;
   }
@@ -579,10 +718,10 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     });
   });
 
-  // --- Tier cards (Step 6) ---
-  document.querySelectorAll(".tier-card").forEach(function (card) {
+  // --- Tier cards (Step 0) ---
+  document.querySelectorAll(".tier-card[data-tier]").forEach(function (card) {
     card.addEventListener("click", function () {
-      document.querySelectorAll(".tier-card").forEach(function (c) { c.classList.remove("selected"); });
+      document.querySelectorAll(".tier-card[data-tier]").forEach(function (c) { c.classList.remove("selected"); });
       card.classList.add("selected");
       var tier = card.getAttribute("data-tier");
       document.getElementById("f-data_tier").value = tier;
@@ -590,6 +729,34 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
       document.getElementById("tier3-note").style.display = tier === "tier3" ? "block" : "none";
     });
   });
+
+  // --- Feature toggles (Step 6, Section 14.6) ---
+  // Multi-select (unlike Step 0's tier cards above, which are exclusive) --
+  // a hospital enables any combination of capabilities. Toggling "booking"
+  // or "faq" also shows/hides the matching section of Step 7 (Hospital
+  // Details), since both can be on at once now.
+  function updateHospitalDetailsVisibility() {
+    var bookingEnabled = document.querySelector('.feature-checkbox[value="booking"]').checked;
+    var faqEnabled = document.querySelector('.feature-checkbox[value="faq"]').checked;
+    document.getElementById("booking-fields").style.display = bookingEnabled ? "block" : "none";
+    document.getElementById("faq-fields").style.display = faqEnabled ? "block" : "none";
+    var parts = [];
+    if (bookingEnabled) parts.push("departments & doctors");
+    if (faqEnabled) parts.push("topics & answers");
+    document.getElementById("hospital-details-heading").textContent = parts.length ? "Add " + parts.join(" and ") : "Hospital details";
+    document.getElementById("hospital-details-desc").textContent = bookingEnabled
+      ? "This drives real slot generation — patients only see times a doctor is actually working."
+      : (faqEnabled ? "Each topic becomes a tappable option — patients get an instant answer, no scheduling involved."
+                    : "Basic details for this hospital.");
+  }
+  document.querySelectorAll(".feature-checkbox").forEach(function (box) {
+    box.closest(".feature-card").classList.toggle("selected", box.checked);
+    box.addEventListener("change", function () {
+      box.closest(".feature-card").classList.toggle("selected", box.checked);
+      updateHospitalDetailsVisibility();
+    });
+  });
+  updateHospitalDetailsVisibility();
 
   // --- Department / doctor cards (Step 7) ---
   var deptContainer = document.getElementById("departments-container");
@@ -709,7 +876,23 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     });
   }
 
-  // --- Review (Step 8) ---
+  // --- FAQ topic cards (Step 8, faq tenants only) ---
+  var topicContainer = document.getElementById("topics-container");
+  var topicTemplate = document.getElementById("topic-card-template");
+
+  function addTopicCard(data) {
+    data = data || {};
+    var node = topicTemplate.content.cloneNode(true);
+    var card = node.querySelector(".topic-card");
+    card.querySelector(".topic-label").value = data.topic_label || "";
+    card.querySelector(".topic-answer").value = data.answer_text || "";
+    card.querySelector(".remove-topic-btn").addEventListener("click", function () { card.remove(); });
+    topicContainer.appendChild(card);
+  }
+
+  document.getElementById("add-topic-btn").addEventListener("click", function () { addTopicCard(); });
+
+  // --- Review (Step 9) ---
   // Masks all but the last 4 characters of a credential -- used for the
   // access token and app secret specifically (SPEC Section 12.1 Step 8);
   // everything else on the review screen is shown in full.
@@ -726,12 +909,29 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     return html;
   }
 
+  var FEATURE_LABELS = {
+    booking: "Book Appointment", reschedule: "Reschedule Appointment", cancel: "Cancel Appointment",
+    view_appointments: "View My Appointments", hospital_info: "Hospital Information",
+    reception_handoff: "Talk to Reception (coming soon)", faq: "FAQ / Information Bot",
+    payment_link: "Payment Link (coming soon)", reports: "Reports & Results (coming soon)",
+  };
+
   function renderReview() {
     recomputeDepartmentIndices();
     var get = function (id) { return document.getElementById(id).value; };
     var tierLabels = {tier1: "Tier 1 — this platform", tier2: "Tier 2 — external API", tier3: "Tier 3 — direct database"};
+    var bookingEnabled = document.querySelector('.feature-checkbox[value="booking"]').checked;
+    var faqEnabled = document.querySelector('.feature-checkbox[value="faq"]').checked;
 
     var html = "";
+
+    var tier = get("f-data_tier");
+    var tierRows = "<dt>Data connection</dt><dd>" + escapeHtml(tierLabels[tier]) + "</dd>";
+    if (tier === "tier2") {
+      tierRows += "<dt>API base URL</dt><dd>" + escapeHtml(get("f-api_base_url")) + "</dd>";
+      tierRows += "<dt>API key</dt><dd>" + escapeHtml(get("f-api_key")) + "</dd>";
+    }
+    html += reviewSection("Data connection (Step 0)", 0, tierRows);
 
     html += reviewSection("Access token (Step 4)", 4,
       "<dt>Access token</dt><dd>" + escapeHtml(maskSecret(get("f-access_token"))) + "</dd>");
@@ -740,44 +940,67 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
       "<dt>Phone number ID</dt><dd>" + escapeHtml(get("f-whatsapp_phone_number_id")) + "</dd>" +
       "<dt>App secret</dt><dd>" + escapeHtml(maskSecret(get("f-app_secret"))) + "</dd>");
 
-    var tier = get("f-data_tier");
-    var tierRows = "<dt>Data connection</dt><dd>" + escapeHtml(tierLabels[tier]) + "</dd>";
-    if (tier === "tier2") {
-      tierRows += "<dt>API base URL</dt><dd>" + escapeHtml(get("f-api_base_url")) + "</dd>";
-      tierRows += "<dt>API key</dt><dd>" + escapeHtml(get("f-api_key")) + "</dd>";
-    }
-    html += reviewSection("Data connection (Step 6)", 6, tierRows);
+    var selectedFeatures = Array.prototype.map.call(
+      document.querySelectorAll(".feature-checkbox:checked"),
+      function (box) { return FEATURE_LABELS[box.value] || box.value; }
+    );
+    html += reviewSection("Patient experience (Step 6)", 6,
+      "<dt>Enabled for patients</dt><dd>" + (selectedFeatures.length
+        ? "<ul style='margin:0.3rem 0 0;padding-left:1.1rem;'>" + selectedFeatures.map(function (f) { return "<li>" + escapeHtml(f) + "</li>"; }).join("") + "</ul>"
+        : "(none selected yet)") + "</dd>");
 
     var hospitalRows = "<dt>Hospital name</dt><dd>" + escapeHtml(get("f-name")) + "</dd>";
     hospitalRows += "<dt>Welcome message</dt><dd>" + escapeHtml(get("f-welcome_message_text") || "(not set)") + "</dd>";
-    hospitalRows += "<dt>Reminder offsets (hours)</dt><dd>" + escapeHtml(get("f-reminder_offsets_hours")) + "</dd>";
-    hospitalRows += "<dt>Reminder template name</dt><dd>" + escapeHtml(get("f-reminder_template_name") || "(not set)") + "</dd>";
-    hospitalRows += "<dt>Bookings portal password</dt><dd>" + (get("f-portal_password") ? "Set" : "Not set — can add later") + "</dd>";
-    hospitalRows += "<dt>Departments &amp; doctors</dt><dd>";
-    // Skips cards with no name AND no doctors -- an operator who clicked
-    // "+ Add department" but didn't fill it in yet shouldn't see a
-    // confusing "(unnamed department):" line; the backend's own
-    // _build_departments() filters the same way, so this matches what will
-    // actually get created.
-    var deptCards = Array.prototype.filter.call(deptContainer.querySelectorAll(".dept-card"), function (deptCard) {
-      return deptCard.querySelector(".department-name").value.trim() || deptCard.querySelectorAll(".doctor-card").length > 0;
-    });
-    if (deptCards.length === 0) {
-      hospitalRows += "(none added yet)";
-    } else {
-      hospitalRows += "<ul style='margin:0.3rem 0 0;padding-left:1.1rem;'>";
-      deptCards.forEach(function (deptCard) {
-        var deptName = deptCard.querySelector(".department-name").value || "(unnamed department)";
-        var doctorNames = [];
-        deptCard.querySelectorAll(".doctor-card").forEach(function (dc) {
-          doctorNames.push(dc.querySelector(".doctor-name").value || "(unnamed doctor)");
-        });
-        hospitalRows += "<li>" + escapeHtml(deptName) + ": " + escapeHtml(doctorNames.join(", ")) + "</li>";
+
+    if (bookingEnabled) {
+      hospitalRows += "<dt>Reminder offsets (hours)</dt><dd>" + escapeHtml(get("f-reminder_offsets_hours")) + "</dd>";
+      hospitalRows += "<dt>Reminder template name</dt><dd>" + escapeHtml(get("f-reminder_template_name") || "(not set)") + "</dd>";
+      hospitalRows += "<dt>Bookings portal password</dt><dd>" + (get("f-portal_password") ? "Set" : "Not set — can add later") + "</dd>";
+      hospitalRows += "<dt>Departments &amp; doctors</dt><dd>";
+      // Skips cards with no name AND no doctors -- an operator who clicked
+      // "+ Add department" but didn't fill it in yet shouldn't see a
+      // confusing "(unnamed department):" line; the backend's own
+      // _build_departments() filters the same way, so this matches what will
+      // actually get created.
+      var deptCards = Array.prototype.filter.call(deptContainer.querySelectorAll(".dept-card"), function (deptCard) {
+        return deptCard.querySelector(".department-name").value.trim() || deptCard.querySelectorAll(".doctor-card").length > 0;
       });
-      hospitalRows += "</ul>";
+      if (deptCards.length === 0) {
+        hospitalRows += "(none added yet)";
+      } else {
+        hospitalRows += "<ul style='margin:0.3rem 0 0;padding-left:1.1rem;'>";
+        deptCards.forEach(function (deptCard) {
+          var deptName = deptCard.querySelector(".department-name").value || "(unnamed department)";
+          var doctorNames = [];
+          deptCard.querySelectorAll(".doctor-card").forEach(function (dc) {
+            doctorNames.push(dc.querySelector(".doctor-name").value || "(unnamed doctor)");
+          });
+          hospitalRows += "<li>" + escapeHtml(deptName) + ": " + escapeHtml(doctorNames.join(", ")) + "</li>";
+        });
+        hospitalRows += "</ul>";
+      }
+      hospitalRows += "</dd>";
     }
-    hospitalRows += "</dd>";
-    html += reviewSection("Hospital & doctors (Step 7)", 7, hospitalRows);
+
+    if (faqEnabled) {
+      hospitalRows += "<dt>Topics &amp; answers</dt><dd>";
+      var topicCards = Array.prototype.filter.call(topicContainer.querySelectorAll(".topic-card"), function (tc) {
+        return tc.querySelector(".topic-label").value.trim() || tc.querySelector(".topic-answer").value.trim();
+      });
+      if (topicCards.length === 0) {
+        hospitalRows += "(none added yet)";
+      } else {
+        hospitalRows += "<ul style='margin:0.3rem 0 0;padding-left:1.1rem;'>";
+        topicCards.forEach(function (tc) {
+          var label = tc.querySelector(".topic-label").value || "(unnamed topic)";
+          var answer = tc.querySelector(".topic-answer").value || "(no answer yet)";
+          hospitalRows += "<li>" + escapeHtml(label) + ": " + escapeHtml(answer) + "</li>";
+        });
+        hospitalRows += "</ul>";
+      }
+      hospitalRows += "</dd>";
+    }
+    html += reviewSection("Hospital details (Step 7)", 7, hospitalRows);
 
     document.getElementById("review-block").innerHTML = html;
     document.querySelectorAll("#review-block .edit-link").forEach(function (link) {
@@ -815,12 +1038,18 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     var el = document.getElementById("f-" + field);
     if (el && bootstrap[field]) el.value = bootstrap[field];
   });
+  (bootstrap.enabled_features || []).forEach(function (key) {
+    var box = document.querySelector('.feature-checkbox[value="' + key + '"]');
+    if (box) box.checked = true;
+  });
+  if (typeof updateHospitalDetailsVisibility === "function") updateHospitalDetailsVisibility();
   if (bootstrap.data_tier) {
     document.getElementById("f-data_tier").value = bootstrap.data_tier;
     var card = document.querySelector('.tier-card[data-tier="' + bootstrap.data_tier + '"]');
     if (card) card.click();
   }
   (bootstrap.departments || []).forEach(function (dept) { addDepartmentCard(dept); });
+  (bootstrap.topics || []).forEach(function (topic) { addTopicCard(topic); });
 
   // Always land back on step 1 after an error -- the bootstrap data above
   // means nothing entered is lost, and the error banner (visible on every
@@ -840,9 +1069,12 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
 </html>"""
 
 
-def _wizard_html(errors: list[str] | None, values: dict, departments: list[dict]) -> str:
+def _wizard_html(
+    errors: list[str] | None, values: dict, departments: list[dict], topics: list[dict] | None = None,
+) -> str:
     bootstrap = dict(values)
     bootstrap["departments"] = departments
+    bootstrap["topics"] = topics or []
     # Escape "</" so a value containing a literal "</script>" can't break out
     # of the inline <script> block it's embedded in.
     bootstrap_json = json.dumps(bootstrap).replace("</", "<\\/")
@@ -856,12 +1088,10 @@ def _wizard_html(errors: list[str] | None, values: dict, departments: list[dict]
     return page
 
 
-def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> str:
-    dept_items = "".join(
-        f"<li>{html.escape(d['name'])}: "
-        f"{html.escape(', '.join(doc['name'] for doc in d['doctors']))}</li>"
-        for d in departments
-    )
+def _confirmation_html(
+    hospital, departments: list[dict], secret: str = "", topics: list[dict] | None = None,
+) -> str:
+    content_parts = []
     tier_note = {
         "tier1": "Using this platform's own database to manage appointments (Tier 1).",
         "tier2": "Connected to the hospital's existing API (Tier 2) — the base URL/key were "
@@ -869,6 +1099,21 @@ def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> s
         "tier3": "Flagged for direct database connection (Tier 3) — this is a manually-assisted "
                  "engagement, not self-serve; we'll be in touch to arrange secure access.",
     }[hospital.data_tier]
+    content_parts.append(f"<p>{html.escape(tier_note)}</p>")
+    if "booking" in hospital.enabled_features:
+        dept_items = "".join(
+            f"<li>{html.escape(d['name'])}: "
+            f"{html.escape(', '.join(doc['name'] for doc in d['doctors']))}</li>"
+            for d in departments
+        )
+        content_parts.append(f"<h3>Departments</h3>\n  <ul>{dept_items}</ul>")
+    if "faq" in hospital.enabled_features:
+        topic_items = "".join(
+            f"<li>{html.escape(t['topic_label'])}: {html.escape(t['answer_text'])}</li>"
+            for t in (topics or [])
+        )
+        content_parts.append(f"<h3>Topics</h3>\n  <ul>{topic_items}</ul>")
+    content_section = "\n  ".join(content_parts)
 
     if hospital.portal_password_hash:
         portal_cta = (
@@ -901,9 +1146,7 @@ def _confirmation_html(hospital, departments: list[dict], secret: str = "") -> s
 
   {portal_cta}
 
-  <p>{html.escape(tier_note)}</p>
-  <h3>Departments</h3>
-  <ul>{dept_items}</ul>
+  {content_section}
   <p class="hint">
     Reminder: this only recorded the credentials you entered — the hospital's own
     Meta Business/WhatsApp number verification and System User access token must
@@ -1150,6 +1393,7 @@ async def onboard_hospital_submit(
     reminder_offsets_hours: str = Form(""),
     reminder_template_name: str = Form(""),
     portal_password: str = Form(""),
+    enabled_features: list[str] = Form(default=[]),
     data_tier: str = Form("tier1"),
     api_base_url: str = Form(""),
     api_key: str = Form(""),
@@ -1162,6 +1406,8 @@ async def onboard_hospital_submit(
     doctor_working_days: list[str] = Form(default=[]),
     doctor_working_hours: list[str] = Form(default=[]),
     doctor_slot_duration_minutes: list[str] = Form(default=[]),
+    topic_label: list[str] = Form(default=[]),
+    topic_answer: list[str] = Form(default=[]),
 ):
     values = {
         "admin_secret": admin_secret,
@@ -1173,46 +1419,65 @@ async def onboard_hospital_submit(
         "reminder_offsets_hours": reminder_offsets_hours,
         "reminder_template_name": reminder_template_name,
         "portal_password": portal_password,
+        "enabled_features": enabled_features,
         "data_tier": data_tier,
         "api_base_url": api_base_url,
         "api_key": api_key,
     }
 
-    # Reconstruct departments/doctors from the submitted fields regardless of
-    # what else is wrong, so a rejected submission (e.g. wrong admin secret,
-    # duplicate phone_number_id) can still be re-rendered with everything the
-    # operator entered intact, not lost.
+    # Reconstruct departments/doctors AND topics from the submitted fields
+    # regardless of which features are enabled or what else is wrong, so a
+    # rejected submission (e.g. wrong admin secret, duplicate phone_number_id)
+    # can still be re-rendered with everything the operator entered intact,
+    # not lost -- only the ones matching an enabled feature ever actually get
+    # used below, but reconstructing both is cheap and keeps this simple.
     departments, dept_errors = _build_departments(
         department_name, doctor_department_index, doctor_name, doctor_specialization,
         doctor_qualification, doctor_years_experience, doctor_working_days,
         doctor_working_hours, doctor_slot_duration_minutes,
     )
+    topics, topic_errors = _build_faq_topics(topic_label, topic_answer)
 
     if admin_secret != ADMIN_SECRET:
-        return HTMLResponse(_wizard_html(["Incorrect admin secret."], values, departments), status_code=403)
+        return HTMLResponse(
+            _wizard_html(["Incorrect admin secret."], values, departments, topics), status_code=403
+        )
 
-    errors = list(dept_errors)
     name = name.strip()
     whatsapp_phone_number_id = whatsapp_phone_number_id.strip()
+    errors = []
     if not name:
         errors.append("Hospital name is required.")
     if not whatsapp_phone_number_id:
         errors.append("WhatsApp phone_number_id is required.")
 
+    unknown_features = [f for f in enabled_features if f not in flows.ALL_FEATURES]
+    if unknown_features:
+        errors.append(f'Unrecognized patient-experience option(s): {", ".join(unknown_features)}.')
+    if not enabled_features:
+        errors.append("At least one patient-experience option is required.")
+
+    # SPEC Section 14.5: tier is collected once, unconditionally, regardless
+    # of which features are enabled -- it's no longer forked on a single
+    # exclusive flow_type.
     if data_tier not in _VALID_TIERS:
         errors.append(f'Unrecognized data connection tier "{data_tier}".')
     elif data_tier == "tier2" and not (api_base_url.strip() and api_key.strip()):
         errors.append('"Connect my existing system\'s API" requires both an API base URL and an API key.')
 
-    if not departments:
-        errors.append("At least one department with at least one doctor is required.")
+    if "booking" in enabled_features:
+        errors.extend(dept_errors)
+        if not departments:
+            errors.append("At least one department with at least one doctor is required.")
+    if "faq" in enabled_features:
+        errors.extend(topic_errors)
+        if not topics:
+            errors.append("At least one topic with a label and an answer is required.")
 
     if errors:
-        return HTMLResponse(_wizard_html(errors, values, departments), status_code=400)
+        return HTMLResponse(_wizard_html(errors, values, departments, topics), status_code=400)
 
     offsets = _parse_offsets(reminder_offsets_hours)
-    # Tier 2's fields only mean something for tier2; tier1/tier3 never store them,
-    # regardless of stray values left in the form fields.
     stored_api_base_url = api_base_url.strip() or None if data_tier == "tier2" else None
     stored_api_key = api_key.strip() or None if data_tier == "tier2" else None
 
@@ -1229,32 +1494,38 @@ async def onboard_hospital_submit(
             external_api_base_url=stored_api_base_url,
             external_api_key=stored_api_key,
             portal_password=portal_password.strip() or None,
+            enabled_features=enabled_features,
         )
     except IntegrityError:
         errors.append(
             f'A hospital with WhatsApp phone_number_id "{whatsapp_phone_number_id}" already exists — '
             "each hospital must have its own phone_number_id for message routing to work correctly."
         )
-        return HTMLResponse(_wizard_html(errors, values, departments), status_code=400)
+        return HTMLResponse(_wizard_html(errors, values, departments, topics), status_code=400)
 
     created_departments = []
-    for dept in departments:
-        created_dept = db.create_department(hospital.id, dept["name"])
-        created_doctors = [
-            db.create_doctor(
-                hospital.id, created_dept["id"], doc["name"],
-                specialization=doc["specialization"],
-                qualification=doc["qualification"],
-                years_experience=doc["years_experience"],
-                working_days=doc["working_days"],
-                working_hours=doc["working_hours"],
-                slot_duration_minutes=doc["slot_duration_minutes"],
-            )
-            for doc in dept["doctors"]
-        ]
-        created_departments.append({"name": created_dept["name"], "doctors": created_doctors})
+    if "booking" in enabled_features:
+        for dept in departments:
+            created_dept = db.create_department(hospital.id, dept["name"])
+            created_doctors = [
+                db.create_doctor(
+                    hospital.id, created_dept["id"], doc["name"],
+                    specialization=doc["specialization"],
+                    qualification=doc["qualification"],
+                    years_experience=doc["years_experience"],
+                    working_days=doc["working_days"],
+                    working_hours=doc["working_hours"],
+                    slot_duration_minutes=doc["slot_duration_minutes"],
+                )
+                for doc in dept["doctors"]
+            ]
+            created_departments.append({"name": created_dept["name"], "doctors": created_doctors})
 
-    return _confirmation_html(hospital, created_departments, admin_secret)
+    created_topics = []
+    if "faq" in enabled_features:
+        created_topics = [db.create_faq_topic(hospital.id, t["topic_label"], t["answer_text"]) for t in topics]
+
+    return _confirmation_html(hospital, created_departments, admin_secret, topics=created_topics)
 
 
 @router.get("/admin/tenants", response_class=HTMLResponse)
@@ -1357,6 +1628,7 @@ async def edit_tenant_submit(
             external_api_base_url=stored_api_base_url,
             external_api_key=stored_api_key,
             portal_password_hash=new_portal_password_hash,
+            enabled_features=hospital.enabled_features,
         )
     except IntegrityError:
         errors.append(

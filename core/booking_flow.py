@@ -30,6 +30,7 @@ import logging
 from datetime import datetime
 
 from connectors import Connector, Tier1Connector
+from core.flow_common import MAX_LIST_ROWS, RESET_KEYWORDS, cap_rows, is_reset_keyword
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 
@@ -65,28 +66,13 @@ CONFIRM_NO = "cancel"
 
 _PLEASE_CHOOSE = "Please choose an option from the list above"
 
-# Meta hard-limits a WhatsApp interactive list message to 10 rows total across
-# every section (core/whatsapp.py:send_list()'s own docstring already says
-# so) -- nothing enforced that until now. A doctor with a long working-hour
-# range and a short slot duration can easily generate 100+ bookable slots
-# (Section 12.1.1), and an unenforced-limit send silently fails end to end:
-# send_list() catches the resulting 400 from Meta, logs it, and returns
-# without raising -- so the patient just sees nothing after tapping a doctor,
-# with no error surfaced anywhere they'd see it. Found live testing a doctor
-# whose entered hours produced 830 slots. _cap_rows() is the one place this
-# gets enforced, applied at every send_list() call site below that builds its
-# rows from a variable-length source (departments/doctors/slots/appointments).
-_MAX_LIST_ROWS = 10
-
-
-def _cap_rows(rows: list[dict], context: str) -> list[dict]:
-    if len(rows) > _MAX_LIST_ROWS:
-        logger.warning(
-            "%s: %d rows exceeds WhatsApp's %d-row list limit -- truncating to the first %d",
-            context, len(rows), _MAX_LIST_ROWS, _MAX_LIST_ROWS,
-        )
-        return rows[:_MAX_LIST_ROWS]
-    return rows
+# Row-count cap (Meta's 10-row WhatsApp list limit) and reset-keyword handling
+# both now live in core/flow_common.py, shared with every other flow_type
+# handler (Section 14.1) -- re-exported under their old names here so nothing
+# else in this file (or tests importing them from this module) needed to change.
+_MAX_LIST_ROWS = MAX_LIST_ROWS
+_cap_rows = cap_rows
+_RESET_KEYWORDS = RESET_KEYWORDS
 
 _FAQ_TEXT = (
     "Frequently Asked Questions:\n\n"
@@ -618,15 +604,6 @@ async def _handle_awaiting_reschedule_confirm(
     await _send_reschedule_confirm(wa, phone, context)
 
 
-# A patient can always escape a stuck or confusing mid-flow state by typing
-# one of these, regardless of which state they're in -- without this, the
-# only ways out of e.g. AWAITING_SLOT were correctly tapping a list option or
-# waiting out the 30-minute session timeout (core/history.py), and neither is
-# a real patient's first instinct when a bot stops responding (see the
-# 10-row list-limit bug above: a stuck session from that had no self-serve
-# way out at all before this). Matches common WhatsApp bot convention.
-_RESET_KEYWORDS = {"hi", "hello", "hey", "menu", "start", "restart"}
-
 _HANDLERS = {
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
@@ -667,11 +644,7 @@ async def handle_incoming(
     state = session["state"]
     context = session["context"]
 
-    if (
-        state != STATE_IDLE
-        and reply["type"] == "text"
-        and reply["text"].strip().lower() in _RESET_KEYWORDS
-    ):
+    if state != STATE_IDLE and is_reset_keyword(reply):
         sessions.reset(hospital_id, phone)
         await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector)
         return

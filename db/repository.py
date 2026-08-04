@@ -111,6 +111,7 @@ class Hospital:
     external_api_base_url: str | None
     external_api_key: str | None
     portal_password_hash: str | None
+    enabled_features: list[str]
 
 
 def _row_to_hospital(row) -> Hospital:
@@ -120,6 +121,15 @@ def _row_to_hospital(row) -> Hospital:
             raise ValueError
     except (TypeError, ValueError):
         offsets = [24]
+    try:
+        enabled_features = json_lib.loads(row["enabled_features"])
+        if not isinstance(enabled_features, list):
+            raise ValueError
+    except (TypeError, ValueError):
+        # NULL (not yet backfilled -- db/init_db.py's _backfill_enabled_features()
+        # should have already run by the time anything queries this, but fail
+        # safe to "nothing enabled" rather than crash a row read) or malformed.
+        enabled_features = []
     return Hospital(
         id=row["id"],
         name=row["name"],
@@ -135,6 +145,7 @@ def _row_to_hospital(row) -> Hospital:
         external_api_base_url=row["external_api_base_url"],
         external_api_key=row["external_api_key"],
         portal_password_hash=row["portal_password_hash"],
+        enabled_features=enabled_features,
     )
 
 
@@ -204,6 +215,7 @@ def create_hospital(
     external_api_base_url: str | None = None,
     external_api_key: str | None = None,
     portal_password: str | None = None,
+    enabled_features: list[str] | None = None,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -211,26 +223,36 @@ def create_hospital(
     against breaking Phase 9's per-message routing, not application logic;
     callers (admin/onboarding.py) are responsible for catching it.
 
-    data_tier (Section 12.6, Step 6 of the wizard): "tier1" (default, this
-    product's own database), "tier2" (external_api_base_url/external_api_key
-    are only stored here -- no connector logic reads them yet), or "tier3"
-    (direct DB connection, not self-serve -- neither field is meaningful for it).
+    data_tier (Section 12.6, Step 0 of the wizard as of Section 14.6's
+    reorder): "tier1" (default, this product's own database), "tier2"
+    (external_api_base_url/external_api_key are only stored here -- no
+    connector logic reads them yet), or "tier3" (direct DB connection, not
+    self-serve -- neither field is meaningful for it).
 
     portal_password (Section 12.7): plaintext in, hashed before storage --
     optional at onboarding time (a hospital can set it later via the edit
     form); left unset, the bookings portal simply has no way to log into that
-    hospital yet."""
+    hospital yet.
+
+    enabled_features (Section 14.5): the set of patient-facing capabilities
+    this hospital's WhatsApp number offers (e.g. ["booking","reschedule",
+    "cancel","faq"]) -- flows.py's IDLE main menu shows only these. Replaces
+    the earlier single-value flow_type (Section 14.1); defaults to an empty
+    list (no capabilities enabled) rather than guessing "booking", since an
+    empty set is a safe, honest default a caller has to deliberately override,
+    not a value that quietly implies functionality nothing configured yet."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
+    features_json = json_lib.dumps(enabled_features or [])
     portal_password_hash = hash_portal_password(portal_password) if portal_password else None
     cur = conn.execute(
         "INSERT INTO hospitals (name, whatsapp_phone_number_id, meta_access_token_ref, app_secret_ref, "
         "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
-        "data_tier, external_api_base_url, external_api_key, portal_password_hash) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, portal_password_hash),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json),
     )
     new_id = cur.fetchone()["id"]
     conn.commit()
@@ -251,6 +273,7 @@ def update_hospital(
     external_api_base_url: str | None = None,
     external_api_key: str | None = None,
     portal_password_hash: str | None = None,
+    enabled_features: list[str] | None = None,
 ) -> Hospital:
     """admin/onboarding.py's tenant edit form -- the only way to correct an
     already-onboarded hospital's stored values (there's no way to change
@@ -270,17 +293,25 @@ def update_hospital(
     Deliberately does NOT touch _wa_clients (core/main.py's per-hospital
     WhatsAppClient cache) -- it can't, from here; a hospital whose credentials
     just changed keeps using its OLD cached client until the process restarts.
-    See core/main.py's _wa_clients comment and the post-edit confirmation page."""
+    See core/main.py's _wa_clients comment and the post-edit confirmation page.
+
+    enabled_features (Section 14.5) defaults to an empty list like
+    create_hospital(), but every caller (admin/onboarding.py's edit-tenant
+    route, portal.py's settings route) passes the hospital's own current
+    value through explicitly -- neither exposes a way to CHANGE which
+    features are enabled yet, so an edit to something else must never
+    silently reset a tenant's real feature set back to empty."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
+    features_json = json_lib.dumps(enabled_features or [])
     conn.execute(
         "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
         "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
         "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
-        "portal_password_hash = ? WHERE id = ?",
+        "portal_password_hash = ?, enabled_features = ? WHERE id = ?",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, portal_password_hash, hospital_id),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json, hospital_id),
     )
     conn.commit()
     return get_hospital(hospital_id)
@@ -701,3 +732,59 @@ def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
         (STATUS_RESCHEDULED, appointment_id, hospital_id),
     )
     conn.commit()
+
+
+# --- FAQ topics (SPEC Section 14.2, the FAQ flow_type's entire data model) ---
+
+def get_faq_topics(hospital_id: int) -> list[dict]:
+    """faq_flow.py's topic menu (Section 14.2) -- ordered by display_order,
+    then id as a tiebreaker (display_order isn't unique, ties are expected)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, topic_label, answer_text, display_order FROM faq_topics "
+        "WHERE hospital_id = ? ORDER BY display_order, id",
+        (hospital_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_faq_topic(hospital_id: int, topic_id: str) -> dict | None:
+    """topic_id arrives as a WhatsApp interactive-reply id (always a string)
+    -- faq_topics.id is a SERIAL int, so a non-numeric/stale/cross-hospital id
+    (e.g. a leftover tap from before a flow_type switch) safely resolves to
+    "not found" rather than a raw ValueError from the int() conversion."""
+    try:
+        topic_id_int = int(topic_id)
+    except (TypeError, ValueError):
+        return None
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, topic_label, answer_text, display_order FROM faq_topics "
+        "WHERE hospital_id = ? AND id = ?",
+        (hospital_id, topic_id_int),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def create_faq_topic(
+    hospital_id: int, topic_label: str, answer_text: str, display_order: int | None = None,
+) -> dict:
+    """admin/onboarding.py's wizard Step 7 topic/answer builder (Section 14.3,
+    faq-flow tenants only). display_order defaults to "append at the end" of
+    this hospital's existing topics, so onboarding-time topics keep the order
+    they were entered in without the caller having to compute indices itself."""
+    conn = get_connection()
+    if display_order is None:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(display_order), -1) + 1 AS next_order FROM faq_topics WHERE hospital_id = ?",
+            (hospital_id,),
+        ).fetchone()
+        display_order = row["next_order"]
+    cur = conn.execute(
+        "INSERT INTO faq_topics (hospital_id, topic_label, answer_text, display_order) "
+        "VALUES (?, ?, ?, ?) RETURNING id",
+        (hospital_id, topic_label, answer_text, display_order),
+    )
+    new_id = cur.fetchone()["id"]
+    conn.commit()
+    return {"id": new_id, "topic_label": topic_label, "answer_text": answer_text, "display_order": display_order}

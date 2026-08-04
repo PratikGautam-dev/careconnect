@@ -58,6 +58,7 @@ _DEFAULT_SCALARS = {
     "welcome_message_text": "Welcome to St. Jude!",
     "reminder_offsets_hours": "24,1",
     "reminder_template_name": "appointment_reminder",
+    "enabled_features": ["booking"],
     "data_tier": "tier1",
     "api_base_url": "",
     "api_key": "",

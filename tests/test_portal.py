@@ -61,6 +61,7 @@ def _set_portal_password(hospital_id: int, password: str) -> None:
         external_api_base_url=h.external_api_base_url,
         external_api_key=h.external_api_key,
         portal_password_hash=db.hash_portal_password(password),
+        enabled_features=h.enabled_features,
     )
 
 

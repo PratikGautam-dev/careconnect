@@ -46,15 +46,34 @@ CREATE TABLE IF NOT EXISTS hospitals (
     -- has its own random salt); portal.py finds the right hospital by
     -- hashing the login attempt against every stored hash, not by lookup.
     portal_password_hash TEXT,
+    -- Section 14.1 (superseded by 14.5): originally "which single conversation
+    -- shape this tenant runs" -- kept as a historical/unread column (never
+    -- dropped, per this file's existing no-destructive-migrations convention)
+    -- now that Section 14.5 replaced it with enabled_features below. Nothing
+    -- in the app reads this column anymore except the one-time backfill in
+    -- db/init_db.py that seeds enabled_features for rows from before that change.
+    flow_type TEXT NOT NULL DEFAULT 'booking',
+    -- Section 14.5: which capabilities this tenant's WhatsApp number offers
+    -- patients, as a JSON array of feature keys (e.g. ["booking","reschedule",
+    -- "cancel","faq"]) -- a hospital enables a SET of features simultaneously
+    -- rather than picking one exclusive flow_type (the model above). The IDLE
+    -- main menu (flows.py) shows only the enabled ones; tapping one hands the
+    -- conversation to that feature's own handler/state machine. NULL means
+    -- "not yet migrated from flow_type" -- db/init_db.py backfills every NULL
+    -- row once, at startup; every hospital created after Section 14.5 always
+    -- gets a real value at creation time, never NULL.
+    enabled_features TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (now()::text)
 );
 
--- CREATE TABLE IF NOT EXISTS above won't retroactively add this column to a
--- database created before this change (same limitation already noted for
--- whatsapp_phone_number_id's UNIQUE constraint) -- this makes it idempotent
+-- CREATE TABLE IF NOT EXISTS above won't retroactively add these columns to a
+-- database created before each was added (same limitation already noted for
+-- whatsapp_phone_number_id's UNIQUE constraint) -- this makes them idempotent
 -- and self-healing on the next app startup against the live database too.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_password_hash TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS flow_type TEXT NOT NULL DEFAULT 'booking';
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS enabled_features TEXT;
 
 -- id is a human-readable slug (e.g. "cardiology") rather than a surrogate integer,
 -- so it can be used directly as a WhatsApp list-reply id, same as before this
@@ -169,4 +188,19 @@ CREATE TABLE IF NOT EXISTS conversation_sessions (
     context TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(patient_phone, hospital_id)
+);
+
+-- SPEC Section 14.2: the FAQ flow_type's entire data model -- deliberately
+-- just this one table. A pure FAQ-flow tenant needs no departments, doctors,
+-- doctor_slots, or appointments at all, which is exactly why forcing a
+-- non-booking tenant (DaaPrime) through booking's placeholder department/
+-- doctor data was the wrong fit (Section 14.0) that this flow type replaces.
+-- display_order is a plain sort key (not a UNIQUE constraint) -- faq_flow.py
+-- orders by it, then by id as a tiebreaker; ties are harmless, not an error.
+CREATE TABLE IF NOT EXISTS faq_topics (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    topic_label TEXT NOT NULL,
+    answer_text TEXT NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0
 );

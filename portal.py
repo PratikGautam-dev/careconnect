@@ -479,6 +479,7 @@ async def portal_settings_submit(
         external_api_base_url=hospital.external_api_base_url,
         external_api_key=hospital.external_api_key,
         portal_password_hash=hospital.portal_password_hash,
+        enabled_features=hospital.enabled_features,
     )
     updated = db.get_hospital(hospital.id)
     return _settings_html(updated, saved=True)
