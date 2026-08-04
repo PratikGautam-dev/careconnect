@@ -51,7 +51,8 @@ class Connector(abc.ABC):
 
     @abc.abstractmethod
     def create_booking(
-        self, hospital_id: int, phone: str, department_id: str, doctor_id: str, scheduled_at: datetime
+        self, hospital_id: int, phone: str, department_id: str, doctor_id: str, scheduled_at: datetime,
+        source: str = "whatsapp", patient_name: str | None = None,
     ) -> Appointment: ...
 
     @abc.abstractmethod
@@ -94,8 +95,8 @@ class Tier1Connector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         return repo.get_slots(hospital_id, doctor_id)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at):
-        return repo.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at)
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None):
+        return repo.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at, source=source, patient_name=patient_name)
 
     def cancel_booking(self, hospital_id, appointment_id):
         repo.cancel_appointment(hospital_id, appointment_id)
@@ -148,7 +149,7 @@ class _UnimplementedTierConnector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         self._not_implemented("get_available_slots")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None):
         self._not_implemented("create_booking")
 
     def cancel_booking(self, hospital_id, appointment_id):

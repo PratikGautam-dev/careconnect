@@ -267,6 +267,10 @@ STYLE = _FONT_LINKS + """
   .pill-active, .pill-booked { background: var(--success-tint); color: var(--success); }
   .pill-inactive, .pill-cancelled { background: var(--error-tint); color: var(--error); }
   .pill-rescheduled { background: var(--clay-tint); color: var(--clay); }
+  /* Section 12.9: staff-created ("walk-in") vs. patient-self-booked
+     ("WhatsApp") -- descriptive only, same tokens as the status pills above. */
+  .pill-source-staff { background: var(--clay-tint); color: var(--clay); }
+  .pill-source-whatsapp { background: var(--success-tint); color: var(--success); }
 
   /* Reference: Hospital Admin Dashboard's stat-card row (Today's
      Appointments / Confirmed / New Patients / No Shows). */

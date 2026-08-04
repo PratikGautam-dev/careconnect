@@ -195,6 +195,26 @@ CREATE TABLE IF NOT EXISTS doctor_slots (
 -- on the fly -- db/repository.py:get_slots() reads real rows there, filtering
 -- out ones with a booked appointment below, same as before this change.
 --
+-- Section 12.9 (staff-created bookings): Section 4's original data model
+-- always planned a `patients` table ("phone_number (unique, WhatsApp-linked),
+-- name, hospital_id") but nothing before this normalized patients out of
+-- appointments.phone -- there was simply no need to until staff-side patient
+-- SEARCH (by name, not just phone) required somewhere to actually store a
+-- name. Deliberately minimal -- exactly what Section 4 originally specified,
+-- nothing more. UNIQUE(hospital_id, phone), not phone alone: two different
+-- hospitals' patients can share a phone number (Section 12.2's own tenant-
+-- isolation discipline applies here too). db/init_db.py backfills a row (name
+-- NULL) for every distinct (hospital_id, phone) pair already in appointments
+-- so existing WhatsApp-only patients are searchable by phone immediately.
+CREATE TABLE IF NOT EXISTS patients (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    phone TEXT NOT NULL,
+    name TEXT,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    UNIQUE(hospital_id, phone)
+);
+
 -- No reminder_sent_at column (an earlier version had one) — reminder status is
 -- now tracked per-offset in appointment_reminders below, not as a single flag
 -- here. Note CREATE TABLE IF NOT EXISTS won't retroactively drop that column
@@ -208,7 +228,15 @@ CREATE TABLE IF NOT EXISTS appointments (
     doctor_id TEXT NOT NULL REFERENCES doctors(id),
     scheduled_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'cancelled', 'rescheduled')),
-    source TEXT NOT NULL DEFAULT 'whatsapp',
+    -- Section 12.9: 'whatsapp' (patient self-booking, core/booking_flow.py) or
+    -- 'staff' (portal.py's /portal/new-booking, front-desk/phone bookings) --
+    -- both go through the exact same db.create_appointment()/get_slots()
+    -- availability and double-booking logic, this column is purely
+    -- descriptive/for later reporting, never branched on for booking logic
+    -- itself. CHECK constraint only applies to freshly created tables (same
+    -- caveat as the status CHECK above) -- not retroactively added to an
+    -- already-existing database.
+    source TEXT NOT NULL DEFAULT 'whatsapp' CHECK (source IN ('whatsapp', 'staff')),
     -- Section 14.7: which "seat" within a doctor's max_bookings_per_slot this
     -- booking occupies at its scheduled_at (0-indexed, 0 for every doctor
     -- whose max_bookings_per_slot is the default 1 -- identical to how the

@@ -27,13 +27,27 @@ STATUS_BOOKED = "booked"
 STATUS_CANCELLED = "cancelled"
 STATUS_RESCHEDULED = "rescheduled"
 
+SOURCE_WHATSAPP = "whatsapp"
+SOURCE_STAFF = "staff"
+
+
+class QuotaExceededError(IntegrityError):
+    """Section 12.9: raised by create_appointment() specifically when a
+    booking is rejected because the doctor's online_quota/walkin_quota/
+    daily_booking_limit (Section 14.7) is exhausted, as opposed to the exact
+    requested slot being full. Subclasses IntegrityError so every EXISTING
+    `except IntegrityError:` call site (core/booking_flow.py's double-booking
+    handling) keeps working unchanged with its generic "that slot was just
+    taken" message; portal.py's staff-booking route catches THIS specifically
+    first, to show str(e) (a purpose-written message) instead."""
+
 _SLOT_DAYS_AHEAD = 14
 
 _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
-           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status
+           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -51,6 +65,10 @@ class Appointment:
     doctor_name: str
     scheduled_at: datetime
     status: str = STATUS_BOOKED
+    # Section 12.9: 'whatsapp' (patient self-booking) or 'staff' (portal.py's
+    # /portal/new-booking) -- descriptive only, never branched on by booking
+    # logic itself (both go through the exact same create_appointment()).
+    source: str = "whatsapp"
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -64,6 +82,7 @@ def _row_to_appointment(row) -> Appointment:
         doctor_name=row["doctor_name"],
         scheduled_at=datetime.fromisoformat(row["scheduled_at"]),
         status=row["status"],
+        source=row["source"],
     )
 
 
@@ -753,7 +772,41 @@ def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
     return None
 
 
+# --- Patients (Section 12.9 -- staff-created bookings need to search by name,
+# not just phone; see db/schema.sql's comment on the patients table and
+# create_appointment()'s _upsert_patient() for how rows get here) ---
+
+def search_patients(hospital_id: int, query: str, limit: int = 10) -> list[dict]:
+    """Case-insensitive partial match on name OR phone, hospital-scoped.
+    Powers portal.py's /portal/patients/search (staff typing into the new-
+    booking form's patient search box)."""
+    query = query.strip()
+    if not query:
+        return []
+    conn = get_connection()
+    like = f"%{query}%"
+    rows = conn.execute(
+        "SELECT phone, name FROM patients WHERE hospital_id = ? "
+        "AND (phone ILIKE ? OR name ILIKE ?) ORDER BY name NULLS LAST, phone LIMIT ?",
+        (hospital_id, like, like, limit),
+    ).fetchall()
+    return [{"phone": r["phone"], "name": r["name"]} for r in rows]
+
+
 # --- Appointments ---
+
+def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None) -> None:
+    """Section 12.9: keeps `patients` in sync on every booking, both sources.
+    COALESCE(EXCLUDED.name, patients.name) means a name, when given (staff
+    bookings), always wins and fills in/overwrites; when not given (every
+    WhatsApp booking, which never collects one), an existing name is never
+    clobbered back to NULL."""
+    conn.execute(
+        "INSERT INTO patients (hospital_id, phone, name) VALUES (?, ?, ?) "
+        "ON CONFLICT (hospital_id, phone) DO UPDATE SET name = COALESCE(EXCLUDED.name, patients.name)",
+        (hospital_id, phone, name),
+    )
+
 
 def create_appointment(
     hospital_id: int,
@@ -761,55 +814,154 @@ def create_appointment(
     department_id: str,
     doctor_id: str,
     scheduled_at: datetime,
+    source: str = SOURCE_WHATSAPP,
+    patient_name: str | None = None,
 ) -> Appointment:
     """Raises db.connection.IntegrityError if this doctor's max_bookings_per_slot
     (default 1) worth of *booked* appointments already exist at this exact
     scheduled_at -- that's the actual double-booking guard, not application
-    logic. Catching it gracefully is Phase 8 work, not done here.
+    logic. Catching it gracefully is Phase 8 work, not done here. Raises the
+    more specific QuotaExceededError (still an IntegrityError) if the
+    doctor's daily_booking_limit or the requested source's online_quota/
+    walkin_quota (Section 14.7, first enforced here as of Section 12.9) is
+    exhausted for scheduled_at's date.
 
-    Section 14.7: assigns each booking the next free booking_ordinal (0-indexed)
-    at this doctor+scheduled_at, so more than one patient can hold a slot when
-    max_bookings_per_slot > 1 -- db/schema.sql's UNIQUE(doctor_id, scheduled_at,
-    booking_ordinal) partial index is what makes each individual INSERT below
-    atomic and race-safe (identical guarantee to the old two-column index for
-    every doctor still at the default max_bookings_per_slot=1, where every
-    booking's ordinal is always 0). Retries with a freshly-counted ordinal if a
-    concurrent request wins the ordinal this one just tried to claim -- bounded
-    to max_bookings_per_slot attempts, since that's the most times a genuine
-    race could plausibly happen here before the slot really is full."""
+    `source` distinguishes a WhatsApp patient self-booking (the default --
+    every pre-Section-12.9 call site keeps working completely unchanged) from
+    a staff-created walk-in/phone booking ("staff", portal.py's
+    /portal/new-booking) -- purely descriptive, never branched on for booking
+    LOGIC beyond which quota column it counts against. `patient_name` is only
+    ever supplied by the staff path (core/booking_flow.py never collects a
+    patient's name); see _upsert_patient().
+
+    Concurrency (Section 12.9): daily_booking_limit/online_quota/walkin_quota
+    are per-DOCTOR-configured values, not fixed schema constants, so unlike
+    the OLD max_bookings_per_slot-only design (a plain UNIQUE index needed no
+    lock at all) they can't be enforced as a static constraint. A Postgres
+    advisory transaction lock scoped to (doctor_id, date) serializes every
+    booking attempt -- staff AND WhatsApp alike -- for the same doctor on the
+    same day, so the whole check-then-insert sequence below (quotas AND the
+    per-slot ordinal assignment) is atomic against genuine concurrent
+    requests, not just correct when called one at a time. The lock is
+    released automatically on COMMIT/ROLLBACK (that's what "_xact_lock"
+    means).
+
+    Wrapped in a real BEGIN/ROLLBACK/COMMIT block (unlike every other
+    function in this file, which relies on db/connection.py's
+    autocommit=True) -- the `except BaseException` below is not optional:
+    this is the ONE place in the app that opens a real multi-statement
+    transaction on the single shared connection, and leaving it open after an
+    unexpected error would poison every subsequent query on that connection
+    (db/connection.py's own docstring explains exactly this failure mode,
+    which is why autocommit=True was chosen everywhere else) -- so every exit
+    path, expected or not, must ROLLBACK or COMMIT. This is also exactly why
+    there's deliberately no retry-on-conflict inside this transaction (an
+    earlier version had one, a leftover from before this lock existed): once
+    ANY statement in an explicit Postgres transaction fails, the whole
+    transaction is aborted and every FURTHER statement on it fails too, with
+    "current transaction is aborted" (a different exception than whatever
+    actually went wrong) until a ROLLBACK -- so "catch a failure and issue
+    another statement to retry, inside the same transaction" doesn't just
+    not-help here, it actively replaces a meaningful IntegrityError/
+    QuotaExceededError with a useless, wrong-typed one that no caller's
+    `except IntegrityError:` would catch. Confirmed live: forcing a genuine
+    INSERT failure here and then issuing an unrelated query on the same
+    connection afterward shows the connection recovers cleanly either way
+    (see tests/test_create_appointment_transaction_safety.py) -- but ONLY
+    the current code (no inner retry) also gets the exception TYPE right for
+    the caller."""
     conn = get_connection()
     scheduled_at_iso = scheduled_at.isoformat()
+    scheduled_date = scheduled_at.date()
+    day_start = datetime.combine(scheduled_date, datetime.min.time()).isoformat()
+    day_end = datetime.combine(scheduled_date, datetime.max.time()).isoformat()
+
     doctor_row = conn.execute(
-        "SELECT max_bookings_per_slot FROM doctors WHERE hospital_id = ? AND id = ?",
+        "SELECT max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota "
+        "FROM doctors WHERE hospital_id = ? AND id = ?",
         (hospital_id, doctor_id),
     ).fetchone()
     max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+    daily_booking_limit = doctor_row["daily_booking_limit"] if doctor_row else None
+    source_quota = None
+    if doctor_row:
+        source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
 
-    for _ in range(max_bookings_per_slot):
-        count_row = conn.execute(
-            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
-            "AND scheduled_at = ? AND status = ?",
-            (hospital_id, doctor_id, scheduled_at_iso, STATUS_BOOKED),
+    conn.execute("BEGIN")
+    try:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"{doctor_id}|{scheduled_date.isoformat()}",),
+        )
+
+        if daily_booking_limit is not None:
+            day_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+                "AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
+                (hospital_id, doctor_id, day_start, day_end, STATUS_BOOKED),
+            ).fetchone()["c"]
+            if day_count >= daily_booking_limit:
+                raise QuotaExceededError("This doctor has reached today's booking limit.")
+
+        if source_quota is not None:
+            source_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+                "AND scheduled_at >= ? AND scheduled_at <= ? AND status = ? AND source = ?",
+                (hospital_id, doctor_id, day_start, day_end, STATUS_BOOKED, source),
+            ).fetchone()["c"]
+            if source_count >= source_quota:
+                kind = "Online booking" if source == SOURCE_WHATSAPP else "Walk-in"
+                raise QuotaExceededError(f"{kind} quota full for this doctor today.")
+
+        # The smallest booking_ordinal in [0, max_bookings_per_slot) NOT
+        # already used by a currently-BOOKED row at this exact slot --
+        # deliberately NOT a plain COUNT(*): a cancellation doesn't delete
+        # its row or free its ordinal implicitly, so booked ordinals can have
+        # gaps (book A -> ordinal 0, book B -> ordinal 1, cancel A, book C ->
+        # COUNT(booked) is 1, but ordinal 1 is already B's -- COUNT(*) as the
+        # ordinal would collide with B here, a real sequence, not a
+        # contrived one). generate_series against the valid ordinal range,
+        # minus whichever are taken, correctly finds a real gap or reports
+        # none exists.
+        free_ordinal_row = conn.execute(
+            "SELECT MIN(o) AS ordinal FROM generate_series(0, ? - 1) AS o "
+            "WHERE o NOT IN (SELECT booking_ordinal FROM appointments WHERE hospital_id = ? "
+            "AND doctor_id = ? AND scheduled_at = ? AND status = ?)",
+            (max_bookings_per_slot, hospital_id, doctor_id, scheduled_at_iso, STATUS_BOOKED),
         ).fetchone()
-        if count_row["c"] >= max_bookings_per_slot:
-            break
-        try:
-            cur = conn.execute(
-                "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-                "booking_ordinal) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-                (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, count_row["c"]),
-            )
-        except IntegrityError:
-            # Someone else claimed this exact ordinal between our COUNT and
-            # this INSERT -- autocommit means that failed statement didn't
-            # poison anything (db/connection.py's docstring), so just retry
-            # with a fresh count.
-            continue
-        new_id = cur.fetchone()["id"]
-        conn.commit()
-        return get_appointment(hospital_id, new_id)
+        if free_ordinal_row["ordinal"] is None:
+            raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
 
-    raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
+        # No retry-on-conflict here (an earlier version of this function had
+        # one, left over from before the advisory lock above existed): under
+        # the lock, no other transaction can be concurrently computing an
+        # ordinal for this doctor+day, so this INSERT cannot lose a race --
+        # and critically, retrying-by-issuing-more-statements would NOT be
+        # safe here even if it could theoretically happen: Postgres aborts an
+        # entire explicit transaction after any failed statement, so a second
+        # statement issued after a failed INSERT here would itself fail with
+        # "current transaction is aborted", not this table's own
+        # IntegrityError -- silently breaking every caller's
+        # `except IntegrityError:` handling. Let it propagate straight to the
+        # `except BaseException` below instead, which ROLLBACKs correctly and
+        # re-raises the SAME, correctly-typed exception.
+        cur = conn.execute(
+            "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
+            "booking_ordinal, source) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source),
+        )
+        new_id = cur.fetchone()["id"]
+
+        _upsert_patient(conn, hospital_id, phone, patient_name)
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+
+    return get_appointment(hospital_id, new_id)
 
 
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:

@@ -29,13 +29,16 @@ import json
 import os
 import time
 from datetime import date as _date
+from datetime import datetime
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+import connectors
 import db.repository as db
 from admin.onboarding import _parse_offsets, _validate_doctor_fields
 from admin.theme import STYLE as _STYLE
+from db.connection import IntegrityError
 
 router = APIRouter()
 
@@ -109,6 +112,7 @@ def _login_html(error: str | None = None) -> str:
 
 _PORTAL_NAV_LINKS = [
     ("dashboard", "/portal/dashboard", "Dashboard"),
+    ("new-booking", "/portal/new-booking", "+ New Booking"),
     ("bookings", "/portal/bookings", "Bookings"),
     ("doctors", "/portal/doctors", "Doctors & departments"),
     ("settings", "/portal/settings", "Hospital settings"),
@@ -261,12 +265,13 @@ def _dashboard_html(
               <td>{html.escape(a.doctor_name)}</td>
               <td>{html.escape(a.department_name)}</td>
               <td><span class="pill pill-{a.status}">{a.status}</span></td>
+              <td><span class="pill pill-source-{a.source}">{'Walk-in' if a.source == 'staff' else 'WhatsApp'}</span></td>
             </tr>"""
             for a in recent_appointments
         )
         recent_table = f"""
         <table>
-          <thead><tr><th>Time</th><th>Patient</th><th>Doctor</th><th>Department</th><th>Status</th></tr></thead>
+          <thead><tr><th>Time</th><th>Patient</th><th>Doctor</th><th>Department</th><th>Status</th><th>Source</th></tr></thead>
           <tbody>{recent_rows}</tbody>
         </table>
         """
@@ -310,6 +315,213 @@ def _dashboard_html(
 </html>"""
 
 
+def _new_booking_html(
+    hospital, departments: list[dict], doctors_by_department: dict[str, list[dict]],
+    slots_by_doctor: dict[str, dict[str, list[dict]]], errors: list[str] | None = None,
+    values: dict | None = None,
+) -> str:
+    """Section 12.9: staff-created bookings -- walk-ins or phone bookings a
+    front-desk staff member enters on the patient's behalf, going through the
+    exact same connector.create_booking()/availability logic as a WhatsApp
+    booking (portal_new_booking_submit() below), not a separate path.
+
+    Branch selection is a deliberate no-op single-value dropdown -- this
+    codebase has no branch/location model anywhere (every hospital row is one
+    location; SPEC Section 4's data model has no such table), and building
+    one was explicitly out of scope for this task. Flagged here and in
+    Spec.md, not silently assumed away.
+
+    doctors_by_department / slots_by_doctor are embedded as JSON (same
+    bootstrap-JSON pattern admin/onboarding.py's wizard already uses) so the
+    department -> doctor -> date -> available-slots cascade is pure
+    client-side filtering, no extra server round-trip per selection --
+    reasonable for one hospital's small doctor/slot-window scale (Section
+    14.7's existing 14-day rolling window)."""
+    v = values or {}
+    error_html = ""
+    if errors:
+        items = "".join(f"<li>{html.escape(e)}</li>" for e in errors)
+        error_html = f'<div class="error-banner"><strong>Please fix the following:</strong><ul>{items}</ul></div>'
+
+    dept_options = "".join(
+        f'<option value="{d["id"]}"{" selected" if v.get("department_id") == d["id"] else ""}>{html.escape(d["name"])}</option>'
+        for d in departments
+    )
+
+    doctors_json = json.dumps(doctors_by_department).replace("</", "<\\/")
+    slots_json = json.dumps(slots_by_doctor).replace("</", "<\\/")
+
+    return f"""<!doctype html>
+<html>
+<head><title>New Booking — {html.escape(hospital.name)}</title>{_STYLE}
+<style>
+  select {{ width: 100%; font-family: var(--font-body); font-size: 14px; padding: 10px 12px; border: 1px solid var(--sage-line); border-radius: 8px; background: var(--paper); color: var(--ink); margin-top: 6px; }}
+  select:disabled {{ color: var(--ink-faint); background: var(--sage-line); }}
+  #search-results {{ margin-top: 6px; }}
+  .search-result-row {{ padding: 8px 12px; border: 1px solid var(--sage-line); border-radius: 8px; margin-top: 6px; cursor: pointer; font-size: 13.5px; background: var(--card); }}
+  .search-result-row:hover {{ background: var(--success-tint); }}
+  .selected-patient {{ margin-top: 8px; font-size: 13px; color: var(--sage-deep); font-weight: 600; }}
+</style>
+</head>
+<body>
+<div class="dashboard-shell">
+  {_dashboard_sidebar_html(hospital, "new-booking")}
+  <main class="dashboard-main">
+    {error_html}
+    <div class="page-header"><h2>New Booking</h2></div>
+    <p class="step-desc">For walk-in or phone patients — creates a real appointment through the same availability check WhatsApp bookings use, so it can never double-book against one.</p>
+    <div class="main" style="max-width: 640px;">
+      <form method="post" action="/portal/new-booking" id="new-booking-form">
+        <label>Search existing patients (by name or phone)</label>
+        <input type="text" id="patient-search" placeholder="Start typing a name or phone number...">
+        <div id="search-results"></div>
+        <div id="selected-patient" class="selected-patient" style="display:none;"></div>
+
+        <div class="field-row">
+          <div>
+            <label for="patient_name">Patient name</label>
+            <input type="text" id="patient_name" name="patient_name" value="{html.escape(v.get('patient_name', ''))}">
+            <p class="field-hint">Leave existing patients' names as-is, or fill this in if it's not on file yet.</p>
+          </div>
+          <div>
+            <label for="patient_phone">Patient phone</label>
+            <input type="text" id="patient_phone" name="patient_phone" value="{html.escape(v.get('patient_phone', ''))}" required>
+          </div>
+        </div>
+
+        <label>Branch</label>
+        <select disabled>
+          <option selected>Main Branch — {html.escape(hospital.name)}</option>
+        </select>
+        <p class="field-hint">This hospital isn't set up with multiple branches/locations yet — every booking is against its one location.</p>
+
+        <div class="field-row">
+          <div>
+            <label for="department_id">Department</label>
+            <select id="department_id" name="department_id" required>
+              <option value="">Choose a department</option>
+              {dept_options}
+            </select>
+          </div>
+          <div>
+            <label for="doctor_id">Doctor</label>
+            <select id="doctor_id" name="doctor_id" required disabled>
+              <option value="">Choose a department first</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div>
+            <label for="booking-date">Date</label>
+            <input type="date" id="booking-date" disabled>
+          </div>
+          <div>
+            <label for="slot_id">Available slot</label>
+            <select id="slot_id" name="slot_id" required disabled>
+              <option value="">Choose a doctor and date first</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="nav-buttons">
+          <a class="btn-secondary" href="/portal/dashboard">Cancel</a>
+          <button type="submit">Create booking</button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
+<script>
+(function () {{
+  var DOCTORS_BY_DEPT = {doctors_json};
+  var SLOTS_BY_DOCTOR = {slots_json};
+
+  var deptSelect = document.getElementById("department_id");
+  var doctorSelect = document.getElementById("doctor_id");
+  var dateInput = document.getElementById("booking-date");
+  var slotSelect = document.getElementById("slot_id");
+
+  function populateDoctors() {{
+    var doctors = DOCTORS_BY_DEPT[deptSelect.value] || [];
+    doctorSelect.innerHTML = "";
+    if (!doctors.length) {{
+      doctorSelect.innerHTML = '<option value="">No doctors in this department</option>';
+      doctorSelect.disabled = true;
+    }} else {{
+      doctorSelect.innerHTML = '<option value="">Choose a doctor</option>' +
+        doctors.map(function (d) {{ return '<option value="' + d.id + '">' + d.name + '</option>'; }}).join("");
+      doctorSelect.disabled = false;
+    }}
+    dateInput.value = ""; dateInput.disabled = true;
+    resetSlots("Choose a doctor and date first");
+  }}
+
+  function resetSlots(placeholder) {{
+    slotSelect.innerHTML = '<option value="">' + placeholder + '</option>';
+    slotSelect.disabled = true;
+  }}
+
+  function populateSlots() {{
+    var doctorSlots = SLOTS_BY_DOCTOR[doctorSelect.value] || {{}};
+    var daySlots = doctorSlots[dateInput.value] || [];
+    if (!daySlots.length) {{
+      resetSlots("No available slots that day");
+      return;
+    }}
+    slotSelect.innerHTML = daySlots.map(function (s) {{ return '<option value="' + s.id + '">' + s.label + '</option>'; }}).join("");
+    slotSelect.disabled = false;
+  }}
+
+  deptSelect.addEventListener("change", populateDoctors);
+  doctorSelect.addEventListener("change", function () {{
+    dateInput.value = "";
+    dateInput.disabled = !doctorSelect.value;
+    resetSlots("Choose a date");
+  }});
+  dateInput.addEventListener("change", populateSlots);
+
+  // --- Patient search (Section 12.9) ---
+  var searchBox = document.getElementById("patient-search");
+  var resultsBox = document.getElementById("search-results");
+  var selectedBox = document.getElementById("selected-patient");
+  var nameField = document.getElementById("patient_name");
+  var phoneField = document.getElementById("patient_phone");
+  var searchTimer = null;
+
+  searchBox.addEventListener("input", function () {{
+    clearTimeout(searchTimer);
+    var q = searchBox.value.trim();
+    if (!q) {{ resultsBox.innerHTML = ""; return; }}
+    searchTimer = setTimeout(function () {{
+      fetch("/portal/patients/search?q=" + encodeURIComponent(q))
+        .then(function (r) {{ return r.ok ? r.json() : []; }})
+        .then(function (results) {{
+          if (!results.length) {{ resultsBox.innerHTML = '<div class="field-hint">No matching patients — fill in the fields below to add a new one.</div>'; return; }}
+          resultsBox.innerHTML = "";
+          results.forEach(function (p) {{
+            var row = document.createElement("div");
+            row.className = "search-result-row";
+            row.textContent = (p.name || "(no name on file)") + " — " + p.phone;
+            row.addEventListener("click", function () {{
+              nameField.value = p.name || "";
+              phoneField.value = p.phone;
+              selectedBox.style.display = "block";
+              selectedBox.textContent = "Selected: " + (p.name || "(no name on file)") + " — " + p.phone;
+              resultsBox.innerHTML = "";
+              searchBox.value = "";
+            }});
+            resultsBox.appendChild(row);
+          }});
+        }});
+    }}, 250);
+  }});
+}})();
+</script>
+</body>
+</html>"""
+
+
 def _bookings_html(hospital, appointments: list) -> str:
     booked = sum(1 for a in appointments if a.status == "booked")
     cancelled = sum(1 for a in appointments if a.status == "cancelled")
@@ -323,11 +535,12 @@ def _bookings_html(hospital, appointments: list) -> str:
               <td>{html.escape(a.department_name)}</td>
               <td>{html.escape(a.doctor_name)}</td>
               <td><span class="pill pill-{a.status}">{html.escape(a.status)}</span></td>
+              <td><span class="pill pill-source-{a.source}">{'Walk-in' if a.source == 'staff' else 'WhatsApp'}</span></td>
             </tr>"""
             for a in appointments
         )
         table = f"""<table>
-          <thead><tr><th>Scheduled for</th><th>Patient phone</th><th>Department</th><th>Doctor</th><th>Status</th></tr></thead>
+          <thead><tr><th>Scheduled for</th><th>Patient phone</th><th>Department</th><th>Doctor</th><th>Status</th><th>Source</th></tr></thead>
           <tbody>{rows}</tbody>
         </table>"""
     else:
@@ -748,6 +961,114 @@ async def portal_dashboard(request: Request):
     recent_appointments = db.get_all_appointments_for_hospital(hospital.id, limit=10)
     activity_feed = db.get_recent_activity_feed(hospital.id, limit=10)
     return _dashboard_html(hospital, stats, weekly_counts, dept_breakdown, recent_appointments, activity_feed)
+
+
+def _build_new_booking_context(hospital) -> tuple[list[dict], dict, dict]:
+    """Shared by the GET (blank form) and POST (re-render on error) handlers
+    below -- departments/doctors/available-slots, all hospital-scoped and all
+    read through the SAME connector interface (Section 12.6.2) the WhatsApp
+    flow uses, not a parallel query path."""
+    connector = connectors.get_connector_for_hospital(hospital)
+    departments = connector.get_departments(hospital.id)
+    doctors_by_department: dict[str, list[dict]] = {}
+    slots_by_doctor: dict[str, dict[str, list[dict]]] = {}
+    for dept in departments:
+        doctors = connector.get_doctors(hospital.id, dept["id"])
+        doctors_by_department[dept["id"]] = doctors
+        for doc in doctors:
+            slots = connector.get_available_slots(hospital.id, doc["id"])
+            by_date: dict[str, list[dict]] = {}
+            for s in slots:
+                by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
+            slots_by_doctor[doc["id"]] = by_date
+    return departments, doctors_by_department, slots_by_doctor
+
+
+@router.get("/portal/new-booking", response_class=HTMLResponse)
+async def portal_new_booking_form(request: Request):
+    hospital = _current_hospital(request)
+    if hospital is None:
+        return RedirectResponse(url="/portal/login", status_code=303)
+    departments, doctors_by_department, slots_by_doctor = _build_new_booking_context(hospital)
+    return _new_booking_html(hospital, departments, doctors_by_department, slots_by_doctor)
+
+
+@router.post("/portal/new-booking", response_class=HTMLResponse)
+async def portal_new_booking_submit(
+    request: Request,
+    patient_name: str = Form(""),
+    patient_phone: str = Form(""),
+    department_id: str = Form(""),
+    doctor_id: str = Form(""),
+    slot_id: str = Form(""),
+):
+    """Section 12.9: creates a real appointment through connector.create_booking()
+    -- the EXACT same call core/booking_flow.py's WhatsApp confirm step makes
+    -- with source="staff", so it's protected by the exact same availability/
+    double-booking/quota logic (db.create_appointment(), Section 12.9's
+    per-(doctor,date) advisory lock), not a separate path that could race
+    against a WhatsApp booking."""
+    hospital = _current_hospital(request)
+    if hospital is None:
+        return RedirectResponse(url="/portal/login", status_code=303)
+
+    departments, doctors_by_department, slots_by_doctor = _build_new_booking_context(hospital)
+    values = {"patient_name": patient_name, "patient_phone": patient_phone, "department_id": department_id}
+
+    errors = []
+    patient_phone = patient_phone.strip()
+    if not patient_phone:
+        errors.append("Patient phone is required.")
+    department = db.find_department(hospital.id, department_id)
+    if department is None:
+        errors.append("Choose a valid department.")
+    doctor = db.find_doctor(hospital.id, department_id, doctor_id) if department else None
+    if doctor is None:
+        errors.append("Choose a valid doctor.")
+    scheduled_at = None
+    if not slot_id:
+        errors.append("Choose an available slot.")
+    else:
+        try:
+            scheduled_at = datetime.fromisoformat(slot_id)
+        except ValueError:
+            errors.append("That slot is no longer valid — pick another.")
+
+    if errors:
+        return HTMLResponse(
+            _new_booking_html(hospital, departments, doctors_by_department, slots_by_doctor, errors, values),
+            status_code=400,
+        )
+
+    connector = connectors.get_connector_for_hospital(hospital)
+    try:
+        connector.create_booking(
+            hospital.id, patient_phone, department_id, doctor_id, scheduled_at,
+            source=db.SOURCE_STAFF, patient_name=patient_name.strip() or None,
+        )
+    except db.QuotaExceededError as e:
+        return HTMLResponse(
+            _new_booking_html(hospital, departments, doctors_by_department, slots_by_doctor, [str(e)], values),
+            status_code=400,
+        )
+    except IntegrityError:
+        return HTMLResponse(
+            _new_booking_html(
+                hospital, departments, doctors_by_department, slots_by_doctor,
+                ["That slot was just taken — please pick another."], values,
+            ),
+            status_code=400,
+        )
+
+    return RedirectResponse(url="/portal/bookings", status_code=303)
+
+
+@router.get("/portal/patients/search")
+async def portal_patients_search(request: Request, q: str = ""):
+    hospital = _current_hospital(request)
+    if hospital is None:
+        return JSONResponse([], status_code=401)
+    return JSONResponse(db.search_patients(hospital.id, q))
 
 
 @router.get("/portal/bookings", response_class=HTMLResponse)
