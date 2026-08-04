@@ -25,8 +25,10 @@ dashboard you stay logged into), not hit once per admin action.
 import hashlib
 import hmac
 import html
+import json
 import os
 import time
+from datetime import date as _date
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -105,14 +107,207 @@ def _login_html(error: str | None = None) -> str:
 </html>"""
 
 
+_PORTAL_NAV_LINKS = [
+    ("dashboard", "/portal/dashboard", "Dashboard"),
+    ("bookings", "/portal/bookings", "Bookings"),
+    ("doctors", "/portal/doctors", "Doctors & departments"),
+    ("settings", "/portal/settings", "Hospital settings"),
+]
+
+
 def _portal_nav(active: str) -> str:
-    links = [("bookings", "/portal/bookings", "Bookings"), ("doctors", "/portal/doctors", "Doctors & departments"),
-             ("settings", "/portal/settings", "Hospital settings")]
+    """The horizontal nav strip used by every portal.py page EXCEPT the
+    dashboard (Section 12.8), which gets its own vertical sidebar
+    (_dashboard_sidebar_html() below) matching the reference design more
+    closely -- rebuilding every existing page around a permanent sidebar was
+    out of scope for that task, so this keeps working exactly as before,
+    just with a "Dashboard" link added so it's reachable from anywhere."""
     items = "".join(
         f'<a href="{href}"{" style=\"font-weight:600;color:var(--sage-deep);\"" if key == active else ""}>{label}</a>'
-        for key, href, label in links
+        for key, href, label in _PORTAL_NAV_LINKS
     )
     return f'<div class="brand-nav">{items}<a href="/portal/logout">Log out</a></div>'
+
+
+def _dashboard_sidebar_html(hospital, active: str) -> str:
+    items = "".join(
+        f'<a href="{href}" class="{"active" if key == active else ""}">{label}</a>'
+        for key, href, label in _PORTAL_NAV_LINKS
+    )
+    return f"""
+    <div class="dashboard-sidebar">
+      <div class="brand">
+        <div class="brand-mark">H</div>
+        <span class="brand-name">{html.escape(hospital.name)}</span>
+      </div>
+      {items}
+      <a href="/portal/logout" class="logout">Log out</a>
+    </div>
+    """
+
+
+_CHART_COLORS = ["#1B4D3E", "#9C7A3D", "#1E9E5A", "#D14343", "#667066", "#5B8A9C", "#B08968"]
+
+
+def _stat_delta_html(pct: float | None) -> str:
+    """pct is None when there's no baseline (zero appointments on the same
+    weekday last week) -- shown as "—" rather than a misleading 0%/divide-by-
+    zero (db.get_dashboard_stats()'s own docstring explains the choice)."""
+    if pct is None:
+        return '<span class="stat-delta flat">— vs last week</span>'
+    if pct > 0:
+        return f'<span class="stat-delta up">&#9650; {pct:g}% vs last week</span>'
+    if pct < 0:
+        return f'<span class="stat-delta down">&#9660; {abs(pct):g}% vs last week</span>'
+    return '<span class="stat-delta flat">No change vs last week</span>'
+
+
+def _dashboard_html(
+    hospital, stats: dict, weekly_counts: list[dict], dept_breakdown: list[dict],
+    recent_appointments: list, activity_feed: list[dict],
+) -> str:
+    stat_tiles = f"""
+    <div class="stat-row">
+      <div class="stat-tile">
+        <div class="stat-value">{stats['today_appointments']}</div>
+        <div class="stat-label">Today's Appointments</div>
+        {_stat_delta_html(stats['today_appointments_delta_pct'])}
+      </div>
+      <div class="stat-tile">
+        <div class="stat-value">{stats['confirmed_today']}</div>
+        <div class="stat-label">Confirmed Today</div>
+        {_stat_delta_html(stats['confirmed_today_delta_pct'])}
+      </div>
+      <div class="stat-tile">
+        <div class="stat-value">{stats['new_patients_today']}</div>
+        <div class="stat-label">New Patients Today</div>
+        {_stat_delta_html(stats['new_patients_today_delta_pct'])}
+      </div>
+      <div class="stat-tile">
+        <div class="stat-value">{stats['no_shows_today']}</div>
+        <div class="stat-label">No-Shows Today</div>
+        {_stat_delta_html(stats['no_shows_today_delta_pct'])}
+      </div>
+    </div>
+    """
+
+    # Chart.js needs SOME data to draw an axis -- an all-zero week still
+    # renders a flat line at 0 correctly, but zero DEPARTMENTS (nothing
+    # booked in the last 30 days) has nothing to slice a donut out of, so
+    # that one gets an empty-state message instead of an empty canvas.
+    weekly_labels = json.dumps([w["label"] for w in weekly_counts])
+    weekly_values = json.dumps([w["count"] for w in weekly_counts])
+
+    if dept_breakdown:
+        dept_labels = json.dumps([d["department_name"] for d in dept_breakdown])
+        dept_values = json.dumps([d["count"] for d in dept_breakdown])
+        dept_colors = json.dumps([_CHART_COLORS[i % len(_CHART_COLORS)] for i in range(len(dept_breakdown))])
+        legend_rows = "".join(
+            f'<div class="chart-legend-row"><span class="chart-legend-swatch" '
+            f'style="background:{_CHART_COLORS[i % len(_CHART_COLORS)]}"></span>'
+            f'{html.escape(d["department_name"])} ({d["count"]})</div>'
+            for i, d in enumerate(dept_breakdown)
+        )
+        dept_chart_html = f"""
+          <canvas id="dept-chart" height="200"></canvas>
+          <div class="chart-legend">{legend_rows}</div>
+        """
+    else:
+        dept_labels = dept_values = dept_colors = "[]"
+        dept_chart_html = '<div class="empty-note">No appointments in the last 30 days.</div>'
+
+    charts = f"""
+    <div class="chart-row">
+      <div class="chart-card">
+        <h3>Weekly Appointments Trend</h3>
+        <canvas id="weekly-chart" height="110"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Appointments by Department (30 days)</h3>
+        {dept_chart_html}
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+      new Chart(document.getElementById("weekly-chart"), {{
+        type: "line",
+        data: {{
+          labels: {weekly_labels},
+          datasets: [{{
+            data: {weekly_values}, borderColor: "#1B4D3E", backgroundColor: "rgba(27,77,62,0.08)",
+            tension: 0.3, fill: true, pointRadius: 3, pointBackgroundColor: "#1B4D3E",
+          }}],
+        }},
+        options: {{
+          plugins: {{ legend: {{ display: false }} }},
+          scales: {{ y: {{ beginAtZero: true, ticks: {{ precision: 0 }} }} }},
+        }},
+      }});
+      {"" if not dept_breakdown else f'''
+      new Chart(document.getElementById("dept-chart"), {{
+        type: "doughnut",
+        data: {{ labels: {dept_labels}, datasets: [{{ data: {dept_values}, backgroundColor: {dept_colors}, borderWidth: 0 }}] }},
+        options: {{ plugins: {{ legend: {{ display: false }} }}, cutout: "65%" }},
+      }});
+      '''}
+    </script>
+    """
+
+    if recent_appointments:
+        recent_rows = "".join(
+            f"""<tr>
+              <td>{html.escape(a.scheduled_at.strftime('%d %b %Y, %H:%M'))}</td>
+              <td>{html.escape(a.phone)}</td>
+              <td>{html.escape(a.doctor_name)}</td>
+              <td>{html.escape(a.department_name)}</td>
+              <td><span class="pill pill-{a.status}">{a.status}</span></td>
+            </tr>"""
+            for a in recent_appointments
+        )
+        recent_table = f"""
+        <table>
+          <thead><tr><th>Time</th><th>Patient</th><th>Doctor</th><th>Department</th><th>Status</th></tr></thead>
+          <tbody>{recent_rows}</tbody>
+        </table>
+        """
+    else:
+        recent_table = '<div class="empty-note">No appointments yet.</div>'
+
+    if activity_feed:
+        activity_rows = "".join(
+            f"""<div class="activity-row">
+              <span class="activity-row-main">{html.escape(event['label'])} — {html.escape(event['phone'])}
+                ({html.escape(event['doctor_name'])}, {html.escape(event['department_name'])})</span>
+              <span class="activity-row-time">{html.escape(event['at'].strftime('%d %b, %H:%M'))}</span>
+            </div>"""
+            for event in activity_feed
+        )
+    else:
+        activity_rows = '<div class="empty-note">No recent activity.</div>'
+
+    return f"""<!doctype html>
+<html>
+<head><title>Dashboard — {html.escape(hospital.name)}</title>{_STYLE}
+<style>table {{ width: 100%; border-collapse: collapse; }} th {{ text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-faint); padding: 8px 10px; border-bottom: 1px solid var(--sage-line); }} td {{ padding: 10px; border-bottom: 1px solid var(--sage-line); font-size: 13.5px; }}</style>
+</head>
+<body>
+<div class="dashboard-shell">
+  {_dashboard_sidebar_html(hospital, "dashboard")}
+  <main class="dashboard-main">
+    <div class="page-header">
+      <h2>Dashboard</h2>
+      <span class="hint">Welcome back — here's what's happening at {html.escape(hospital.name)} today.</span>
+    </div>
+    {stat_tiles}
+    {charts}
+    <h3 class="dashboard-section-title" style="margin-top:8px;">Recent Appointments</h3>
+    {recent_table}
+    <h3 class="dashboard-section-title" style="margin-top:32px;">Recent Activity</h3>
+    {activity_rows}
+  </main>
+</div>
+</body>
+</html>"""
 
 
 def _bookings_html(hospital, appointments: list) -> str:
@@ -240,18 +435,28 @@ def _doctor_fields_html(doctor: dict | None = None) -> str:
     most two "HH:MM-HH:MM" ranges (Shift 1 / Shift 2) -- unlike the onboarding
     wizard's dynamically-repeatable shift rows, a fixed two-shift form covers
     the vast majority of real doctor schedules without needing the wizard's
-    template-cloning JS machinery for what's a single-doctor-at-a-time page."""
+    template-cloning JS machinery for what's a single-doctor-at-a-time page.
+
+    Section 14.7: breaks gets the same fixed-single-row treatment as shifts
+    (one optional break window, e.g. lunch, covers the vast majority of real
+    schedules) -- applies uniformly to every working day checked above, same
+    as the wizard's version (db/schema.sql's comment on doctors.breaks)."""
     doctor = doctor or {}
     days = set(doctor.get("working_days") or [])
     hours = doctor.get("working_hours") or []
     shift1 = hours[0].split("-") if len(hours) > 0 else ["", ""]
     shift2 = hours[1].split("-") if len(hours) > 1 else ["", ""]
+    breaks = doctor.get("breaks") or []
+    break1 = breaks[0].split("-") if len(breaks) > 0 else ["", ""]
 
     days_html = "".join(
         f'<label class="checkbox-row"><input type="checkbox" name="working_days" value="{d}" '
         f'{"checked" if d in days else ""}> {d}</label>'
         for d in _WEEKDAY_ABBREVS
     )
+
+    def _num(value) -> str:
+        return "" if value is None else str(value)
 
     return f"""
       <div class="field-row">
@@ -282,17 +487,69 @@ def _doctor_fields_html(doctor: dict | None = None) -> str:
           </div>
         </div>
       </div>
-      <label>Slot duration (minutes)</label>
-      <input type="number" min="1" name="slot_duration_minutes" value="{doctor.get('slot_duration_minutes') or 30}">
-      <p class="field-hint">How long each appointment lasts — e.g. 20 means a new bookable slot every 20 minutes.</p>
+      <div class="field-row">
+        <div>
+          <label>Slot duration (minutes)</label>
+          <input type="number" min="1" name="slot_duration_minutes" value="{doctor.get('slot_duration_minutes') or 30}">
+          <p class="field-hint">How long each appointment lasts — e.g. 20 means a new bookable slot every 20 minutes.</p>
+        </div>
+        <div>
+          <label>Break (optional)</label>
+          <div class="shift-row">
+            <input type="time" name="break1_start" value="{html.escape(break1[0])}">
+            <span class="shift-sep">to</span>
+            <input type="time" name="break1_end" value="{html.escape(break1[1])}">
+          </div>
+          <p class="field-hint">Excluded from bookable slots, e.g. lunch. Applies every working day.</p>
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Bookings per slot</label>
+          <input type="number" min="1" name="max_bookings_per_slot" value="{doctor.get('max_bookings_per_slot') or 1}">
+          <p class="field-hint">How many patients can book the exact same slot time. 1 = normal behavior.</p>
+        </div>
+        <div>
+          <label>Daily booking limit (optional)</label>
+          <input type="number" min="0" name="daily_booking_limit" value="{_num(doctor.get('daily_booking_limit'))}">
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Online quota (optional)</label>
+          <input type="number" min="0" name="online_quota" value="{_num(doctor.get('online_quota'))}">
+        </div>
+        <div>
+          <label>Walk-in quota (optional)</label>
+          <input type="number" min="0" name="walkin_quota" value="{_num(doctor.get('walkin_quota'))}">
+          <p class="field-hint">Reserved WhatsApp/front-desk split of the daily limit. Not enforced until walk-in booking exists.</p>
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Follow-up duration (minutes, optional)</label>
+          <input type="number" min="1" name="followup_duration_minutes" value="{doctor.get('followup_duration_minutes') or ''}">
+        </div>
+        <div>
+          <label>Schedule effective from (optional)</label>
+          <input type="date" name="effective_from" value="{html.escape(doctor.get('effective_from') or '')}">
+          <p class="field-hint">Leave blank for "effective immediately." A future date keeps already-offered earlier slots untouched.</p>
+        </div>
+      </div>
     """
 
 
-def _doctors_html(hospital, departments: list[dict], doctors: list[dict], errors: list[str] | None = None) -> str:
+def _doctors_html(
+    hospital, departments: list[dict], doctors: list[dict],
+    errors: list[str] | None = None, warnings: list[str] | None = None,
+) -> str:
     error_html = ""
     if errors:
         items = "".join(f"<li>{html.escape(e)}</li>" for e in errors)
         error_html = f'<div class="error-banner"><strong>Please fix the following:</strong><ul>{items}</ul></div>'
+    if warnings:
+        items = "".join(f"<li>{html.escape(w)}</li>" for w in warnings)
+        error_html += f'<div class="warning-banner"><strong>Worth double-checking:</strong><ul>{items}</ul></div>'
 
     dept_options = "".join(f'<option value="{d["id"]}">{html.escape(d["name"])}</option>' for d in departments)
 
@@ -363,11 +620,55 @@ def _doctors_html(hospital, departments: list[dict], doctors: list[dict], errors
 </html>"""
 
 
-def _doctor_edit_html(hospital, doctor: dict, errors: list[str] | None = None) -> str:
+def _doctor_leave_html(doctor_id: str, leave: list[dict]) -> str:
+    """Section 14.7: whole-day unavailability management -- lives only on the
+    edit page (not onboarding), since a brand-new doctor has no known leave
+    dates yet. generate_slots_for_doctor() skips every date listed here."""
+    if leave:
+        rows = "".join(
+            f"""<div class="list-row">
+              <div class="list-row-main">
+                <span class="list-row-title">{html.escape(row['date'])}</span>
+                <span class="list-row-sub">{html.escape(row['reason']) if row.get('reason') else ''}</span>
+              </div>
+              <div class="list-row-meta">
+                <form method="post" action="/portal/doctors/{doctor_id}/leave/{row['id']}/delete" style="margin:0;">
+                  <button type="submit" class="btn-secondary small">Remove</button>
+                </form>
+              </div>
+            </div>"""
+            for row in leave
+        )
+        leave_list = f'<div class="card-list">{rows}</div>'
+    else:
+        leave_list = '<div class="empty-note">No leave dates recorded.</div>'
+
+    return f"""
+    <h3 style="margin-top: 32px; font-family: var(--font-body); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-faint);">Leave / days off</h3>
+    {leave_list}
+    <form method="post" action="/portal/doctors/{doctor_id}/leave" style="margin-top: 12px;">
+      <div class="field-row">
+        <div><input type="date" name="date" required></div>
+        <div><input type="text" name="reason" placeholder="Reason (optional)"></div>
+        <div><button type="submit" class="small" style="width:auto;">+ Add leave date</button></div>
+      </div>
+    </form>
+    """
+
+
+def _doctor_edit_html(
+    hospital, doctor: dict, errors: list[str] | None = None,
+    warnings: list[str] | None = None, leave: list[dict] | None = None,
+) -> str:
     error_html = ""
     if errors:
         items = "".join(f"<li>{html.escape(e)}</li>" for e in errors)
         error_html = f'<div class="error-banner"><strong>Please fix the following:</strong><ul>{items}</ul></div>'
+    if warnings:
+        items = "".join(f"<li>{html.escape(w)}</li>" for w in warnings)
+        error_html += f'<div class="warning-banner"><strong>Worth double-checking:</strong><ul>{items}</ul></div>'
+
+    leave_html = _doctor_leave_html(doctor["id"], leave or []) if "id" in doctor else ""
 
     return f"""<!doctype html>
 <html>
@@ -394,6 +695,7 @@ def _doctor_edit_html(hospital, doctor: dict, errors: list[str] | None = None) -
         <button type="submit">Save changes</button>
       </div>
     </form>
+    {leave_html}
   </main>
 </div>
 </body>
@@ -413,7 +715,7 @@ async def portal_login_submit(password: str = Form("")):
 
     expires_at = int(time.time()) + _SESSION_TTL_SECONDS
     cookie_value = _sign_session(hospital.id, expires_at)
-    response = RedirectResponse(url="/portal/bookings", status_code=303)
+    response = RedirectResponse(url="/portal/dashboard", status_code=303)
     response.set_cookie(
         _COOKIE_NAME, cookie_value, max_age=_SESSION_TTL_SECONDS,
         httponly=True, samesite="lax",
@@ -430,6 +732,22 @@ async def portal_logout():
     response = RedirectResponse(url="/portal/login", status_code=303)
     response.delete_cookie(_COOKIE_NAME)
     return response
+
+
+@router.get("/portal/dashboard", response_class=HTMLResponse)
+async def portal_dashboard(request: Request):
+    """Section 12.8: the default landing page after login (see
+    portal_login_submit() above) -- /portal/bookings, /portal/doctors, and
+    /portal/settings are unchanged, still reachable via the sidebar."""
+    hospital = _current_hospital(request)
+    if hospital is None:
+        return RedirectResponse(url="/portal/login", status_code=303)
+    stats = db.get_dashboard_stats(hospital.id)
+    weekly_counts = db.get_weekly_appointment_counts(hospital.id)
+    dept_breakdown = db.get_appointments_by_department(hospital.id)
+    recent_appointments = db.get_all_appointments_for_hospital(hospital.id, limit=10)
+    activity_feed = db.get_recent_activity_feed(hospital.id, limit=10)
+    return _dashboard_html(hospital, stats, weekly_counts, dept_breakdown, recent_appointments, activity_feed)
 
 
 @router.get("/portal/bookings", response_class=HTMLResponse)
@@ -526,6 +844,12 @@ def _build_working_hours(shift1_start: str, shift1_end: str, shift2_start: str, 
     return ",".join(ranges)
 
 
+def _build_breaks(break1_start: str, break1_end: str) -> str:
+    """Same convention as _build_working_hours() above, for the portal's
+    single fixed (optional) break window (Section 14.7)."""
+    return f"{break1_start}-{break1_end}" if break1_start and break1_end else ""
+
+
 @router.post("/portal/doctors", response_class=HTMLResponse)
 async def portal_add_doctor(
     request: Request,
@@ -540,6 +864,14 @@ async def portal_add_doctor(
     shift2_start: str = Form(""),
     shift2_end: str = Form(""),
     slot_duration_minutes: str = Form(""),
+    break1_start: str = Form(""),
+    break1_end: str = Form(""),
+    max_bookings_per_slot: str = Form("1"),
+    daily_booking_limit: str = Form(""),
+    online_quota: str = Form(""),
+    walkin_quota: str = Form(""),
+    followup_duration_minutes: str = Form(""),
+    effective_from: str = Form(""),
 ):
     hospital = _current_hospital(request)
     if hospital is None:
@@ -553,8 +885,11 @@ async def portal_add_doctor(
         return HTMLResponse(_doctors_html(hospital, departments, doctors, ["Choose a valid department."]), status_code=400)
 
     hours_raw = _build_working_hours(shift1_start, shift1_end, shift2_start, shift2_end)
-    doctor_data, errors = _validate_doctor_fields(
+    breaks_raw = _build_breaks(break1_start, break1_end)
+    doctor_data, errors, warnings = _validate_doctor_fields(
         0, name, specialization, qualification, years_experience, ",".join(working_days), hours_raw, slot_duration_minutes,
+        breaks_raw, max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
+        followup_duration_minutes, effective_from,
     )
     if errors:
         return HTMLResponse(_doctors_html(hospital, departments, doctors, errors), status_code=400)
@@ -567,7 +902,18 @@ async def portal_add_doctor(
         working_days=doctor_data["working_days"],
         working_hours=doctor_data["working_hours"],
         slot_duration_minutes=doctor_data["slot_duration_minutes"],
+        breaks=doctor_data["breaks"],
+        max_bookings_per_slot=doctor_data["max_bookings_per_slot"],
+        daily_booking_limit=doctor_data["daily_booking_limit"],
+        online_quota=doctor_data["online_quota"],
+        walkin_quota=doctor_data["walkin_quota"],
+        followup_duration_minutes=doctor_data["followup_duration_minutes"],
+        effective_from=doctor_data["effective_from"],
     )
+    if warnings:
+        departments = db.get_departments(hospital.id)
+        doctors = db.get_all_doctors_for_hospital(hospital.id)
+        return HTMLResponse(_doctors_html(hospital, departments, doctors, warnings=warnings))
     return RedirectResponse(url="/portal/doctors", status_code=303)
 
 
@@ -579,7 +925,8 @@ async def portal_edit_doctor_form(doctor_id: str, request: Request):
     doctor = db.get_doctor_full(hospital.id, doctor_id)
     if doctor is None:
         return HTMLResponse("<p>No such doctor.</p>", status_code=404)
-    return _doctor_edit_html(hospital, doctor)
+    leave = db.get_doctor_leave(hospital.id, doctor_id)
+    return _doctor_edit_html(hospital, doctor, leave=leave)
 
 
 @router.post("/portal/doctors/{doctor_id}/edit", response_class=HTMLResponse)
@@ -596,6 +943,14 @@ async def portal_edit_doctor_submit(
     shift2_start: str = Form(""),
     shift2_end: str = Form(""),
     slot_duration_minutes: str = Form(""),
+    break1_start: str = Form(""),
+    break1_end: str = Form(""),
+    max_bookings_per_slot: str = Form("1"),
+    daily_booking_limit: str = Form(""),
+    online_quota: str = Form(""),
+    walkin_quota: str = Form(""),
+    followup_duration_minutes: str = Form(""),
+    effective_from: str = Form(""),
 ):
     hospital = _current_hospital(request)
     if hospital is None:
@@ -606,8 +961,11 @@ async def portal_edit_doctor_submit(
         return HTMLResponse("<p>No such doctor.</p>", status_code=404)
 
     hours_raw = _build_working_hours(shift1_start, shift1_end, shift2_start, shift2_end)
-    doctor_data, errors = _validate_doctor_fields(
+    breaks_raw = _build_breaks(break1_start, break1_end)
+    doctor_data, errors, warnings = _validate_doctor_fields(
         0, name, specialization, qualification, years_experience, ",".join(working_days), hours_raw, slot_duration_minutes,
+        breaks_raw, max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
+        followup_duration_minutes, effective_from,
     )
     if errors:
         submitted = {
@@ -615,6 +973,10 @@ async def portal_edit_doctor_submit(
             "years_experience": years_experience, "working_days": working_days,
             "working_hours": [r for r in hours_raw.split(",") if r],
             "slot_duration_minutes": slot_duration_minutes,
+            "breaks": [r for r in breaks_raw.split(",") if r],
+            "max_bookings_per_slot": max_bookings_per_slot, "daily_booking_limit": daily_booking_limit,
+            "online_quota": online_quota, "walkin_quota": walkin_quota,
+            "followup_duration_minutes": followup_duration_minutes, "effective_from": effective_from,
         }
         return HTMLResponse(_doctor_edit_html(hospital, submitted, errors), status_code=400)
 
@@ -626,5 +988,52 @@ async def portal_edit_doctor_submit(
         working_days=doctor_data["working_days"],
         working_hours=doctor_data["working_hours"],
         slot_duration_minutes=doctor_data["slot_duration_minutes"],
+        breaks=doctor_data["breaks"],
+        max_bookings_per_slot=doctor_data["max_bookings_per_slot"],
+        daily_booking_limit=doctor_data["daily_booking_limit"],
+        online_quota=doctor_data["online_quota"],
+        walkin_quota=doctor_data["walkin_quota"],
+        followup_duration_minutes=doctor_data["followup_duration_minutes"],
+        effective_from=doctor_data["effective_from"],
     )
+    if warnings:
+        updated = db.get_doctor_full(hospital.id, doctor_id)
+        leave = db.get_doctor_leave(hospital.id, doctor_id)
+        return HTMLResponse(_doctor_edit_html(hospital, updated, warnings=warnings, leave=leave))
     return RedirectResponse(url="/portal/doctors", status_code=303)
+
+
+@router.post("/portal/doctors/{doctor_id}/leave", response_class=HTMLResponse)
+async def portal_add_doctor_leave(doctor_id: str, request: Request, date: str = Form(""), reason: str = Form("")):
+    """Section 14.7: mark a whole day off for this doctor -- generate_slots_for_doctor()
+    skips it entirely on the next regeneration (done immediately by
+    db.create_doctor_leave()), not something staff manage during initial
+    onboarding (there's nothing to know yet), so this only lives here."""
+    hospital = _current_hospital(request)
+    if hospital is None:
+        return RedirectResponse(url="/portal/login", status_code=303)
+    doctor = db.get_doctor_full(hospital.id, doctor_id)
+    if doctor is None:
+        return HTMLResponse("<p>No such doctor.</p>", status_code=404)
+
+    date = date.strip()
+    if not date:
+        leave = db.get_doctor_leave(hospital.id, doctor_id)
+        return HTMLResponse(_doctor_edit_html(hospital, doctor, ["A leave date is required."], leave=leave), status_code=400)
+    try:
+        _date.fromisoformat(date)
+    except ValueError:
+        leave = db.get_doctor_leave(hospital.id, doctor_id)
+        return HTMLResponse(_doctor_edit_html(hospital, doctor, [f'"{date}" is not a valid date (use YYYY-MM-DD).'], leave=leave), status_code=400)
+
+    db.create_doctor_leave(hospital.id, doctor_id, date, reason.strip() or None)
+    return RedirectResponse(url=f"/portal/doctors/{doctor_id}/edit", status_code=303)
+
+
+@router.post("/portal/doctors/{doctor_id}/leave/{leave_id}/delete", response_class=HTMLResponse)
+async def portal_delete_doctor_leave(doctor_id: str, leave_id: int, request: Request):
+    hospital = _current_hospital(request)
+    if hospital is None:
+        return RedirectResponse(url="/portal/login", status_code=303)
+    db.delete_doctor_leave(hospital.id, doctor_id, leave_id)
+    return RedirectResponse(url=f"/portal/doctors/{doctor_id}/edit", status_code=303)

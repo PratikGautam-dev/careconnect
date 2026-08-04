@@ -27,6 +27,7 @@ import html
 import json
 import os
 import re
+from datetime import date, datetime
 
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse
@@ -49,11 +50,30 @@ _VALID_TIERS = {"tier1", "tier2", "tier3"}
 # --- Validation (unchanged rules from the textarea-DSL version — same fields,
 # same constraints, just read from structured per-doctor form inputs now) ---
 
+def _split_time_range(r: str) -> tuple[str, str]:
+    """Only ever called on a string already confirmed to match _TIME_RANGE_RE."""
+    start, end = r.split("-")
+    return start, end
+
+
+def _minutes_between(start: str, end: str) -> int:
+    fmt = "%H:%M"
+    return int((datetime.strptime(end, fmt) - datetime.strptime(start, fmt)).total_seconds() // 60)
+
+
 def _validate_doctor_fields(
     index: int, name: str, specialization: str, qualification: str,
     years_raw: str, days_raw: str, hours_raw: str, duration_raw: str,
-) -> tuple[dict | None, list[str]]:
+    breaks_raw: str = "", max_bookings_raw: str = "1", daily_limit_raw: str = "",
+    online_quota_raw: str = "", walkin_quota_raw: str = "",
+    followup_duration_raw: str = "", effective_from_raw: str = "",
+) -> tuple[dict | None, list[str], list[str]]:
+    """Returns (doctor_dict_or_None, errors, warnings). errors block
+    submission (same as before Section 14.7); warnings (currently just the
+    online/walk-in quota vs. daily_booking_limit check) don't -- the caller
+    still gets a doctor dict back alongside them."""
     errors = []
+    warnings = []
     name = name.strip()
     label = f"Doctor #{index + 1}" + (f" ({name})" if name else "")
     if not name:
@@ -95,8 +115,100 @@ def _validate_doctor_fields(
         except ValueError:
             errors.append(f'{label}: slot duration "{duration_raw}" must be a positive whole number.')
 
+    # --- Section 14.7 fields ---
+
+    breaks = [b.strip() for b in breaks_raw.split(",") if b.strip()]
+    if breaks:
+        bad_break_ranges = [b for b in breaks if not _TIME_RANGE_RE.match(b)]
+        if bad_break_ranges:
+            errors.append(f"{label}: invalid break range(s) {bad_break_ranges} — use HH:MM-HH:MM.")
+        elif working_hours and not bad_ranges:
+            # Breaks apply to every working day uniformly (db/schema.sql's
+            # comment on doctors.breaks), so there's only one set of shifts to
+            # check each break against, not one per specific day.
+            parsed_shifts = [_split_time_range(h) for h in working_hours]
+            parsed_breaks = [_split_time_range(b) for b in breaks]
+
+            outside_shift = [
+                breaks[i] for i, pb in enumerate(parsed_breaks)
+                if not any(s[0] <= pb[0] and pb[1] <= s[1] for s in parsed_shifts)
+            ]
+            if outside_shift:
+                errors.append(f"{label}: break(s) {outside_shift} must fall entirely within a working-hours shift.")
+
+            sorted_breaks = sorted(parsed_breaks)
+            for a, b in zip(sorted_breaks, sorted_breaks[1:]):
+                if a[1] > b[0]:
+                    errors.append(f"{label}: break windows must not overlap each other.")
+                    break
+
+            if slot_duration_minutes and not outside_shift:
+                for shift in parsed_shifts:
+                    shift_minutes = _minutes_between(shift[0], shift[1])
+                    break_minutes = sum(
+                        _minutes_between(pb[0], pb[1]) for pb in parsed_breaks
+                        if shift[0] <= pb[0] and pb[1] <= shift[1]
+                    )
+                    if shift_minutes - break_minutes < slot_duration_minutes:
+                        errors.append(f"{label}: breaks leave no bookable time in shift {shift[0]}-{shift[1]}.")
+
+    max_bookings_per_slot = 1
+    max_bookings_raw = (max_bookings_raw or "1").strip()
+    try:
+        max_bookings_per_slot = int(max_bookings_raw)
+        if max_bookings_per_slot < 1:
+            raise ValueError
+    except ValueError:
+        errors.append(f'{label}: "bookings per slot" must be a whole number of at least 1.')
+
+    daily_booking_limit = None
+    daily_limit_raw = (daily_limit_raw or "").strip()
+    if daily_limit_raw:
+        try:
+            daily_booking_limit = int(daily_limit_raw)
+            if daily_booking_limit < 0:
+                raise ValueError
+        except ValueError:
+            errors.append(f'{label}: daily booking limit must be a whole number of 0 or more.')
+
+    def _parse_optional_nonneg_int(raw: str, field_label: str) -> int | None:
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+            if value < 0:
+                raise ValueError
+            return value
+        except ValueError:
+            errors.append(f"{label}: {field_label} must be a whole number of 0 or more.")
+            return None
+
+    online_quota = _parse_optional_nonneg_int(online_quota_raw, "online quota")
+    walkin_quota = _parse_optional_nonneg_int(walkin_quota_raw, "walk-in quota")
+    if online_quota is not None and walkin_quota is not None and daily_booking_limit is not None:
+        if online_quota + walkin_quota > daily_booking_limit:
+            warnings.append(
+                f"{label}: online quota ({online_quota}) + walk-in quota ({walkin_quota}) exceeds the "
+                f"daily booking limit ({daily_booking_limit}) — this is allowed (intentional headroom is fine), "
+                "just confirm it's not a mistake."
+            )
+
+    followup_duration_minutes = _parse_optional_nonneg_int(followup_duration_raw, "follow-up duration")
+    if followup_duration_minutes == 0:
+        errors.append(f"{label}: follow-up duration must be a positive whole number, not 0.")
+
+    effective_from = None
+    effective_from_raw = (effective_from_raw or "").strip()
+    if effective_from_raw:
+        try:
+            date.fromisoformat(effective_from_raw)
+            effective_from = effective_from_raw
+        except ValueError:
+            errors.append(f'{label}: "effective from" date "{effective_from_raw}" is not a valid date (use YYYY-MM-DD).')
+
     if errors:
-        return None, errors
+        return None, errors, warnings
 
     return {
         "name": name,
@@ -106,7 +218,14 @@ def _validate_doctor_fields(
         "working_days": working_days,
         "working_hours": working_hours,
         "slot_duration_minutes": slot_duration_minutes,
-    }, []
+        "breaks": breaks,
+        "max_bookings_per_slot": max_bookings_per_slot,
+        "daily_booking_limit": daily_booking_limit,
+        "online_quota": online_quota,
+        "walkin_quota": walkin_quota,
+        "followup_duration_minutes": followup_duration_minutes,
+        "effective_from": effective_from,
+    }, [], warnings
 
 
 def _build_departments(
@@ -119,14 +238,34 @@ def _build_departments(
     doctor_working_days: list[str],
     doctor_working_hours: list[str],
     doctor_slot_duration_minutes: list[str],
-) -> tuple[list[dict], list[str]]:
+    doctor_breaks: list[str] | None = None,
+    doctor_max_bookings_per_slot: list[str] | None = None,
+    doctor_daily_booking_limit: list[str] | None = None,
+    doctor_online_quota: list[str] | None = None,
+    doctor_walkin_quota: list[str] | None = None,
+    doctor_followup_duration_minutes: list[str] | None = None,
+    doctor_effective_from: list[str] | None = None,
+) -> tuple[list[dict], list[str], list[str]]:
     """Reconstructs department/doctor structures from the wizard's repeatable
     doctor-card fields (Step 7) — parallel arrays positioned in DOM submit
     order, with doctor_department_index[i] naming which department_name[]
     entry doctor i belongs to (recomputed by the page's JS immediately before
-    submit, so it always reflects current on-screen card order/removals)."""
+    submit, so it always reflects current on-screen card order/removals).
+    Returns (departments, errors, warnings) -- Section 14.7's quota-vs-limit
+    check is a warning, not an error (see _validate_doctor_fields)."""
     departments = [{"name": n.strip(), "doctors": []} for n in department_name]
     errors: list[str] = []
+    warnings: list[str] = []
+    doctor_breaks = doctor_breaks or []
+    doctor_max_bookings_per_slot = doctor_max_bookings_per_slot or []
+    doctor_daily_booking_limit = doctor_daily_booking_limit or []
+    doctor_online_quota = doctor_online_quota or []
+    doctor_walkin_quota = doctor_walkin_quota or []
+    doctor_followup_duration_minutes = doctor_followup_duration_minutes or []
+    doctor_effective_from = doctor_effective_from or []
+
+    def _at(lst: list[str], i: int) -> str:
+        return lst[i] if i < len(lst) else ""
 
     for i in range(len(doctor_name)):
         idx_raw = doctor_department_index[i] if i < len(doctor_department_index) else ""
@@ -139,7 +278,7 @@ def _build_departments(
             errors.append(f"Doctor #{i + 1} references an invalid department.")
             continue
 
-        doctor, doc_errors = _validate_doctor_fields(
+        doctor, doc_errors, doc_warnings = _validate_doctor_fields(
             i,
             doctor_name[i],
             doctor_specialization[i] if i < len(doctor_specialization) else "",
@@ -148,8 +287,12 @@ def _build_departments(
             doctor_working_days[i] if i < len(doctor_working_days) else "",
             doctor_working_hours[i] if i < len(doctor_working_hours) else "",
             doctor_slot_duration_minutes[i] if i < len(doctor_slot_duration_minutes) else "",
+            _at(doctor_breaks, i), _at(doctor_max_bookings_per_slot, i), _at(doctor_daily_booking_limit, i),
+            _at(doctor_online_quota, i), _at(doctor_walkin_quota, i),
+            _at(doctor_followup_duration_minutes, i), _at(doctor_effective_from, i),
         )
         errors.extend(doc_errors)
+        warnings.extend(doc_warnings)
         if doctor is not None:
             departments[dept_idx]["doctors"].append(doctor)
 
@@ -158,7 +301,7 @@ def _build_departments(
             errors.append(f"Department #{i + 1} has doctors listed but no department name.")
 
     departments = [d for d in departments if d["name"] and d["doctors"]]
-    return departments, errors
+    return departments, errors, warnings
 
 
 def _build_faq_topics(topic_label: list[str], topic_answer: list[str]) -> tuple[list[dict], list[str]]:
@@ -552,7 +695,9 @@ _WIZARD_TEMPLATE = """<!doctype html>
     </div>
     <label>Working days</label>
     <button type="button" class="select-all-days-btn small">Select all weekdays</button>
+    <button type="button" class="copy-days-btn small">Copy to other days</button>
     <div class="days-row"></div>
+    <div class="copy-days-row" style="display:none;"></div>
     <input type="hidden" class="doctor-working-days" name="doctor_working_days" value="">
     <div class="field-row">
       <div>
@@ -560,13 +705,58 @@ _WIZARD_TEMPLATE = """<!doctype html>
         <div class="shifts-row"></div>
         <button type="button" class="add-doctor add-shift-btn small">+ Add another shift</button>
         <input type="hidden" class="doctor-hours" name="doctor_working_hours" value="">
-        <p class="field-hint">Pick start/end times — most doctors only need one shift. Add another row for a split shift (e.g. morning + evening).</p>
+        <p class="field-hint">Pick start/end times — most doctors only need one shift. Add another row for a split shift (e.g. morning + evening). Applies to every working day selected above.</p>
       </div>
       <div>
         <label>Slot duration (minutes)</label>
         <input type="number" min="1" class="doctor-duration" name="doctor_slot_duration_minutes">
         <p class="field-hint">This is how long each appointment lasts — e.g. 20 means patients can book a new slot every 20 minutes.</p>
       </div>
+    </div>
+    <div class="field-row">
+      <div>
+        <label>Breaks (optional)</label>
+        <div class="breaks-row"></div>
+        <button type="button" class="add-doctor add-break-btn small">+ Add a break</button>
+        <input type="hidden" class="doctor-breaks" name="doctor_breaks" value="">
+        <p class="field-hint">e.g. a lunch break — excluded from bookable slots within whichever shift it falls in, every working day.</p>
+      </div>
+      <div>
+        <label>Follow-up duration (minutes, optional)</label>
+        <input type="number" min="1" class="doctor-followup-duration" name="doctor_followup_duration_minutes">
+        <p class="field-hint">If set, a separate (usually shorter) slot length offered for follow-up visits.</p>
+      </div>
+    </div>
+    <div class="field-row">
+      <div>
+        <label>Bookings per slot</label>
+        <input type="number" min="1" class="doctor-max-bookings" name="doctor_max_bookings_per_slot" value="1">
+        <p class="field-hint">How many patients can book the exact same slot time. 1 = today's normal behavior.</p>
+      </div>
+      <div>
+        <label>Daily booking limit (optional)</label>
+        <input type="number" min="0" class="doctor-daily-limit" name="doctor_daily_booking_limit">
+        <p class="field-hint">Caps total bookings per day for this doctor, regardless of how many slots exist.</p>
+      </div>
+    </div>
+    <div class="field-row">
+      <div>
+        <label>Online quota (optional)</label>
+        <input type="number" min="0" class="doctor-online-quota" name="doctor_online_quota">
+      </div>
+      <div>
+        <label>Walk-in quota (optional)</label>
+        <input type="number" min="0" class="doctor-walkin-quota" name="doctor_walkin_quota">
+        <p class="field-hint">Reserved split of the daily limit between WhatsApp and front-desk bookings. Walk-in booking isn't built yet, so this doesn't affect availability until it is.</p>
+      </div>
+    </div>
+    <div class="field-row">
+      <div>
+        <label>Schedule effective from (optional)</label>
+        <input type="date" class="doctor-effective-from" name="doctor_effective_from">
+        <p class="field-hint">Leave blank for "effective immediately." Setting a future date keeps this doctor's already-offered earlier slots untouched.</p>
+      </div>
+      <div></div>
     </div>
   </div>
 </template>
@@ -577,6 +767,15 @@ _WIZARD_TEMPLATE = """<!doctype html>
     <span class="shift-sep">to</span>
     <input type="time" class="shift-end">
     <button type="button" class="remove-link remove-shift-btn">Remove</button>
+  </div>
+</template>
+
+<template id="break-row-template">
+  <div class="shift-row">
+    <input type="time" class="break-start">
+    <span class="shift-sep">to</span>
+    <input type="time" class="break-end">
+    <button type="button" class="remove-link remove-break-btn">Remove</button>
   </div>
 </template>
 
@@ -796,6 +995,36 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     recompute();
   }
 
+  // Same pattern as addShiftRow() above, for the (optional) breaks list --
+  // breaks-row-template is a plain time-range pair like a shift row, just
+  // feeding the .doctor-breaks hidden field instead of .doctor-hours.
+  var breakTemplate = document.getElementById("break-row-template");
+  function addBreakRow(breaksRow, hiddenBreaks, start, end) {
+    var node = breakTemplate.content.cloneNode(true);
+    var row = node.querySelector(".shift-row");
+    row.querySelector(".break-start").value = start || "";
+    row.querySelector(".break-end").value = end || "";
+
+    function recompute() {
+      var ranges = [];
+      breaksRow.querySelectorAll(".shift-row").forEach(function (r) {
+        var s = r.querySelector(".break-start").value;
+        var e = r.querySelector(".break-end").value;
+        if (s && e) ranges.push(s + "-" + e);
+      });
+      hiddenBreaks.value = ranges.join(",");
+    }
+
+    row.querySelector(".break-start").addEventListener("change", recompute);
+    row.querySelector(".break-end").addEventListener("change", recompute);
+    row.querySelector(".remove-break-btn").addEventListener("click", function () {
+      row.remove();
+      recompute();
+    });
+    breaksRow.appendChild(row);
+    recompute();
+  }
+
   function addDoctorCard(deptCard, data) {
     data = data || {};
     var doctorsContainer = deptCard.querySelector(".doctors-container");
@@ -807,6 +1036,12 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     card.querySelector(".doctor-qualification").value = data.qualification || "";
     card.querySelector(".doctor-years").value = data.years_experience || "";
     card.querySelector(".doctor-duration").value = data.slot_duration_minutes || "";
+    card.querySelector(".doctor-max-bookings").value = data.max_bookings_per_slot || 1;
+    card.querySelector(".doctor-daily-limit").value = data.daily_booking_limit != null ? data.daily_booking_limit : "";
+    card.querySelector(".doctor-online-quota").value = data.online_quota != null ? data.online_quota : "";
+    card.querySelector(".doctor-walkin-quota").value = data.walkin_quota != null ? data.walkin_quota : "";
+    card.querySelector(".doctor-followup-duration").value = data.followup_duration_minutes || "";
+    card.querySelector(".doctor-effective-from").value = data.effective_from || "";
 
     var shiftsRow = card.querySelector(".shifts-row");
     var hiddenHours = card.querySelector(".doctor-hours");
@@ -821,6 +1056,16 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
     }
     card.querySelector(".add-shift-btn").addEventListener("click", function () {
       addShiftRow(shiftsRow, hiddenHours, "", "");
+    });
+
+    var breaksRow = card.querySelector(".breaks-row");
+    var hiddenBreaks = card.querySelector(".doctor-breaks");
+    (data.breaks || []).forEach(function (range) {
+      var parts = range.split("-");
+      addBreakRow(breaksRow, hiddenBreaks, parts[0], parts[1]);
+    });
+    card.querySelector(".add-break-btn").addEventListener("click", function () {
+      addBreakRow(breaksRow, hiddenBreaks, "", "");
     });
 
     var selectedDays = data.working_days || [];
@@ -848,6 +1093,46 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
         var isWeekday = ["Sat", "Sun"].indexOf(toggle.textContent) === -1;
         if (isWeekday && !toggle.classList.contains("on")) toggle.click();
       });
+    });
+
+    // "Copy to other days" (Section 14.7): this doctor's shifts/breaks/slot
+    // duration already apply uniformly to every checked working day (there's
+    // no separate per-day configuration to copy FROM) -- so "copying" them to
+    // more days is exactly "select more days," reusing each day-toggle's own
+    // click handler above rather than duplicating the hidden-field recompute
+    // logic. A form-population convenience only, per Section 14.7's own
+    // scope note -- the backend just sees a normal, longer doctor_working_days
+    // list either way.
+    var copyDaysRow = card.querySelector(".copy-days-row");
+    card.querySelector(".copy-days-btn").addEventListener("click", function () {
+      var visible = copyDaysRow.style.display !== "none";
+      if (visible) { copyDaysRow.style.display = "none"; return; }
+      copyDaysRow.innerHTML = "";
+      WEEKDAYS.forEach(function (day) {
+        var label = document.createElement("label");
+        label.className = "checkbox-row";
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = day;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(" " + day));
+        copyDaysRow.appendChild(label);
+      });
+      var applyBtn = document.createElement("button");
+      applyBtn.type = "button";
+      applyBtn.className = "small";
+      applyBtn.textContent = "Apply";
+      applyBtn.addEventListener("click", function () {
+        copyDaysRow.querySelectorAll("input:checked").forEach(function (box) {
+          var toggle = Array.prototype.find.call(daysRow.querySelectorAll(".day-toggle"), function (t) {
+            return t.textContent === box.value;
+          });
+          if (toggle && !toggle.classList.contains("on")) toggle.click();
+        });
+        copyDaysRow.style.display = "none";
+      });
+      copyDaysRow.appendChild(applyBtn);
+      copyDaysRow.style.display = "block";
     });
 
     card.querySelector(".remove-doctor-btn").addEventListener("click", function () { card.remove(); });
@@ -1090,7 +1375,13 @@ def _wizard_html(
 
 def _confirmation_html(
     hospital, departments: list[dict], secret: str = "", topics: list[dict] | None = None,
+    warnings: list[str] | None = None,
 ) -> str:
+    warning_html = ""
+    if warnings:
+        items = "".join(f"<li>{html.escape(w)}</li>" for w in warnings)
+        warning_html = f'<div class="warning-banner" style="margin-top: 20px;"><strong>Worth double-checking:</strong><ul>{items}</ul></div>'
+
     content_parts = []
     tier_note = {
         "tier1": "Using this platform's own database to manage appointments (Tier 1).",
@@ -1145,6 +1436,7 @@ def _confirmation_html(
   </div>
 
   {portal_cta}
+  {warning_html}
 
   {content_section}
   <p class="hint">
@@ -1406,6 +1698,13 @@ async def onboard_hospital_submit(
     doctor_working_days: list[str] = Form(default=[]),
     doctor_working_hours: list[str] = Form(default=[]),
     doctor_slot_duration_minutes: list[str] = Form(default=[]),
+    doctor_breaks: list[str] = Form(default=[]),
+    doctor_max_bookings_per_slot: list[str] = Form(default=[]),
+    doctor_daily_booking_limit: list[str] = Form(default=[]),
+    doctor_online_quota: list[str] = Form(default=[]),
+    doctor_walkin_quota: list[str] = Form(default=[]),
+    doctor_followup_duration_minutes: list[str] = Form(default=[]),
+    doctor_effective_from: list[str] = Form(default=[]),
     topic_label: list[str] = Form(default=[]),
     topic_answer: list[str] = Form(default=[]),
 ):
@@ -1431,10 +1730,12 @@ async def onboard_hospital_submit(
     # can still be re-rendered with everything the operator entered intact,
     # not lost -- only the ones matching an enabled feature ever actually get
     # used below, but reconstructing both is cheap and keeps this simple.
-    departments, dept_errors = _build_departments(
+    departments, dept_errors, dept_warnings = _build_departments(
         department_name, doctor_department_index, doctor_name, doctor_specialization,
         doctor_qualification, doctor_years_experience, doctor_working_days,
         doctor_working_hours, doctor_slot_duration_minutes,
+        doctor_breaks, doctor_max_bookings_per_slot, doctor_daily_booking_limit,
+        doctor_online_quota, doctor_walkin_quota, doctor_followup_duration_minutes, doctor_effective_from,
     )
     topics, topic_errors = _build_faq_topics(topic_label, topic_answer)
 
@@ -1516,6 +1817,13 @@ async def onboard_hospital_submit(
                     working_days=doc["working_days"],
                     working_hours=doc["working_hours"],
                     slot_duration_minutes=doc["slot_duration_minutes"],
+                    breaks=doc["breaks"],
+                    max_bookings_per_slot=doc["max_bookings_per_slot"],
+                    daily_booking_limit=doc["daily_booking_limit"],
+                    online_quota=doc["online_quota"],
+                    walkin_quota=doc["walkin_quota"],
+                    followup_duration_minutes=doc["followup_duration_minutes"],
+                    effective_from=doc["effective_from"],
                 )
                 for doc in dept["doctors"]
             ]
@@ -1525,7 +1833,7 @@ async def onboard_hospital_submit(
     if "faq" in enabled_features:
         created_topics = [db.create_faq_topic(hospital.id, t["topic_label"], t["answer_text"]) for t in topics]
 
-    return _confirmation_html(hospital, created_departments, admin_secret, topics=created_topics)
+    return _confirmation_html(hospital, created_departments, admin_secret, topics=created_topics, warnings=dept_warnings)
 
 
 @router.get("/admin/tenants", response_class=HTMLResponse)

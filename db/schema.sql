@@ -93,6 +93,18 @@ CREATE TABLE IF NOT EXISTS departments (
 -- db/repository.py:generate_slots_for_doctor() reads to produce real rows in
 -- doctor_slots below (Section 12.1.1) -- a doctor with no working_days/
 -- working_hours simply generates zero slots, rather than erroring.
+--
+-- Section 14.7 (richer scheduling) additions below -- deliberately kept flat
+-- on this table rather than a separate doctor_schedule_settings table, same
+-- reasoning as working_days/working_hours already being flat columns here:
+-- one doctor has exactly one active schedule pattern at a time, so a 1:1
+-- side table would just be this table with extra JOINs, no real normalization
+-- benefit. breaks mirrors working_hours' own shape/convention deliberately
+-- (comma-separated "HH:MM-HH:MM" ranges, applied uniformly across every
+-- working day, not a per-day structure) -- working_hours already applies the
+-- same shift pattern to every working day, so per-day breaks would be an
+-- inconsistent one-off; a break must fall inside some shift on any day that
+-- shift runs, which is what "per working-day" means in practice here.
 CREATE TABLE IF NOT EXISTS doctors (
     id TEXT PRIMARY KEY,
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
@@ -103,7 +115,60 @@ CREATE TABLE IF NOT EXISTS doctors (
     years_experience INTEGER,
     working_days TEXT NOT NULL DEFAULT '',
     working_hours TEXT NOT NULL DEFAULT '',
-    slot_duration_minutes INTEGER NOT NULL DEFAULT 30
+    slot_duration_minutes INTEGER NOT NULL DEFAULT 30,
+    -- Comma-separated "HH:MM-HH:MM" ranges excluded from slot generation
+    -- within whichever shift each one falls inside (e.g. a lunch break).
+    breaks TEXT NOT NULL DEFAULT '',
+    -- How many separate BOOKED appointments this doctor can hold at the exact
+    -- same scheduled_at (default 1 = today's existing behavior, one patient
+    -- per slot). >1 is enforced via appointments.booking_ordinal below, not
+    -- by relaxing the old single-booking unique index.
+    max_bookings_per_slot INTEGER NOT NULL DEFAULT 1,
+    -- NULL = uncapped. Enforced at slot-generation time (generate_slots_for_doctor
+    -- stops generating more slots for a given date once this many would exist),
+    -- not at booking time -- once a day's slots are generated, patients can
+    -- book any of them same as always.
+    daily_booking_limit INTEGER,
+    -- Reserved split of daily_booking_limit between WhatsApp-booked (online)
+    -- and front-desk-created (walk-in) patients. Stored and validated now but
+    -- NOT enforced anywhere yet -- the staff portal has no walk-in booking
+    -- creation path yet (upcoming work), so there's nothing on the walk-in
+    -- side to actually split capacity against.
+    online_quota INTEGER,
+    walkin_quota INTEGER,
+    -- A separate, typically shorter duration for follow-up visits. NULL means
+    -- "no distinct follow-up duration configured" -- the booking flow falls
+    -- back to slot_duration_minutes for a follow-up in that case.
+    followup_duration_minutes INTEGER,
+    -- The date this doctor's CURRENT working_days/working_hours/breaks/etc.
+    -- pattern takes effect. NULL means "effective immediately / no
+    -- restriction" (matches every doctor's behavior before this column
+    -- existed). update_doctor()'s slot regeneration only replaces slots dated
+    -- on/after this date, leaving any earlier still-unbooked slots (generated
+    -- under the doctor's previous pattern) untouched -- a schedule change
+    -- applies going forward, not retroactively.
+    effective_from TEXT
+);
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT '';
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS max_bookings_per_slot INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS daily_booking_limit INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS online_quota INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS walkin_quota INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS followup_duration_minutes INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS effective_from TEXT;
+
+-- Section 14.7: one row per date a doctor is unavailable for the whole day
+-- (leave/holiday/on-call elsewhere). generate_slots_for_doctor() skips any
+-- date present here entirely for that doctor, rather than generating slots
+-- and hoping nobody books them. UNIQUE(doctor_id, date) makes re-adding the
+-- same leave date harmlessly idempotent instead of a duplicate row.
+CREATE TABLE IF NOT EXISTS doctor_leave (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    doctor_id TEXT NOT NULL REFERENCES doctors(id),
+    date TEXT NOT NULL,
+    reason TEXT,
+    UNIQUE(doctor_id, date)
 );
 
 -- Real, persisted bookable slots (Section 12.1.1) generated from a doctor's
@@ -144,8 +209,26 @@ CREATE TABLE IF NOT EXISTS appointments (
     scheduled_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'cancelled', 'rescheduled')),
     source TEXT NOT NULL DEFAULT 'whatsapp',
-    created_at TEXT NOT NULL DEFAULT (now()::text)
+    -- Section 14.7: which "seat" within a doctor's max_bookings_per_slot this
+    -- booking occupies at its scheduled_at (0-indexed, 0 for every doctor
+    -- whose max_bookings_per_slot is the default 1 -- identical to how the
+    -- old doctor_id+scheduled_at-only uniqueness behaved). Assigned by
+    -- db/repository.py:create_appointment()'s count-then-insert-with-retry
+    -- loop, never chosen by a caller.
+    booking_ordinal INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    -- Section 12.8 (staff dashboard): when this row's status last changed
+    -- (cancel/reschedule), set by db/repository.py's cancel_appointment()/
+    -- mark_rescheduled(). NULL for a still-'booked' row that's never changed
+    -- status -- read as COALESCE(updated_at, created_at) everywhere, so a
+    -- never-changed row's "event time" is just its booking time. Added
+    -- specifically so the dashboard's recent-activity feed can show a
+    -- cancellation/reschedule at the time it actually happened, not
+    -- mislabeled with the original booking's created_at.
+    updated_at TEXT
 );
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_ordinal INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TEXT;
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already
@@ -165,14 +248,24 @@ CREATE TABLE IF NOT EXISTS appointment_reminders (
 );
 
 -- Double-booking prevention at the DB level (ties into Phase 8's race-condition
--- handling): only one BOOKED appointment per doctor per exact scheduled_at can
--- exist, no matter how many requests race to insert it. A conflicting
--- create_appointment() call raises db.connection.IntegrityError (psycopg2's
--- IntegrityError, re-exported from db/connection.py) -- core/booking_flow.py
--- catches that and shows a friendly "that slot was just taken" message
--- (Phase 8), not Tier 1's job.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_doctor_slot_booked
-    ON appointments(doctor_id, scheduled_at)
+-- handling), extended by Section 14.7 to allow more than one BOOKED
+-- appointment per doctor per exact scheduled_at when max_bookings_per_slot > 1:
+-- uniqueness is now on (doctor_id, scheduled_at, booking_ordinal), not just
+-- (doctor_id, scheduled_at). For the default max_bookings_per_slot = 1 case
+-- every booking_ordinal is 0, so this is byte-for-byte the same guarantee as
+-- before for every doctor that hasn't opted into >1. db/repository.py's
+-- create_appointment() assigns booking_ordinal by counting existing bookings
+-- at that scheduled_at and retrying on a losing race (an IntegrityError from
+-- this exact index, same exception core/booking_flow.py already catches and
+-- turns into a friendly "that slot was just taken" message -- Phase 8), never
+-- by the caller. The old two-column version of this index is dropped, not
+-- kept alongside -- it would incorrectly block the 2nd..Nth booking for any
+-- doctor with max_bookings_per_slot > 1, so keeping it would silently break
+-- the feature it's dropped to enable; this is a constraint, not stored data,
+-- so it's exempt from this file's normal no-destructive-migrations convention.
+DROP INDEX IF EXISTS ux_appointments_doctor_slot_booked;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_doctor_slot_ordinal_booked
+    ON appointments(doctor_id, scheduled_at, booking_ordinal)
     WHERE status = 'booked';
 
 -- Present per Section 4's schema, but NOT wired up in this build — core/history.py's

@@ -277,6 +277,50 @@ STYLE = _FONT_LINKS + """
   .stat-tile .stat-value { font-family: var(--font-display); font-weight: 700; font-size: 26px; color: var(--ink); }
   .stat-tile .stat-label { font-size: 12px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
 
+  /* Section 12.8: the staff dashboard's own sidebar layout -- scoped to
+     /portal/dashboard only (every other portal.py page keeps .shell.no-rail's
+     single-column layout with the horizontal .brand-nav strip; rebuilding
+     every existing page around a permanent sidebar was out of scope here).
+     Reference: Hospital Admin Dashboard mockup's left rail + stat-card grid
+     + two-chart row + tables layout. */
+  .dashboard-shell { max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; display: grid; grid-template-columns: 230px 1fr; gap: 28px; align-items: start; }
+  .dashboard-sidebar {
+    background: var(--card); border: 1px solid var(--sage-line); border-radius: 14px;
+    padding: 22px 16px; align-self: start; position: sticky; top: 32px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .dashboard-sidebar .brand { padding: 0 8px 18px; margin-bottom: 4px; border-bottom: 1px solid var(--sage-line); }
+  .dashboard-sidebar a {
+    display: block; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 500;
+    color: var(--ink-muted); text-decoration: none;
+  }
+  .dashboard-sidebar a:hover { background: var(--paper); color: var(--ink); }
+  .dashboard-sidebar a.active { background: var(--success-tint); color: var(--sage-deep); font-weight: 700; }
+  .dashboard-sidebar a.logout { margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--sage-line); color: var(--clay); }
+  .dashboard-main { min-width: 0; }
+
+  .stat-tile { position: relative; }
+  .stat-delta { display: inline-block; font-size: 11.5px; font-weight: 700; margin-top: 6px; }
+  .stat-delta.up { color: var(--success); }
+  .stat-delta.down { color: var(--error); }
+  .stat-delta.flat { color: var(--ink-faint); }
+
+  .chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 28px; }
+  .chart-card {
+    background: var(--card); border: 1px solid var(--sage-line); border-radius: var(--radius); padding: 20px 22px;
+  }
+  .chart-card h3 {
+    margin: 0 0 16px; font-family: var(--font-body); font-size: 13px; font-weight: 700; color: var(--ink-muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .chart-legend { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .chart-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-muted); }
+  .chart-legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .dashboard-section-title { font-family: var(--font-display); font-weight: 700; font-size: 16px; margin: 0 0 14px; color: var(--ink); }
+  .activity-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--sage-line); font-size: 13.5px; }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-row-main { color: var(--ink); }
+  .activity-row-time { color: var(--ink-faint); font-size: 12px; white-space: nowrap; }
+
   .login-shell { max-width: 420px; margin: 80px auto; padding: 0 24px; }
   .login-card {
     background: var(--card); border: 1px solid var(--sage-line); border-radius: 14px; padding: 40px 36px;

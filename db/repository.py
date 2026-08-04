@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from db.connection import get_connection
+from db.connection import IntegrityError, get_connection
 
 STATUS_BOOKED = "booked"
 STATUS_CANCELLED = "cancelled"
@@ -381,6 +381,13 @@ def create_doctor(
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
     slot_duration_minutes: int = 30,
+    breaks: list[str] | None = None,
+    max_bookings_per_slot: int = 1,
+    daily_booking_limit: int | None = None,
+    online_quota: int | None = None,
+    walkin_quota: int | None = None,
+    followup_duration_minutes: int | None = None,
+    effective_from: str | None = None,
 ) -> dict:
     """working_days (e.g. ["Mon", "Wed", "Fri"]) and working_hours (e.g.
     ["10:00-13:00", "17:00-20:00"]) are this doctor's working pattern (Section
@@ -388,19 +395,35 @@ def create_doctor(
     produce the initial rolling window of real doctor_slots rows from it
     (Section 12.1.1), so onboarding a doctor through this function is what
     "run slot generation at onboarding submission time" means in practice. A
-    doctor with no working_days/working_hours simply generates zero slots."""
+    doctor with no working_days/working_hours simply generates zero slots.
+
+    breaks (Section 14.7, e.g. ["11:20-11:40"]) is comma-stored exactly like
+    working_hours, and applies the same way -- uniformly across every working
+    day, not per-specific-day. effective_from has no effect on a brand-new
+    doctor (nothing to preserve yet) -- it only matters on update_doctor()."""
     doctor_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
     conn = get_connection()
     conn.execute(
         "INSERT INTO doctors (id, hospital_id, department_id, name, specialization, qualification, "
-        "years_experience, working_days, working_hours, slot_duration_minutes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "years_experience, working_days, working_hours, slot_duration_minutes, breaks, "
+        "max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota, "
+        "followup_duration_minutes, effective_from) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (doctor_id, hospital_id, department_id, name, specialization, qualification,
-         years_experience, ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes),
+         years_experience, ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
+         ",".join(breaks or []), max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
+         followup_duration_minutes, effective_from),
     )
     conn.commit()
     generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
     return {"id": doctor_id, "name": name}
+
+
+_DOCTOR_FULL_COLUMNS = (
+    "id, department_id, name, specialization, qualification, years_experience, "
+    "working_days, working_hours, slot_duration_minutes, breaks, max_bookings_per_slot, "
+    "daily_booking_limit, online_quota, walkin_quota, followup_duration_minutes, effective_from"
+)
 
 
 def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
@@ -411,15 +434,18 @@ def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
     doctor's id, not which department it's under)."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, department_id, name, specialization, qualification, years_experience, "
-        "working_days, working_hours, slot_duration_minutes FROM doctors WHERE hospital_id = ? AND id = ?",
+        f"SELECT {_DOCTOR_FULL_COLUMNS} FROM doctors WHERE hospital_id = ? AND id = ?",
         (hospital_id, doctor_id),
     ).fetchone()
     if row is None:
         return None
-    d = dict(row)
+    return _parse_doctor_row(dict(row))
+
+
+def _parse_doctor_row(d: dict) -> dict:
     d["working_days"] = [x for x in d["working_days"].split(",") if x]
     d["working_hours"] = [x for x in d["working_hours"].split(",") if x]
+    d["breaks"] = [x for x in (d.get("breaks") or "").split(",") if x]
     return d
 
 
@@ -447,30 +473,54 @@ def update_doctor(
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
     slot_duration_minutes: int = 30,
+    breaks: list[str] | None = None,
+    max_bookings_per_slot: int = 1,
+    daily_booking_limit: int | None = None,
+    online_quota: int | None = None,
+    walkin_quota: int | None = None,
+    followup_duration_minutes: int | None = None,
+    effective_from: str | None = None,
 ) -> dict | None:
     """portal.py's doctor-edit form. Returns None if no such doctor exists at
     this hospital (nothing updated), same "hospital_id in the WHERE clause is
     the actual guard, not application logic" discipline as every other
     hospital-scoped write here.
 
-    Regenerates this doctor's ENTIRE doctor_slots window from scratch against
-    the (possibly changed) working pattern, rather than trying to reconcile
-    old vs. new slots row by row -- safe to do because doctor_slots carries no
-    foreign key from appointments (get_slots() matches them only by
-    scheduled_at string equality, see that function's docstring), so dropping
-    and rebuilding a doctor's still-just-offered slots never touches an
-    appointment a patient has already booked."""
+    Regenerates doctor_slots against the (possibly changed) working pattern,
+    rather than trying to reconcile old vs. new slots row by row -- safe to do
+    because doctor_slots carries no foreign key from appointments (get_slots()
+    matches them only by scheduled_at string equality, see that function's
+    docstring), so dropping and rebuilding a doctor's still-just-offered slots
+    never touches an appointment a patient has already booked.
+
+    Section 14.7: if effective_from is set, regeneration only touches slots
+    dated on/after it -- any earlier still-unbooked slots (generated under
+    this doctor's PREVIOUS pattern) are left exactly as they were, so a
+    schedule change that's meant to start next month doesn't retroactively
+    rewrite next week's already-offered slots. effective_from=None (the
+    default, matching every doctor before this column existed) wipes and
+    regenerates the whole window, same as before this change."""
     conn = get_connection()
     cur = conn.execute(
         "UPDATE doctors SET name = ?, specialization = ?, qualification = ?, years_experience = ?, "
-        "working_days = ?, working_hours = ?, slot_duration_minutes = ? WHERE hospital_id = ? AND id = ?",
+        "working_days = ?, working_hours = ?, slot_duration_minutes = ?, breaks = ?, "
+        "max_bookings_per_slot = ?, daily_booking_limit = ?, online_quota = ?, walkin_quota = ?, "
+        "followup_duration_minutes = ?, effective_from = ? WHERE hospital_id = ? AND id = ?",
         (name, specialization, qualification, years_experience,
          ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
+         ",".join(breaks or []), max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
+         followup_duration_minutes, effective_from,
          hospital_id, doctor_id),
     )
     if cur.rowcount == 0:
         return None
-    conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id))
+    if effective_from:
+        conn.execute(
+            "DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ?",
+            (hospital_id, doctor_id, effective_from),
+        )
+    else:
+        conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id))
     conn.commit()
     generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
     return {"id": doctor_id, "name": name}
@@ -489,6 +539,15 @@ def _parse_time_range(time_range: str) -> tuple[str, str]:
     return start.strip(), end.strip()
 
 
+def _overlaps_break(slot_start: datetime, slot_end: datetime, breaks: list[tuple[str, str]], day: date) -> bool:
+    for break_start_str, break_end_str in breaks:
+        break_start = datetime.combine(day, datetime.strptime(break_start_str, "%H:%M").time())
+        break_end = datetime.combine(day, datetime.strptime(break_end_str, "%H:%M").time())
+        if break_start < slot_end and break_end > slot_start:
+            return True
+    return False
+
+
 def generate_slots_for_doctor(
     hospital_id: int,
     doctor_id: str,
@@ -504,12 +563,29 @@ def generate_slots_for_doctor(
     periodic top-up job, slots/scheduler.py) only adds the new days, never
     duplicates existing ones. Returns the number of *new* slot rows inserted.
 
+    Section 14.7 additions, all read from the same doctor row:
+    - breaks: any candidate slot overlapping a break window (see
+      _overlaps_break()) on that day is skipped entirely -- breaks apply
+      uniformly to every working day, not a specific one (db/schema.sql's
+      comment on doctors.breaks explains why).
+    - doctor_leave: any date present there for this doctor is skipped
+      entirely, no slots generated for it at all.
+    - daily_booking_limit: once a given date would have this many candidate
+      slots, generation stops for THAT date (soonest-in-the-day slots first,
+      since candidates are already built in ascending time order) -- doesn't
+      affect other dates.
+    - effective_from: dates before it are skipped -- update_doctor() only
+      deletes existing slots on/after this date (see its own docstring), so
+      generating for earlier dates here would incorrectly add new-pattern
+      slots alongside still-standing old-pattern ones.
+
     conn is an optional explicit connection (rather than get_connection())
     because db/seed.py calls this against a connection it's still assembling,
     before db.connection's shared connection has been repointed to it."""
     conn = conn or get_connection()
     doctor_row = conn.execute(
-        "SELECT working_days, working_hours, slot_duration_minutes FROM doctors WHERE hospital_id = ? AND id = ?",
+        "SELECT working_days, working_hours, slot_duration_minutes, breaks, daily_booking_limit, effective_from "
+        "FROM doctors WHERE hospital_id = ? AND id = ?",
         (hospital_id, doctor_id),
     ).fetchone()
     if doctor_row is None:
@@ -521,19 +597,37 @@ def generate_slots_for_doctor(
     if not working_days or not working_hours or not slot_duration:
         return 0
 
+    breaks = [_parse_time_range(b) for b in doctor_row["breaks"].split(",") if b.strip()] if doctor_row["breaks"] else []
+    daily_booking_limit = doctor_row["daily_booking_limit"]
+    effective_from = date.fromisoformat(doctor_row["effective_from"]) if doctor_row["effective_from"] else None
+
     today = now or date.today()
+    leave_dates = {
+        row["date"] for row in
+        conn.execute("SELECT date FROM doctor_leave WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id)).fetchall()
+    }
+
     candidates: list[tuple] = []
     for i in range(1, days_ahead + 1):
         d = today + timedelta(days=i)
         if _WEEKDAY_ABBREVS[d.weekday()] not in working_days:
             continue
+        if effective_from and d < effective_from:
+            continue
+        if d.isoformat() in leave_dates:
+            continue
+        day_count = 0
         for time_range in working_hours:
             start_str, end_str = _parse_time_range(time_range)
             current = datetime.combine(d, datetime.strptime(start_str, "%H:%M").time())
             end = datetime.combine(d, datetime.strptime(end_str, "%H:%M").time())
             step = timedelta(minutes=slot_duration)
             while current + step <= end:
-                candidates.append((hospital_id, doctor_id, current.isoformat()))
+                if daily_booking_limit is not None and day_count >= daily_booking_limit:
+                    break
+                if not _overlaps_break(current, current + step, breaks, d):
+                    candidates.append((hospital_id, doctor_id, current.isoformat()))
+                    day_count += 1
                 current += step
 
     if not candidates:
@@ -559,18 +653,78 @@ def generate_slots_for_doctor(
     return inserted
 
 
+# --- Doctor leave (Section 14.7 -- whole-day unavailability) ---
+
+def get_doctor_leave(hospital_id: int, doctor_id: str) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, date, reason FROM doctor_leave WHERE hospital_id = ? AND doctor_id = ? ORDER BY date",
+        (hospital_id, doctor_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_doctor_leave(hospital_id: int, doctor_id: str, leave_date: str, reason: str | None = None) -> dict:
+    """leave_date is an ISO 'YYYY-MM-DD' string, matching doctor_slots'/
+    appointments' own "store dates/datetimes as ISO text" convention.
+    UNIQUE(doctor_id, date) (db/schema.sql) makes re-adding the same date
+    harmless -- ON CONFLICT DO NOTHING rather than erroring, since a staff
+    member re-submitting a date they already marked isn't a real problem.
+    Regenerates this doctor's slots immediately so the new leave date takes
+    effect right away, not just on the next periodic top-up."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO doctor_leave (hospital_id, doctor_id, date, reason) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (doctor_id, date) DO NOTHING",
+        (hospital_id, doctor_id, leave_date, reason),
+    )
+    conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ?",
+                 (hospital_id, doctor_id, leave_date))
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return {"date": leave_date, "reason": reason}
+
+
+def delete_doctor_leave(hospital_id: int, doctor_id: str, leave_id: int) -> bool:
+    """Returns False if no such leave row exists for this doctor/hospital
+    (nothing deleted) -- same hospital_id-scoped-guard discipline as every
+    other write here. Regenerates slots so the now-freed date becomes
+    bookable again immediately."""
+    conn = get_connection()
+    cur = conn.execute(
+        "DELETE FROM doctor_leave WHERE id = ? AND hospital_id = ? AND doctor_id = ?",
+        (leave_id, hospital_id, doctor_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return True
+
+
 # --- Slots (real, persisted rows — see module docstring) ---
 
 def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
-    """This doctor's generated doctor_slots rows, minus any that already have a
-    *booked* appointment at that exact time (Phase 8: an already-taken slot
-    must never be offered to another patient)."""
+    """This doctor's generated doctor_slots rows, minus any that have already
+    reached this doctor's max_bookings_per_slot worth of *booked* appointments
+    at that exact time (Phase 8, extended by Section 14.7: the default
+    max_bookings_per_slot=1 means "any booked appointment at all," exactly
+    Phase 8's original behavior; >1 keeps offering the slot until that many
+    patients have booked it)."""
     conn = get_connection()
+    doctor_row = conn.execute(
+        "SELECT max_bookings_per_slot FROM doctors WHERE hospital_id = ? AND id = ?",
+        (hospital_id, doctor_id),
+    ).fetchone()
+    max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+
     booked_rows = conn.execute(
         "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ?",
         (hospital_id, doctor_id, STATUS_BOOKED),
     ).fetchall()
-    booked_at = {row["scheduled_at"] for row in booked_rows}
+    booked_counts: dict[str, int] = {}
+    for row in booked_rows:
+        booked_counts[row["scheduled_at"]] = booked_counts.get(row["scheduled_at"], 0) + 1
 
     slot_rows = conn.execute(
         "SELECT scheduled_at FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? ORDER BY scheduled_at",
@@ -580,7 +734,7 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
     slots = []
     for row in slot_rows:
         scheduled_at_iso = row["scheduled_at"]
-        if scheduled_at_iso in booked_at:
+        if booked_counts.get(scheduled_at_iso, 0) >= max_bookings_per_slot:
             continue
         dt = datetime.fromisoformat(scheduled_at_iso)
         slots.append({
@@ -608,19 +762,54 @@ def create_appointment(
     doctor_id: str,
     scheduled_at: datetime,
 ) -> Appointment:
-    """Raises db.connection.IntegrityError if this doctor already has a
-    *booked* appointment at this exact scheduled_at (db/schema.sql's partial
-    unique index) — that's the actual double-booking guard, not application
-    logic. Catching it gracefully is Phase 8 work, not done here."""
+    """Raises db.connection.IntegrityError if this doctor's max_bookings_per_slot
+    (default 1) worth of *booked* appointments already exist at this exact
+    scheduled_at -- that's the actual double-booking guard, not application
+    logic. Catching it gracefully is Phase 8 work, not done here.
+
+    Section 14.7: assigns each booking the next free booking_ordinal (0-indexed)
+    at this doctor+scheduled_at, so more than one patient can hold a slot when
+    max_bookings_per_slot > 1 -- db/schema.sql's UNIQUE(doctor_id, scheduled_at,
+    booking_ordinal) partial index is what makes each individual INSERT below
+    atomic and race-safe (identical guarantee to the old two-column index for
+    every doctor still at the default max_bookings_per_slot=1, where every
+    booking's ordinal is always 0). Retries with a freshly-counted ordinal if a
+    concurrent request wins the ordinal this one just tried to claim -- bounded
+    to max_bookings_per_slot attempts, since that's the most times a genuine
+    race could plausibly happen here before the slot really is full."""
     conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at) "
-        "VALUES (?, ?, ?, ?, ?) RETURNING id",
-        (hospital_id, phone, department_id, doctor_id, scheduled_at.isoformat()),
-    )
-    new_id = cur.fetchone()["id"]
-    conn.commit()
-    return get_appointment(hospital_id, new_id)
+    scheduled_at_iso = scheduled_at.isoformat()
+    doctor_row = conn.execute(
+        "SELECT max_bookings_per_slot FROM doctors WHERE hospital_id = ? AND id = ?",
+        (hospital_id, doctor_id),
+    ).fetchone()
+    max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+
+    for _ in range(max_bookings_per_slot):
+        count_row = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+            "AND scheduled_at = ? AND status = ?",
+            (hospital_id, doctor_id, scheduled_at_iso, STATUS_BOOKED),
+        ).fetchone()
+        if count_row["c"] >= max_bookings_per_slot:
+            break
+        try:
+            cur = conn.execute(
+                "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
+                "booking_ordinal) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+                (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, count_row["c"]),
+            )
+        except IntegrityError:
+            # Someone else claimed this exact ordinal between our COUNT and
+            # this INSERT -- autocommit means that failed statement didn't
+            # poison anything (db/connection.py's docstring), so just retry
+            # with a fresh count.
+            continue
+        new_id = cur.fetchone()["id"]
+        conn.commit()
+        return get_appointment(hospital_id, new_id)
+
+    raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
 
 
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:
@@ -713,11 +902,13 @@ def get_reminded_offsets(hospital_id: int, appointment_id: int) -> list[float]:
 
 def cancel_appointment(hospital_id: int, appointment_id: int) -> None:
     """Marks the appointment cancelled — does not delete the row, so
-    cancellation history/audit trail isn't lost."""
+    cancellation history/audit trail isn't lost. Also stamps updated_at
+    (Section 12.8) so the dashboard's activity feed can show this event at
+    the time it actually happened, not the original booking's created_at."""
     conn = get_connection()
     conn.execute(
-        "UPDATE appointments SET status = ? WHERE id = ? AND hospital_id = ?",
-        (STATUS_CANCELLED, appointment_id, hospital_id),
+        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ?",
+        (STATUS_CANCELLED, datetime.now().isoformat(), appointment_id, hospital_id),
     )
     conn.commit()
 
@@ -725,13 +916,190 @@ def cancel_appointment(hospital_id: int, appointment_id: int) -> None:
 def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
     """Marks the old appointment as superseded by a reschedule — does not
     delete the row. Callers are responsible for create_appointment()-ing the
-    new slot separately (see core/booking_flow.py's reschedule confirm)."""
+    new slot separately (see core/booking_flow.py's reschedule confirm).
+    Also stamps updated_at (Section 12.8), same reasoning as cancel_appointment()."""
     conn = get_connection()
     conn.execute(
-        "UPDATE appointments SET status = ? WHERE id = ? AND hospital_id = ?",
-        (STATUS_RESCHEDULED, appointment_id, hospital_id),
+        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ?",
+        (STATUS_RESCHEDULED, datetime.now().isoformat(), appointment_id, hospital_id),
     )
     conn.commit()
+
+
+# --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
+# Every query here is hospital_id-scoped, same discipline as everywhere else
+# in this file; the isolation test that matters is at the HTTP layer
+# (tests/test_portal_dashboard.py), not repeated per-function here. ---
+
+def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
+    """The four stat tiles (today's appointments, confirmed today, new
+    patients today, no-shows today) plus a week-over-week % change for each,
+    comparing today against the SAME WEEKDAY exactly 7 days ago -- picked
+    over a rolling-7-day-average comparison because it's the simplest
+    comparison that's still apples-to-apples (a Monday against last Monday,
+    not "today" against a blended mix of arbitrary weekdays), and needs only
+    a single extra date offset, not a second aggregate shape.
+
+    Definitions (all hospital_id + date-scoped):
+    - "today's appointments": every appointment (any status) with
+      scheduled_at falling on the date in question.
+    - "confirmed today": of those, the ones still status='booked' (i.e. not
+      cancelled) -- "confirmed" reads most naturally as "still on," not "has
+      been formally re-confirmed" (no such action exists in this app).
+    - "new patients today": distinct phone numbers whose EARLIEST appointment
+      ever at this hospital (by created_at) was created on the date in
+      question -- there's no separate patients table, so "new" is derived
+      from first-appearance-in-appointments.
+    - "no-shows today": still status='booked' appointments whose scheduled_at
+      has already passed as of `now` (or, for last week's comparison day,
+      the whole day, since it's entirely in the past). KNOWN LIMITATION: this
+      app has no "attended"/"completed" status, so this is a heuristic, not a
+      true no-show flag -- a booked appointment the patient actually attended
+      looks identical to one they skipped once its time has passed. Flagged
+      here deliberately rather than silently treated as exact.
+
+    A week-over-week % change with a zero baseline (nothing happened on the
+    comparison day) returns None (not a divide-by-zero, not a misleading
+    "+100%") -- the caller/template shows "—" for that case.
+    """
+    now = now or datetime.now()
+    today = now.date()
+    last_week_day = today - timedelta(days=7)
+    conn = get_connection()
+
+    def _stats_for_day(day, no_show_cutoff: datetime) -> dict:
+        day_start = datetime.combine(day, datetime.min.time()).isoformat()
+        day_end = datetime.combine(day, datetime.max.time()).isoformat()
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ?",
+            (hospital_id, day_start, day_end),
+        ).fetchone()["c"]
+        confirmed = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
+            (hospital_id, day_start, day_end, STATUS_BOOKED),
+        ).fetchone()["c"]
+        new_patients = conn.execute(
+            "SELECT COUNT(DISTINCT a.phone) AS c FROM appointments a "
+            "WHERE a.hospital_id = ? AND a.created_at >= ? AND a.created_at <= ? "
+            "AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.hospital_id = a.hospital_id "
+            "AND a2.phone = a.phone AND a2.created_at < ?)",
+            (hospital_id, day_start, day_end, day_start),
+        ).fetchone()["c"]
+        no_shows = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
+            "AND scheduled_at < ? AND status = ?",
+            (hospital_id, day_start, day_end, no_show_cutoff.isoformat(), STATUS_BOOKED),
+        ).fetchone()["c"]
+        return {"total": total, "confirmed": confirmed, "new_patients": new_patients, "no_shows": no_shows}
+
+    today_stats = _stats_for_day(today, now)
+    last_week_stats = _stats_for_day(last_week_day, datetime.combine(last_week_day, datetime.max.time()))
+
+    def _delta_pct(today_v: int, last_week_v: int) -> float | None:
+        if last_week_v == 0:
+            return None
+        return round((today_v - last_week_v) / last_week_v * 100, 1)
+
+    return {
+        "today_appointments": today_stats["total"],
+        "today_appointments_delta_pct": _delta_pct(today_stats["total"], last_week_stats["total"]),
+        "confirmed_today": today_stats["confirmed"],
+        "confirmed_today_delta_pct": _delta_pct(today_stats["confirmed"], last_week_stats["confirmed"]),
+        "new_patients_today": today_stats["new_patients"],
+        "new_patients_today_delta_pct": _delta_pct(today_stats["new_patients"], last_week_stats["new_patients"]),
+        "no_shows_today": today_stats["no_shows"],
+        "no_shows_today_delta_pct": _delta_pct(today_stats["no_shows"], last_week_stats["no_shows"]),
+    }
+
+
+def get_weekly_appointment_counts(hospital_id: int, now: datetime | None = None) -> list[dict]:
+    """One point per day for the last 7 calendar days (today inclusive,
+    oldest first) -- counts by scheduled_at (any status), consistent with
+    get_dashboard_stats()'s own "today's appointments" definition (appointment
+    VOLUME by day), not by created_at (which would be a booking-activity
+    trend instead -- a legitimate alternative, but this keeps every dashboard
+    number reading the same way)."""
+    now = now or datetime.now()
+    today = now.date()
+    conn = get_connection()
+    results = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_start = datetime.combine(day, datetime.min.time()).isoformat()
+        day_end = datetime.combine(day, datetime.max.time()).isoformat()
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ?",
+            (hospital_id, day_start, day_end),
+        ).fetchone()["c"]
+        results.append({"date": day.isoformat(), "label": day.strftime("%a"), "count": count})
+    return results
+
+
+def get_appointments_by_department(hospital_id: int, days: int = 30, now: datetime | None = None) -> list[dict]:
+    """Department share of appointment volume over a rolling `days`-day
+    window ending now (default last 30 days, inclusive of today) -- ordered
+    by count descending so the donut/legend both read largest-share-first."""
+    now = now or datetime.now()
+    window_start = datetime.combine(now.date() - timedelta(days=days - 1), datetime.min.time())
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT d.name AS department_name, COUNT(*) AS c FROM appointments a "
+        "JOIN departments d ON d.id = a.department_id "
+        "WHERE a.hospital_id = ? AND a.scheduled_at >= ? AND a.scheduled_at <= ? "
+        "GROUP BY d.name ORDER BY c DESC",
+        (hospital_id, window_start.isoformat(), now.isoformat()),
+    ).fetchall()
+    return [{"department_name": r["department_name"], "count": r["c"]} for r in rows]
+
+
+def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:
+    """A lightweight "what just happened" feed built entirely from
+    appointments' own status/timestamps -- SPEC Section 12.8 looked for an
+    existing WhatsApp message log to reuse and found none exists (nothing in
+    this build persists inbound/outbound message text, only conversation
+    STATE via core/history.py's session store); appointment status changes
+    are the smallest real substitute already captured, so this reuses those
+    rather than adding new message logging.
+
+    Each row contributes exactly ONE event based on its CURRENT status: a
+    still-'booked' row's event is "Booked appointment" at created_at; a
+    cancelled/rescheduled row's event uses updated_at (the column
+    cancel_appointment()/mark_rescheduled() now stamp specifically for this)
+    so it shows the time the status actually changed, not the original
+    booking time. A reschedule legitimately produces two feed entries over
+    time -- the OLD row's "Rescheduled appointment" and the NEW row's own
+    later "Booked appointment" -- which is correct, not a double-count: two
+    real, separately-timed things happened."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT a.status, a.phone, doc.name AS doctor_name, d.name AS department_name,
+               a.created_at, a.updated_at
+        FROM appointments a
+        JOIN departments d ON d.id = a.department_id
+        JOIN doctors doc ON doc.id = a.doctor_id
+        WHERE a.hospital_id = ?
+        ORDER BY COALESCE(a.updated_at, a.created_at) DESC
+        LIMIT ?
+        """,
+        (hospital_id, limit),
+    ).fetchall()
+    labels = {
+        STATUS_BOOKED: "Booked appointment",
+        STATUS_CANCELLED: "Cancelled appointment",
+        STATUS_RESCHEDULED: "Rescheduled appointment",
+    }
+    feed = []
+    for r in rows:
+        event_at = r["updated_at"] or r["created_at"]
+        feed.append({
+            "label": labels.get(r["status"], r["status"]),
+            "phone": r["phone"],
+            "doctor_name": r["doctor_name"],
+            "department_name": r["department_name"],
+            "at": datetime.fromisoformat(event_at),
+        })
+    return feed
 
 
 # --- FAQ topics (SPEC Section 14.2, the FAQ flow_type's entire data model) ---

@@ -75,7 +75,8 @@ def test_login_success_sets_cookie_and_redirects(hospital_id):
     _set_portal_password(hospital_id, "hospital-portal-pw")
     resp = client.post("/portal/login", data={"password": "hospital-portal-pw"}, follow_redirects=False)
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/portal/bookings"
+    # Section 12.8: the dashboard is now the default landing page after login.
+    assert resp.headers["location"] == "/portal/dashboard"
     assert "portal_session" in resp.cookies
 
 
