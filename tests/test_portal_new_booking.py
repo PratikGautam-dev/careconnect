@@ -46,6 +46,23 @@ def _first_slot(hospital_id, doctor_id):
     return datetime.fromisoformat(f"{slot['date']}T{slot['time']}:00")
 
 
+# --- db.is_valid_phone(): deliberately permissive, rejects only unambiguous garbage ---
+
+@pytest.mark.parametrize("bad_phone", [None, "", "   ", "\t\n", "not-a-phone-number!!", "----"])
+def test_is_valid_phone_rejects_garbage(bad_phone):
+    assert db.is_valid_phone(bad_phone) is False
+
+
+@pytest.mark.parametrize("ok_phone", [
+    "5491112223333", "+54 9 11 1222-3333", "(011) 1222-3333", "1",  # short, but not "no digits" -- not enforced here
+])
+def test_is_valid_phone_stays_permissive_about_format(ok_phone):
+    """Deliberately NOT enforcing length, country code, or separator rules --
+    the goal is filtering "not-a-phone-number!!"-style garbage, not a strict
+    international phone-number spec."""
+    assert db.is_valid_phone(ok_phone) is True
+
+
 def _same_day_slots(hospital_id, doctor_id, n):
     slots = db.get_slots(hospital_id, doctor_id)
     day = slots[0]["date"]
@@ -271,6 +288,50 @@ def test_staff_booking_rejected_when_walkin_quota_full_shows_clear_message(hospi
         })
         assert resp.status_code == 400
         assert "walk-in quota full" in resp.text.lower()
+    finally:
+        portal_client.cookies.clear()
+
+
+@pytest.mark.parametrize("bad_phone", ["", "   ", "not-a-phone-number!!"])
+def test_staff_booking_rejects_garbage_phone_before_creating_anything(hospital_id, bad_phone):
+    """SPEC Section 12.9's phone-validation follow-up: empty, whitespace-only,
+    and digit-free phone values must be rejected with a clear error --
+    before any appointment or patients row is created, not after."""
+    doctor_id = "doc_card_1"
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    _login(hospital_id, "newbook-badphone-pw")
+    try:
+        resp = portal_client.post("/portal/new-booking", data={
+            "patient_name": "Bad Phone Patient",
+            "patient_phone": bad_phone,
+            "department_id": "cardiology",
+            "doctor_id": doctor_id,
+            "slot_id": slot["id"],
+        })
+        assert resp.status_code == 400
+        assert "phone" in resp.text.lower()
+    finally:
+        portal_client.cookies.clear()
+
+    assert db.search_patients(hospital_id, "Bad Phone Patient") == []
+    assert not any(a.phone == bad_phone for a in db.get_all_appointments_for_hospital(hospital_id))
+
+
+def test_staff_booking_accepts_a_normal_phone_unaffected(hospital_id):
+    """Confirms the new validation doesn't accidentally reject real input --
+    a normal phone number still creates the booking exactly as before."""
+    doctor_id = "doc_card_1"
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    _login(hospital_id, "newbook-goodphone-pw")
+    try:
+        resp = portal_client.post("/portal/new-booking", data={
+            "patient_name": "Good Phone Patient",
+            "patient_phone": "5490001234",
+            "department_id": "cardiology",
+            "doctor_id": doctor_id,
+            "slot_id": slot["id"],
+        }, follow_redirects=False)
+        assert resp.status_code == 303
     finally:
         portal_client.cookies.clear()
 

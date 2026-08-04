@@ -380,6 +380,19 @@ async def receive_message(request: Request):
 
         message = change["messages"][0]
         phone = message["from"]
+        # SPEC Section 12.9's phone-validation follow-up: not a real defense
+        # against a malicious payload (that's the HMAC signature check above,
+        # already passed by this point -- forging `from` requires already
+        # having this hospital's app_secret, at which point phone format is
+        # the least of the problem) and not something genuine Meta traffic
+        # can trigger either (Meta's webhook payloads always populate `from`
+        # with the sender's real WhatsApp ID). This exists purely as cheap
+        # defense-in-depth against a malformed/unexpected payload shape --
+        # same "ignore it, ack Meta with 200" treatment as every other
+        # malformed-payload case in this handler, not a hard error.
+        if not db.is_valid_phone(phone):
+            logger.warning("Webhook message with invalid/unusable phone %r (hospital %s), ignoring", phone, hospital.id)
+            return Response(status_code=200)
         reply = parse_incoming_message(message)
         wa = _get_whatsapp_client(hospital)
 

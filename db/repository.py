@@ -776,6 +776,28 @@ def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
 # not just phone; see db/schema.sql's comment on the patients table and
 # create_appointment()'s _upsert_patient() for how rows get here) ---
 
+def is_valid_phone(phone: str | None) -> bool:
+    """Deliberately permissive (SPEC Section 12.9's phone-validation follow-up)
+    -- rejects only the unambiguous garbage cases (empty, whitespace-only, or
+    containing no digits at all, e.g. "not-a-phone-number!!"), not a strict
+    phone-number format spec: no length requirement, no country-code check,
+    no separator/whitespace-shape rules. International phone formats vary too
+    much to validate meaningfully without a dedicated library this project
+    doesn't otherwise need -- filtering garbage, not enforcing a spec, is the
+    actual goal here. Called at every point a phone number is first captured:
+    core/main.py's webhook intake (WhatsApp) and portal.py's new-booking form
+    (staff) -- not re-checked here in create_appointment() itself, since both
+    of those are the only real entry points and re-validating a third time
+    at the shared data-access layer would just be the same rule maintained
+    in three places instead of two."""
+    if not phone:
+        return False
+    phone = phone.strip()
+    if not phone:
+        return False
+    return any(c.isdigit() for c in phone)
+
+
 def search_patients(hospital_id: int, query: str, limit: int = 10) -> list[dict]:
     """Case-insensitive partial match on name OR phone, hospital-scoped.
     Powers portal.py's /portal/patients/search (staff typing into the new-

@@ -1017,8 +1017,8 @@ async def portal_new_booking_submit(
 
     errors = []
     patient_phone = patient_phone.strip()
-    if not patient_phone:
-        errors.append("Patient phone is required.")
+    if not db.is_valid_phone(patient_phone):
+        errors.append("Patient phone is required and must contain at least one digit.")
     department = db.find_department(hospital.id, department_id)
     if department is None:
         errors.append("Choose a valid department.")

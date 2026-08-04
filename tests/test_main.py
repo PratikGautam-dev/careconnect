@@ -153,6 +153,61 @@ def test_reaction_message_type_ignored_gracefully(httpx_mock):
     assert resp.status_code == 200
 
 
+# --- SPEC Section 12.9's phone-validation follow-up: a webhook message whose
+# `from` field is empty/whitespace-only/digit-free must be ignored gracefully
+# (200, same "malformed payload" treatment as the section above), never
+# processed as a real booking attempt. Not a realistic threat in practice --
+# genuine Meta traffic always populates `from` with the sender's real
+# WhatsApp ID, and this point in the handler is only reached AFTER the HMAC
+# signature check passes, so forging a payload this deep already requires the
+# hospital's own app_secret -- this is cheap defense-in-depth for an
+# unexpected/malformed payload shape, not a response to a live attack vector. ---
+
+def _webhook_body_with_phone(from_phone) -> bytes:
+    return json.dumps({
+        "entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "123"},
+            "messages": [{"from": from_phone, "type": "text", "text": {"body": "hi"}}],
+        }}]}]
+    }).encode()
+
+
+def test_webhook_empty_phone_ignored_no_send_attempted(httpx_mock, hospital_id):
+    body = _webhook_body_with_phone("")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0
+
+
+def test_webhook_whitespace_only_phone_ignored_no_send_attempted(httpx_mock, hospital_id):
+    body = _webhook_body_with_phone("   ")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0
+
+
+def test_webhook_digit_free_phone_ignored_no_send_attempted(httpx_mock, hospital_id):
+    body = _webhook_body_with_phone("not-a-phone-number!!")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0
+
+
+def test_webhook_normal_phone_still_processed_unaffected(httpx_mock, hospital_id):
+    """Confirms the new check doesn't accidentally reject real phone numbers
+    -- a normal WhatsApp-format phone still reaches the booking flow and
+    gets a reply, exactly as before this change."""
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", json={"messages": [{"id": "wamid.ok"}]})
+    body = _webhook_body_with_phone("919999999996")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 1
+
+
 # --- Phase 8 item 6: a failed outbound send must not crash the webhook handler ---
 
 def test_webhook_returns_200_even_when_whatsapp_send_fails_with_401(httpx_mock):
