@@ -96,10 +96,10 @@ See [DECISIONS.md](DECISIONS.md) for the full rationale behind each technical ch
 git clone https://github.com/martin-minghetti/whatsapp-ai-receptionist.git
 cd whatsapp-ai-receptionist
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate      # Windows (PowerShell): venv\Scripts\Activate.ps1 -- Windows (Git Bash): source venv/Scripts/activate
 pip install -r requirements.txt
 ```
-uvicorn core.main:app --reload
+
 ### 2. Configure
 
 ```bash
@@ -137,6 +137,10 @@ The real, deployed database's connection string lives in `.env.production` (giti
 ```bash
 uvicorn core.main:app --reload
 ```
+
+(Windows, if the venv isn't activated: `venv\Scripts\uvicorn core.main:app --reload`)
+
+Serves at `http://127.0.0.1:8000` -- creates the schema and seeds a default hospital against whichever `DATABASE_URL` is active on first request (step 3's local Postgres by default).
 
 ### 5. Expose for WhatsApp
 

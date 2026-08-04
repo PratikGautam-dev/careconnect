@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Design tokens
+   ==========================================================================
+   Extends (doesn't replace) the existing CareConnect brand identity from
+   admin/theme.py -- deep forest green + warm off-white, already a deliberate,
+   non-generic choice for a healthcare-ops product. What's new here is a real
+   *scale* around that single brand color (for hover/active states, tints,
+   borders) instead of one flat value, plus semantic spacing/shadow/radius
+   tokens the old server-rendered CSS never had.
+   ========================================================================== */
+
+:root {
+  /* --- Brand green scale (600 = the original --sage-deep #1B4D3E, exactly,
+     so existing brand recognition carries over) --- */
+  --brand-50: #eaf3ef;
+  --brand-100: #d3e6dd;
+  --brand-200: #a8cdbc;
+  --brand-300: #7db49b;
+  --brand-400: #4e927a;
+  --brand-500: #2c7059;
+  --brand-600: #1b4d3e;
+  --brand-700: #163f33;
+  --brand-800: #123328;
+  --brand-900: #0d251d;
+
+  /* --- Clay accent scale (500 = the original --clay #9C7A3D) --- */
+  --clay-100: #f1e9d4;
+  --clay-300: #d4b876;
+  --clay-500: #9c7a3d;
+  --clay-700: #6b5228;
+
+  /* --- Neutrals --- */
+  --paper: #f7f7f5;
+  --card: #ffffff;
+  --line: #e3e6df;
+  --ink-900: #182620;
+  --ink-600: #667066;
+  --ink-400: #97998f;
+
+  /* --- Semantic --- */
+  --success: #1e9e5a;
+  --success-tint: #e4f6ec;
+  --error: #d14343;
+  --error-tint: #fbeaea;
+
+  /* --- Spacing scale (8px-based; step 1/2 drop to 4px for the tightest
+     icon-to-label gaps). Named --space-N rather than overriding Tailwind's
+     own numeric padding, margin, and gap scale on purpose: redefining what
+     "p-4" means site-wide would be a trap for anyone (including future
+     edits) reaching for an ordinary Tailwind number expecting the standard
+     behavior. These are also exposed as real utility classes below
+     (p-space-4, gap-space-6, etc.) via Tailwind's namespaced spacing keys,
+     so they're not just var()-only tokens. --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 40px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 80px;
+  --space-10: 96px;
+
+  /* --- Radius --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* --- Elevation: layered box-shadows (a soft diffuse layer + a tighter,
+     darker one underneath), not a single flat drop-shadow -- three levels:
+     resting, hover, and an active/focused state for e.g. the wizard's
+     current-step card. --- */
+  --shadow-sm: 0 1px 2px rgba(13, 37, 29, 0.04), 0 1px 1px rgba(13, 37, 29, 0.03);
+  --shadow-md: 0 8px 16px -4px rgba(13, 37, 29, 0.10), 0 3px 6px -3px rgba(13, 37, 29, 0.08);
+  --shadow-lg: 0 16px 32px -8px rgba(13, 37, 29, 0.16), 0 6px 12px -6px rgba(13, 37, 29, 0.10);
+
+  /* --- Motion --- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 0.15s;
+}
+
+@theme inline {
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+
+  --color-clay-100: var(--clay-100);
+  --color-clay-300: var(--clay-300);
+  --color-clay-500: var(--clay-500);
+  --color-clay-700: var(--clay-700);
+
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-ink-900: var(--ink-900);
+  --color-ink-600: var(--ink-600);
+  --color-ink-400: var(--ink-400);
+
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-error: var(--error);
+  --color-error-tint: var(--error-tint);
+
+  --spacing-space-1: var(--space-1);
+  --spacing-space-2: var(--space-2);
+  --spacing-space-3: var(--space-3);
+  --spacing-space-4: var(--space-4);
+  --spacing-space-5: var(--space-5);
+  --spacing-space-6: var(--space-6);
+  --spacing-space-7: var(--space-7);
+  --spacing-space-8: var(--space-8);
+  --spacing-space-9: var(--space-9);
+  --spacing-space-10: var(--space-10);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Typography hierarchy -- deliberate size/weight steps, not ad hoc per use.
+   ========================================================================== */
+
+.text-eyebrow {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clay-500);
+}
+
+.text-display-lg {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(28px, 5.4vw, 40px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: var(--ink-900);
+  text-wrap: balance;
+}
+
+.text-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(20px, 3.6vw, 26px);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  text-wrap: balance;
+}
+
+.text-body {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink-600);
+}
+
+.text-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.text-hint {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink-400);
+}
+.text-hint.is-note {
+  font-style: italic;
+}

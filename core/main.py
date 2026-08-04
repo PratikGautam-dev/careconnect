@@ -9,10 +9,12 @@ from dotenv import load_dotenv
 load_dotenv()  # must run before os.environ[...] reads below, or db.init_db()'s env reads
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 import db.repository as db
 from admin.onboarding import router as onboarding_router
+from admin.onboarding_api import router as onboarding_api_router
 from admin.theme import STYLE as _STYLE
 from portal import router as portal_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
@@ -129,7 +131,25 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Next.js frontend (frontend/) runs on a separate origin/port (localhost:3000
+# in dev, a Vercel domain in prod) and calls this API directly from the
+# browser, so it needs CORS -- everything else in this app is either a
+# same-origin server-rendered page or a webhook Meta calls server-to-server,
+# neither of which needed this before. FRONTEND_ORIGIN lets the deployed
+# Vercel URL be added without another code change.
+_frontend_origins = ["http://localhost:3000"]
+if os.environ.get("FRONTEND_ORIGIN"):
+    _frontend_origins.append(os.environ["FRONTEND_ORIGIN"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_frontend_origins,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
 app.include_router(onboarding_router)
+app.include_router(onboarding_api_router)
 app.include_router(portal_router)
 
 
@@ -154,9 +174,14 @@ _LANDING_HTML = f"""<!doctype html>
 <title>DAAP CareConnect — WhatsApp Appointment Booking &amp; Reminder Platform for Hospitals</title>
 {_STYLE}
 <style>
-  .hero-wrap {{ max-width: 1180px; margin: 0 auto; padding: 64px 24px 96px; }}
-  .hero-grid {{ display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px; align-items: center; }}
-  .hero-logo {{ display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }}
+  /* Section 15.x layout pass (spacing/alignment only -- colors, fonts,
+     copy, icons, and branding are unchanged from the values above/below).
+     All spacing uses the 8px scale (8/16/24/32/40/48/56/64/80/96) except
+     where a specific value was explicitly requested (20px, 36px). */
+  .hero-wrap {{ max-width: 1440px; margin: 0 auto; padding: 80px 64px; }}
+  .hero-grid {{ display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 80px; align-items: center; }}
+
+  .hero-logo {{ display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }}
   .hero-logo-mark {{
     width: 52px; height: 52px; border-radius: 14px; background: var(--sage-deep);
     color: #fff; display: flex; align-items: center; justify-content: center;
@@ -165,30 +190,43 @@ _LANDING_HTML = f"""<!doctype html>
   .hero-logo-super {{ display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-faint); }}
   .hero-logo-word {{ font-family: var(--font-display); font-weight: 800; font-size: 34px; line-height: 1.1; }}
   .hero-logo-word .accent {{ color: var(--sage-deep); }}
-  .hero-tagline {{ color: var(--ink-muted); font-size: 14.5px; margin: 0 0 32px; }}
-  .hero-heading {{ font-family: var(--font-display); font-weight: 800; font-size: 40px; line-height: 1.18; margin: 0 0 20px; letter-spacing: -0.01em; }}
+
+  .hero-tagline {{ color: var(--ink-muted); font-size: 14.5px; margin: 0 0 20px; }}
+
+  .hero-heading {{
+    font-family: var(--font-display); font-weight: 800; font-size: 40px;
+    max-width: 650px; line-height: 1.08; letter-spacing: -0.03em; text-wrap: balance;
+    margin: 0 0 32px;
+  }}
   .hero-heading .accent {{ color: var(--sage-deep); }}
-  .hero-desc {{ color: var(--ink-muted); font-size: 16px; max-width: 46ch; margin: 0 0 32px; }}
-  .hero-features {{ display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 36px; }}
-  .hero-feature {{ display: flex; gap: 8px; align-items: flex-start; max-width: 165px; }}
+
+  .hero-desc {{ color: var(--ink-muted); font-size: 18px; line-height: 1.7; max-width: 620px; margin: 0 0 36px; }}
+
+  .hero-features {{ display: flex; flex-wrap: wrap; gap: 32px; margin-bottom: 40px; }}
+  .hero-feature {{ display: flex; align-items: flex-start; gap: 16px; padding: 8px 0; flex: 1 1 160px; }}
   .hero-feature-icon {{
-    width: 34px; height: 34px; border-radius: 10px; background: var(--success-tint); color: var(--success);
+    width: 40px; height: 40px; border-radius: 10px; background: var(--success-tint); color: var(--success);
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }}
-  .hero-feature strong {{ display: block; font-size: 13.5px; color: var(--ink); }}
-  .hero-feature span {{ display: block; font-size: 12.5px; color: var(--ink-muted); margin-top: 2px; }}
-  .hero-ctas {{ display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }}
-  .hero-ctas .btn-secondary {{ padding: 13px 24px; font-size: 14.5px; }}
+  .hero-feature strong {{ display: block; font-size: 15px; color: var(--ink); }}
+  .hero-feature span {{ display: block; font-size: 13px; color: var(--ink-muted); margin-top: 4px; }}
+
+  .hero-ctas {{ display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }}
+  .hero-ctas a {{
+    height: 56px; padding: 0 32px; border-radius: 14px; font-size: 16px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+  }}
+
   .hero-portal-link {{ display: inline-flex; align-items: center; gap: 4px; color: var(--sage-deep); font-weight: 600; font-size: 14px; text-decoration: none; }}
   .hero-portal-link:hover {{ text-decoration: underline; }}
 
   /* Phone mockup -- hand-built HTML/CSS, no image asset. */
-  .hero-phone-wrap {{ display: flex; justify-content: center; }}
+  .hero-phone-wrap {{ display: flex; justify-content: center; align-items: center; }}
   .phone-frame {{
-    width: 300px; border-radius: 32px; background: #0E0E10; padding: 10px;
+    width: 312px; border-radius: 32px; background: #0E0E10; padding: 10px;
     box-shadow: 0 24px 60px -20px rgba(20, 40, 32, 0.35);
   }}
-  .phone-screen {{ background: #EDE6DA; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; height: 560px; }}
+  .phone-screen {{ background: #EDE6DA; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; height: 580px; }}
   .phone-header {{
     background: var(--sage-deep); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px;
   }}
@@ -217,17 +255,27 @@ _LANDING_HTML = f"""<!doctype html>
     display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;
   }}
 
-  @media (max-width: 860px) {{
-    .hero-grid {{ grid-template-columns: 1fr; }}
-    .hero-phone-wrap {{ order: -1; margin-bottom: 12px; }}
+  /* Tablet: still two columns, tighter gap and side padding. */
+  @media (max-width: 1024px) {{
+    .hero-wrap {{ padding: 64px 40px; }}
+    .hero-grid {{ gap: 48px; }}
+  }}
+
+  /* Mobile: single column. hero-phone-wrap has no `order` override, so it
+     stays in its natural DOM position -- last, after the staff portal link. */
+  @media (max-width: 640px) {{
+    .hero-wrap {{ padding: 48px 24px; }}
+    .hero-grid {{ grid-template-columns: 1fr; gap: 48px; }}
     .hero-heading {{ font-size: 32px; }}
+    .hero-ctas {{ flex-direction: column; align-items: stretch; }}
+    .hero-ctas a {{ width: 100%; }}
   }}
 </style>
 </head>
 <body>
 <div class="hero-wrap">
   <div class="hero-grid">
-    <div>
+    <div class="hero-content">
       <div class="hero-logo">
         <div class="hero-logo-mark">H</div>
         <div>
@@ -246,19 +294,19 @@ _LANDING_HTML = f"""<!doctype html>
       <div class="hero-features">
         <div class="hero-feature">
           <div class="hero-feature-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12l2.5 2.5L16 9"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12l2.5 2.5L16 9"/></svg>
           </div>
           <div><strong>No app for patients</strong><span>Works directly on WhatsApp</span></div>
         </div>
         <div class="hero-feature">
           <div class="hero-feature-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 10h8M8 14h5"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 10h8M8 14h5"/></svg>
           </div>
           <div><strong>Simple &amp; guided</strong><span>Menu-driven booking that just works</span></div>
         </div>
         <div class="hero-feature">
           <div class="hero-feature-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 15s1 1.5 2.5 1.5 2.5-.8 2.5-2-1-1.5-2.5-2-2.5-.8-2.5-2 1-2 2.5-2 2.5 1.5 2.5 1.5"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 15s1 1.5 2.5 1.5 2.5-.8 2.5-2-1-1.5-2.5-2-2.5-.8-2.5-2 1-2 2.5-2 2.5 1.5 2.5 1.5"/></svg>
           </div>
           <div><strong>Transparent pricing</strong><span>Meta messaging charges may apply</span></div>
         </div>
