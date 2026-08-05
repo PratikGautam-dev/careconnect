@@ -1345,9 +1345,23 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
   // one would still be present (named or not) when the operator reaches the
   // review step, showing up as a confusing "(unnamed department):" line;
   // "+ Add department" is one click away regardless.
-  if (errors.length) { maxUnlockedStep = totalSteps; }
-  renderRail();
-  goToStep(1);
+  //
+  // On a genuinely FRESH load (no errors), goToStep(1) must NOT run here --
+  // maxUnlockedStep is still 0 at this point, so goToStep()'s own guard
+  // (`if (step > maxUnlockedStep) return;`) silently no-ops it, leaving
+  // every .step-panel at its default `display: none` with nothing ever
+  // marked .active -- renderRail() still runs and cosmetically marks rail
+  // item 0 as current (it just reads the untouched currentStep=0), which is
+  // what made the page look like it loaded fine while the entire content
+  // area stayed blank. Every fresh visitor hit this until now.
+  if (errors.length) {
+    maxUnlockedStep = totalSteps;
+    renderRail();
+    goToStep(1);
+  } else {
+    renderRail();
+    goToStep(0);
+  }
 })();
 </script>
 </body>
