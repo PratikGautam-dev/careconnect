@@ -1,0 +1,175 @@
+# admin/tenants_api.py
+"""
+JSON API for the Next.js platform-admin tenant pages
+(frontend/src/app/admin/tenants, frontend/src/app/admin/edit-tenant) --
+lists every onboarded hospital and lets an operator correct one, mirroring
+admin/onboarding.py's server-rendered /admin/tenants and /admin/edit-tenant
+routes but as JSON, reusing that module's exact validation/masking helpers
+and db/repository.py's update_hospital() rather than duplicating them.
+
+Gated by TENANTS_ADMIN_SECRET, deliberately a DIFFERENT secret from
+ADMIN_SECRET (which only gates *creating* a new hospital via the onboarding
+wizard) -- this surface shows and can change every already-onboarded
+tenant's stored credentials, a strictly higher-blast-radius operation, so it
+doesn't share a credential with the lower-stakes one. Checked on every
+request via an X-Admin-Secret header, re-validated server-side each time
+(never trusted from client-side "logged in" state) -- same "basic
+protection, not production-grade auth" posture as every other shared-secret
+gate in this project.
+"""
+import os
+
+from fastapi import APIRouter, Header
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+import db.repository as db
+from admin.onboarding import _VALID_TIERS, _mask_secret, _parse_offsets
+from db.connection import IntegrityError
+
+router = APIRouter()
+
+TENANTS_ADMIN_SECRET = os.environ.get("TENANTS_ADMIN_SECRET", "")
+
+
+def _check_secret(x_admin_secret: str | None) -> bool:
+    return bool(TENANTS_ADMIN_SECRET) and x_admin_secret == TENANTS_ADMIN_SECRET
+
+
+def _tenant_summary(h) -> dict:
+    return {
+        "id": h.id,
+        "name": h.name,
+        "whatsapp_phone_number_id": h.whatsapp_phone_number_id,
+        "data_tier": h.data_tier,
+        "is_active": h.is_active,
+    }
+
+
+def _tenant_detail(h) -> dict:
+    return {
+        "id": h.id,
+        "name": h.name,
+        "whatsapp_phone_number_id": h.whatsapp_phone_number_id,
+        "access_token_masked": _mask_secret(h.access_token),
+        "app_secret_masked": _mask_secret(h.app_secret),
+        "welcome_message_text": h.welcome_message_text or "",
+        "reminder_offsets_hours": ",".join(str(o) for o in h.reminder_offsets_hours),
+        "reminder_template_name": h.reminder_template_name or "",
+        "data_tier": h.data_tier,
+        "external_api_base_url": h.external_api_base_url or "",
+        "external_api_key": h.external_api_key or "",
+        "has_portal_password": bool(h.portal_password_hash),
+        "is_active": h.is_active,
+    }
+
+
+@router.post("/api/admin/tenants/login")
+async def tenants_login(payload: dict):
+    secret = (payload or {}).get("secret", "")
+    if not _check_secret(secret):
+        return JSONResponse({"error": "Incorrect admin secret."}, status_code=403)
+    return JSONResponse({"ok": True})
+
+
+@router.get("/api/admin/tenants")
+async def list_tenants(x_admin_secret: str | None = Header(default=None)):
+    if not _check_secret(x_admin_secret):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    hospitals = db.get_all_hospitals()
+    return JSONResponse({"tenants": [_tenant_summary(h) for h in hospitals]})
+
+
+@router.get("/api/admin/tenants/{tenant_id}")
+async def get_tenant(tenant_id: int, x_admin_secret: str | None = Header(default=None)):
+    if not _check_secret(x_admin_secret):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    hospital = db.get_hospital(tenant_id)
+    if hospital is None:
+        return JSONResponse({"error": f"No tenant with id {tenant_id}."}, status_code=404)
+    return JSONResponse({"tenant": _tenant_detail(hospital)})
+
+
+class TenantUpdatePayload(BaseModel):
+    name: str = ""
+    whatsapp_phone_number_id: str = ""
+    access_token: str = ""  # blank = keep current
+    app_secret: str = ""  # blank = keep current
+    welcome_message_text: str = ""
+    reminder_offsets_hours: str = ""
+    reminder_template_name: str = ""
+    portal_password: str = ""  # blank = keep current
+    data_tier: str = "tier1"
+    api_base_url: str = ""
+    api_key: str = ""
+
+
+@router.post("/api/admin/tenants/{tenant_id}")
+async def update_tenant(
+    tenant_id: int, payload: TenantUpdatePayload, x_admin_secret: str | None = Header(default=None)
+):
+    if not _check_secret(x_admin_secret):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    hospital = db.get_hospital(tenant_id)
+    if hospital is None:
+        return JSONResponse({"error": f"No tenant with id {tenant_id}."}, status_code=404)
+
+    errors: list[str] = []
+    name = payload.name.strip()
+    whatsapp_phone_number_id = payload.whatsapp_phone_number_id.strip()
+    if not name:
+        errors.append("Hospital name is required.")
+    if not whatsapp_phone_number_id:
+        errors.append("WhatsApp phone_number_id is required.")
+    if payload.data_tier not in _VALID_TIERS:
+        errors.append(f'Unrecognized data connection tier "{payload.data_tier}".')
+    elif payload.data_tier == "tier2" and not (payload.api_base_url.strip() and payload.api_key.strip()):
+        errors.append('"Connect my existing system\'s API" requires both an API base URL and an API key.')
+
+    if errors:
+        return JSONResponse({"errors": errors}, status_code=400)
+
+    offsets = _parse_offsets(payload.reminder_offsets_hours)
+    stored_api_base_url = payload.api_base_url.strip() or None if payload.data_tier == "tier2" else None
+    stored_api_key = payload.api_key.strip() or None if payload.data_tier == "tier2" else None
+
+    # Blank token/secret/password fields mean "keep the current value" -- the
+    # edit form never receives the real secret back from the API (only a
+    # masked hint), so a blank submission is the normal case, not an
+    # explicit request to erase it. Exact same rule admin/onboarding.py's
+    # HTML edit-tenant route already uses.
+    new_access_token = payload.access_token.strip() or hospital.access_token
+    new_app_secret = payload.app_secret.strip() or hospital.app_secret
+    new_portal_password_hash = (
+        db.hash_portal_password(payload.portal_password.strip())
+        if payload.portal_password.strip()
+        else hospital.portal_password_hash
+    )
+
+    try:
+        updated = db.update_hospital(
+            tenant_id,
+            name=name,
+            whatsapp_phone_number_id=whatsapp_phone_number_id,
+            access_token=new_access_token,
+            app_secret=new_app_secret,
+            timezone=hospital.timezone,
+            welcome_message_text=payload.welcome_message_text.strip() or None,
+            reminder_offsets_hours=offsets,
+            reminder_template_name=payload.reminder_template_name.strip() or None,
+            data_tier=payload.data_tier,
+            external_api_base_url=stored_api_base_url,
+            external_api_key=stored_api_key,
+            portal_password_hash=new_portal_password_hash,
+            enabled_features=hospital.enabled_features,
+        )
+    except IntegrityError:
+        return JSONResponse({
+            "errors": [
+                f'A hospital with WhatsApp phone_number_id "{whatsapp_phone_number_id}" already exists — '
+                "each hospital must have its own phone_number_id for message routing to work correctly."
+            ]
+        }, status_code=400)
+
+    return JSONResponse({"tenant": _tenant_detail(updated)})

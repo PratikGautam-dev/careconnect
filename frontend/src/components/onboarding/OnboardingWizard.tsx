@@ -92,7 +92,7 @@ export function OnboardingWizard() {
   const nextDisabled = isGuideStep && !guideDone;
 
   return (
-    <div className="mx-auto max-w-300 px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
+    <div className="mx-auto max-w-[1440px] px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
       <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
         <div className="flex items-center gap-space-2">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-[15px] font-extrabold text-white">

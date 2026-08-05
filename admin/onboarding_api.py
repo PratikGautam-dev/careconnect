@@ -157,6 +157,8 @@ async def submit_onboarding(payload: OnboardingSubmission):
         errors.extend(dept_errors)
         if not departments:
             errors.append("At least one department with at least one doctor is required.")
+        if not payload.portal_password.strip():
+            errors.append("A bookings portal password is required.")
     if "faq" in payload.enabled_features:
         errors.extend(topic_errors)
         if not topics:

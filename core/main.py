@@ -15,8 +15,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 import db.repository as db
 from admin.onboarding import router as onboarding_router
 from admin.onboarding_api import router as onboarding_api_router
+from admin.tenants_api import router as tenants_api_router
 from admin.theme import STYLE as _STYLE
 from portal import router as portal_router
+from portal_api import router as portal_api_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 import flows
 from core.history import get_history, get_session_store
@@ -150,7 +152,9 @@ app.add_middleware(
 
 app.include_router(onboarding_router)
 app.include_router(onboarding_api_router)
+app.include_router(tenants_api_router)
 app.include_router(portal_router)
+app.include_router(portal_api_router)
 
 
 # /admin/onboard-hospital IS the client-facing signup flow (gated by

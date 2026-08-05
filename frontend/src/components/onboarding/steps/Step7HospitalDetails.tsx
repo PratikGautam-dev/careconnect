@@ -74,14 +74,15 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
           </div>
 
           <Field
-            label="Bookings portal password (optional)"
+            label="Bookings portal password"
             htmlFor="portal_password"
-            hint="Your staff can use this to log into a simple dashboard at /portal/login and see every appointment booked through WhatsApp. You can set or change it anytime after onboarding too."
+            required
+            hint="Your staff will use this to log into the bookings dashboard and see every appointment booked through WhatsApp. You can change it anytime after onboarding too."
           >
             <Input
               id="portal_password"
               type="password"
-              placeholder="Leave blank to set this later"
+              required
               value={state.portalPassword}
               onChange={(e) => dispatch({ type: "set", field: "portalPassword", value: e.target.value })}
             />
@@ -131,6 +132,7 @@ export function validateStep7(state: WizardState): string | null {
   if (state.enabledFeatures.includes("booking")) {
     const doctorCount = state.departments.reduce((n, d) => n + d.doctors.length, 0);
     if (doctorCount === 0) return "Booking is enabled, so at least one department with at least one doctor is required.";
+    if (!state.portalPassword.trim()) return "A bookings portal password is required.";
   }
   if (state.enabledFeatures.includes("faq")) {
     const topicCount = state.topics.filter((t) => t.topicLabel.trim() && t.answerText.trim()).length;

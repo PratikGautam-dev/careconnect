@@ -93,7 +93,7 @@ export default function LandingPage() {
               href="/portal/login"
               className="inline-flex items-center gap-space-1 text-[14px] font-semibold text-brand-600 transition-colors hover:text-brand-700 hover:underline"
             >
-              Open staff booking portal →
+              Hospital login →
             </a>
           </div>
 
