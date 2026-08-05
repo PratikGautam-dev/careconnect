@@ -33,11 +33,11 @@ How it works:
   the full menu of everything this hospital offers, not just FAQ's own topic
   list.
 
-Real vs. placeholder features (Section 14.5): "booking", "reschedule",
-"cancel", "faq", "view_appointments", and "hospital_info" are real. "reception_handoff",
-"payment_link", and "reports" are selectable in the onboarding wizard (so the
-UI is accurate about what's coming) but reply with a "coming soon" message --
-see _COMING_SOON_TEXT and _PLACEHOLDER_FEATURES below.
+All of REAL_FEATURES ("booking", "reschedule", "cancel", "faq",
+"view_appointments", "hospital_info", "reception_handoff") are real, working
+sub-flows -- there is no placeholder/"coming soon" tier anymore. "payment_link"
+and "reports" were removed (not just hidden) since they were never built and
+no tenant had either enabled; see Spec.md's progress log for the removal.
 """
 import logging
 
@@ -60,11 +60,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONNECTOR = Tier1Connector()
 
-_COMING_SOON_TEXT = (
-    "This feature is coming soon. In the meantime, please contact the hospital "
-    "directly, or send any message to see what's available right now."
-)
-
 # feature key -> (menu row id, menu row title). Order here is the order rows
 # appear in the main menu, matching the onboarding wizard's Patient Experience
 # step (Section 14.6) and the reference design's own toggle-grid ordering.
@@ -76,19 +71,12 @@ _FEATURE_MENU = {
     "hospital_info": ("menu_hospital_info", "Hospital Information"),
     "reception_handoff": ("menu_reception", "Talk to Reception"),
     "faq": ("menu_faq_bot", "FAQ / Information"),
-    "payment_link": ("menu_payment", "Payment Link"),
-    "reports": ("menu_reports", "Reports & Results"),
 }
 _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title) in _FEATURE_MENU.items()}
 
-# Real, working features vs. selectable-but-not-built-yet placeholders
-# (Section 14.5's explicit "flag which is which" requirement).
-# reception_handoff moved from PLACEHOLDER_FEATURES to REAL_FEATURES once the
-# human-handoff queue (db.create_handoff_request(), the staff portal's
-# /portal/messages) existed for it to actually hand off to.
+# Every selectable feature is real and working -- no placeholder tier.
 REAL_FEATURES = {"booking", "reschedule", "cancel", "faq", "view_appointments", "hospital_info", "reception_handoff"}
-PLACEHOLDER_FEATURES = {"payment_link", "reports"}
-ALL_FEATURES = REAL_FEATURES | PLACEHOLDER_FEATURES
+ALL_FEATURES = REAL_FEATURES
 
 _RECEPTION_HANDOFF_TEXT = (
     "We've let our reception team know — they'll reach out to you here shortly. "
@@ -145,8 +133,7 @@ async def _start_feature(
     unified menu. Real features either transition into an existing sub-flow's
     own state machine (booking/reschedule/cancel -> core/booking_flow.py,
     faq -> faq_flow.py's FAQ_ACTIVE loop) or are simple one-shot replies that
-    immediately return to IDLE (view_appointments, hospital_info). Placeholder
-    features (Section 14.5) all get the same "coming soon" reply."""
+    immediately return to IDLE (view_appointments, hospital_info)."""
     if key == "booking":
         sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, {})
         await _send_department_menu(wa, phone, hospital_id, connector)
@@ -177,11 +164,14 @@ async def _start_feature(
         )
         await wa.send_text(phone, _RECEPTION_HANDOFF_TEXT)
         return
-    # Remaining PLACEHOLDER_FEATURES (payment_link, reports) -- selectable in
-    # the wizard so the UI is honest about what's coming, but not built yet
-    # (Section 14.5).
+    # Defensive only -- every key in REAL_FEATURES has a branch above, so this
+    # is only reachable if a new feature key is added to REAL_FEATURES without
+    # a matching branch here (a coding bug), never from real user input (the
+    # _ROW_ID_TO_FEATURE/enabled_features gates in handle_incoming() already
+    # filter those out).
+    logger.warning("No _start_feature branch for feature key %r -- falling back to menu", key)
     sessions.reset(hospital_id, phone)
-    await wa.send_text(phone, _COMING_SOON_TEXT)
+    await _send_dynamic_menu(wa, phone, hospital_name, list(REAL_FEATURES))
 
 
 async def handle_incoming(

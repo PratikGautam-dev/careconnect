@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { Plus, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -9,6 +9,8 @@ import { PortalSidebar } from "@/components/portal/PortalSidebar";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
+
+const DEFAULT_CANCEL_MESSAGE = "Your appointment has been cancelled.";
 
 type Appointment = {
   id: number;
@@ -38,6 +40,8 @@ export default function PortalAppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelPanelId, setCancelPanelId] = useState<number | null>(null);
+  const [cancelMessage, setCancelMessage] = useState(DEFAULT_CANCEL_MESSAGE);
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/bookings");
@@ -53,10 +57,24 @@ export default function PortalAppointmentsPage() {
     if (ready) load();
   }, [ready, load]);
 
+  function openCancelPanel(id: number) {
+    setCancelPanelId(id);
+    setCancelMessage(DEFAULT_CANCEL_MESSAGE);
+  }
+
+  function closeCancelPanel() {
+    setCancelPanelId(null);
+  }
+
   async function handleCancel(id: number) {
     setCancellingId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/cancel`, { method: "POST" });
+    const result = await portalFetch(`/api/portal/bookings/${id}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: cancelMessage.trim() }),
+    });
     setCancellingId(null);
+    setCancelPanelId(null);
     if (result.ok) load();
   }
 
@@ -94,35 +112,67 @@ export default function PortalAppointmentsPage() {
                 </thead>
                 <tbody>
                   {appointments.map((a) => (
-                    <tr key={a.id} className="border-b border-line last:border-0">
-                      <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatTime(a.scheduled_at)}</td>
-                      <td className="py-space-2 text-ink-900">{a.phone}</td>
-                      <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
-                      <td className="py-space-2 text-ink-600">{a.department_name}</td>
-                      <td className="py-space-2 text-ink-600">{SOURCE_LABELS[a.source] || a.source}</td>
-                      <td className="py-space-2">
-                        <span
-                          className={cn(
-                            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                            STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
-                          )}
-                        >
-                          {STATUS_LABELS[a.status] || a.status}
-                        </span>
-                      </td>
-                      <td className="py-space-2 text-right">
-                        {a.status === "booked" && (
-                          <button
-                            type="button"
-                            disabled={cancellingId === a.id}
-                            onClick={() => handleCancel(a.id)}
-                            className="text-[12.5px] font-semibold text-error hover:underline disabled:opacity-50"
+                    <Fragment key={a.id}>
+                      <tr className={cn("border-b border-line last:border-0", cancelPanelId === a.id && "border-b-0")}>
+                        <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatTime(a.scheduled_at)}</td>
+                        <td className="py-space-2 text-ink-900">{a.phone}</td>
+                        <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
+                        <td className="py-space-2 text-ink-600">{a.department_name}</td>
+                        <td className="py-space-2 text-ink-600">{SOURCE_LABELS[a.source] || a.source}</td>
+                        <td className="py-space-2">
+                          <span
+                            className={cn(
+                              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+                              STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
+                            )}
                           >
-                            {cancellingId === a.id ? "Cancelling…" : "Cancel"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                            {STATUS_LABELS[a.status] || a.status}
+                          </span>
+                        </td>
+                        <td className="py-space-2 text-right">
+                          {a.status === "booked" && cancelPanelId !== a.id && (
+                            <button
+                              type="button"
+                              onClick={() => openCancelPanel(a.id)}
+                              className="text-[12.5px] font-semibold text-error hover:underline"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {cancelPanelId === a.id && (
+                        <tr className="border-b border-line last:border-0">
+                          <td colSpan={7} className="pb-space-3">
+                            <div className="rounded-lg border border-line bg-paper p-space-3">
+                              <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
+                                Message to send {a.phone} on WhatsApp
+                              </label>
+                              <textarea
+                                id={`cancel-msg-${a.id}`}
+                                value={cancelMessage}
+                                onChange={(e) => setCancelMessage(e.target.value)}
+                                rows={2}
+                                className="mb-space-2 h-16 w-full resize-none rounded-md border border-line bg-card px-space-3 py-space-2 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                              />
+                              <div className="flex gap-space-2">
+                                <Button
+                                  size="md"
+                                  onClick={() => handleCancel(a.id)}
+                                  disabled={cancellingId === a.id}
+                                  className="bg-error hover:bg-error/90 active:bg-error/80"
+                                >
+                                  <Send size={13} /> {cancellingId === a.id ? "Cancelling…" : "Send & cancel"}
+                                </Button>
+                                <Button size="md" variant="secondary" onClick={closeCancelPanel} disabled={cancellingId === a.id}>
+                                  <X size={13} /> Dismiss
+                                </Button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

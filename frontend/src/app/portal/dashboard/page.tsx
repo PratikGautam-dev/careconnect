@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityFeed } from "@/components/portal/ActivityFeed";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
+import { PatientsWidget } from "@/components/portal/PatientsWidget";
 import { PortalSidebar } from "@/components/portal/PortalSidebar";
 import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
@@ -24,6 +25,7 @@ type DashboardData = {
   };
   weekly_counts: { date: string; label: string; count: number }[];
   department_breakdown: { department_name: string; count: number }[];
+  recent_patients: { phone: string; name: string | null; last_visit: string | null; visit_count: number }[];
   recent_appointments: {
     id: number;
     phone: string;
@@ -38,24 +40,35 @@ type DashboardData = {
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
 
+// New bookings (WhatsApp or staff-created) don't push to this tab -- there's
+// no websocket/SSE infra in this app -- so poll instead of fetching once on
+// mount, otherwise the numbers only ever update on a manual page reload.
+const POLL_INTERVAL_MS = 20_000;
+
 export default function PortalDashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hospital, setHospital] = useState<PortalHospital | null>(null);
+  const routerRef = useRef(router);
+  routerRef.current = router;
+
+  const load = useCallback(async () => {
+    const result = await portalFetch("/api/portal/dashboard");
+    if (!result.ok) {
+      if (result.unauthorized) routerRef.current.push("/portal/login");
+      else setError(result.error);
+      return;
+    }
+    setData(result.data as DashboardData);
+  }, []);
 
   useEffect(() => {
     setHospital(getPortalHospital());
-    (async () => {
-      const result = await portalFetch("/api/portal/dashboard");
-      if (!result.ok) {
-        if (result.unauthorized) router.push("/portal/login");
-        else setError(result.error);
-        return;
-      }
-      setData(result.data as DashboardData);
-    })();
-  }, [router]);
+    load();
+    const interval = setInterval(load, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [load]);
 
   if (error) {
     return (
@@ -89,13 +102,6 @@ export default function PortalDashboardPage() {
             >
               <option>Today</option>
             </select>
-            <select
-              disabled
-              title="Coming soon"
-              className="h-9 cursor-not-allowed rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-600"
-            >
-              <option>All Branches</option>
-            </select>
           </div>
         </div>
 
@@ -115,10 +121,12 @@ export default function PortalDashboardPage() {
               <DepartmentDonut data={data.department_breakdown} />
             </div>
 
-            <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-2">
+            <div className="mb-space-4 grid grid-cols-1 gap-space-4 lg:grid-cols-2">
               <RecentAppointmentsTable appointments={data.recent_appointments} />
               <ActivityFeed items={data.activity_feed} />
             </div>
+
+            <PatientsWidget patients={data.recent_patients} />
           </>
         )}
       </main>

@@ -77,12 +77,14 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
     dept_breakdown = db.get_appointments_by_department(hospital.id)
     recent_appointments = db.get_all_appointments_for_hospital(hospital.id, limit=10)
     activity_feed = db.get_recent_activity_feed(hospital.id, limit=10)
+    recent_patients = db.get_recent_patients(hospital.id, limit=5)
 
     return JSONResponse({
         "hospital": _hospital_summary(hospital),
         "stats": stats,
         "weekly_counts": weekly_counts,
         "department_breakdown": dept_breakdown,
+        "recent_patients": recent_patients,
         "recent_appointments": [
             {
                 "id": a.id,
@@ -108,6 +110,14 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
     })
 
 
+@router.get("/api/portal/patients")
+async def portal_patients(search: str = "", authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    return JSONResponse({"patients": db.list_patients(hospital.id, search=search)})
+
+
 def _appointment_json(a) -> dict:
     return {
         "id": a.id,
@@ -130,11 +140,28 @@ async def portal_bookings(authorization: str | None = Header(default=None)):
 
 
 @router.post("/api/portal/bookings/{appointment_id}/cancel")
-async def portal_cancel_booking(appointment_id: int, authorization: str | None = Header(default=None)):
+async def portal_cancel_booking(
+    appointment_id: int, payload: dict | None = None, authorization: str | None = Header(default=None)
+):
+    """`payload.message`, when given a non-empty string, is sent to the
+    patient on WhatsApp AFTER the cancellation is committed (so a delivery
+    failure never blocks the cancellation itself) -- the staff appointments
+    page pre-fills this with a default "your appointment has been cancelled"
+    message that staff can edit to add a reason before sending."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None:
+        return JSONResponse({"error": "No such appointment."}, status_code=404)
+
     db.cancel_appointment(hospital.id, appointment_id)
+
+    message = ((payload or {}).get("message") or "").strip()
+    if message:
+        wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+        await wa.send_text(appointment.phone, message)
+
     return JSONResponse({"ok": True})
 
 

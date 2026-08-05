@@ -9,8 +9,6 @@ SPEC Section 14.5: the feature-toggle router (flows.py) -- supersedes Section
     TOP-level unified menu, not just faq_flow's own topic list
   - tapping a row id for a feature this tenant hasn't enabled falls back to
     the menu rather than starting that feature (stale tap / disabled since)
-  - the two remaining placeholder features (payment_link, reports) reply with
-    the same "coming soon" text and never start a real sub-flow
   - reception_handoff (promoted to real, Section 14.5 follow-up) queues a
     handoff_requests row and replies with a real message
   - view_appointments and hospital_info (real, one-shot features)
@@ -233,27 +231,6 @@ async def test_hospital_info_feature_sends_static_text(hospital_id):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("feature, row_id", [
-    ("payment_link", "menu_payment"),
-    ("reports", "menu_reports"),
-])
-async def test_placeholder_features_reply_coming_soon(hospital_id, feature, row_id):
-    """Section 14.5: selectable in the wizard so the UI is honest about
-    what's coming, but not built yet -- tapping one always gets the same
-    "coming soon" reply, never a real sub-flow."""
-    wa = FakeWhatsAppClient()
-    sessions = InMemorySessionStore()
-
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(row_id),
-        connector=FakeConnector(), enabled_features=[feature],
-    )
-
-    assert wa.sent[-1] == ("text", {"to": PHONE, "text": flows._COMING_SOON_TEXT})
-    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
-
-
-@pytest.mark.asyncio
 async def test_reception_handoff_queues_request_and_replies(hospital_id):
     """reception_handoff (Section 14.5 follow-up) is real now: tapping it
     queues a handoff_requests row (reason='patient_requested') for the staff
@@ -275,11 +252,11 @@ async def test_reception_handoff_queues_request_and_replies(hospital_id):
     assert any(h["phone"] == PHONE and h["reason"] == "patient_requested" for h in open_handoffs)
 
 
-def test_real_vs_placeholder_features_partition_all_features():
-    assert flows.REAL_FEATURES | flows.PLACEHOLDER_FEATURES == flows.ALL_FEATURES
-    assert flows.REAL_FEATURES & flows.PLACEHOLDER_FEATURES == set()
-    assert flows.PLACEHOLDER_FEATURES == {"payment_link", "reports"}
+def test_real_features_are_all_features():
+    assert flows.REAL_FEATURES == flows.ALL_FEATURES
     assert "reception_handoff" in flows.REAL_FEATURES
+    assert "payment_link" not in flows.ALL_FEATURES
+    assert "reports" not in flows.ALL_FEATURES
 
 
 # --- Live webhook round-trip: proves core/main.py actually dispatches

@@ -39,9 +39,7 @@ export type FeatureKey =
   | "view_appointments"
   | "hospital_info"
   | "reception_handoff"
-  | "faq"
-  | "payment_link"
-  | "reports";
+  | "faq";
 
 export type WizardState = {
   dataTier: DataTier;
@@ -134,11 +132,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   hospital_info: "Hospital Information",
   reception_handoff: "Talk to Reception",
   faq: "FAQ / Information Bot",
-  payment_link: "Payment Link",
-  reports: "Reports & Results",
 };
-
-export const COMING_SOON_FEATURES: FeatureKey[] = ["reception_handoff", "payment_link", "reports"];
 
 /** Builds the JSON payload the FastAPI /api/onboarding endpoint expects --
  * shift/break TimeRange pairs collapse into "HH:MM-HH:MM" strings here, the

@@ -840,6 +840,50 @@ def search_patients(hospital_id: int, query: str, limit: int = 10) -> list[dict]
     return [{"phone": r["phone"], "name": r["name"]} for r in rows]
 
 
+def _patients_with_visit_stats_sql(where_extra: str = "") -> str:
+    """Shared by list_patients()/get_recent_patients() -- last_visit is the
+    most recent scheduled_at across every appointment (any status, same
+    "staff want to see the full history" reasoning as
+    get_all_appointments_for_hospital()), visit_count counts every
+    appointment row ever created for that phone, not just kept ones."""
+    return (
+        "SELECT p.phone, p.name, MAX(a.scheduled_at) AS last_visit, COUNT(a.id) AS visit_count "
+        "FROM patients p LEFT JOIN appointments a ON a.hospital_id = p.hospital_id AND a.phone = p.phone "
+        f"WHERE p.hospital_id = ? {where_extra} "
+        "GROUP BY p.phone, p.name "
+        "ORDER BY last_visit DESC NULLS LAST, p.name NULLS LAST, p.phone "
+    )
+
+
+def list_patients(hospital_id: int, search: str | None = None, limit: int = 200) -> list[dict]:
+    """Full patient directory for /portal/patients -- unlike search_patients()
+    (name/phone only, built for the new-booking form's autocomplete), this
+    also surfaces last_visit/visit_count so staff can see engagement at a
+    glance, and returns every patient (not just search hits) when no query
+    is given."""
+    conn = get_connection()
+    search = (search or "").strip()
+    if search:
+        like = f"%{search}%"
+        rows = conn.execute(
+            _patients_with_visit_stats_sql("AND (p.phone ILIKE ? OR p.name ILIKE ?)") + "LIMIT ?",
+            (hospital_id, like, like, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(_patients_with_visit_stats_sql() + "LIMIT ?", (hospital_id, limit)).fetchall()
+    return [
+        {"phone": r["phone"], "name": r["name"], "last_visit": r["last_visit"], "visit_count": r["visit_count"]}
+        for r in rows
+    ]
+
+
+def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
+    """The dashboard's small "Patients" widget -- same shape as list_patients()
+    but capped short and always unfiltered (most-recently-seen patients),
+    since it's a glance-and-click-through widget, not a search surface."""
+    return list_patients(hospital_id, search=None, limit=limit)
+
+
 # --- Appointments ---
 
 def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None) -> None:

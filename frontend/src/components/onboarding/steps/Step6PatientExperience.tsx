@@ -2,15 +2,13 @@ import {
   Calendar,
   CalendarClock,
   CalendarX,
-  FileText,
   HelpCircle,
   Info,
-  Link as LinkIcon,
   ListChecks,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { COMING_SOON_FEATURES, FEATURE_LABELS, FeatureKey, WizardState } from "../types";
+import { FEATURE_LABELS, FeatureKey, WizardState } from "../types";
 import type { WizardDispatch } from "../useWizardState";
 
 const FEATURE_ICONS: Record<FeatureKey, typeof Calendar> = {
@@ -21,8 +19,6 @@ const FEATURE_ICONS: Record<FeatureKey, typeof Calendar> = {
   hospital_info: Info,
   reception_handoff: UserRound,
   faq: HelpCircle,
-  payment_link: LinkIcon,
-  reports: FileText,
 };
 
 const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
@@ -31,10 +27,8 @@ const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
   cancel: "Cancel an existing booking.",
   view_appointments: "See a list of upcoming bookings.",
   hospital_info: "Hours, location, and general info.",
-  reception_handoff: 'Hand off to a human. Shows a "coming soon" message for now.',
+  reception_handoff: "Hand off to a human -- queues into the staff portal's Messages inbox.",
   faq: "Patients pick a topic (hours, pricing...) and get an instant configured answer.",
-  payment_link: 'Send a payment link on request. Shows a "coming soon" message for now.',
-  reports: 'Share reports/results securely. Shows a "coming soon" message for now.',
 };
 
 const FEATURE_ORDER = Object.keys(FEATURE_LABELS) as FeatureKey[];
@@ -55,7 +49,6 @@ export function Step6PatientExperience({ state, dispatch, error }: Props) {
         {FEATURE_ORDER.map((key) => {
           const Icon = FEATURE_ICONS[key];
           const selected = state.enabledFeatures.includes(key);
-          const comingSoon = COMING_SOON_FEATURES.includes(key);
           return (
             <label
               key={key}
@@ -80,11 +73,6 @@ export function Step6PatientExperience({ state, dispatch, error }: Props) {
                 >
                   <Icon size={16} strokeWidth={2} />
                 </div>
-                {comingSoon && (
-                  <span className="rounded-full bg-clay-100 px-space-2 py-0.5 text-[10px] font-bold tracking-wide text-clay-700 uppercase">
-                    Coming soon
-                  </span>
-                )}
               </div>
               <h3 className="mb-space-1 text-[14.5px] font-bold text-ink-900">{FEATURE_LABELS[key]}</h3>
               <p className="text-[12.5px] leading-relaxed text-ink-600">{FEATURE_DESCRIPTIONS[key]}</p>

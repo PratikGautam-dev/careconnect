@@ -585,26 +585,13 @@ _WIZARD_TEMPLATE = """<!doctype html>
           </label>
           <label class="tier-card feature-card">
             <input type="checkbox" class="feature-checkbox" name="enabled_features" value="reception_handoff" checked>
-            <span class="tier-badge">Coming soon</span>
             <h3>Talk to Reception</h3>
-            <p>Hand off to a human. Shows a "coming soon" message for now.</p>
+            <p>Hand off to a human -- queues into the staff portal's Messages inbox.</p>
           </label>
           <label class="tier-card feature-card">
             <input type="checkbox" class="feature-checkbox" name="enabled_features" value="faq">
             <h3>FAQ / Information Bot</h3>
             <p>Patients pick a topic (hours, pricing...) and get an instant configured answer.</p>
-          </label>
-          <label class="tier-card feature-card">
-            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="payment_link">
-            <span class="tier-badge">Coming soon</span>
-            <h3>Payment Link</h3>
-            <p>Send a payment link on request. Shows a "coming soon" message for now.</p>
-          </label>
-          <label class="tier-card feature-card">
-            <input type="checkbox" class="feature-checkbox" name="enabled_features" value="reports">
-            <span class="tier-badge">Coming soon</span>
-            <h3>Reports &amp; Results</h3>
-            <p>Share reports/results securely. Shows a "coming soon" message for now.</p>
           </label>
         </div>
 
@@ -1197,8 +1184,7 @@ window.__WIZARD_ERRORS__ = __ERRORS_JSON__;
   var FEATURE_LABELS = {
     booking: "Book Appointment", reschedule: "Reschedule Appointment", cancel: "Cancel Appointment",
     view_appointments: "View My Appointments", hospital_info: "Hospital Information",
-    reception_handoff: "Talk to Reception (coming soon)", faq: "FAQ / Information Bot",
-    payment_link: "Payment Link (coming soon)", reports: "Reports & Results (coming soon)",
+    reception_handoff: "Talk to Reception", faq: "FAQ / Information Bot",
   };
 
   function renderReview() {
