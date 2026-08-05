@@ -357,9 +357,17 @@ def find_department(hospital_id: int, department_id: str) -> dict | None:
 
 
 def get_doctors(hospital_id: int, department_id: str) -> list[dict]:
+    """The connector interface's own get_doctors() (Section 12.6.2) -- both
+    the WhatsApp bot's booking flow AND the staff portal's new-booking page
+    read doctor lists through this one function, so excluding is_active=FALSE
+    doctors here is the single enforcement point for "staff turned this
+    doctor off" everywhere a booking could actually be created, not just the
+    bot. The portal's own doctor MANAGEMENT list uses
+    get_all_doctors_for_hospital() instead, which intentionally still shows
+    inactive doctors so staff can toggle them back on."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT id, name FROM doctors WHERE hospital_id = ? AND department_id = ? ORDER BY name",
+        "SELECT id, name FROM doctors WHERE hospital_id = ? AND department_id = ? AND is_active = TRUE ORDER BY name",
         (hospital_id, department_id),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -441,7 +449,7 @@ def create_doctor(
 _DOCTOR_FULL_COLUMNS = (
     "id, department_id, name, specialization, qualification, years_experience, "
     "working_days, working_hours, slot_duration_minutes, breaks, max_bookings_per_slot, "
-    "daily_booking_limit, online_quota, walkin_quota, followup_duration_minutes, effective_from"
+    "daily_booking_limit, online_quota, walkin_quota, followup_duration_minutes, effective_from, is_active"
 )
 
 
@@ -471,15 +479,32 @@ def _parse_doctor_row(d: dict) -> dict:
 def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
     """Every doctor at this hospital with its department name attached --
     portal.py's doctors list page (Section 12.7 follow-up), one query instead
-    of walking get_departments() -> get_doctors() per department."""
+    of walking get_departments() -> get_doctors() per department. Deliberately
+    NOT filtered by is_active -- this is the management view, so an inactive
+    doctor must still show up (with its off state) so staff can toggle it
+    back on; get_doctors() is the one that hides them from bookable lists."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT doc.id, doc.department_id, d.name AS department_name, doc.name, doc.specialization "
+        "SELECT doc.id, doc.department_id, d.name AS department_name, doc.name, doc.specialization, doc.is_active "
         "FROM doctors doc JOIN departments d ON d.id = doc.department_id "
         "WHERE doc.hospital_id = ? ORDER BY d.name, doc.name",
         (hospital_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool:
+    """Staff-facing on/off switch (distinct from doctor_leave's whole-day
+    dates and from editing working hours) -- returns False if no matching
+    doctor row exists for this hospital, True on a real update, so callers
+    can 404 rather than silently no-op."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE doctors SET is_active = ? WHERE hospital_id = ? AND id = ?",
+        (is_active, hospital_id, doctor_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def update_doctor(
@@ -1330,3 +1355,51 @@ def create_faq_topic(
     new_id = cur.fetchone()["id"]
     conn.commit()
     return {"id": new_id, "topic_label": topic_label, "answer_text": answer_text, "display_order": display_order}
+
+
+# --- Human handoff queue -- fed by flows.py's reception_handoff feature and
+# core/main.py's unexpected-exception catch (see db/schema.sql's own comment
+# on handoff_requests for why these two unrelated triggers share one table). ---
+
+def create_handoff_request(hospital_id: int, phone: str, reason: str, message_text: str | None = None) -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO handoff_requests (hospital_id, phone, reason, message_text) "
+        "VALUES (?, ?, ?, ?) RETURNING id, created_at",
+        (hospital_id, phone, reason, message_text),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "hospital_id": hospital_id, "phone": phone, "reason": reason,
+        "message_text": message_text, "status": "open", "created_at": row["created_at"], "resolved_at": None,
+    }
+
+
+def get_handoff_requests(hospital_id: int, status: str | None = "open", limit: int = 100) -> list[dict]:
+    """status=None returns every request regardless of state (for a staff
+    member reviewing history); the default "open" is the actual work queue."""
+    conn = get_connection()
+    if status is None:
+        rows = conn.execute(
+            "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
+            "WHERE hospital_id = ? ORDER BY created_at DESC LIMIT ?",
+            (hospital_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
+            "WHERE hospital_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?",
+            (hospital_id, status, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE handoff_requests SET status = 'resolved', resolved_at = ? WHERE id = ? AND hospital_id = ? AND status = 'open'",
+        (datetime.now().isoformat(), handoff_id, hospital_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0

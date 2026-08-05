@@ -147,7 +147,18 @@ CREATE TABLE IF NOT EXISTS doctors (
     -- on/after this date, leaving any earlier still-unbooked slots (generated
     -- under the doctor's previous pattern) untouched -- a schedule change
     -- applies going forward, not retroactively.
-    effective_from TEXT
+    effective_from TEXT,
+    -- Staff-controlled on/off switch, independent of leave dates/working
+    -- hours: a hospital may want a doctor to simply stop appearing as
+    -- bookable (resigned, long-term unavailable, etc.) without deleting
+    -- their record or editing their schedule. FALSE excludes them from
+    -- get_doctors() (the connector interface both the WhatsApp bot and the
+    -- staff new-booking flow read from) entirely -- same enforcement point,
+    -- so "off" means off everywhere a patient or staff member could book
+    -- them, not just the bot. Portal's own doctor MANAGEMENT list
+    -- (get_all_doctors_for_hospital) still shows inactive doctors, so staff
+    -- can toggle them back on.
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT '';
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS max_bookings_per_slot INTEGER NOT NULL DEFAULT 1;
@@ -156,6 +167,7 @@ ALTER TABLE doctors ADD COLUMN IF NOT EXISTS online_quota INTEGER;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS walkin_quota INTEGER;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS followup_duration_minutes INTEGER;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS effective_from TEXT;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Section 14.7: one row per date a doctor is unavailable for the whole day
 -- (leave/holiday/on-call elsewhere). generate_slots_for_doctor() skips any
@@ -325,3 +337,30 @@ CREATE TABLE IF NOT EXISTS faq_topics (
     answer_text TEXT NOT NULL,
     display_order INTEGER NOT NULL DEFAULT 0
 );
+
+-- Human-handoff queue: a "needs a person" inbox for the staff portal, fed by
+-- two different triggers that otherwise have nothing to do with each other --
+-- a patient deliberately tapping "Talk to Reception" (reception_handoff,
+-- promoted from a PLACEHOLDER_FEATURE to real, flows.py), and the webhook
+-- handler catching a genuine unexpected exception while processing a message
+-- (core/main.py's _process_message, previously only caught
+-- ConnectorNotImplementedError specifically and let anything else propagate
+-- uncaught with no patient-facing reply and no record of what happened).
+-- Both funnel into this one table/queue rather than two separate mechanisms,
+-- since a staff member reviewing "what needs my attention" doesn't care which
+-- trigger fired -- reason is kept only so the portal can label the two cases
+-- differently, not to branch behavior anywhere.
+CREATE TABLE IF NOT EXISTS handoff_requests (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    phone TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK (reason IN ('patient_requested', 'system_error')),
+    -- What the patient sent (patient_requested) or a short description of
+    -- what failed (system_error) -- context for the staff member, not
+    -- parsed/branched on by any code.
+    message_text TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_requests_hospital_status ON handoff_requests(hospital_id, status);

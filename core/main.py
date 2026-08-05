@@ -472,6 +472,31 @@ async def receive_message(request: Request):
         # ever crash the webhook itself (same "always ack Meta with 200"
         # pattern as every other failure mode in this handler).
         logger.error("Hospital %s has no working connector for data_tier -- message from %s dropped", hospital.id, phone)
+    except Exception:
+        # Any OTHER unexpected failure while processing this message (a real
+        # bug, not a known/handled case) -- previously propagated uncaught
+        # with no patient-facing reply and no record anywhere of what
+        # happened. Now: log it loudly, queue it in the human-handoff table
+        # (Section 14.5 follow-up) so staff see it in the portal, and tell
+        # the patient a person's been notified instead of leaving them with
+        # silence. The queue-and-reply half is wrapped in its own try/except
+        # -- it must never itself raise past this handler (that would defeat
+        # the "always ack Meta with 200" pattern the ConnectorNotImplementedError
+        # branch above already relies on), a DB or send failure here just
+        # gets logged, not re-raised.
+        logger.exception("Unexpected error processing message from %s (hospital %s)", phone, hospital.id)
+        try:
+            db.create_handoff_request(
+                hospital.id, phone, reason="system_error",
+                message_text=f"Bot error while handling: {reply.get('text') or reply.get('title') or reply.get('type')}",
+            )
+            await wa.send_text(
+                phone,
+                "Sorry, something went wrong on our end. We've notified our team and someone will follow up with "
+                "you here shortly.",
+            )
+        except Exception:
+            logger.exception("Also failed to record/notify the handoff for %s (hospital %s)", phone, hospital.id)
     finally:
         _release_message_lock(hospital.id, phone)
 

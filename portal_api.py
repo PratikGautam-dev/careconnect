@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 import connectors
 import db.repository as db
 from admin.onboarding import _validate_doctor_fields, _parse_offsets
+from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 from portal import _SESSION_TTL_SECONDS, _build_new_booking_context, _sign_session, _verify_session
 
@@ -215,6 +216,138 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
     return JSONResponse({"doctor": doctor, "warnings": warnings})
 
 
+@router.post("/api/portal/doctors/{doctor_id}/active")
+async def portal_set_doctor_active(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    is_active = bool((payload or {}).get("is_active", True))
+    ok = db.set_doctor_active(hospital.id, doctor_id, is_active)
+    if not ok:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    return JSONResponse({"ok": True, "is_active": is_active})
+
+
+@router.get("/api/portal/doctors/{doctor_id}/leave")
+async def portal_get_doctor_leave(doctor_id: str, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    return JSONResponse({"leave": db.get_doctor_leave(hospital.id, doctor_id)})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/leave")
+async def portal_add_doctor_leave(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    leave_date = (payload or {}).get("date", "").strip()
+    if not leave_date:
+        return JSONResponse({"error": "A date is required."}, status_code=400)
+    reason = (payload or {}).get("reason", "").strip() or None
+    entry = db.create_doctor_leave(hospital.id, doctor_id, leave_date, reason)
+    return JSONResponse({"leave": entry})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/leave/{leave_id}/delete")
+async def portal_delete_doctor_leave(
+    doctor_id: str, leave_id: int, authorization: str | None = Header(default=None)
+):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    ok = db.delete_doctor_leave(hospital.id, doctor_id, leave_id)
+    if not ok:
+        return JSONResponse({"error": "No such leave date."}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+class DoctorCsvRow(BaseModel):
+    department_name: str = ""
+    name: str = ""
+    specialization: str = ""
+    qualification: str = ""
+    years_experience: str = ""
+    working_days: str = ""  # "Mon,Tue,Wed" -- comma-separated, matches the wizard's own convention
+    working_hours: str = ""  # "10:00-13:00,17:00-20:00"
+    slot_duration_minutes: str = ""
+    breaks: str = ""
+    max_bookings_per_slot: str = "1"
+    daily_booking_limit: str = ""
+    online_quota: str = ""
+    walkin_quota: str = ""
+    followup_duration_minutes: str = ""
+    effective_from: str = ""
+
+
+class DoctorCsvImportPayload(BaseModel):
+    rows: list[DoctorCsvRow] = Field(default_factory=list)
+
+
+@router.post("/api/portal/doctors/csv-import")
+async def portal_csv_import_doctors(
+    payload: DoctorCsvImportPayload, authorization: str | None = Header(default=None)
+):
+    """Bulk doctor creation from a CSV the frontend has already parsed into
+    rows (Field-name-matched against the same columns the single add-doctor
+    form posts, comma-joined instead of arrays since CSV cells are plain
+    strings) -- reuses _validate_doctor_fields() and create_department()'s
+    own get-or-create-by-name behavior isn't a real function here, so a
+    department named in the CSV that doesn't exist yet is created on the
+    fly, matching what a staff member manually adding one row at a time
+    would eventually do anyway. Every row is validated independently; one
+    bad row doesn't block the good ones -- the response reports both."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    existing_departments = {d["name"].strip().lower(): d["id"] for d in db.get_departments(hospital.id)}
+    created_count = 0
+    row_errors: list[str] = []
+
+    for i, row in enumerate(payload.rows):
+        label = f"Row {i + 1}" + (f" ({row.name})" if row.name else "")
+        dept_name = row.department_name.strip()
+        if not dept_name:
+            row_errors.append(f"{label}: department_name is required.")
+            continue
+        dept_key = dept_name.lower()
+        if dept_key not in existing_departments:
+            new_dept = db.create_department(hospital.id, dept_name)
+            existing_departments[dept_key] = new_dept["id"]
+        department_id = existing_departments[dept_key]
+
+        doctor_data, errors, _warnings = _validate_doctor_fields(
+            i, row.name, row.specialization, row.qualification, row.years_experience,
+            row.working_days, row.working_hours, row.slot_duration_minutes, row.breaks,
+            row.max_bookings_per_slot, row.daily_booking_limit, row.online_quota, row.walkin_quota,
+            row.followup_duration_minutes, row.effective_from,
+        )
+        if errors:
+            row_errors.extend(f"{label}: {e}" for e in errors)
+            continue
+
+        db.create_doctor(
+            hospital.id, department_id, doctor_data["name"],
+            specialization=doctor_data["specialization"],
+            qualification=doctor_data["qualification"],
+            years_experience=doctor_data["years_experience"],
+            working_days=doctor_data["working_days"],
+            working_hours=doctor_data["working_hours"],
+            slot_duration_minutes=doctor_data["slot_duration_minutes"],
+            breaks=doctor_data["breaks"],
+            max_bookings_per_slot=doctor_data["max_bookings_per_slot"],
+            daily_booking_limit=doctor_data["daily_booking_limit"],
+            online_quota=doctor_data["online_quota"],
+            walkin_quota=doctor_data["walkin_quota"],
+            followup_duration_minutes=doctor_data["followup_duration_minutes"],
+            effective_from=doctor_data["effective_from"],
+        )
+        created_count += 1
+
+    return JSONResponse({"created_count": created_count, "row_errors": row_errors})
+
+
 @router.get("/api/portal/settings")
 async def portal_get_settings(authorization: str | None = Header(default=None)):
     hospital = _authenticate(authorization)
@@ -314,4 +447,49 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
     except IntegrityError:
         return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
 
+    return JSONResponse({"ok": True})
+
+
+# --- Human handoff queue (Section 14.5 follow-up) ---
+
+@router.get("/api/portal/handoffs")
+async def portal_get_handoffs(status: str = "open", authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    status_filter = None if status == "all" else status
+    return JSONResponse({"handoffs": db.get_handoff_requests(hospital.id, status=status_filter)})
+
+
+@router.post("/api/portal/handoffs/{handoff_id}/resolve")
+async def portal_resolve_handoff(handoff_id: int, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    ok = db.resolve_handoff_request(hospital.id, handoff_id)
+    if not ok:
+        return JSONResponse({"error": "No such open handoff request."}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/portal/handoffs/{handoff_id}/reply")
+async def portal_reply_handoff(handoff_id: int, payload: dict, authorization: str | None = Header(default=None)):
+    """Sends a real WhatsApp message back to the patient (does NOT itself
+    resolve the handoff -- a staff member may reply more than once before
+    marking it done, e.g. asking a clarifying question first)."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    text = (payload or {}).get("text", "").strip()
+    if not text:
+        return JSONResponse({"error": "Reply text is required."}, status_code=400)
+
+    matches = [h for h in db.get_handoff_requests(hospital.id, status=None) if h["id"] == handoff_id]
+    if not matches:
+        return JSONResponse({"error": "No such handoff request."}, status_code=404)
+    phone = matches[0]["phone"]
+
+    wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+    await wa.send_text(phone, text)
     return JSONResponse({"ok": True})

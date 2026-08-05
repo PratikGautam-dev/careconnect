@@ -41,6 +41,7 @@ see _COMING_SOON_TEXT and _PLACEHOLDER_FEATURES below.
 """
 import logging
 
+import db.repository as db
 from core.booking_flow import (
     _HANDLERS as _BOOKING_STATE_HANDLERS,
     _FAQ_TEXT as _HOSPITAL_INFO_TEXT,
@@ -82,9 +83,17 @@ _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title) in _FEATURE_MENU.ite
 
 # Real, working features vs. selectable-but-not-built-yet placeholders
 # (Section 14.5's explicit "flag which is which" requirement).
-REAL_FEATURES = {"booking", "reschedule", "cancel", "faq", "view_appointments", "hospital_info"}
-PLACEHOLDER_FEATURES = {"reception_handoff", "payment_link", "reports"}
+# reception_handoff moved from PLACEHOLDER_FEATURES to REAL_FEATURES once the
+# human-handoff queue (db.create_handoff_request(), the staff portal's
+# /portal/messages) existed for it to actually hand off to.
+REAL_FEATURES = {"booking", "reschedule", "cancel", "faq", "view_appointments", "hospital_info", "reception_handoff"}
+PLACEHOLDER_FEATURES = {"payment_link", "reports"}
 ALL_FEATURES = REAL_FEATURES | PLACEHOLDER_FEATURES
+
+_RECEPTION_HANDOFF_TEXT = (
+    "We've let our reception team know — they'll reach out to you here shortly. "
+    "If you need anything else in the meantime, just type \"menu\"."
+)
 
 
 async def _send_dynamic_menu(wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str]) -> None:
@@ -160,9 +169,17 @@ async def _start_feature(
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, _HOSPITAL_INFO_TEXT)
         return
-    # PLACEHOLDER_FEATURES (reception_handoff, payment_link, reports) --
-    # selectable in the wizard so the UI is honest about what's coming, but
-    # not built yet (Section 14.5).
+    if key == "reception_handoff":
+        sessions.reset(hospital_id, phone)
+        db.create_handoff_request(
+            hospital_id, phone, reason="patient_requested",
+            message_text="Patient tapped \"Talk to Reception\" from the main menu.",
+        )
+        await wa.send_text(phone, _RECEPTION_HANDOFF_TEXT)
+        return
+    # Remaining PLACEHOLDER_FEATURES (payment_link, reports) -- selectable in
+    # the wizard so the UI is honest about what's coming, but not built yet
+    # (Section 14.5).
     sessions.reset(hospital_id, phone)
     await wa.send_text(phone, _COMING_SOON_TEXT)
 

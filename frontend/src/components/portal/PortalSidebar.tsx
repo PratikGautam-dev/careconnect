@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { key: "departments", label: "Departments", icon: Network, href: "/portal/doctors" },
   { key: "branches", label: "Branches", icon: Building2, href: null },
   { key: "staff", label: "Staff", icon: UsersRound, href: null },
-  { key: "messages", label: "Messages", icon: MessageCircle, href: null },
+  { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages" },
   { key: "reports", label: "Reports", icon: FileBarChart, href: null },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings" },
 ];
