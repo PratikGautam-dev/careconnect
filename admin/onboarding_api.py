@@ -9,13 +9,13 @@ validation or database-write logic. Field-level rules (doctor schedule
 parsing, department/topic reconstruction, tier requirements) are imported
 straight from admin.onboarding so the two entry points can never drift apart.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import db.repository as db
 import flows
-from admin.onboarding import ADMIN_SECRET, _VALID_TIERS, _parse_offsets, _validate_doctor_fields
+from admin.onboarding import _VALID_TIERS, _parse_offsets, _validate_doctor_fields, check_admin_secret
 from db.connection import IntegrityError
 
 router = APIRouter()
@@ -127,8 +127,8 @@ def _validate_topics(topics: list[TopicIn]) -> tuple[list[dict], list[str]]:
 
 
 @router.post("/api/onboarding")
-async def submit_onboarding(payload: OnboardingSubmission):
-    if payload.admin_secret != ADMIN_SECRET:
+async def submit_onboarding(payload: OnboardingSubmission, request: Request):
+    if not check_admin_secret(payload.admin_secret, request):
         return JSONResponse({"errors": ["Incorrect admin secret."]}, status_code=403)
 
     name = payload.name.strip()

@@ -35,6 +35,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import connectors
+import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _parse_offsets, _validate_doctor_fields
 from admin.theme import STYLE as _STYLE
@@ -921,11 +922,17 @@ async def portal_login_form():
 
 
 @router.post("/portal/login", response_class=HTMLResponse)
-async def portal_login_submit(password: str = Form("")):
+async def portal_login_submit(request: Request, password: str = Form("")):
+    key = rate_limit.client_key("portal_login", request)
+    if rate_limit.is_locked_out(key):
+        return HTMLResponse(_login_html("Too many attempts. Please wait a while before trying again."), status_code=429)
+
     hospital = db.find_hospital_by_portal_password(password) if password else None
     if hospital is None:
+        rate_limit.record_failure(key)
         return HTMLResponse(_login_html("Incorrect password."), status_code=403)
 
+    rate_limit.reset(key)
     expires_at = int(time.time()) + _SESSION_TTL_SECONDS
     cookie_value = _sign_session(hospital.id, expires_at)
     response = RedirectResponse(url="/portal/dashboard", status_code=303)

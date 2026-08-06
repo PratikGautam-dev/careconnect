@@ -17,12 +17,14 @@ request via an X-Admin-Secret header, re-validated server-side each time
 protection, not production-grade auth" posture as every other shared-secret
 gate in this project.
 """
+import hmac
 import os
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _VALID_TIERS, _mask_secret, _parse_offsets
 from db.connection import IntegrityError
@@ -32,8 +34,20 @@ router = APIRouter()
 TENANTS_ADMIN_SECRET = os.environ.get("TENANTS_ADMIN_SECRET", "")
 
 
-def _check_secret(x_admin_secret: str | None) -> bool:
-    return bool(TENANTS_ADMIN_SECRET) and x_admin_secret == TENANTS_ADMIN_SECRET
+def _check_secret(x_admin_secret: str | None, request: Request) -> bool:
+    """Timing-safe (hmac.compare_digest, not a plain ==) and rate-limited
+    (audit follow-up, Spec.md Section 0) -- this single secret gates every
+    endpoint in this file, so the lockout is checked/recorded here once
+    rather than duplicated per route."""
+    key = rate_limit.client_key("tenants_admin_secret", request)
+    if rate_limit.is_locked_out(key):
+        return False
+    ok = bool(TENANTS_ADMIN_SECRET) and hmac.compare_digest(x_admin_secret or "", TENANTS_ADMIN_SECRET)
+    if ok:
+        rate_limit.reset(key)
+    else:
+        rate_limit.record_failure(key)
+    return ok
 
 
 def _tenant_summary(h) -> dict:
@@ -65,24 +79,28 @@ def _tenant_detail(h) -> dict:
 
 
 @router.post("/api/admin/tenants/login")
-async def tenants_login(payload: dict):
+async def tenants_login(payload: dict, request: Request):
+    if rate_limit.is_locked_out(rate_limit.client_key("tenants_admin_secret", request)):
+        return JSONResponse(
+            {"error": "Too many attempts. Please wait a while before trying again."}, status_code=429
+        )
     secret = (payload or {}).get("secret", "")
-    if not _check_secret(secret):
+    if not _check_secret(secret, request):
         return JSONResponse({"error": "Incorrect admin secret."}, status_code=403)
     return JSONResponse({"ok": True})
 
 
 @router.get("/api/admin/tenants")
-async def list_tenants(x_admin_secret: str | None = Header(default=None)):
-    if not _check_secret(x_admin_secret):
+async def list_tenants(request: Request, x_admin_secret: str | None = Header(default=None)):
+    if not _check_secret(x_admin_secret, request):
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     hospitals = db.get_all_hospitals()
     return JSONResponse({"tenants": [_tenant_summary(h) for h in hospitals]})
 
 
 @router.get("/api/admin/tenants/{tenant_id}")
-async def get_tenant(tenant_id: int, x_admin_secret: str | None = Header(default=None)):
-    if not _check_secret(x_admin_secret):
+async def get_tenant(tenant_id: int, request: Request, x_admin_secret: str | None = Header(default=None)):
+    if not _check_secret(x_admin_secret, request):
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     hospital = db.get_hospital(tenant_id)
     if hospital is None:
@@ -106,9 +124,9 @@ class TenantUpdatePayload(BaseModel):
 
 @router.post("/api/admin/tenants/{tenant_id}")
 async def update_tenant(
-    tenant_id: int, payload: TenantUpdatePayload, x_admin_secret: str | None = Header(default=None)
+    tenant_id: int, payload: TenantUpdatePayload, request: Request, x_admin_secret: str | None = Header(default=None)
 ):
-    if not _check_secret(x_admin_secret):
+    if not _check_secret(x_admin_secret, request):
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
 
     hospital = db.get_hospital(tenant_id)

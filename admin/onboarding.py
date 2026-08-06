@@ -23,15 +23,17 @@ deployed instance, not a full auth system. Entered on the final review step,
 next to the Submit button, but validated server-side regardless of anything
 the client does.
 """
+import hmac
 import html
 import json
 import os
 import re
 from datetime import date, datetime
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
+import core.rate_limit as rate_limit
 import db.repository as db
 import flows
 from admin.theme import STYLE as _STYLE
@@ -40,6 +42,23 @@ from db.connection import IntegrityError
 router = APIRouter()
 
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
+
+
+def check_admin_secret(secret: str, request: Request) -> bool:
+    """Timing-safe (hmac.compare_digest) and rate-limited (audit follow-up,
+    Spec.md Section 0) -- shared by every ADMIN_SECRET check in this module
+    plus admin/onboarding_api.py's JSON equivalent, so the lockout is one
+    counter per caller IP regardless of which of the two entry points
+    (HTML wizard vs JSON API) they're hitting."""
+    key = rate_limit.client_key("admin_secret", request)
+    if rate_limit.is_locked_out(key):
+        return False
+    ok = bool(ADMIN_SECRET) and hmac.compare_digest(secret or "", ADMIN_SECRET)
+    if ok:
+        rate_limit.reset(key)
+    else:
+        rate_limit.record_failure(key)
+    return ok
 
 _WEEKDAY_ABBREVS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _WEEKDAY_SET = set(_WEEKDAY_ABBREVS)
@@ -1676,6 +1695,7 @@ async def onboard_hospital_form():
 
 @router.post("/admin/onboard-hospital", response_class=HTMLResponse)
 async def onboard_hospital_submit(
+    request: Request,
     admin_secret: str = Form(""),
     name: str = Form(""),
     whatsapp_phone_number_id: str = Form(""),
@@ -1739,7 +1759,7 @@ async def onboard_hospital_submit(
     )
     topics, topic_errors = _build_faq_topics(topic_label, topic_answer)
 
-    if admin_secret != ADMIN_SECRET:
+    if not check_admin_secret(admin_secret, request):
         return HTMLResponse(
             _wizard_html(["Incorrect admin secret."], values, departments, topics), status_code=403
         )
@@ -1837,16 +1857,20 @@ async def onboard_hospital_submit(
 
 
 @router.get("/admin/tenants", response_class=HTMLResponse)
-async def list_tenants(secret: str = ""):
-    if secret != ADMIN_SECRET:
+async def list_tenants(request: Request, secret: str = ""):
+    # A blank secret (first load of the gate page) never counts as a failed
+    # attempt -- only calling check_admin_secret() when a secret was actually
+    # submitted preserves the existing 200-vs-403 "just show me the form"
+    # distinction while still rate-limiting real guesses.
+    if not secret or not check_admin_secret(secret, request):
         return HTMLResponse(_secret_gate_html("/admin/tenants", "All tenants"), status_code=403 if secret else 200)
     hospitals = db.get_all_hospitals()
     return _tenants_list_html(hospitals, secret)
 
 
 @router.get("/admin/edit-tenant/{tenant_id}", response_class=HTMLResponse)
-async def edit_tenant_form(tenant_id: int, secret: str = ""):
-    if secret != ADMIN_SECRET:
+async def edit_tenant_form(tenant_id: int, request: Request, secret: str = ""):
+    if not secret or not check_admin_secret(secret, request):
         return HTMLResponse(_secret_gate_html(f"/admin/edit-tenant/{tenant_id}", "Edit tenant"), status_code=403 if secret else 200)
     hospital = db.get_hospital(tenant_id)
     if hospital is None:
@@ -1857,6 +1881,7 @@ async def edit_tenant_form(tenant_id: int, secret: str = ""):
 @router.post("/admin/edit-tenant/{tenant_id}", response_class=HTMLResponse)
 async def edit_tenant_submit(
     tenant_id: int,
+    request: Request,
     admin_secret: str = Form(""),
     name: str = Form(""),
     whatsapp_phone_number_id: str = Form(""),
@@ -1885,7 +1910,7 @@ async def edit_tenant_submit(
         "api_key": api_key,
     }
 
-    if admin_secret != ADMIN_SECRET:
+    if not check_admin_secret(admin_secret, request):
         return HTMLResponse(_edit_tenant_html(hospital, ["Incorrect admin secret."], values, admin_secret), status_code=403)
 
     errors = []

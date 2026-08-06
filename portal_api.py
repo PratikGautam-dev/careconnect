@@ -17,20 +17,23 @@ frontend as a Bearer token, verified with the exact same _verify_session --
 same signature, same TTL, same "basic protection" posture, just a different
 transport.
 """
+import logging
 import time
 from datetime import datetime
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import connectors
+import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _validate_doctor_fields, _parse_offsets
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 from portal import _SESSION_TTL_SECONDS, _build_new_booking_context, _sign_session, _verify_session
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -55,12 +58,20 @@ def _authenticate(authorization: str | None):
 
 
 @router.post("/api/portal/login")
-async def portal_login(payload: dict):
+async def portal_login(payload: dict, request: Request):
+    key = rate_limit.client_key("portal_login", request)
+    if rate_limit.is_locked_out(key):
+        return JSONResponse(
+            {"error": "Too many attempts. Please wait a while before trying again."}, status_code=429
+        )
+
     password = (payload or {}).get("password", "")
     hospital = db.find_hospital_by_portal_password(password) if password else None
     if hospital is None:
+        rate_limit.record_failure(key)
         return JSONResponse({"error": "Incorrect password."}, status_code=403)
 
+    rate_limit.reset(key)
     expires_at = int(time.time()) + _SESSION_TTL_SECONDS
     token = _sign_session(hospital.id, expires_at)
     return JSONResponse({"token": token, "expires_at": expires_at, "hospital": _hospital_summary(hospital)})
@@ -147,7 +158,15 @@ async def portal_cancel_booking(
     patient on WhatsApp AFTER the cancellation is committed (so a delivery
     failure never blocks the cancellation itself) -- the staff appointments
     page pre-fills this with a default "your appointment has been cancelled"
-    message that staff can edit to add a reason before sending."""
+    message that staff can edit to add a reason before sending.
+
+    Audit follow-up (Spec.md Section 0): routes through
+    connectors.get_connector_for_hospital() rather than calling
+    db.cancel_appointment() directly -- core/booking_flow.py's WhatsApp-side
+    cancel already went through the connector; this staff-portal path was the
+    one write in the app that bypassed it, which would have silently
+    "succeeded" against the local DB only for a Tier 2/3 hospital instead of
+    ever touching that hospital's real external system."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -155,12 +174,22 @@ async def portal_cancel_booking(
     if appointment is None:
         return JSONResponse({"error": "No such appointment."}, status_code=404)
 
-    db.cancel_appointment(hospital.id, appointment_id)
+    connector = connectors.get_connector_for_hospital(hospital)
+    try:
+        connector.cancel_booking(hospital.id, appointment_id)
+    except connectors.ConnectorNotImplementedError as e:
+        return JSONResponse({"error": str(e)}, status_code=501)
 
     message = ((payload or {}).get("message") or "").strip()
     if message:
-        wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
-        await wa.send_text(appointment.phone, message)
+        try:
+            wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+            await wa.send_text(appointment.phone, message)
+        except Exception:
+            # The cancellation itself already committed -- a WhatsApp delivery
+            # failure (expired token, patient number issue, ...) must not turn
+            # a successful cancel into a 500 that makes staff think it failed.
+            logger.exception("Failed to send cancellation message for appointment %s", appointment_id)
 
     return JSONResponse({"ok": True})
 
@@ -260,6 +289,8 @@ async def portal_get_doctor_leave(doctor_id: str, authorization: str | None = He
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
     return JSONResponse({"leave": db.get_doctor_leave(hospital.id, doctor_id)})
 
 
@@ -268,6 +299,12 @@ async def portal_add_doctor_leave(doctor_id: str, payload: dict, authorization: 
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    # Audit follow-up (Spec.md Section 0): db.create_doctor_leave() itself has
+    # no way to know whether doctor_id actually belongs to hospital_id -- its
+    # INSERT would succeed either way -- so that check has to happen here,
+    # same reason portal_create_doctor() validates the department first.
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
     leave_date = (payload or {}).get("date", "").strip()
     if not leave_date:
         return JSONResponse({"error": "A date is required."}, status_code=400)
