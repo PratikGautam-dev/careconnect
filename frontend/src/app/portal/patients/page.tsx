@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Search, UserRound } from "lucide-react";
+import { ChevronRight, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
@@ -87,6 +87,7 @@ export default function PortalPatientsPage() {
                     <th className="pb-space-2 font-semibold">Phone</th>
                     <th className="pb-space-2 font-semibold">Last visit</th>
                     <th className="pb-space-2 font-semibold">Visits</th>
+                    <th className="pb-space-2 font-semibold"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -104,6 +105,11 @@ export default function PortalPatientsPage() {
                       <td className="py-space-2 text-ink-600">{p.phone}</td>
                       <td className="py-space-2 text-ink-600">{formatDate(p.last_visit)}</td>
                       <td className="py-space-2 tabular-nums text-ink-600">{p.visit_count}</td>
+                      <td className="py-space-2 text-right">
+                        <span className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-brand-600">
+                          View <ChevronRight size={14} />
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
