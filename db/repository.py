@@ -847,10 +847,10 @@ def _patients_with_visit_stats_sql(where_extra: str = "") -> str:
     get_all_appointments_for_hospital()), visit_count counts every
     appointment row ever created for that phone, not just kept ones."""
     return (
-        "SELECT p.phone, p.name, MAX(a.scheduled_at) AS last_visit, COUNT(a.id) AS visit_count "
+        "SELECT p.id, p.phone, p.name, MAX(a.scheduled_at) AS last_visit, COUNT(a.id) AS visit_count "
         "FROM patients p LEFT JOIN appointments a ON a.hospital_id = p.hospital_id AND a.phone = p.phone "
         f"WHERE p.hospital_id = ? {where_extra} "
-        "GROUP BY p.phone, p.name "
+        "GROUP BY p.id, p.phone, p.name "
         "ORDER BY last_visit DESC NULLS LAST, p.name NULLS LAST, p.phone "
     )
 
@@ -872,7 +872,7 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
     else:
         rows = conn.execute(_patients_with_visit_stats_sql() + "LIMIT ?", (hospital_id, limit)).fetchall()
     return [
-        {"phone": r["phone"], "name": r["name"], "last_visit": r["last_visit"], "visit_count": r["visit_count"]}
+        {"id": r["id"], "phone": r["phone"], "name": r["name"], "last_visit": r["last_visit"], "visit_count": r["visit_count"]}
         for r in rows
     ]
 
@@ -882,6 +882,150 @@ def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
     but capped short and always unfiltered (most-recently-seen patients),
     since it's a glance-and-click-through widget, not a search surface."""
     return list_patients(hospital_id, search=None, limit=limit)
+
+
+# --- Patient records (Section 12.10: visit history, notes, documents) ---
+
+def get_patient(hospital_id: int, patient_id: int) -> dict | None:
+    """The single ownership check every patient-detail/notes/documents route
+    uses before doing anything else -- returns None for a patient_id that
+    doesn't exist OR belongs to a different hospital, so callers can't tell
+    the two cases apart from the response (same 404-not-403 discipline as
+    get_doctor_full())."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, created_at "
+        "FROM patients WHERE hospital_id = ? AND id = ?",
+        (hospital_id, patient_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_patient_demographics(
+    hospital_id: int, patient_id: int, date_of_birth: str | None, gender: str | None, address: str | None,
+) -> dict | None:
+    """All three fields optional -- an empty-string/None value clears that
+    field rather than being rejected, since none of this was ever required
+    at patient creation and staff filling it in gradually is the expected
+    path, not an all-at-once form."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patients SET date_of_birth = ?, gender = ?, address = ? WHERE hospital_id = ? AND id = ?",
+        (date_of_birth or None, gender or None, address or None, hospital_id, patient_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    conn.commit()
+    return get_patient(hospital_id, patient_id)
+
+
+def get_patient_visit_history(hospital_id: int, patient_id: int) -> list[Appointment]:
+    """Every appointment for this patient (any status, most recent first) --
+    reuses the exact same `appointments` data the rest of the app already
+    has; no new table needed for "visit history" itself, only for notes/
+    documents attached to a visit. Returns [] for an unknown/foreign
+    patient_id rather than raising -- callers that need to distinguish
+    "no visits" from "no such patient" should call get_patient() first."""
+    conn = get_connection()
+    patient = conn.execute(
+        "SELECT phone FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
+    ).fetchone()
+    if patient is None:
+        return []
+    rows = conn.execute(
+        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? AND a.phone = ? ORDER BY a.scheduled_at DESC",
+        (hospital_id, patient["phone"]),
+    ).fetchall()
+    return [_row_to_appointment(r) for r in rows]
+
+
+def create_patient_visit_note(
+    hospital_id: int, patient_id: int, note_text: str,
+    appointment_id: int | None = None, doctor_id: str | None = None, created_by_session_id: str | None = None,
+) -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO patient_visit_notes "
+        "(hospital_id, patient_id, appointment_id, doctor_id, note_text, created_by_session_id) "
+        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, created_at",
+        (hospital_id, patient_id, appointment_id, doctor_id, note_text, created_by_session_id),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "patient_id": patient_id, "appointment_id": appointment_id, "doctor_id": doctor_id,
+        "note_text": note_text, "created_at": row["created_at"], "created_by_session_id": created_by_session_id,
+    }
+
+
+def get_patient_visit_notes(hospital_id: int, patient_id: int) -> list[dict]:
+    """Most recent first. Includes the doctor's name (not just id) so the
+    portal can render it directly without a second lookup."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT n.id, n.patient_id, n.appointment_id, n.doctor_id, doc.name AS doctor_name, "
+        "n.note_text, n.created_at, n.created_by_session_id "
+        "FROM patient_visit_notes n LEFT JOIN doctors doc ON doc.id = n.doctor_id "
+        "WHERE n.hospital_id = ? AND n.patient_id = ? ORDER BY n.created_at DESC",
+        (hospital_id, patient_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_patient_document(
+    hospital_id: int, patient_id: int, file_name: str, file_url: str,
+    appointment_id: int | None = None, uploaded_by_session_id: str | None = None,
+) -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO patient_documents "
+        "(hospital_id, patient_id, appointment_id, file_name, file_url, uploaded_by_session_id) "
+        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, uploaded_at",
+        (hospital_id, patient_id, appointment_id, file_name, file_url, uploaded_by_session_id),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "patient_id": patient_id, "appointment_id": appointment_id, "file_name": file_name,
+        "file_url": file_url, "uploaded_at": row["uploaded_at"], "uploaded_by_session_id": uploaded_by_session_id,
+        "sent_to_whatsapp_at": None,
+    }
+
+
+def get_patient_documents(hospital_id: int, patient_id: int) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, patient_id, appointment_id, file_name, file_url, uploaded_at, "
+        "uploaded_by_session_id, sent_to_whatsapp_at FROM patient_documents "
+        "WHERE hospital_id = ? AND patient_id = ? ORDER BY uploaded_at DESC",
+        (hospital_id, patient_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_patient_document(hospital_id: int, document_id: int) -> dict | None:
+    """The ownership check portal_api.py's send-to-WhatsApp and
+    download/signed-URL routes both use before touching storage."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, patient_id, appointment_id, file_name, file_url, uploaded_at, "
+        "uploaded_by_session_id, sent_to_whatsapp_at FROM patient_documents "
+        "WHERE hospital_id = ? AND id = ?",
+        (hospital_id, document_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def mark_document_sent_to_whatsapp(hospital_id: int, document_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patient_documents SET sent_to_whatsapp_at = ? WHERE hospital_id = ? AND id = ?",
+        (datetime.now().isoformat(), hospital_id, document_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.commit()
+    return True
 
 
 # --- Appointments ---
@@ -1175,13 +1319,15 @@ def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
 # (tests/test_portal_dashboard.py), not repeated per-function here. ---
 
 def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
-    """The four stat tiles (today's appointments, confirmed today, new
-    patients today, no-shows today) plus a week-over-week % change for each,
-    comparing today against the SAME WEEKDAY exactly 7 days ago -- picked
-    over a rolling-7-day-average comparison because it's the simplest
+    """The four "today"-scoped stat tiles (today's appointments, confirmed
+    today, new patients today, no-shows today) plus a week-over-week % change
+    for each, comparing today against the SAME WEEKDAY exactly 7 days ago --
+    picked over a rolling-7-day-average comparison because it's the simplest
     comparison that's still apples-to-apples (a Monday against last Monday,
     not "today" against a blended mix of arbitrary weekdays), and needs only
-    a single extra date offset, not a second aggregate shape.
+    a single extra date offset, not a second aggregate shape. Also returns a
+    fifth, non-"today"-scoped `upcoming_appointments` count -- see its own
+    comment below for why.
 
     Definitions (all hospital_id + date-scoped):
     - "today's appointments": every appointment (any status) with
@@ -1243,6 +1389,11 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
             return None
         return round((today_v - last_week_v) / last_week_v * 100, 1)
 
+    upcoming_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at > ? AND status = ?",
+        (hospital_id, now.isoformat(), STATUS_BOOKED),
+    ).fetchone()
+
     return {
         "today_appointments": today_stats["total"],
         "today_appointments_delta_pct": _delta_pct(today_stats["total"], last_week_stats["total"]),
@@ -1252,6 +1403,13 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
         "new_patients_today_delta_pct": _delta_pct(today_stats["new_patients"], last_week_stats["new_patients"]),
         "no_shows_today": today_stats["no_shows"],
         "no_shows_today_delta_pct": _delta_pct(today_stats["no_shows"], last_week_stats["no_shows"]),
+        # Deliberately NOT "today"-scoped, unlike every stat above -- a
+        # hospital's very first booking is very unlikely to land on today's
+        # date specifically, and a dashboard reading all-zeros right after a
+        # real booking just came in reads as broken. No delta_pct: a plain
+        # forward-looking count, not a daily rate, so a week-over-week
+        # comparison doesn't mean the same thing here.
+        "upcoming_appointments": upcoming_row["c"],
     }
 
 
@@ -1279,18 +1437,24 @@ def get_weekly_appointment_counts(hospital_id: int, now: datetime | None = None)
 
 
 def get_appointments_by_department(hospital_id: int, days: int = 30, now: datetime | None = None) -> list[dict]:
-    """Department share of appointment volume over a rolling `days`-day
-    window ending now (default last 30 days, inclusive of today) -- ordered
-    by count descending so the donut/legend both read largest-share-first."""
+    """Department share of appointment volume over a rolling **±`days`-day**
+    window centered on now (default 30 days back AND 30 days forward) --
+    ordered by count descending so the donut/legend both read
+    largest-share-first. Deliberately NOT a past-only window (that was the
+    original behavior): a hospital's very first booking is almost always for
+    a FUTURE slot, and a past-only window left this donut empty immediately
+    after a real booking came in, right when a staff member would most want
+    to see it reflected."""
     now = now or datetime.now()
     window_start = datetime.combine(now.date() - timedelta(days=days - 1), datetime.min.time())
+    window_end = datetime.combine(now.date() + timedelta(days=days), datetime.max.time())
     conn = get_connection()
     rows = conn.execute(
         "SELECT d.name AS department_name, COUNT(*) AS c FROM appointments a "
         "JOIN departments d ON d.id = a.department_id "
         "WHERE a.hospital_id = ? AND a.scheduled_at >= ? AND a.scheduled_at <= ? "
         "GROUP BY d.name ORDER BY c DESC",
-        (hospital_id, window_start.isoformat(), now.isoformat()),
+        (hospital_id, window_start.isoformat(), window_end.isoformat()),
     ).fetchall()
     return [{"department_name": r["department_name"], "count": r["c"]} for r in rows]
 

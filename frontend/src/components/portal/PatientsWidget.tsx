@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 
-type Patient = { phone: string; name: string | null; last_visit: string | null; visit_count: number };
+type Patient = { id: number; phone: string; name: string | null; last_visit: string | null; visit_count: number };
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -22,12 +22,17 @@ export function PatientsWidget({ patients }: { patients: Patient[] }) {
       ) : (
         <ul className="divide-y divide-line">
           {patients.map((p) => (
-            <li key={p.phone} className="flex items-center justify-between py-space-2">
-              <div>
-                <p className="text-[13.5px] font-semibold text-ink-900">{p.name || p.phone}</p>
-                {p.name && <p className="text-[12px] text-ink-600">{p.phone}</p>}
-              </div>
-              <span className="text-[12px] whitespace-nowrap text-ink-400">Last visit: {formatDate(p.last_visit)}</span>
+            <li key={p.id}>
+              <Link
+                href={`/portal/patients/${p.id}`}
+                className="flex items-center justify-between py-space-2 hover:opacity-80"
+              >
+                <div>
+                  <p className="text-[13.5px] font-semibold text-ink-900">{p.name || p.phone}</p>
+                  {p.name && <p className="text-[12px] text-ink-600">{p.phone}</p>}
+                </div>
+                <span className="text-[12px] whitespace-nowrap text-ink-400">Last visit: {formatDate(p.last_visit)}</span>
+              </Link>
             </li>
           ))}
         </ul>

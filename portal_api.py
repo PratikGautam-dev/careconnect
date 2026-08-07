@@ -17,18 +17,20 @@ frontend as a Bearer token, verified with the exact same _verify_session --
 same signature, same TTL, same "basic protection" posture, just a different
 transport.
 """
+import hashlib
 import logging
 import time
 from datetime import datetime
 
-from fastapi import APIRouter, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, Header, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 import connectors
 import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _validate_doctor_fields, _parse_offsets
+from core.storage import get_storage
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 from portal import _SESSION_TTL_SECONDS, _build_new_booking_context, _sign_session, _verify_session
@@ -55,6 +57,20 @@ def _authenticate(authorization: str | None):
     if hospital_id is None:
         return None
     return db.get_hospital(hospital_id)
+
+
+def _session_id(authorization: str | None) -> str | None:
+    """Section 12.10's deliberate partial audit trail: real per-staff
+    accounts don't exist (portal auth is one shared password per hospital),
+    so a note/document can only be traced back to a *login session*, not a
+    named person. A hash of the Bearer token (not the raw token) uniquely
+    identifies one login session -- storing it raw in a DB row that other
+    staff at the same hospital can read via a future admin view would be a
+    real credential leak, since the raw token still authenticates."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
 
 
 @router.post("/api/portal/login")
@@ -127,6 +143,168 @@ async def portal_patients(search: str = "", authorization: str | None = Header(d
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     return JSONResponse({"patients": db.list_patients(hospital.id, search=search)})
+
+
+# --- Patient detail: demographics, visit history, notes, documents
+# (Section 12.10) ---
+
+def _patient_json(p: dict) -> dict:
+    return {
+        "id": p["id"], "phone": p["phone"], "name": p["name"],
+        "date_of_birth": p.get("date_of_birth"), "gender": p.get("gender"), "address": p.get("address"),
+        "created_at": p["created_at"],
+    }
+
+
+@router.get("/api/portal/patients/{patient_id}")
+async def portal_patient_detail(patient_id: int, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    patient = db.get_patient(hospital.id, patient_id)
+    if patient is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+
+    visit_history = db.get_patient_visit_history(hospital.id, patient_id)
+    notes = db.get_patient_visit_notes(hospital.id, patient_id)
+    documents = db.get_patient_documents(hospital.id, patient_id)
+
+    return JSONResponse({
+        "patient": _patient_json(patient),
+        "visit_history": [_appointment_json(a) for a in visit_history],
+        "notes": notes,
+        "documents": documents,
+    })
+
+
+@router.post("/api/portal/patients/{patient_id}")
+async def portal_update_patient(patient_id: int, payload: dict, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    updated = db.update_patient_demographics(
+        hospital.id, patient_id,
+        date_of_birth=(payload or {}).get("date_of_birth") or None,
+        gender=(payload or {}).get("gender") or None,
+        address=(payload or {}).get("address") or None,
+    )
+    if updated is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    return JSONResponse({"patient": _patient_json(updated)})
+
+
+@router.post("/api/portal/patients/{patient_id}/notes")
+async def portal_add_patient_note(patient_id: int, payload: dict, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_patient(hospital.id, patient_id) is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+
+    note_text = ((payload or {}).get("note_text") or "").strip()
+    if not note_text:
+        return JSONResponse({"error": "Note text is required."}, status_code=400)
+    appointment_id = (payload or {}).get("appointment_id") or None
+    doctor_id = (payload or {}).get("doctor_id") or None
+
+    note = db.create_patient_visit_note(
+        hospital.id, patient_id, note_text,
+        appointment_id=appointment_id, doctor_id=doctor_id,
+        created_by_session_id=_session_id(authorization),
+    )
+    return JSONResponse({"note": note})
+
+
+@router.post("/api/portal/patients/{patient_id}/documents")
+async def portal_upload_patient_document(
+    patient_id: int, file: UploadFile = File(...), authorization: str | None = Header(default=None),
+):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_patient(hospital.id, patient_id) is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    if not file.filename:
+        return JSONResponse({"error": "A file is required."}, status_code=400)
+
+    content = await file.read()
+    if not content:
+        return JSONResponse({"error": "The uploaded file is empty."}, status_code=400)
+
+    storage = get_storage()
+    storage_key = storage.upload(
+        hospital.id, patient_id, file.filename, content, file.content_type or "application/octet-stream",
+    )
+    document = db.create_patient_document(
+        hospital.id, patient_id, file.filename, storage_key,
+        uploaded_by_session_id=_session_id(authorization),
+    )
+    return JSONResponse({"document": document})
+
+
+@router.post("/api/portal/patients/{patient_id}/documents/{document_id}/send")
+async def portal_send_patient_document(
+    patient_id: int, document_id: int, authorization: str | None = Header(default=None),
+):
+    """Sends the document directly to the patient's own WhatsApp chat.
+    Deliberately calls WhatsAppClient directly rather than through
+    connectors.py: the Connector interface (connectors.py's module
+    docstring) exists to abstract WHERE booking/appointment/doctor data
+    lives across data tiers (Tier 1 local DB vs Tier 2 external API vs
+    Tier 3 direct DB) -- it has never been the path WhatsApp *sends*
+    themselves go through, on any tier. Every existing send (reminders,
+    the handoff-reply endpoint, the cancel-with-message endpoint) already
+    calls WhatsAppClient directly with the hospital's own credentials,
+    regardless of that hospital's data_tier -- sending a message isn't a
+    booking-data operation, so there's no tier-specific behavior to
+    abstract here. This follows that same established pattern rather than
+    introducing a new, inconsistent one."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    patient = db.get_patient(hospital.id, patient_id)
+    if patient is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    document = db.get_patient_document(hospital.id, document_id)
+    if document is None or document["patient_id"] != patient_id:
+        return JSONResponse({"error": "No such document."}, status_code=404)
+
+    storage = get_storage()
+    document_url = storage.get_signed_url(document["file_url"], expires_in=3600)
+
+    wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+    sent = await wa.send_document(patient["phone"], document_url, document["file_name"])
+    if not sent:
+        return JSONResponse(
+            {"error": "Couldn't send the document on WhatsApp. Please check the connection and try again."},
+            status_code=502,
+        )
+    db.mark_document_sent_to_whatsapp(hospital.id, document_id)
+    return JSONResponse({"ok": True})
+
+
+@router.get("/api/documents/local/{token:path}")
+async def portal_serve_local_document(token: str):
+    """Only reachable/meaningful when core/storage.py fell back to
+    LocalFileStorage (no S3_BUCKET configured) -- S3Storage's signed URLs
+    point directly at S3/R2 and never touch this app at all. No portal
+    Bearer-token auth here: the signed, expiring token IS the capability --
+    the same way an S3 presigned URL needs no separate auth header either."""
+    storage = get_storage()
+    if not hasattr(storage, "verify_token"):
+        return JSONResponse({"error": "Not found."}, status_code=404)
+    storage_key = storage.verify_token(token)
+    if storage_key is None:
+        return JSONResponse({"error": "This link has expired or is invalid."}, status_code=403)
+    content = storage.read(storage_key)
+    if content is None:
+        return JSONResponse({"error": "Not found."}, status_code=404)
+    file_name = storage_key.rsplit("_", 1)[-1]
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
 
 
 def _appointment_json(a) -> dict:

@@ -105,6 +105,10 @@ def _login_html(error: str | None = None) -> str:
       <input type="password" id="password" name="password" required autofocus>
       <button type="submit" style="margin-top: 18px; width: 100%;">Log in</button>
     </form>
+    <p style="margin-top: 14px; text-align: center; font-size: 12.5px; color: #6b7a72;">
+      Forgot password? Portal passwords are reset by your platform administrator, not self-service —
+      contact them to have it changed.
+    </p>
   </div>
 </div>
 </body>

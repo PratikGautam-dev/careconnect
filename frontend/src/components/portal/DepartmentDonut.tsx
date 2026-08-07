@@ -28,7 +28,7 @@ export function DepartmentDonut({ data }: { data: Slice[] }) {
       <h3 className="text-label mb-space-4 font-bold text-ink-900">Appointments by department</h3>
       {total === 0 ? (
         <div className="flex h-[220px] items-center justify-center text-[13px] text-ink-400">
-          No appointments in the last 30 days.
+          No appointments in the last 30 days or scheduled in the next 30.
         </div>
       ) : (
         <div className="flex items-center gap-space-4">

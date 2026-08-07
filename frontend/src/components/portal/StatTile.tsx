@@ -10,9 +10,13 @@ type Props = {
    * other tiles (dataviz skill: "delta color = direction × whether up is
    * good", not a flat green-up/red-down rule). */
   upIsGood?: boolean;
+  /** "Upcoming appointments" is a live snapshot count, not a daily rate --
+   * "vs last week" doesn't mean anything for it, so callers without a real
+   * comparison can override the footer text (or hide it with ""). */
+  hint?: string;
 };
 
-export function StatTile({ label, value, deltaPct, upIsGood = true }: Props) {
+export function StatTile({ label, value, deltaPct, upIsGood = true, hint = "vs last week" }: Props) {
   const isUp = deltaPct !== null && deltaPct > 0;
   const isDown = deltaPct !== null && deltaPct < 0;
   const isGoodDirection = (isUp && upIsGood) || (isDown && !upIsGood);
@@ -37,7 +41,7 @@ export function StatTile({ label, value, deltaPct, upIsGood = true }: Props) {
           {deltaPct === null ? "—" : `${Math.abs(deltaPct)}%`}
         </span>
       </div>
-      <p className="text-hint mt-space-1">vs last week</p>
+      {hint && <p className="text-hint mt-space-1">{hint}</p>}
     </Card>
   );
 }

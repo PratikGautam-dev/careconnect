@@ -132,7 +132,7 @@ export default function PortalDoctorsPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <PortalSidebar hospital={hospital} active="doctors" />
       <main className="flex-1 overflow-y-auto p-space-6">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">

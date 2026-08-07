@@ -1,12 +1,10 @@
 "use client";
 
 import {
-  Calendar,
   CalendarCheck,
   LayoutDashboard,
   LogOut,
   MessageCircle,
-  Network,
   Settings,
   Stethoscope,
   Users,
@@ -16,16 +14,15 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
 
-// Staff/Branches/Reports were removed (not just hidden) -- no backend exists
-// for any of them and there was no near-term plan to build one, so a
-// permanently-disabled "Coming soon" link was just clutter.
+// Staff/Branches/Reports/Calendar/Departments were removed (not just hidden)
+// -- Calendar had no backend and no near-term plan to build one; Departments
+// duplicated Doctors (same /portal/doctors page manages both) so it was a
+// second sidebar entry pointing at a page already reachable via "Doctors."
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard" },
   { key: "appointments", label: "Appointments", icon: CalendarCheck, href: "/portal/appointments" },
-  { key: "calendar", label: "Calendar", icon: Calendar, href: null },
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors" },
-  { key: "departments", label: "Departments", icon: Network, href: "/portal/doctors" },
   { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages" },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings" },
 ];

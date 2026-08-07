@@ -9,3 +9,4 @@ __pycache__/
 .worktrees/
 *.db
 pgdata/
+local_storage/

@@ -223,9 +223,21 @@ CREATE TABLE IF NOT EXISTS patients (
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
     phone TEXT NOT NULL,
     name TEXT,
+    -- Section 12.10: basic demographics for the patient-record feature, all
+    -- nullable -- none required at creation (WhatsApp self-bookings still
+    -- never collect any of this; only ever filled in later by staff via the
+    -- patient detail page). Deliberately no medical/clinical fields yet
+    -- (allergies, conditions, diagnosis codes) -- out of scope for this
+    -- first version, see Section 12.10.
+    date_of_birth TEXT,
+    gender TEXT,
+    address TEXT,
     created_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(hospital_id, phone)
 );
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS date_of_birth TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- No reminder_sent_at column (an earlier version had one) — reminder status is
 -- now tracked per-offset in appointment_reminders below, not as a single flag
@@ -364,3 +376,46 @@ CREATE TABLE IF NOT EXISTS handoff_requests (
     resolved_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_handoff_requests_hospital_status ON handoff_requests(hospital_id, status);
+
+-- Section 12.10: patient records, first version -- visit history (existing
+-- `appointments` rows already give this, nothing new needed there), free-text
+-- notes, and document upload/WhatsApp-send. Deliberately NOT full clinical
+-- records: no diagnosis coding, no allergy/condition tracking -- see
+-- Spec.md Section 12.10 for the explicit scope line and the audit-logging
+-- follow-up this table's `created_by_session_id`/`uploaded_by_session_id`
+-- columns are a deliberate stand-in for (real per-staff accounts don't exist
+-- yet -- portal auth is still one shared password per hospital, Section 12.7
+-- -- so a note/document can only be traced back to a *login session*, not a
+-- named person; flagged as a priority follow-up given this is more sensitive
+-- data than appointment scheduling).
+CREATE TABLE IF NOT EXISTS patient_visit_notes (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    patient_id INTEGER NOT NULL REFERENCES patients(id),
+    -- Nullable: a note can exist without a formal appointment (e.g. a
+    -- walk-in the front desk never logged as a booking).
+    appointment_id INTEGER REFERENCES appointments(id),
+    doctor_id TEXT REFERENCES doctors(id),
+    note_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    created_by_session_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_patient_visit_notes_hospital_patient ON patient_visit_notes(hospital_id, patient_id);
+
+CREATE TABLE IF NOT EXISTS patient_documents (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    patient_id INTEGER NOT NULL REFERENCES patients(id),
+    appointment_id INTEGER REFERENCES appointments(id),
+    file_name TEXT NOT NULL,
+    -- The object-storage KEY (core/storage.py), not a public URL -- files are
+    -- private, never a public bucket; every read goes through
+    -- storage.get_signed_url(), which mints a short-lived expiring URL on
+    -- demand rather than this column ever storing something directly
+    -- browsable.
+    file_url TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL DEFAULT (now()::text),
+    uploaded_by_session_id TEXT,
+    sent_to_whatsapp_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_patient_documents_hospital_patient ON patient_documents(hospital_id, patient_id);

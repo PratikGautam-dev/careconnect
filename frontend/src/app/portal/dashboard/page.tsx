@@ -22,10 +22,11 @@ type DashboardData = {
     new_patients_today_delta_pct: number | null;
     no_shows_today: number;
     no_shows_today_delta_pct: number | null;
+    upcoming_appointments: number;
   };
   weekly_counts: { date: string; label: string; count: number }[];
   department_breakdown: { department_name: string; count: number }[];
-  recent_patients: { phone: string; name: string | null; last_visit: string | null; visit_count: number }[];
+  recent_patients: { id: number; phone: string; name: string | null; last_visit: string | null; visit_count: number }[];
   recent_appointments: {
     id: number;
     phone: string;
@@ -79,7 +80,7 @@ export default function PortalDashboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <PortalSidebar hospital={hospital} active="dashboard" />
 
       <main className="flex-1 overflow-y-auto p-space-6">
@@ -109,7 +110,8 @@ export default function PortalDashboardPage() {
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : (
           <>
-            <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-5">
+              <StatTile label="Upcoming appointments" value={data.stats.upcoming_appointments} deltaPct={null} hint="Currently booked" />
               <StatTile label="Today's appointments" value={data.stats.today_appointments} deltaPct={data.stats.today_appointments_delta_pct} />
               <StatTile label="Confirmed" value={data.stats.confirmed_today} deltaPct={data.stats.confirmed_today_delta_pct} />
               <StatTile label="New patients" value={data.stats.new_patients_today} deltaPct={data.stats.new_patients_today_delta_pct} />

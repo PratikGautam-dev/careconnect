@@ -122,7 +122,28 @@ def test_dashboard_stats_empty_hospital_all_zero(hospital_id, second_hospital_id
         "confirmed_today": 0, "confirmed_today_delta_pct": None,
         "new_patients_today": 0, "new_patients_today_delta_pct": None,
         "no_shows_today": 0, "no_shows_today_delta_pct": None,
+        "upcoming_appointments": 0,
     }
+
+
+def test_upcoming_appointments_counts_future_booked_only(hospital_id):
+    """Not "today"-scoped like the other four stats -- deliberately, so a
+    hospital's very first (near-certainly future-dated) booking shows up
+    here immediately rather than reading as an empty dashboard."""
+    now = datetime(2027, 6, 15, 14, 0, 0)
+    doctor_id = "doc_card_1"
+    # Counts: a booked appointment far in the future.
+    _insert_appointment(hospital_id, "5490001111", "cardiology", doctor_id,
+                         datetime(2027, 7, 20, 10, 0), datetime(2027, 6, 15, 9, 0))
+    # Doesn't count: already in the past relative to `now`.
+    _insert_appointment(hospital_id, "5490002222", "cardiology", doctor_id,
+                         datetime(2027, 6, 15, 10, 0), datetime(2027, 6, 1, 9, 0))
+    # Doesn't count: future but cancelled.
+    _insert_appointment(hospital_id, "5490003333", "cardiology", doctor_id,
+                         datetime(2027, 7, 21, 10, 0), datetime(2027, 6, 15, 9, 0), status="cancelled")
+
+    stats = db.get_dashboard_stats(hospital_id, now=now)
+    assert stats["upcoming_appointments"] == 1
 
 
 # --- db.get_weekly_appointment_counts() ---
@@ -173,6 +194,22 @@ def test_appointments_by_department_grouped_correctly(hospital_id):
     by_dept = {b["department_name"]: b["count"] for b in breakdown}
     assert by_dept == {"Cardiology": 2, "Orthopedics": 1}
     assert breakdown[0]["department_name"] == "Cardiology"  # descending by count
+
+
+def test_appointments_by_department_window_extends_forward_too(hospital_id):
+    """Not a past-only window -- a hospital's first booking is almost always
+    for a future date, and this donut used to stay empty right after it came
+    in. Window is ±30 days around `now` by default."""
+    now = datetime(2027, 6, 15, 12, 0, 0)
+    _insert_appointment(hospital_id, "5490011111", "cardiology", "doc_card_1",
+                         datetime(2027, 6, 20, 9, 0), datetime(2027, 6, 15, 8, 0))  # 5 days in the future
+    # Outside a ±30-day window either direction.
+    _insert_appointment(hospital_id, "5490022222", "orthopedics", "doc_ortho_1",
+                         datetime(2027, 8, 1, 9, 0), datetime(2027, 6, 15, 8, 0))
+
+    breakdown = db.get_appointments_by_department(hospital_id, days=30, now=now)
+    by_dept = {b["department_name"]: b["count"] for b in breakdown}
+    assert by_dept == {"Cardiology": 1}
 
 
 def test_appointments_by_department_empty_when_no_appointments(second_hospital_id):

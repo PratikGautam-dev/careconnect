@@ -32,8 +32,8 @@ export default function LandingPage() {
         <div className="grid grid-cols-1 items-center gap-space-7 lg:grid-cols-[1.15fr_0.85fr] lg:gap-space-9">
           <div>
             {/* Logo */}
-            <div className="mb-space-4 flex items-center gap-space-3">
-              <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-2xl font-extrabold text-white">
+            <div className="mb-space-4 flex items-end gap-space-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-2xl font-extrabold text-white">
                 H
               </div>
               <div>

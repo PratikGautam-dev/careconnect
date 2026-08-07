@@ -78,7 +78,7 @@ export default function NewBookingPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <PortalSidebar hospital={hospital} active="appointments" />
       <main className="flex-1 overflow-y-auto p-space-6">
         <h1 className="text-display mb-space-5">New booking</h1>

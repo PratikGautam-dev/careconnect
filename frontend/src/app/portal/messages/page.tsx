@@ -91,7 +91,7 @@ export default function PortalMessagesPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <PortalSidebar hospital={hospital} active="messages" />
       <main className="flex-1 overflow-y-auto p-space-6">
         <h1 className="text-display mb-space-5">Messages</h1>

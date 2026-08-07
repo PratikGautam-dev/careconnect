@@ -60,7 +60,7 @@ export default function PortalSettingsPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <PortalSidebar hospital={hospital} active="settings" />
       <main className="flex-1 overflow-y-auto p-space-6">
         <h1 className="text-display mb-space-5">Hospital settings</h1>

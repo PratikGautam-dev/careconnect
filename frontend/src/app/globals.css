@@ -148,6 +148,13 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Native <button> defaults to cursor: default, not pointer (unlike <a>) --
+   every clickable control in the app should read as clickable on hover. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 body {
   margin: 0;
   background: var(--paper);

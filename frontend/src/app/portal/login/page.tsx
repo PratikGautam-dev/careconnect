@@ -15,6 +15,7 @@ export default function PortalLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showForgotHelp, setShowForgotHelp] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,8 +44,8 @@ export default function PortalLoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper px-space-4">
       <Card className="w-full max-w-sm p-space-6">
-        <div className="mb-space-5 flex items-center gap-space-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-[16px] font-extrabold text-white">
+        <div className="mb-space-5 flex items-end gap-space-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-[16px] font-extrabold text-white">
             H
           </div>
           <div>
@@ -71,6 +72,22 @@ export default function PortalLoginPage() {
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
         </form>
+
+        <p className="mt-space-3 text-center text-[12.5px]">
+          <button
+            type="button"
+            onClick={() => setShowForgotHelp((v) => !v)}
+            className="font-semibold text-brand-600 hover:underline"
+          >
+            Forgot password?
+          </button>
+        </p>
+        {showForgotHelp && (
+          <p className="mt-space-2 rounded-md bg-paper p-space-3 text-center text-[12.5px] text-ink-600">
+            Portal passwords are reset by your platform administrator, not self-service. Contact them to have it
+            changed.
+          </p>
+        )}
 
         <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
           Don&apos;t have a hospital account yet?{" "}

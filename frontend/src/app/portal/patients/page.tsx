@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Search, UserRound } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -9,7 +10,7 @@ import { PortalSidebar } from "@/components/portal/PortalSidebar";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { portalFetch } from "@/lib/portalAuth";
 
-type Patient = { phone: string; name: string | null; last_visit: string | null; visit_count: number };
+type Patient = { id: number; phone: string; name: string | null; last_visit: string | null; visit_count: number };
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -49,7 +50,7 @@ export default function PortalPatientsPage() {
   }, [search]);
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <PortalSidebar hospital={hospital} active="patients" />
       <main className="flex-1 overflow-y-auto p-space-6">
         <h1 className="text-display mb-space-5">Patients</h1>
@@ -90,8 +91,16 @@ export default function PortalPatientsPage() {
                 </thead>
                 <tbody>
                   {patients.map((p) => (
-                    <tr key={p.phone} className="border-b border-line last:border-0">
-                      <td className="py-space-2 font-semibold text-ink-900">{p.name || "—"}</td>
+                    <tr
+                      key={p.id}
+                      onClick={() => router.push(`/portal/patients/${p.id}`)}
+                      className="cursor-pointer border-b border-line last:border-0 hover:bg-black/[0.02]"
+                    >
+                      <td className="py-space-2 font-semibold text-ink-900">
+                        <Link href={`/portal/patients/${p.id}`} className="hover:underline">
+                          {p.name || "—"}
+                        </Link>
+                      </td>
                       <td className="py-space-2 text-ink-600">{p.phone}</td>
                       <td className="py-space-2 text-ink-600">{formatDate(p.last_visit)}</td>
                       <td className="py-space-2 tabular-nums text-ink-600">{p.visit_count}</td>
