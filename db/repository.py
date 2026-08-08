@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json as json_lib
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -47,11 +48,17 @@ _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
-           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source
+           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
 """
+
+
+def _generate_reference_id() -> str:
+    """Section 12.12: millisecond-precision epoch, not second-precision -- see
+    db/schema.sql's reference_id column comment for why."""
+    return f"apt_{int(time.time() * 1000)}"
 
 
 @dataclass
@@ -69,6 +76,10 @@ class Appointment:
     # /portal/new-booking) -- descriptive only, never branched on by booking
     # logic itself (both go through the exact same create_appointment()).
     source: str = "whatsapp"
+    # Section 12.12: the patient-facing reference shown in the WhatsApp
+    # confirmation message. None only for rows booked before this column
+    # existed (never backfilled -- see db/schema.sql's column comment).
+    reference_id: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -83,6 +94,7 @@ def _row_to_appointment(row) -> Appointment:
         scheduled_at=datetime.fromisoformat(row["scheduled_at"]),
         status=row["status"],
         source=row["source"],
+        reference_id=row["reference_id"],
     )
 
 
@@ -1204,8 +1216,9 @@ def create_appointment(
         # re-raises the SAME, correctly-typed exception.
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
-            (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source),
+            "booking_ordinal, source, reference_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
+             _generate_reference_id()),
         )
         new_id = cur.fetchone()["id"]
 

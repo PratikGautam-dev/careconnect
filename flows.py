@@ -13,8 +13,8 @@ How it works:
   whichever of the hospital's enabled_features are real, tapping a row hands
   the conversation to that feature's own entry point.
 - A state that belongs to core/booking_flow.py's own state machine
-  (STATE_AWAITING_DEPARTMENT, STATE_AWAITING_SLOT, the cancel/reschedule
-  states, ...): delegated STRAIGHT to booking_flow.py's existing per-state
+  (STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DATE/TIME_SLOT, the cancel/
+  reschedule states, ...): delegated STRAIGHT to booking_flow.py's existing per-state
   handlers (_HANDLERS), unchanged -- booking_flow.py's own internal
   validation/booking logic was not touched for this. booking_flow.py's OWN
   handle_incoming()/_handle_idle() (a fixed 4-item menu) are now effectively

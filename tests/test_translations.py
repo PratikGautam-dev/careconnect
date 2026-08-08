@@ -25,7 +25,9 @@ def test_t_falls_back_to_english_for_unsupported_language():
 
 
 def test_t_formats_kwargs_in_both_languages():
-    assert t("welcome_menu", "en", hospital_name="City Hospital") == "Welcome to City Hospital! How can we help you today?"
+    assert t("welcome_menu", "en", hospital_name="City Hospital") == (
+        "Welcome to City Hospital! 🏥\nHow can we assist you today? Please select an option:"
+    )
     assert "City Hospital" in t("welcome_menu", "hi", hospital_name="City Hospital")
 
 
@@ -44,6 +46,7 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
     button_keys = [
         "language_picker_button_en", "language_picker_button_hi", "main_menu_button",
         "view_departments_button", "view_doctors_button", "view_slots_button",
+        "view_dates_button", "view_times_button",
         "confirm_button", "cancel_button", "view_appointments_button", "view_topics_button",
     ]
     for key in button_keys:
@@ -60,3 +63,36 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         for lang in SUPPORTED_LANGUAGES:
             text = STRINGS[key][lang]
             assert len(text) <= 24, f"{key}[{lang}] = {text!r} exceeds WhatsApp's 24-char row-title limit ({len(text)} chars)"
+
+
+def test_confirmation_card_renders_structured_markdown_in_both_languages():
+    """Section 12.12: the confirm_booking_summary/booking_confirmed cards --
+    fixed emoji, WhatsApp *bold* markers, and every field interpolated --
+    must render correctly (and identically in shape) in both languages."""
+    summary_en = t(
+        "confirm_booking_summary", "en",
+        department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
+        time_label="10:00", patient_name="Ravi Kumar",
+    )
+    assert "*Confirm Booking Details:*" in summary_en
+    assert "🏥 *Dept:* Cardiology" in summary_en
+    assert "👨‍⚕️ *Doctor:* Anjali Rao" in summary_en
+    assert "📅 *Date:* Sat, Aug 8" in summary_en
+    assert "🕐 *Slot:* 10:00" in summary_en
+    assert "👤 *Patient:* Ravi Kumar" in summary_en
+
+    summary_hi = t(
+        "confirm_booking_summary", "hi",
+        department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
+        time_label="10:00", patient_name="Ravi Kumar",
+    )
+    for emoji in ("🏥", "👨‍⚕️", "📅", "🕐", "👤"):
+        assert emoji in summary_hi
+    assert "Cardiology" in summary_hi and "Ravi Kumar" in summary_hi
+
+    confirmed_en = t("booking_confirmed", "en", reference_id="apt_1754650184123")
+    assert "✅ *Consulting Booked successfully!*" in confirmed_en
+    assert "Reference ID: *apt_1754650184123*" in confirmed_en
+
+    confirmed_hi = t("booking_confirmed", "hi", reference_id="apt_1754650184123")
+    assert "✅" in confirmed_hi and "apt_1754650184123" in confirmed_hi

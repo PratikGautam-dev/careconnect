@@ -277,6 +277,19 @@ CREATE TABLE IF NOT EXISTS appointments (
     -- db/repository.py:create_appointment()'s count-then-insert-with-retry
     -- loop, never chosen by a caller.
     booking_ordinal INTEGER NOT NULL DEFAULT 0,
+    -- Section 12.12: a patient-facing booking reference shown in the WhatsApp
+    -- confirmation message ("Reference ID: apt_..."), generated once at
+    -- create_appointment() time from a millisecond-precision epoch (not
+    -- second-precision -- two different patients booking in the same second
+    -- is realistic at any real hospital's traffic, same millisecond isn't).
+    -- Deliberately no UNIQUE constraint: a same-millisecond collision would
+    -- raise IntegrityError, which core/booking_flow.py already treats as
+    -- "the exact slot was just taken" and reroutes to slot selection -- a
+    -- confusing wrong message for what would actually be a reference_id
+    -- collision, not a real double-booking. Nullable/no backfill for rows
+    -- booked before this column existed -- there's no natural value to
+    -- backfill them with.
+    reference_id TEXT,
     created_at TEXT NOT NULL DEFAULT (now()::text),
     -- Section 12.8 (staff dashboard): when this row's status last changed
     -- (cancel/reschedule), set by db/repository.py's cancel_appointment()/
@@ -290,6 +303,7 @@ CREATE TABLE IF NOT EXISTS appointments (
 );
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_ordinal INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reference_id TEXT;
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

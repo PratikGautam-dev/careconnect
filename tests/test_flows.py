@@ -367,8 +367,10 @@ async def test_invalid_tap_at_language_picker_reprompts_the_picker(hospital_id):
 async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id):
     """Section 12.11's central persistence guarantee: once chosen, Hindi
     stays in effect through every booking_flow.py state -- department,
-    doctor, slot, name/age collection, confirmation -- not just the top-level
-    menu flows.py itself renders."""
+    doctor, date, time, name collection, confirmation -- not just the
+    top-level menu flows.py itself renders. Section 12.12 restructured the
+    slot step into date+time and dropped the age step; this test follows
+    that exact new sequence."""
     department = db.get_departments(hospital_id)[0]
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
@@ -387,22 +389,23 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     kind, kwargs = wa.sent[-1]
-    assert "स्लॉट" in kwargs["body_text"] or "समय" in kwargs["body_text"]
+    assert "डॉ." in kwargs["body_text"] and "तारीख" in kwargs["body_text"]
+    all_slots = db.get_slots(hospital_id, doctor_id)
+    date_str = all_slots[0]["date"]
 
-    slot_id = db.get_slots(hospital_id, doctor_id)[0]["id"]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot_id), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
+    kind, kwargs = wa.sent[-1]
+    assert kwargs["body_text"] == translate("select_time_slot", "hi")
+
+    slot = [s for s in all_slots if s["date"] == date_str][0]
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
     kind, kwargs = wa.sent[-1]
     assert kwargs["text"] == translate("ask_patient_name", "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=["booking"])
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
-    kind, kwargs = wa.sent[-1]
-    assert kwargs["text"] == translate("ask_patient_age", "hi", patient_name="Ravi Kumar")
-
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["state"] == "AWAITING_CONFIRMATION"  # no age step (Section 12.12)
     assert session["language"] == "hi"
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
@@ -410,17 +413,20 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
         "confirm_booking_summary", "hi",
         department_name=session["context"]["department_name"],
         doctor_name=session["context"]["doctor_name"],
-        slot_label=session["context"]["slot_label"],
+        date_label=session["context"]["date_label"],
+        time_label=session["context"]["slot_time"],
+        patient_name="Ravi Kumar",
     )
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
     kind, kwargs = wa.sent[-1]
     assert kind == "text"
-    assert "पुष्टि" in kwargs["text"]
-    # Booked with the patient's name/age (Section 12.11's other half).
+    assert "सफलतापूर्वक" in kwargs["text"]
+    assert "apt_" in kwargs["text"]
+    # Booked with the patient's name (Section 12.11's other half; age no
+    # longer collected via WhatsApp as of Section 12.12).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
-    assert patient["age"] == 34
     # Reset to IDLE, language preserved (not re-asked next message).
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
@@ -428,9 +434,9 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 
 
 @pytest.mark.asyncio
-async def test_returning_patient_with_name_on_file_skips_name_age_prompts(hospital_id):
-    """A patient who's already booked once (name/age on file) is never
-    re-asked on a later booking -- the bot should "remember" them."""
+async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id):
+    """A patient who's already booked once (name on file) is never re-asked
+    on a later booking -- the bot should "remember" them."""
     department = db.get_departments(hospital_id)[0]
     doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
     connector = flows._DEFAULT_CONNECTOR
@@ -441,25 +447,28 @@ async def test_returning_patient_with_name_on_file_skips_name_age_prompts(hospit
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
-    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    sessions.set(hospital_id, PHONE, "AWAITING_TIME_SLOT", {
         "department_id": department["id"], "department_name": department["name"],
         "doctor_id": doctor_id, "doctor_name": "Dr. X",
+        "date": slot["date"], "date_label": "Sat, Aug 8",
     }, language="en")
 
-    slot_id = db.get_slots(hospital_id, doctor_id)[0]["id"]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot_id), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
 
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_CONFIRMATION"  # not AWAITING_PATIENT_NAME
+    assert session["context"]["patient_name"] == "Priya Shah"
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
+    assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
 
 
 @pytest.mark.asyncio
 async def test_hindi_reset_keyword_escapes_mid_flow_and_stays_in_hindi(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+    sessions.set(hospital_id, PHONE, "AWAITING_DATE", {
         "department_id": "x", "department_name": "X", "doctor_id": "y", "doctor_name": "Dr. Y",
     }, language="hi")
 
