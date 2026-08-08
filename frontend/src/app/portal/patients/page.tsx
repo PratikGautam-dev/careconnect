@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { portalFetch } from "@/lib/portalAuth";
 
@@ -50,9 +50,7 @@ export default function PortalPatientsPage() {
   }, [search]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="patients" />
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="patients">
         <h1 className="text-display mb-space-5">Patients</h1>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
@@ -117,7 +115,6 @@ export default function PortalPatientsPage() {
             </div>
           )}
         </Card>
-      </main>
-    </div>
+    </PortalShell>
   );
 }

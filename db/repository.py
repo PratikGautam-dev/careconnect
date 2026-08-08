@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json as json_lib
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -47,11 +48,17 @@ _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
-           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source
+           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
 """
+
+
+def _generate_reference_id() -> str:
+    """Section 12.12: millisecond-precision epoch, not second-precision -- see
+    db/schema.sql's reference_id column comment for why."""
+    return f"apt_{int(time.time() * 1000)}"
 
 
 @dataclass
@@ -69,6 +76,10 @@ class Appointment:
     # /portal/new-booking) -- descriptive only, never branched on by booking
     # logic itself (both go through the exact same create_appointment()).
     source: str = "whatsapp"
+    # Section 12.12: the patient-facing reference shown in the WhatsApp
+    # confirmation message. None only for rows booked before this column
+    # existed (never backfilled -- see db/schema.sql's column comment).
+    reference_id: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -83,6 +94,7 @@ def _row_to_appointment(row) -> Appointment:
         scheduled_at=datetime.fromisoformat(row["scheduled_at"]),
         status=row["status"],
         source=row["source"],
+        reference_id=row["reference_id"],
     )
 
 
@@ -131,6 +143,14 @@ class Hospital:
     external_api_key: str | None
     portal_password_hash: str | None
     enabled_features: list[str]
+    # Section 12.13: self-serve bot customization -- see db/schema.sql's
+    # column comments for what each controls and its "unset" default.
+    feature_labels: dict[str, str]
+    closing_message_text: str | None
+    business_hours_text: str | None
+    default_language: str
+    language_prompt_enabled: bool
+    session_timeout_minutes: int | None
 
 
 def _row_to_hospital(row) -> Hospital:
@@ -149,6 +169,12 @@ def _row_to_hospital(row) -> Hospital:
         # should have already run by the time anything queries this, but fail
         # safe to "nothing enabled" rather than crash a row read) or malformed.
         enabled_features = []
+    try:
+        feature_labels = json_lib.loads(row["feature_labels"])
+        if not isinstance(feature_labels, dict):
+            raise ValueError
+    except (TypeError, ValueError):
+        feature_labels = {}
     return Hospital(
         id=row["id"],
         name=row["name"],
@@ -165,6 +191,14 @@ def _row_to_hospital(row) -> Hospital:
         external_api_key=row["external_api_key"],
         portal_password_hash=row["portal_password_hash"],
         enabled_features=enabled_features,
+        feature_labels=feature_labels,
+        closing_message_text=row["closing_message_text"],
+        business_hours_text=row["business_hours_text"],
+        default_language=row["default_language"] or "en",
+        language_prompt_enabled=(
+            True if row["language_prompt_enabled"] is None else bool(row["language_prompt_enabled"])
+        ),
+        session_timeout_minutes=row["session_timeout_minutes"],
     )
 
 
@@ -235,6 +269,12 @@ def create_hospital(
     external_api_key: str | None = None,
     portal_password: str | None = None,
     enabled_features: list[str] | None = None,
+    feature_labels: dict[str, str] | None = None,
+    closing_message_text: str | None = None,
+    business_hours_text: str | None = None,
+    default_language: str | None = None,
+    language_prompt_enabled: bool = True,
+    session_timeout_minutes: int | None = None,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -259,19 +299,31 @@ def create_hospital(
     the earlier single-value flow_type (Section 14.1); defaults to an empty
     list (no capabilities enabled) rather than guessing "booking", since an
     empty set is a safe, honest default a caller has to deliberately override,
-    not a value that quietly implies functionality nothing configured yet."""
+    not a value that quietly implies functionality nothing configured yet.
+
+    feature_labels/closing_message_text/business_hours_text/default_language/
+    language_prompt_enabled/session_timeout_minutes (Section 12.13): self-serve
+    bot customization, all optional -- see db/schema.sql's column comments.
+    Every one defaults to "unset" (None, or True for language_prompt_enabled)
+    here too, same reasoning as enabled_features above: a hospital that never
+    touches its settings page keeps the exact fixed default behavior."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
+    feature_labels_json = json_lib.dumps(feature_labels or {})
     portal_password_hash = hash_portal_password(portal_password) if portal_password else None
     cur = conn.execute(
         "INSERT INTO hospitals (name, whatsapp_phone_number_id, meta_access_token_ref, app_secret_ref, "
         "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
-        "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features, "
+        "feature_labels, closing_message_text, business_hours_text, default_language, "
+        "language_prompt_enabled, session_timeout_minutes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
+         feature_labels_json, closing_message_text, business_hours_text, default_language,
+         int(language_prompt_enabled), session_timeout_minutes),
     )
     new_id = cur.fetchone()["id"]
     conn.commit()
@@ -293,6 +345,12 @@ def update_hospital(
     external_api_key: str | None = None,
     portal_password_hash: str | None = None,
     enabled_features: list[str] | None = None,
+    feature_labels: dict[str, str] | None = None,
+    closing_message_text: str | None = None,
+    business_hours_text: str | None = None,
+    default_language: str | None = None,
+    language_prompt_enabled: bool = True,
+    session_timeout_minutes: int | None = None,
 ) -> Hospital:
     """admin/onboarding.py's tenant edit form -- the only way to correct an
     already-onboarded hospital's stored values (there's no way to change
@@ -319,18 +377,32 @@ def update_hospital(
     route, portal.py's settings route) passes the hospital's own current
     value through explicitly -- neither exposes a way to CHANGE which
     features are enabled yet, so an edit to something else must never
-    silently reset a tenant's real feature set back to empty."""
+    silently reset a tenant's real feature set back to empty.
+
+    feature_labels/closing_message_text/business_hours_text/default_language/
+    language_prompt_enabled/session_timeout_minutes (Section 12.13): same
+    "every caller passes the hospital's own current value through explicitly"
+    discipline as enabled_features -- ONLY portal_api.py's settings save
+    endpoint actually changes these; every other caller (admin edit-tenant
+    forms, portal.py's own settings route for the still-unmigrated fields)
+    passes the hospital's existing values straight through so an unrelated
+    edit can never silently wipe a tenant's customizations back to defaults."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
+    feature_labels_json = json_lib.dumps(feature_labels or {})
     conn.execute(
         "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
         "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
         "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
-        "portal_password_hash = ?, enabled_features = ? WHERE id = ?",
+        "portal_password_hash = ?, enabled_features = ?, feature_labels = ?, closing_message_text = ?, "
+        "business_hours_text = ?, default_language = ?, language_prompt_enabled = ?, "
+        "session_timeout_minutes = ? WHERE id = ?",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json, hospital_id),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
+         feature_labels_json, closing_message_text, business_hours_text, default_language,
+         int(language_prompt_enabled), session_timeout_minutes, hospital_id),
     )
     conn.commit()
     return get_hospital(hospital_id)
@@ -1204,8 +1276,9 @@ def create_appointment(
         # re-raises the SAME, correctly-typed exception.
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
-            (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source),
+            "booking_ordinal, source, reference_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
+             _generate_reference_id()),
         )
         new_id = cur.fetchone()["id"]
 

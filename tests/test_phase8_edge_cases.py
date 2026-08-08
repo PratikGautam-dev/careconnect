@@ -73,15 +73,16 @@ async def test_confirm_race_second_patient_gets_taken_message_and_updated_slot_l
     shared_context = {
         "department_id": "cardiology", "department_name": "Cardiology",
         "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
-        "slot_id": slot["id"], "slot_label": slot["label"],
-        "slot_date": slot["date"], "slot_time": slot["time"],
+        "date": slot["date"], "date_label": "Sat, Aug 8",
+        "slot_id": slot["id"], "slot_date": slot["date"], "slot_time": slot["time"],
+        "patient_name": "Test Patient",
     }
     sessions_a.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
     sessions_b.set(hospital_id, OTHER_PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
 
     # Patient A confirms first -> succeeds.
     await handle_incoming(wa, sessions_a, PHONE, hospital_id, tap("confirm"))
-    assert "confirmed" in wa.sent[-1][1]["text"].lower()
+    assert "booked successfully" in wa.sent[-1][1]["text"].lower()
     assert sessions_a.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
     # Patient B confirms the same doctor+slot next -> loses the race.
@@ -89,10 +90,11 @@ async def test_confirm_race_second_patient_gets_taken_message_and_updated_slot_l
     text_sends = [kwargs["text"] for kind, kwargs in wa.sent if kind == "text"]
     assert any("just taken" in t.lower() for t in text_sends)
 
-    # B is sent back to slot selection (same doctor, not re-asked department/doctor)
-    # with a freshly-queried list that no longer offers the taken slot.
+    # B is sent back to time selection (same doctor/date, not re-asked
+    # department/doctor/date) with a freshly-queried list that no longer
+    # offers the taken slot.
     session_b = sessions_b.get(hospital_id, OTHER_PHONE)
-    assert session_b["state"] == "AWAITING_SLOT"
+    assert session_b["state"] == "AWAITING_TIME_SLOT"
     assert session_b["context"]["doctor_id"] == doctor_id
     assert slot["id"] not in _row_ids(_list_sends(wa)[-1])
 
@@ -156,8 +158,9 @@ async def test_confirm_race_when_doctor_has_no_other_slots_left(hospital_id):
     sessions.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", {
         "department_id": "cardiology", "department_name": "Cardiology",
         "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
-        "slot_id": last_slot["id"], "slot_label": last_slot["label"],
-        "slot_date": last_slot["date"], "slot_time": last_slot["time"],
+        "date": last_slot["date"], "date_label": "Sat, Aug 8",
+        "slot_id": last_slot["id"], "slot_date": last_slot["date"], "slot_time": last_slot["time"],
+        "patient_name": "Test Patient",
     })
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
@@ -173,9 +176,13 @@ async def test_confirm_race_when_doctor_has_no_other_slots_left(hospital_id):
 @pytest.mark.parametrize("state,context", [
     ("AWAITING_DEPARTMENT", {}),
     ("AWAITING_DOCTOR", {"department_id": "cardiology", "department_name": "Cardiology"}),
-    ("AWAITING_SLOT", {"department_id": "cardiology", "department_name": "Cardiology",
+    ("AWAITING_DATE", {"department_id": "cardiology", "department_name": "Cardiology",
                         "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao"}),
-    ("AWAITING_CONFIRMATION", {"department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao", "slot_label": "x"}),
+    ("AWAITING_TIME_SLOT", {"department_id": "cardiology", "department_name": "Cardiology",
+                             "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao", "date": "2026-08-08"}),
+    ("AWAITING_PATIENT_NAME", {"department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao"}),
+    ("AWAITING_CONFIRMATION", {"department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao", "date_label": "x",
+                                "slot_time": "x", "patient_name": "x"}),
     ("AWAITING_CANCEL_SELECTION", {}),
     ("AWAITING_CANCEL_CONFIRM", {"appointment_id": 1}),
     ("AWAITING_RESCHEDULE_SELECTION", {}),
@@ -269,7 +276,7 @@ async def test_awaiting_slot_fallback_rechecks_availability_if_slots_emptied_mid
     doctor_id = "doc_card_1"
     for slot in db.get_slots(hospital_id, doctor_id):
         db.create_appointment(hospital_id, "000", "cardiology", doctor_id, datetime.fromisoformat(f"{slot['date']}T{slot['time']}:00"))
-    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+    sessions.set(hospital_id, PHONE, "AWAITING_DATE", {
         "department_id": "cardiology", "department_name": "Cardiology",
         "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
     })

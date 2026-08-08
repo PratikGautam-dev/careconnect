@@ -13,8 +13,8 @@ How it works:
   whichever of the hospital's enabled_features are real, tapping a row hands
   the conversation to that feature's own entry point.
 - A state that belongs to core/booking_flow.py's own state machine
-  (STATE_AWAITING_DEPARTMENT, STATE_AWAITING_SLOT, the cancel/reschedule
-  states, ...): delegated STRAIGHT to booking_flow.py's existing per-state
+  (STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DATE/TIME_SLOT, the cancel/
+  reschedule states, ...): delegated STRAIGHT to booking_flow.py's existing per-state
   handlers (_HANDLERS), unchanged -- booking_flow.py's own internal
   validation/booking logic was not touched for this. booking_flow.py's OWN
   handle_incoming()/_handle_idle() (a fixed 4-item menu) are now effectively
@@ -57,6 +57,7 @@ from core.booking_flow import (
     _send_department_menu,
     _start_cancel_flow,
     _start_reschedule_flow,
+    FREE_TEXT_INPUT_STATES,
     STATE_AWAITING_DEPARTMENT,
     STATE_IDLE,
 )
@@ -95,25 +96,37 @@ REAL_FEATURES = {"booking", "reschedule", "cancel", "faq", "view_appointments", 
 ALL_FEATURES = REAL_FEATURES
 
 
-async def _send_language_picker(wa: WhatsAppClient, phone: str) -> None:
+async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language: str = "en") -> None:
     """Shown before anything else on a genuinely fresh conversation (see
     module docstring). Body text is bilingual on purpose -- we don't know
-    the patient's language yet, so the prompt itself can't be in only one."""
-    await wa.send_buttons(
-        to=phone,
-        body_text=t("language_picker_body", None),
-        buttons=[
-            {"id": LANGUAGE_ROW_EN, "title": t("language_picker_button_en", None)},
-            {"id": LANGUAGE_ROW_HI, "title": t("language_picker_button_hi", None)},
-        ],
-    )
+    the patient's language yet, so the prompt itself can't be in only one.
+
+    Section 12.13: default_language (set via /portal/settings) decides which
+    button is listed FIRST -- WhatsApp buttons have no concept of a
+    "pre-selected" option, so leading with the hospital's preferred language
+    is the only real way to "default to" it."""
+    buttons = [
+        {"id": LANGUAGE_ROW_EN, "title": t("language_picker_button_en", None)},
+        {"id": LANGUAGE_ROW_HI, "title": t("language_picker_button_hi", None)},
+    ]
+    if default_language == "hi":
+        buttons.reverse()
+    await wa.send_buttons(to=phone, body_text=t("language_picker_body", None), buttons=buttons)
 
 
 async def _send_dynamic_menu(
     wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
+    feature_labels: dict[str, str] | None = None,
 ) -> None:
+    feature_labels = feature_labels or {}
     rows = [
-        {"id": row_id, "title": t(title_key, language)}
+        # Section 12.13: a hospital's own custom label for this feature (set
+        # via /portal/settings) wins over the fixed translations.py default --
+        # custom labels are stored/entered once, in whatever language the
+        # hospital typed them in (not per-session-language, unlike the fixed
+        # defaults), so they're used as-is regardless of the patient's chosen
+        # language.
+        {"id": row_id, "title": feature_labels.get(key) or t(title_key, language)}
         for key, (row_id, title_key) in _FEATURE_MENU.items()
         if key in enabled_features
     ]
@@ -136,31 +149,42 @@ async def _send_dynamic_menu(
 async def _enter_idle(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, hospital_name: str,
     enabled_features: list[str], language: str | None,
+    feature_labels: dict[str, str] | None = None,
+    default_language: str = "en", language_prompt_enabled: bool = True,
 ) -> None:
     """The one place that decides "does this session need the language
     picker, or does it already know what to show." Called everywhere the
     router used to jump straight to _send_dynamic_menu -- first contact, a
-    reset keyword, a stale/unrecognized tap."""
+    reset keyword, a stale/unrecognized tap.
+
+    Section 12.13: language_prompt_enabled=False (a hospital that only ever
+    wants one language, set via /portal/settings) skips the picker entirely
+    -- every fresh conversation goes straight to the menu in default_language,
+    the same as if the patient had tapped that language on the picker."""
+    if not language_prompt_enabled:
+        sessions.set(hospital_id, phone, STATE_IDLE, {}, language=default_language)
+        await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=default_language, feature_labels=feature_labels)
+        return
     if language is None:
         sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
-        await _send_language_picker(wa, phone)
+        await _send_language_picker(wa, phone, default_language=default_language)
         return
-    await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=language)
+    await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=language, feature_labels=feature_labels)
 
 
 async def _handle_awaiting_language(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
-    enabled_features: list[str],
+    enabled_features: list[str], feature_labels: dict[str, str] | None = None, default_language: str = "en",
 ) -> None:
     chosen = _LANGUAGE_ROW_TO_CODE.get(reply["id"]) if reply["type"] == "interactive_reply" else None
     if chosen is None:
         # Didn't tap a valid option -- re-show the picker (still bilingual,
         # we still don't know their language).
         sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
-        await _send_language_picker(wa, phone)
+        await _send_language_picker(wa, phone, default_language=default_language)
         return
     sessions.set(hospital_id, phone, STATE_IDLE, {}, language=chosen)
-    await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=chosen)
+    await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=chosen, feature_labels=feature_labels)
 
 
 async def _send_view_appointments(
@@ -186,6 +210,7 @@ async def _start_feature(
     hospital_name: str,
     connector: Connector,
     language: str = "en",
+    business_hours_text: str | None = None,
 ) -> None:
     """Hands the conversation off to whichever feature was tapped from the
     unified menu. Real features either transition into an existing sub-flow's
@@ -212,7 +237,13 @@ async def _start_feature(
         return
     if key == "hospital_info":
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("hospital_info_text", language))
+        # Section 12.13: a hospital's own business_hours_text (set via
+        # /portal/settings), appended as an extra informational line -- purely
+        # display, never enforced against real doctor slot availability.
+        info_text = t("hospital_info_text", language)
+        if business_hours_text:
+            info_text = f"{info_text}\n\n{business_hours_text}"
+        await wa.send_text(phone, info_text)
         return
     if key == "reception_handoff":
         sessions.reset(hospital_id, phone)
@@ -241,34 +272,62 @@ async def handle_incoming(
     hospital_name: str = "the hospital",
     connector: Connector | None = None,
     enabled_features: list[str] | None = None,
+    feature_labels: dict[str, str] | None = None,
+    closing_message_text: str | None = None,
+    business_hours_text: str | None = None,
+    default_language: str = "en",
+    language_prompt_enabled: bool = True,
+    session_timeout_minutes: int | None = None,
 ) -> None:
     """The real conversation entry point (SPEC Section 14.5) -- core/main.py
     calls this directly now, passing the resolved hospital's enabled_features
     alongside everything core/booking_flow.py's handle_incoming() already
     needed. Defaults enabled_features to [] (not "booking") so a caller that
     forgets to pass it gets an honest "nothing enabled" menu rather than a
-    guessed one -- matching db.create_hospital()'s own default."""
+    guessed one -- matching db.create_hospital()'s own default.
+
+    Section 12.13: feature_labels/closing_message_text/business_hours_text/
+    default_language/language_prompt_enabled are all self-serve bot
+    customization (hospitals.<field>, set via /portal/settings) -- every one
+    defaults to "no customization" (None/{}/en/True) so a caller that doesn't
+    pass them (including the whole pre-Section-12.13 test suite) gets
+    byte-for-byte the same fixed behavior as before this section."""
     connector = connector or _DEFAULT_CONNECTOR
     enabled_features = enabled_features or []
-    session = sessions.get(hospital_id, phone)
+    # Section 12.13: a hospital's own session_timeout_minutes (5-120) overrides
+    # core/history.py's fixed 30-min default -- None (never customized) keeps
+    # today's behavior exactly, since sessions.get() itself falls back to its
+    # own constructor-time default when timeout_seconds isn't passed.
+    timeout_seconds = session_timeout_minutes * 60 if session_timeout_minutes else None
+    session = sessions.get(hospital_id, phone, timeout_seconds=timeout_seconds)
     state = session["state"]
     context = session["context"]
     language = session.get("language")
     if language not in SUPPORTED_LANGUAGES:
         language = None
 
-    if state != STATE_IDLE and is_reset_keyword(reply):
+    if state != STATE_IDLE and state not in FREE_TEXT_INPUT_STATES and is_reset_keyword(reply):
         sessions.reset(hospital_id, phone)
-        await _enter_idle(wa, sessions, phone, hospital_id, hospital_name, enabled_features, language)
+        await _enter_idle(
+            wa, sessions, phone, hospital_id, hospital_name, enabled_features, language,
+            feature_labels=feature_labels, default_language=default_language,
+            language_prompt_enabled=language_prompt_enabled,
+        )
         return
 
     if state == STATE_AWAITING_LANGUAGE:
-        await _handle_awaiting_language(wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features)
+        await _handle_awaiting_language(
+            wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features,
+            feature_labels=feature_labels, default_language=default_language,
+        )
         return
 
     booking_handler = _BOOKING_STATE_HANDLERS.get(state)
     if booking_handler is not None:
-        await booking_handler(wa, sessions, phone, hospital_id, reply, context, connector, language=language or "en")
+        await booking_handler(
+            wa, sessions, phone, hospital_id, reply, context, connector,
+            language=language or "en", closing_message_text=closing_message_text,
+        )
         return
 
     if state == faq_flow.STATE_FAQ_ACTIVE:
@@ -283,8 +342,15 @@ async def handle_incoming(
     if reply["type"] == "interactive_reply":
         feature_key = _ROW_ID_TO_FEATURE.get(reply["id"])
         if feature_key is not None and feature_key in enabled_features and language is not None:
-            await _start_feature(feature_key, wa, sessions, phone, hospital_id, hospital_name, connector, language=language)
+            await _start_feature(
+                feature_key, wa, sessions, phone, hospital_id, hospital_name, connector,
+                language=language, business_hours_text=business_hours_text,
+            )
             return
 
     sessions.reset(hospital_id, phone)
-    await _enter_idle(wa, sessions, phone, hospital_id, hospital_name, enabled_features, language)
+    await _enter_idle(
+        wa, sessions, phone, hospital_id, hospital_name, enabled_features, language,
+        feature_labels=feature_labels, default_language=default_language,
+        language_prompt_enabled=language_prompt_enabled,
+    )

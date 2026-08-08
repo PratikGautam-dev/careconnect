@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Input";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
@@ -187,12 +187,9 @@ export default function PatientDetailPage() {
 
   if (!data) {
     return (
-      <div className="flex h-screen overflow-hidden bg-paper">
-        <PortalSidebar hospital={hospital} active="patients" />
-        <main className="flex-1 overflow-y-auto p-space-6">
+      <PortalShell hospital={hospital} active="patients">
           {error ? <p className="text-[13px] text-error">{error}</p> : <p className="text-[13px] text-ink-400">Loading…</p>}
-        </main>
-      </div>
+      </PortalShell>
     );
   }
 
@@ -201,9 +198,7 @@ export default function PatientDetailPage() {
   const notesByVisit = (visitId: number) => notes.filter((n) => n.appointment_id === visitId);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="patients" />
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="patients">
         <button
           type="button"
           onClick={() => router.push("/portal/patients")}
@@ -389,7 +384,6 @@ export default function PatientDetailPage() {
             </Button>
           </Card>
         </div>
-      </main>
-    </div>
+    </PortalShell>
   );
 }

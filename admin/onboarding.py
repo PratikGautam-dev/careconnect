@@ -1962,6 +1962,12 @@ async def edit_tenant_submit(
             external_api_key=stored_api_key,
             portal_password_hash=new_portal_password_hash,
             enabled_features=hospital.enabled_features,
+            feature_labels=hospital.feature_labels,
+            closing_message_text=hospital.closing_message_text,
+            business_hours_text=hospital.business_hours_text,
+            default_language=hospital.default_language,
+            language_prompt_enabled=hospital.language_prompt_enabled,
+            session_timeout_minutes=hospital.session_timeout_minutes,
         )
     except IntegrityError:
         errors.append(

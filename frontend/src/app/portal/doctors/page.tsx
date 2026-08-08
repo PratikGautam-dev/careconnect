@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { DoctorScheduleForm, DoctorScheduleFormState, emptyDoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
 import { DoctorLeaveManager } from "@/components/portal/DoctorLeaveManager";
@@ -132,9 +132,7 @@ export default function PortalDoctorsPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="doctors" />
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="doctors">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
           <h1 className="text-display">Doctors &amp; departments</h1>
           {departments && departments.length > 0 && (
@@ -277,7 +275,6 @@ export default function PortalDoctorsPage() {
             </Card>
           </div>
         )}
-      </main>
-    </div>
+    </PortalShell>
   );
 }

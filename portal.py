@@ -1130,6 +1130,12 @@ async def portal_settings_submit(
         external_api_key=hospital.external_api_key,
         portal_password_hash=hospital.portal_password_hash,
         enabled_features=hospital.enabled_features,
+        feature_labels=hospital.feature_labels,
+        closing_message_text=hospital.closing_message_text,
+        business_hours_text=hospital.business_hours_text,
+        default_language=hospital.default_language,
+        language_prompt_enabled=hospital.language_prompt_enabled,
+        session_timeout_minutes=hospital.session_timeout_minutes,
     )
     updated = db.get_hospital(hospital.id)
     return _settings_html(updated, saved=True)

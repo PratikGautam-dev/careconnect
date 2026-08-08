@@ -63,6 +63,42 @@ CREATE TABLE IF NOT EXISTS hospitals (
     -- row once, at startup; every hospital created after Section 14.5 always
     -- gets a real value at creation time, never NULL.
     enabled_features TEXT,
+    -- Section 12.13: self-serve bot customization beyond enabled_features'
+    -- on/off toggles -- everything below is optional (NULL = use the fixed
+    -- default already hardcoded in flows.py/core/booking_flow.py/
+    -- core/translations.py), so an existing hospital that's never touched
+    -- these fields keeps behaving byte-for-byte as before this section.
+    --
+    -- feature_labels: JSON object, feature key -> custom display label (e.g.
+    -- {"booking": "Schedule a consultation"}), overriding the fixed
+    -- translations.py label for that one row in the main menu. Only covers
+    -- REAL_FEATURES keys; an unrecognized key is simply never read.
+    feature_labels TEXT,
+    -- closing_message_text: APPENDED (not replacing) after the standard
+    -- booking/cancel/reschedule confirmation text -- e.g. "Thank you for
+    -- choosing City Hospital. For emergencies, call 102."
+    closing_message_text TEXT,
+    -- business_hours_text: shown as an extra line in the "hospital_info"
+    -- feature's reply if set -- purely informational, never enforced against
+    -- real slot availability (which already comes from each doctor's own
+    -- working_days/working_hours).
+    business_hours_text TEXT,
+    -- default_language: which language the language-picker highlights/
+    -- defaults to (still just "en"/"hi", core/translations.py's
+    -- SUPPORTED_LANGUAGES) -- NULL means "en", same as today.
+    default_language TEXT,
+    -- language_prompt_enabled: FALSE lets a single-language hospital (e.g.
+    -- English-only) skip the language picker step entirely and go straight
+    -- to the main menu in default_language every fresh conversation, instead
+    -- of offering a language nobody at that hospital ever uses. NULL/TRUE
+    -- (the default) keeps today's picker-shown-first behavior.
+    language_prompt_enabled INTEGER,
+    -- session_timeout_minutes: replaces core/history.py's fixed 30-minute
+    -- SESSION_TIMEOUT_SECONDS constant for this hospital specifically.
+    -- CHECK bounds (5-120) match the portal settings form's own validation --
+    -- enforced at the DB level too so a direct/future write path can't set
+    -- something nonsensical. NULL means "use the 30-minute default."
+    session_timeout_minutes INTEGER CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 5 AND 120)),
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (now()::text)
 );
@@ -74,6 +110,12 @@ CREATE TABLE IF NOT EXISTS hospitals (
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_password_hash TEXT;
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS flow_type TEXT NOT NULL DEFAULT 'booking';
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS enabled_features TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS feature_labels TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS closing_message_text TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS business_hours_text TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS default_language TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS language_prompt_enabled INTEGER;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS session_timeout_minutes INTEGER CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 5 AND 120));
 
 -- id is a human-readable slug (e.g. "cardiology") rather than a surrogate integer,
 -- so it can be used directly as a WhatsApp list-reply id, same as before this
@@ -277,6 +319,19 @@ CREATE TABLE IF NOT EXISTS appointments (
     -- db/repository.py:create_appointment()'s count-then-insert-with-retry
     -- loop, never chosen by a caller.
     booking_ordinal INTEGER NOT NULL DEFAULT 0,
+    -- Section 12.12: a patient-facing booking reference shown in the WhatsApp
+    -- confirmation message ("Reference ID: apt_..."), generated once at
+    -- create_appointment() time from a millisecond-precision epoch (not
+    -- second-precision -- two different patients booking in the same second
+    -- is realistic at any real hospital's traffic, same millisecond isn't).
+    -- Deliberately no UNIQUE constraint: a same-millisecond collision would
+    -- raise IntegrityError, which core/booking_flow.py already treats as
+    -- "the exact slot was just taken" and reroutes to slot selection -- a
+    -- confusing wrong message for what would actually be a reference_id
+    -- collision, not a real double-booking. Nullable/no backfill for rows
+    -- booked before this column existed -- there's no natural value to
+    -- backfill them with.
+    reference_id TEXT,
     created_at TEXT NOT NULL DEFAULT (now()::text),
     -- Section 12.8 (staff dashboard): when this row's status last changed
     -- (cancel/reschedule), set by db/repository.py's cancel_appointment()/
@@ -290,6 +345,7 @@ CREATE TABLE IF NOT EXISTS appointments (
 );
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_ordinal INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reference_id TEXT;
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

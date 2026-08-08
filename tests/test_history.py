@@ -98,3 +98,60 @@ def test_get_session_store_returns_in_memory_without_redis(monkeypatch):
     monkeypatch.delenv("REDIS_URL", raising=False)
     s = get_session_store()
     assert isinstance(s, InMemorySessionStore)
+
+
+# --- Session language (English/Hindi selection follow-up) ---
+# Top-level session field, not nested in context -- see core/history.py's
+# module docstring for why. get() omits the key entirely when unset, so
+# every session-shape assertion above (no "language" key) keeps working for
+# sessions that never touch language.
+
+def test_session_has_no_language_key_until_one_is_set():
+    s = InMemorySessionStore()
+    assert "language" not in s.get(HOSPITAL_A, "phone1")
+
+
+def test_session_language_persists_across_state_transitions():
+    s = InMemorySessionStore()
+    s.set(HOSPITAL_A, "phone1", "AWAITING_LANGUAGE", {}, language="hi")
+    assert s.get(HOSPITAL_A, "phone1")["language"] == "hi"
+
+    # A later set() for the next state, with no language kwarg passed,
+    # still carries the previously-chosen language forward.
+    s.set(HOSPITAL_A, "phone1", "AWAITING_DEPARTMENT", {"foo": "bar"})
+    session = s.get(HOSPITAL_A, "phone1")
+    assert session["language"] == "hi"
+    assert session["context"] == {"foo": "bar"}
+
+
+def test_session_language_survives_reset():
+    s = InMemorySessionStore()
+    s.set(HOSPITAL_A, "phone1", "AWAITING_CONFIRMATION", {"slot_id": "x"}, language="hi")
+    s.reset(HOSPITAL_A, "phone1")
+    session = s.get(HOSPITAL_A, "phone1")
+    assert session["state"] == "IDLE"
+    assert session["context"] == {}
+    assert session["language"] == "hi"
+
+
+def test_session_reset_with_no_language_chosen_yet_fully_clears():
+    s = InMemorySessionStore()
+    s.set(HOSPITAL_A, "phone1", "AWAITING_DEPARTMENT", {"foo": "bar"})
+    s.reset(HOSPITAL_A, "phone1")
+    assert "language" not in s.get(HOSPITAL_A, "phone1")
+
+
+def test_session_language_isolated_across_hospitals_and_phones():
+    s = InMemorySessionStore()
+    s.set(HOSPITAL_A, "shared_phone", "IDLE", {}, language="hi")
+    s.set(HOSPITAL_B, "shared_phone", "IDLE", {}, language="en")
+    assert s.get(HOSPITAL_A, "shared_phone")["language"] == "hi"
+    assert s.get(HOSPITAL_B, "shared_phone")["language"] == "en"
+    assert "language" not in s.get(HOSPITAL_A, "phone_never_touched")
+
+
+def test_session_language_explicit_new_value_overrides_carried_forward_one():
+    s = InMemorySessionStore()
+    s.set(HOSPITAL_A, "phone1", "AWAITING_LANGUAGE", {}, language="hi")
+    s.set(HOSPITAL_A, "phone1", "IDLE", {}, language="en")
+    assert s.get(HOSPITAL_A, "phone1")["language"] == "en"

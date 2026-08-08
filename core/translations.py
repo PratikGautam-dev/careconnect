@@ -44,9 +44,12 @@ STRINGS: dict[str, dict[Language, str]] = {
     "language_picker_button_hi": {"en": "हिन्दी", "hi": "हिन्दी"},
 
     # --- Main / feature menu ---
+    # Section 12.12: two-line body (greeting + call-to-action) matching the
+    # reference screenshot -- \n renders as a real line break in a WhatsApp
+    # list/text message body.
     "welcome_menu": {
-        "en": "Welcome to {hospital_name}! How can we help you today?",
-        "hi": "{hospital_name} में आपका स्वागत है! हम आपकी कैसे मदद कर सकते हैं?",
+        "en": "Welcome to {hospital_name}! 🏥\nHow can we assist you today? Please select an option:",
+        "hi": "{hospital_name} में आपका स्वागत है! 🏥\nआज हम आपकी कैसे सहायता कर सकते हैं? कृपया एक विकल्प चुनें:",
     },
     "main_menu_button": {"en": "Main Menu", "hi": "मुख्य मेनू"},
     "main_menu_section_title": {"en": "Main Menu", "hi": "मुख्य मेनू"},
@@ -88,16 +91,41 @@ STRINGS: dict[str, dict[Language, str]] = {
               "इस बीच अगर आपको कुछ और चाहिए, तो बस \"menu\" लिखें।",
     },
 
-    # --- Booking: department/doctor/slot menus ---
-    "select_department": {"en": "Please select a department:", "hi": "कृपया एक विभाग चुनें:"},
+    # --- Booking: department/doctor/date/time menus ---
+    "select_department": {"en": "Please select a medical department:", "hi": "कृपया एक चिकित्सा विभाग चुनें:"},
     "view_departments_button": {"en": "View Departments", "hi": "विभाग देखें"},
     "departments_section_title": {"en": "Departments", "hi": "विभाग"},
 
     "select_doctor": {
-        "en": "Please select a doctor in {department_name}:",
-        "hi": "कृपया {department_name} में एक डॉक्टर चुनें:",
+        "en": "Please select a specialist doctor for {department_name}:",
+        "hi": "कृपया {department_name} के लिए एक विशेषज्ञ डॉक्टर चुनें:",
     },
     "view_doctors_button": {"en": "View Doctors", "hi": "डॉक्टर देखें"},
+
+    # Section 12.12: booking's date/time step is now two separate prompts
+    # (was one combined slot list) -- "select_slot"/"view_slots_button"/
+    # "available_slots_section_title" below are kept as-is for the
+    # RESCHEDULE flow only (_send_slot_menu), which the reference screenshot
+    # this section is based on doesn't cover and so was deliberately left
+    # as a single combined list, unchanged from before this section.
+    # NOTE: doctor_name already includes a "Dr." prefix everywhere in this
+    # codebase (db/seed.py's own seeded names, e.g. "Dr. Anjali Rao") -- do
+    # NOT hardcode a second "Dr."/"डॉ." here, or every real send doubles it
+    # ("You have selected Dr. Dr. Anjali Rao."), caught live via a full
+    # conversation trace before this shipped.
+    "doctor_selected_ask_date": {
+        "en": "You have selected {doctor_name}. Now please select a consulting date:",
+        "hi": "आपने {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
+    },
+    "view_dates_button": {"en": "View Dates", "hi": "तारीखें देखें"},
+    "available_dates_section_title": {"en": "Available Dates", "hi": "उपलब्ध तारीखें"},
+
+    "select_time_slot": {
+        "en": "Please select a preferred consulting time slot:",
+        "hi": "कृपया अपनी पसंदीदा परामर्श समय स्लॉट चुनें:",
+    },
+    "view_times_button": {"en": "View Times", "hi": "समय देखें"},
+    "available_times_section_title": {"en": "Available Times", "hi": "उपलब्ध समय"},
 
     "select_slot": {
         "en": "Please select a time slot with {doctor_name}:",
@@ -125,36 +153,49 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "क्षमा करें, वह स्लॉट अभी-अभी बुक हो गया। कृपया कोई और समय चुनें।",
     },
 
-    # --- Booking: patient name/age collection (new) ---
+    # --- Booking: patient name collection ---
+    # Section 12.12: the reference screenshot's flow only collects a name (no
+    # separate age step -- age collection, added in Section 12.11, is now
+    # dropped from the WhatsApp flow specifically; `patients.age`/
+    # `create_booking(patient_age=...)` stay in place as a still-usable
+    # extension point, just nothing currently calls into them from here).
     "ask_patient_name": {
-        "en": "Before we confirm — could you share the patient's name?",
-        "hi": "पुष्टि करने से पहले — क्या आप मरीज़ का नाम बता सकते हैं?",
+        "en": "Almost done! Please type the patient's full name in the chat box below and send it:",
+        "hi": "लगभग हो गया! कृपया चैट बॉक्स में मरीज़ का पूरा नाम टाइप करें और भेजें:",
     },
     "invalid_patient_name": {
         "en": "Please enter a valid name.",
         "hi": "कृपया एक मान्य नाम दर्ज करें।",
     },
-    "ask_patient_age": {
-        "en": "Thanks, {patient_name}! And could you share the patient's age?",
-        "hi": "धन्यवाद, {patient_name}! और क्या आप मरीज़ की उम्र बता सकते हैं?",
-    },
-    "invalid_patient_age": {
-        "en": "Please enter a valid age (a number between 0 and 120).",
-        "hi": "कृपया एक मान्य उम्र दर्ज करें (0 से 120 के बीच की संख्या)।",
-    },
 
     # --- Booking: confirmation ---
+    # Section 12.12: structured "card" style with WhatsApp *bold* markdown and
+    # fixed emoji per field, matching the reference screenshot exactly.
     "confirm_booking_summary": {
-        "en": "Please confirm your appointment:\n\nDepartment: {department_name}\nDoctor: {doctor_name}\nSlot: {slot_label}",
-        "hi": "कृपया अपनी अपॉइंटमेंट की पुष्टि करें:\n\nविभाग: {department_name}\nडॉक्टर: {doctor_name}\nस्लॉट: {slot_label}",
+        "en": "*Confirm Booking Details:*\n"
+              "🏥 *Dept:* {department_name}\n"
+              "👨‍⚕️ *Doctor:* {doctor_name}\n"
+              "📅 *Date:* {date_label}\n"
+              "🕐 *Slot:* {time_label}\n"
+              "👤 *Patient:* {patient_name}\n\n"
+              "Please confirm this appointment:",
+        "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
+              "🏥 *विभाग:* {department_name}\n"
+              "👨‍⚕️ *डॉक्टर:* {doctor_name}\n"
+              "📅 *तारीख:* {date_label}\n"
+              "🕐 *स्लॉट:* {time_label}\n"
+              "👤 *मरीज़:* {patient_name}\n\n"
+              "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
     },
     "confirm_button": {"en": "Confirm", "hi": "पुष्टि करें"},
     "cancel_button": {"en": "Cancel", "hi": "रद्द करें"},
     "booking_confirmed": {
-        "en": "Your appointment is confirmed!\n\nDepartment: {department_name}\nDoctor: {doctor_name}\n"
-              "Slot: {slot_label}\n\nWe look forward to seeing you.",
-        "hi": "आपकी अपॉइंटमेंट पुष्टि हो गई है!\n\nविभाग: {department_name}\nडॉक्टर: {doctor_name}\n"
-              "स्लॉट: {slot_label}\n\nहम आपसे मिलने के लिए उत्सुक हैं।",
+        "en": "✅ *Consulting Booked successfully!*\n\n"
+              "Reference ID: *{reference_id}*\n"
+              "Your appointment is registered. We look forward to seeing you.",
+        "hi": "✅ *परामर्श सफलतापूर्वक बुक हो गया!*\n\n"
+              "संदर्भ आईडी: *{reference_id}*\n"
+              "आपकी अपॉइंटमेंट पंजीकृत हो गई है। हम आपसे मिलने के लिए उत्सुक हैं।",
     },
     "booking_not_confirmed": {
         "en": "Okay, I've cancelled this booking. Send any message to start over.",

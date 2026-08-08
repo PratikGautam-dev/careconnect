@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
@@ -91,9 +91,7 @@ export default function PortalMessagesPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="messages" />
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="messages">
         <h1 className="text-display mb-space-5">Messages</h1>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
@@ -218,7 +216,6 @@ export default function PortalMessagesPage() {
             </Card>
           </div>
         )}
-      </main>
-    </div>
+    </PortalShell>
   );
 }

@@ -109,7 +109,7 @@ async def test_idle_faq_tap_replies_with_faq_text(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_slot_menu_capped_to_whatsapp_list_limit(hospital_id):
+async def test_date_and_time_menus_capped_to_whatsapp_list_limit(hospital_id):
     """Live-found bug: a doctor whose working hours/slot duration generate
     more than Meta's 10-row WhatsApp list limit (e.g. a wide shift with a
     short slot duration -- easily 100+ slots over the 14-day window) used to
@@ -117,28 +117,51 @@ async def test_slot_menu_capped_to_whatsapp_list_limit(hospital_id):
     request, core/whatsapp.py logs and swallows it) -- the patient saw
     nothing at all after tapping the doctor. core/booking_flow.py's
     _cap_rows() now caps every send_list() call site to the soonest
-    _MAX_LIST_ROWS slots instead of sending the full (potentially huge) list."""
+    _MAX_LIST_ROWS rows instead of sending the full (potentially huge) list --
+    Section 12.12 split this doctor's overflow into TWO caps to verify: the
+    date list (this doctor works every weekday across the 14-day window, so
+    easily >10 distinct dates) and, independently, the time list for any
+    single one of those dates (8 hours at a 10-minute slot duration is 48
+    times in one day alone)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     department = db.get_departments(hospital_id)[0]
     doctor = db.create_doctor(
         hospital_id, department["id"], "Dr. Overbooked",
-        working_days=["Mon", "Tue", "Wed", "Thu", "Fri"],
+        # All 7 days, not just weekdays: _SLOT_DAYS_AHEAD's 14-day window is
+        # EXACTLY 10 weekdays (two full weeks), which wouldn't exceed the cap
+        # being tested here at all -- every day of the week guarantees >10
+        # distinct dates.
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         working_hours=["09:00-17:00"],
         slot_duration_minutes=10,
     )
     all_slots = db.get_slots(hospital_id, doctor["id"])
-    assert len(all_slots) > _MAX_LIST_ROWS  # sanity check this doctor actually reproduces the bug's precondition
+    distinct_dates = []
+    for s in all_slots:
+        if s["date"] not in distinct_dates:
+            distinct_dates.append(s["date"])
+    assert len(distinct_dates) > _MAX_LIST_ROWS  # sanity check the date-cap precondition
+    first_date_slots = [s for s in all_slots if s["date"] == distinct_dates[0]]
+    assert len(first_date_slots) > _MAX_LIST_ROWS  # sanity check the time-cap precondition
 
     sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": department["id"], "department_name": department["name"]})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor["id"]))
 
+    # Date list: capped to the soonest 10 distinct dates.
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    rows = kwargs["sections"][0]["rows"]
-    assert len(rows) == _MAX_LIST_ROWS
-    # The soonest slots, not an arbitrary subset.
-    assert {r["id"] for r in rows} == {s["id"] for s in all_slots[:_MAX_LIST_ROWS]}
+    date_rows = kwargs["sections"][0]["rows"]
+    assert len(date_rows) == _MAX_LIST_ROWS
+    assert {r["id"] for r in date_rows} == set(distinct_dates[:_MAX_LIST_ROWS])
+
+    # Time list for the soonest date: independently capped to 10.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(distinct_dates[0]))
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    time_rows = kwargs["sections"][0]["rows"]
+    assert len(time_rows) == _MAX_LIST_ROWS
+    assert {r["id"] for r in time_rows} == {s["id"] for s in first_date_slots[:_MAX_LIST_ROWS]}
 
 
 @pytest.mark.asyncio
@@ -149,7 +172,7 @@ async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
     choose from the list" until the 30-minute session timeout."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+    sessions.set(hospital_id, PHONE, "AWAITING_DATE", {
         "department_id": "cardiology", "department_name": "Cardiology",
         "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
     })
@@ -171,7 +194,7 @@ async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_i
     from the list" re-prompt, unchanged."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+    sessions.set(hospital_id, PHONE, "AWAITING_DATE", {
         "department_id": "cardiology", "department_name": "Cardiology",
         "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
     })
@@ -179,11 +202,15 @@ async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_i
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("whatever"))
 
     assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_SLOT"
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
 
 
 @pytest.mark.asyncio
 async def test_full_happy_path_through_confirmation(hospital_id):
+    """Section 12.12's exact reference-screenshot sequence: department ->
+    doctor (inline "You have selected Dr. X" + date list) -> date -> time ->
+    patient name (first-time patient, no age step) -> structured confirmation
+    card -> success message with a generated reference_id."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
@@ -198,28 +225,57 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert session["context"]["department_id"] == "cardiology"
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
 
-    # Pick a doctor
+    # Pick a doctor -> inline confirmation line + date list
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_SLOT"
+    assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
-    slot_id = db.get_slots(hospital_id, doctor_id)[0]["id"]
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert kwargs["body_text"].startswith("You have selected Dr. ")
+    assert "consulting date" in kwargs["body_text"]
+    all_slots = db.get_slots(hospital_id, doctor_id)
+    date_str = all_slots[0]["date"]
 
-    # Pick a slot
-    slot = db.find_slot(hospital_id, doctor_id, slot_id)
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot_id))
+    # Pick a date -> time list
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_TIME_SLOT"
+    assert session["context"]["date"] == date_str
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert kwargs["body_text"] == "Please select a preferred consulting time slot:"
+
+    # Pick a time -- a first-time patient (no name on file) is asked for a
+    # name before confirmation (no age step, Section 12.12).
+    slot = [s for s in all_slots if s["date"] == date_str][0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_PATIENT_NAME"
+    assert session["context"]["slot_id"] == slot["id"]
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "full name" in kwargs["text"].lower()
+
+    # Give a name -> structured confirmation card
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_CONFIRMATION"
-    assert session["context"]["slot_id"] == slot_id
+    assert session["context"]["patient_name"] == "Ravi Kumar"
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {"confirm", "cancel"}
+    assert "*Confirm Booking Details:*" in kwargs["body_text"]
+    assert "🏥 *Dept:* Cardiology" in kwargs["body_text"]
+    assert "👤 *Patient:* Ravi Kumar" in kwargs["body_text"]
 
-    # Confirm -> booked, resets to IDLE
+    # Confirm -> booked, resets to IDLE, structured success message with a
+    # generated reference_id.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
     kind, kwargs = wa.sent[-1]
     assert kind == "text"
-    assert "confirmed" in kwargs["text"].lower()
+    assert "booked successfully" in kwargs["text"].lower()
+    assert "Reference ID: *apt_" in kwargs["text"]
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
     # And it should have written an appointment record (db/repository.py)
@@ -230,6 +286,89 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert appt.department_id == "cardiology"
     assert appt.doctor_id == doctor_id
     assert appt.scheduled_at.isoformat() == f"{slot['date']}T{slot['time']}:00"
+    assert appt.reference_id is not None and appt.reference_id.startswith("apt_")
+    assert f"Reference ID: *{appt.reference_id}*" in kwargs["text"]
+
+    # ...and saved the patient's name (Section 12.11's other half; age is no
+    # longer collected via WhatsApp as of Section 12.12).
+    patient = db.get_patient_by_phone(hospital_id, PHONE)
+    assert patient["name"] == "Ravi Kumar"
+
+
+@pytest.mark.asyncio
+async def test_returning_patient_with_name_on_file_skips_straight_to_confirmation(hospital_id):
+    """A patient who's already booked once (name on file) is never re-asked
+    on a later booking -- their existing name is still shown on the
+    confirmation card, even though they weren't asked for it this time."""
+    import db.connection as db_connection
+    from db.repository import _upsert_patient
+    _upsert_patient(db_connection.get_connection(), hospital_id, PHONE, "Priya Shah", 29)
+    db_connection.get_connection().commit()
+
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    department = db.get_departments(hospital_id)[0]
+    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    sessions.set(hospital_id, PHONE, "AWAITING_TIME_SLOT", {
+        "department_id": department["id"], "department_name": department["name"],
+        "doctor_id": doctor_id, "doctor_name": "Dr. X",
+        "date": slot["date"], "date_label": "Sat, Aug 8",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"  # not AWAITING_PATIENT_NAME
+    assert session["context"]["patient_name"] == "Priya Shah"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_patient_name_matching_a_reset_keyword_is_accepted_as_the_name(hospital_id):
+    """Live-found bug: AWAITING_PATIENT_NAME is the one state in this whole
+    flow that accepts arbitrary free text as a real value, not a menu choice
+    -- someone testing the bot (or, in principle, a real patient literally
+    named "Hi") typing "hi" as the patient name used to trip the GLOBAL
+    reset-keyword short-circuit before this state's own handler ever ran,
+    silently bouncing them back to the main menu instead of accepting the
+    name and proceeding to confirmation."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {
+        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao",
+        "date_label": "Sat, Aug 8", "slot_date": "2026-08-08", "slot_time": "10:00",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"  # not bounced to IDLE
+    assert session["context"]["patient_name"] == "hi"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "👤 *Patient:* hi" in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_patient_name_free_text_validation(hospital_id):
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {"slot_id": "x"})
+
+    # Empty/whitespace-only text re-prompts instead of accepting a blank name.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("   "))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    assert "valid name" in wa.sent[0][1]["text"].lower()
+
+    # A valid name proceeds straight to confirmation -- no age step
+    # (Section 12.12 dropped the separate AWAITING_PATIENT_AGE state).
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["context"]["patient_name"] == "Asha Rao"
 
 
 @pytest.mark.asyncio
@@ -279,7 +418,7 @@ async def test_unrecognized_tap_id_in_awaiting_doctor_reprompts_same_state(hospi
 async def test_expired_session_resets_to_idle_instead_of_resuming(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore(timeout_seconds=0)
-    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {"doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao"})
+    sessions.set(hospital_id, PHONE, "AWAITING_DATE", {"doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao"})
     import time
     time.sleep(0.01)  # ensure the 0-second timeout has definitely elapsed
 
