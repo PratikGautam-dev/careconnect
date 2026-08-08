@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DAAP CareConnect — Frontend
 
-## Getting Started
+The Next.js app for [DAAP CareConnect](../README.md): the public landing page, the guided hospital-onboarding wizard, the hospital-staff booking portal, and the platform-admin tenant pages. Talks to the FastAPI backend (`../core/main.py` and friends) entirely over JSON — `portal_api.py` for the staff portal, `admin/onboarding_api.py` for onboarding, `admin/tenants_api.py` for platform admin.
 
-First, run the development server:
+Built with Next.js 16 (App Router) / React 19 / TypeScript / Tailwind v4.
+
+## Getting started
+
+From the repo root, get the backend running first (see the [root README](../README.md#quick-start)) — the frontend expects it at `http://localhost:8000` by default. Then:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Point at a different backend by setting `NEXT_PUBLIC_API_BASE_URL` (see `.env.local`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Pages
 
-## Learn More
+| Route | What it is |
+|---|---|
+| `/` | Public landing page |
+| `/admin/onboard-hospital` | Guided multi-step wizard for onboarding a new hospital (WhatsApp setup, departments/doctors, feature selection) |
+| `/admin/tenants`, `/admin/edit-tenant/[id]` | Platform-admin tenant list/edit, gated by `TENANTS_ADMIN_SECRET` — separate credential from onboarding's `ADMIN_SECRET` |
+| `/portal/login` | Hospital-staff login |
+| `/portal/dashboard` | Stat tiles, weekly trend, department breakdown, recent activity |
+| `/portal/appointments` | List + cancel (with an optional patient-facing message) |
+| `/portal/doctors` | Add/manage doctors and departments — schedule, breaks, quotas, leave, CSV bulk import |
+| `/portal/patients`, `/portal/patients/[id]` | Patient directory + record (visit history, notes, document upload sent straight to the patient's WhatsApp chat) |
+| `/portal/messages` | The human-handoff inbox — reply to a patient who escalated from the bot |
+| `/portal/new-booking` | Staff-created bookings, through the exact same connector path a WhatsApp patient's booking uses |
+| `/portal/settings` | Self-serve bot customization: menu labels, closing message, business hours, default language, session timeout |
 
-To learn more about Next.js, take a look at the following resources:
+## Design system
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`src/app/globals.css` defines the token set (brand/clay color scales, an 8px spacing scale under its own Tailwind namespace, typography, shadows) — extend it there rather than hardcoding one-off values. Shared primitives live in `src/components/ui/` (`Button`, `Card`, `Badge`, `Input`/`Field`, `Checkbox`, step rails). Icons via `lucide-react`; charts (dashboard) via `recharts`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Testing
 
-## Deploy on Vercel
+`playwright` is available for end-to-end smoke testing against a running dev server — there's no fixed test suite here yet; the backend's `pytest` suite (repo root) is what CI runs. See the root README's [Testing](../README.md#testing) section.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Building for production
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run build
+npm start
+```
+
+Deploys to [Vercel](https://vercel.com/) — see the root README's [Deploy](../README.md#deploy) section for the required environment variables (`NEXT_PUBLIC_API_BASE_URL` here, `FRONTEND_ORIGIN` on the backend).

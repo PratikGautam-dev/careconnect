@@ -1,11 +1,11 @@
-<h1 align="center">WhatsApp AI Receptionist</h1>
+<h1 align="center">DAAP CareConnect</h1>
 
-**Your clients are messaging you on WhatsApp anyway. This bot answers them.**
+**A WhatsApp appointment-booking receptionist for hospitals and clinics — menu-driven, multi-tenant, self-serve.**
 
-Service businesses -- dentists, nutritionists, physiotherapists, salons -- lose bookings because nobody picks up the phone at 11pm. Clients message on WhatsApp, get no reply, and book elsewhere. The AI receptionist handles the conversation, checks real-time availability, and books directly into Google Calendar. No app to install, no portal to learn. Just WhatsApp.
+A hospital's patients book, reschedule, cancel, and get reminders entirely inside WhatsApp — no app to install. Staff manage everything (doctors, schedules, bookings, patient records, and the bot's own behavior) from a web portal. New hospitals onboard themselves through a guided wizard; nobody edits config files or touches code to add a tenant.
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue)
-![Tests](https://github.com/martin-minghetti/whatsapp-ai-receptionist/actions/workflows/tests.yml/badge.svg)
+![Tests](https://github.com/PratikGautam-dev/whatsapp-ai-receptionist/actions/workflows/tests.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -14,77 +14,73 @@ Service businesses -- dentists, nutritionists, physiotherapists, salons -- lose 
 
 | Capability | How |
 |---|---|
-| **Conversational booking** | Natural language via WhatsApp, powered by Claude |
-| **Real-time availability** | Google Calendar integration with slot locking |
-| **Full lifecycle** | Create, cancel, and modify appointments |
-| **Voice messages** | Audio transcribed via OpenAI Whisper |
-| **Smart dates** | "tomorrow", "next Wednesday", "next week" resolved to real dates |
-| **Reminders** | Automated WhatsApp messages 24h before appointments |
-| **Payments** | Optional Mercado Pago integration with checkout links |
-| **Multi-client ready** | YAML config + knowledge base per business, no code changes |
-| **Resilient state** | Redis in production, in-memory fallback for development |
+| **Menu-driven booking** | Department → doctor → date → time → patient name → confirm, entirely via WhatsApp interactive lists/buttons — no LLM in the loop, so it's deterministic and free per conversation |
+| **Reschedule & cancel** | Same double-booking-safe path real bookings use, patient-initiated from WhatsApp |
+| **English / Hindi** | Session-level language picker; a hospital can also set a default language or skip the picker entirely for a single-language deployment |
+| **Reminders** | WhatsApp reminders at hospital-configurable offsets before an appointment, triggered by an external cron hitting `/internal/send-reminders` |
+| **FAQ bot** | A separate lightweight flow for hospital-authored Q&A, independent of the booking state machine |
+| **Human handoff** | A patient can escalate to a real person; staff see and reply to the queue from the portal |
+| **Multi-tenant from day one** | Every table, session, and connector call is scoped by `hospital_id` — one deployment serves many hospitals, each with its own WhatsApp number, credentials, and settings |
+| **Self-serve onboarding** | A guided wizard walks a new hospital through Meta setup, WhatsApp credentials, departments/doctors, and feature selection — no code changes, no manual DB edits |
+| **Self-serve customization** | Hospitals control their own menu labels, closing message, business-hours text, default language, and session timeout from `/portal/settings` |
+| **Staff portal** | Dashboard, appointments, doctors/schedules (breaks, quotas, leave), patient records (visit history, notes, document upload sent straight to the patient's WhatsApp chat), and the message-handoff inbox |
+| **Resilient state** | Redis-backed session/history/rate-limiting with an automatic in-memory fallback — runs with zero extra infrastructure locally |
+| **Tiered data access** | A fixed connector interface (`connectors.py`) abstracts "where booking data lives" — Tier 1 (this app's own Postgres) is fully built; Tiers 2/3 (a hospital's existing system) are a defined extension point, not built speculatively ahead of a real need |
 
----
-
-## Screenshots
-
-### Booking flow
-A client books a dental cleaning in natural language. The bot checks real-time availability, presents open slots, and confirms the appointment in Google Calendar.
-
-![Booking flow](public/screenshots/booking-flow.png)
-
-### Cancellation flow
-The bot finds the existing appointment, checks the cancellation policy (24h rule), and cancels with no fee.
-
-![Cancellation flow](public/screenshots/cancel-flow.png)
+**Deliberately not here:** no AI/LLM anywhere in the booking flow (a fixed, auditable state machine instead — see [Spec.md](Spec.md) for the reasoning), no payment collection over WhatsApp, no Google Calendar dependency (appointments live in this app's own database).
 
 ---
 
 ## How it works
 
 ```
-Client sends WhatsApp message
+Patient's WhatsApp message
         │
         ▼
-┌─────────────────┐
-│  FastAPI webhook │ ◄── validates HMAC signature
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐     ┌──────────────┐
-│   Claude AI     │ ◄───│  Knowledge   │
-│  (conversation) │     │  base + config│
-└────────┬────────┘     └──────────────┘
-         │
-         │ extracts structured intent
-         ▼
-   ┌─────┴──────┐
-   │            │
-   ▼            ▼
-┌──────┐  ┌──────────┐
-│ Book │  │ Cancel/  │
-│      │  │ Modify   │
-└──┬───┘  └────┬─────┘
-   │           │
-   ▼           ▼
-┌─────────────────┐
-│ Google Calendar  │ ◄── real-time availability check
-└────────┬────────┘
-         │
-         ▼
-   Confirmation via WhatsApp
+┌────────────────────┐
+│  FastAPI webhook    │  core/main.py — validates the per-hospital HMAC signature,
+│  (core/main.py)     │  resolves which hospital owns this phone_number_id
+└─────────┬───────────┘
+          │
+          ▼
+┌────────────────────┐
+│   flows.py          │  the feature-toggle router: owns the top-level menu,
+│                     │  language selection, and reset-keyword handling
+└─────────┬───────────┘
+          │
+   ┌──────┴───────┬─────────────┐
+   ▼               ▼             ▼
+┌──────────┐  ┌──────────┐  ┌──────────────┐
+│ booking_ │  │ faq_flow │  │ view/cancel/ │
+│ flow.py  │  │  .py     │  │ handoff, etc │
+└────┬─────┘  └────┬─────┘  └──────┬───────┘
+     │             │                │
+     └─────────────┼────────────────┘
+                    ▼
+          ┌───────────────────┐
+          │  connectors.py     │  Tier 1/2/3 abstraction
+          └─────────┬──────────┘
+                     ▼
+          ┌───────────────────┐
+          │  db/repository.py  │  Postgres (Neon in production)
+          └───────────────────┘
+
+          Confirmation (with a generated reference ID) via WhatsApp
 ```
+
+The **staff portal** is a separate path: the Next.js frontend (`frontend/`) talks to `portal_api.py`'s JSON API, which reads/writes the exact same Postgres tables and goes through the exact same `connectors.py` booking path a WhatsApp patient uses — a staff-created booking and a patient-created booking are indistinguishable to the double-booking/quota logic.
 
 ---
 
 ## Design principles
 
-- **No frameworks for the sake of frameworks.** Plain FastAPI with direct Anthropic SDK calls. No LangChain, no LangGraph. The problem is solved by ~50 lines of direct API calls.
-- **Config-driven, not code-driven.** New clients are onboarded by editing `config.yaml` and `knowledge/client.txt`. No code changes, no admin panel.
-- **Works offline from Redis.** Every stateful component has a Redis backend and an in-memory fallback. Run locally with zero infrastructure.
-- **Dates are pre-calculated.** LLMs are bad at date math. The system prompt injects the next 5 available booking dates on every request. Zero date hallucination.
+- **No LLM in the booking path.** Every state sends a fixed WhatsApp list/button message with a closed set of options; a reply is either a valid tap or free text, which re-prompts. Deterministic, auditable, and free per conversation — see [Spec.md](Spec.md)'s non-goals for the full reasoning.
+- **Hospital-configurable, not code-configurable.** Onboarding a new tenant, changing a doctor's schedule, or renaming a menu item never requires a code change or a manual database edit — it's a form.
+- **Every query is tenant-scoped.** `hospital_id` is threaded through the session store, the database layer, and the connector interface everywhere — there's no code path that can read or write across tenants by accident.
+- **Works offline from Redis.** Session state, message history, and rate limiting all have a Redis backend and an automatic in-memory fallback — run the whole stack locally with just Postgres.
+- **Build the real thing once it exists, not speculatively.** The Tier 2/3 connector stubs raise a clear "not implemented yet" error rather than guessing at an external API shape before a real hospital on that tier exists.
 
-See [DECISIONS.md](DECISIONS.md) for the full rationale behind each technical choice.
+See [Spec.md](Spec.md) for the full build history, architecture decisions, and an up-to-date progress log — it's the actual source of truth this project is built against, updated as part of every feature, not written once and left stale.
 
 ---
 
@@ -93,7 +89,7 @@ See [DECISIONS.md](DECISIONS.md) for the full rationale behind each technical ch
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/martin-minghetti/whatsapp-ai-receptionist.git
+git clone https://github.com/PratikGautam-dev/whatsapp-ai-receptionist.git
 cd whatsapp-ai-receptionist
 python -m venv venv
 source venv/bin/activate      # Windows (PowerShell): venv\Scripts\Activate.ps1 -- Windows (Git Bash): source venv/Scripts/activate
@@ -104,21 +100,23 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your own values
 ```
 
-Required:
-- `ANTHROPIC_API_KEY` -- [Get one here](https://console.anthropic.com/)
-- `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_APP_SECRET` -- [Meta Developer Portal](https://developers.facebook.com/)
-- `WHATSAPP_VERIFY_TOKEN` -- any string you choose (must match webhook config)
+Required for the bot to start:
+- `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_APP_SECRET` — [Meta Developer Portal](https://developers.facebook.com/)
+- `WHATSAPP_VERIFY_TOKEN` — any string you choose (must match the webhook config in Meta's dashboard)
+- `INTERNAL_SECRET` — protects `/internal/send-reminders` (the cron-triggered reminder endpoint)
+- `ADMIN_SECRET` — gates onboarding a *new* hospital via the wizard
+- `TENANTS_ADMIN_SECRET` — gates the platform-wide tenant list/edit pages, deliberately separate from `ADMIN_SECRET` so a leaked onboarding secret can't also expose every existing tenant's stored credentials
+- `PORTAL_SECRET` — signs the hospital-staff portal's session token
 
-For booking (optional):
-- `GOOGLE_SERVICE_ACCOUNT_JSON` -- base64-encoded Google service account credentials
-- `GOOGLE_CALENDAR_ID` + `GOOGLE_CALENDAR_OWNER_EMAIL`
+Optional:
+- `REDIS_URL` — omit it and everything falls back to in-memory automatically (fine for local dev, not for a multi-process production deploy)
+- `S3_BUCKET` (+ `S3_REGION`/`S3_ENDPOINT_URL`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`) — patient document uploads (`core/storage.py`); omit them and uploads fall back to local disk storage, fine for dev
+- `FRONTEND_ORIGIN` — the deployed Next.js origin, added to CORS (defaults already include `localhost:3000` for local dev)
 
-Edit `config.yaml` with your business details and `knowledge/client.txt` with your knowledge base.
-
-To safely preview what's actually set in an env file without printing secret values, use `python scripts/show_env.py .env` rather than `cat`/`type` -- it redacts by variable name (fails closed: anything not explicitly known-safe is masked), not by guessing at what a secret's value looks like.
+To safely preview what's actually set in an env file without printing secret values, use `python scripts/show_env.py .env` rather than `cat`/`type` — it redacts by variable name (fails closed: anything not explicitly known-safe is masked), not by guessing at what a secret's value looks like.
 
 ### 3. Database
 
@@ -128,11 +126,11 @@ Local development runs against its own Postgres, never the real deployed databas
 docker compose up -d          # starts a local Postgres on localhost:5433 (data persists in a Docker volume)
 ```
 
-`.env`'s `DATABASE_URL` already points here by default (`postgresql://postgres:postgres@localhost:5433/whatsapp_dev`) -- the app creates its schema and seeds a default hospital automatically on first startup, no separate migration step needed.
+`.env`'s `DATABASE_URL` already points here by default (`postgresql://postgres:postgres@localhost:5433/whatsapp_dev`) — the app creates its schema and seeds a default hospital automatically on first startup, no separate migration step needed. If Docker isn't an option on your machine, any locally-installed Postgres (or a portable, non-Docker binary distribution) works too — just point `DATABASE_URL` at it.
 
-The real, deployed database's connection string lives in `.env.production` (gitignored, never loaded automatically -- `core/main.py` only reads `.env`). Use it only deliberately, e.g. `set -a; source .env.production; set +a` before a one-off command that specifically needs to touch real data. Never rename it to `.env` for routine local development.
+The real, deployed database's connection string lives in `.env.production` (gitignored, never loaded automatically — `core/main.py` only reads `.env`). Use it only deliberately, e.g. `set -a; source .env.production; set +a` before a one-off command that specifically needs to touch real data. Never rename it to `.env` for routine local development.
 
-### 4. Run
+### 4. Run the backend
 
 ```bash
 uvicorn core.main:app --reload
@@ -140,9 +138,19 @@ uvicorn core.main:app --reload
 
 (Windows, if the venv isn't activated: `venv\Scripts\uvicorn core.main:app --reload`)
 
-Serves at `http://127.0.0.1:8000` -- creates the schema and seeds a default hospital against whichever `DATABASE_URL` is active on first request (step 3's local Postgres by default).
+Serves at `http://127.0.0.1:8000` — creates the schema and seeds a default hospital against whichever `DATABASE_URL` is active on first request (step 3's local Postgres by default).
 
-### 5. Expose for WhatsApp
+### 5. Run the staff portal frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Serves at `http://localhost:3000`. See [frontend/README.md](frontend/README.md) for frontend-specific details.
+
+### 6. Expose the backend for WhatsApp
 
 Use [ngrok](https://ngrok.com/) for local development:
 
@@ -150,62 +158,31 @@ Use [ngrok](https://ngrok.com/) for local development:
 ngrok http 8000
 ```
 
-Set the webhook URL in [Meta Developer Portal](https://developers.facebook.com/) -> WhatsApp -> Configuration:
+Set the webhook URL in [Meta Developer Portal](https://developers.facebook.com/) → WhatsApp → Configuration:
 - Callback URL: `https://your-ngrok-url.ngrok.io/webhook`
 - Verify token: same as your `WHATSAPP_VERIFY_TOKEN`
 
----
+Then subscribe your app to the WhatsApp Business Account: `POST /{WABA_ID}/subscribed_apps`. Marking fields "Subscribed" in the dashboard alone is **not** sufficient — without this call, Meta logs the event internally but never calls your webhook.
 
-## Configuration
+### 7. Onboard your first hospital
 
-### config.yaml
-
-```yaml
-client:
-  name: "Dr. Smith - Dentist"
-  timezone: "America/New_York"
-
-modules:
-  booking: true      # Enable appointment scheduling
-  payments: false    # Enable Mercado Pago payments
-  reminders: true    # Enable 24h reminders
-
-booking:
-  business_hours:
-    start: "09:00"
-    end: "18:00"
-  services:
-    - name: "Cleaning"
-      duration_minutes: 30
-      price: 15000
-    - name: "Consultation"
-      duration_minutes: 45
-      price: 20000
-  locations:
-    - name: "Main Office"
-      address: "123 Main St"
-      days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
-```
-
-### knowledge/client.txt
-
-Free-text knowledge base about the business. The AI uses this to answer questions. Write it like you'd explain the business to a new receptionist.
+Visit `/admin/onboard-hospital` (served by the Next.js frontend) and walk through the wizard — it collects departments, doctors, WhatsApp credentials, and which features (booking, reschedule, cancel, FAQ, etc.) this hospital wants enabled. No manual database work required.
 
 ---
 
 ## Testing
 
 ```bash
-pytest tests/ -v
+pytest
 ```
 
-42 tests covering all modules -- webhook handling, AI intent extraction, calendar operations, payment flows, reminders, and configuration.
+499+ tests covering the booking/reschedule/cancel/FAQ state machines, multi-tenant isolation, the staff portal API, onboarding, patient records, rate limiting, and reminders. The suite needs a real Postgres to run against (`tests/conftest.py` provisions one automatically via [testcontainers](https://testcontainers.com/) if Docker is available, or set `TEST_DATABASE_URL` to point at any reachable Postgres instead — useful where Docker itself isn't available).
 
 ---
 
 ## Deploy
 
-### Railway (recommended)
+### Backend — Railway
 
 The repo includes `railway.toml` ready to go:
 
@@ -213,19 +190,20 @@ The repo includes `railway.toml` ready to go:
 railway up
 ```
 
-Set environment variables in Railway dashboard. Add a cron job for reminders:
+Set the same environment variables described in [Quick start](#2-configure) in the Railway dashboard (pointing `DATABASE_URL` at your real production Postgres, e.g. Neon). Add a cron job for reminders — this project has no in-process scheduler by design:
 ```
 curl -X POST https://your-app.railway.app/internal/send-reminders \
   -H "X-Internal-Secret: $INTERNAL_SECRET"
 ```
 
-### Other platforms
-
-Any platform that runs Python + FastAPI works. The app starts with:
-
+Any platform that runs Python + FastAPI works just as well; the app starts with:
 ```bash
 uvicorn core.main:app --host 0.0.0.0 --port $PORT
 ```
+
+### Frontend — Vercel
+
+The Next.js app in `frontend/` deploys standalone to [Vercel](https://vercel.com/) — set `NEXT_PUBLIC_API_BASE_URL` to your deployed backend's URL, and set `FRONTEND_ORIGIN` on the backend to the deployed frontend's URL so CORS allows it.
 
 ---
 
@@ -234,36 +212,42 @@ uvicorn core.main:app --host 0.0.0.0 --port $PORT
 ```
 whatsapp-ai-receptionist/
 ├── core/
-│   ├── main.py          # FastAPI app, webhook handlers, intent routing
-│   ├── ai.py            # Claude integration, system prompt, intent extraction
+│   ├── main.py          # FastAPI app, webhook handler, per-hospital routing, reminders trigger
+│   ├── booking_flow.py  # the booking/reschedule/cancel state machine (no LLM)
+│   ├── history.py       # session state + message history (Redis / in-memory)
+│   ├── translations.py  # English/Hindi string lookup for the bot's own UI text
+│   ├── rate_limit.py     # login/secret rate limiting (Redis / in-memory)
+│   ├── storage.py       # patient document storage (S3/R2-compatible, local-disk fallback)
 │   ├── whatsapp.py      # WhatsApp Cloud API client
-│   ├── transcribe.py    # Whisper audio transcription
-│   ├── history.py       # Conversation history (Redis / in-memory)
-│   └── phone.py         # Phone number normalization
-├── config/
-│   └── loader.py        # YAML config with ${ENV_VAR} substitution
-├── modules/
-│   ├── booking/
-│   │   └── calendar.py  # Google Calendar with slot locking
-│   └── payments/
-│       └── mercadopago.py  # Mercado Pago checkout + webhook
+│   └── phone.py         # phone number validation
+├── flows.py              # the feature-toggle router — the real conversation entry point
+├── faq_flow.py           # the FAQ sub-flow
+├── connectors.py         # Tier 1/2/3 data-access abstraction
+├── db/
+│   ├── schema.sql        # idempotent schema (safe to re-run against an existing database)
+│   ├── repository.py     # the only place raw SQL lives
+│   └── init_db.py        # schema + seed, run automatically on startup
+├── admin/
+│   ├── onboarding.py      # the guided onboarding wizard (HTML form route)
+│   ├── onboarding_api.py  # the same wizard's JSON API, used by the Next.js frontend
+│   └── tenants_api.py     # platform-admin tenant list/edit
+├── portal.py              # hospital-staff portal (legacy server-rendered HTML)
+├── portal_api.py          # the same portal's JSON API, used by the Next.js frontend
 ├── reminders/
-│   └── scheduler.py     # 24h reminder sender
-├── knowledge/
-│   └── client.txt       # Business knowledge base
-├── config.yaml          # Per-client configuration
-└── tests/               # 42 tests, full coverage
+│   └── scheduler.py       # sends due reminders, called via /internal/send-reminders
+├── frontend/               # Next.js 16 app — landing page, onboarding wizard, staff portal
+└── tests/                  # pytest suite, real Postgres required
 ```
 
 ---
 
 ## Contributing
 
-Contributions are welcome. The codebase is intentionally small and direct -- please keep it that way.
+Contributions are welcome. The codebase favors small, direct, auditable code over frameworks-for-the-sake-of-frameworks — please keep it that way.
 
 1. Fork the repo
 2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Make sure tests pass (`pytest tests/ -v`)
+3. Make sure tests pass (`pytest`)
 4. Open a pull request
 
 No issue template, no CLA. Just describe what you changed and why.
@@ -272,8 +256,7 @@ No issue template, no CLA. Just describe what you changed and why.
 
 ## Community
 
-- **Issues**: [GitHub Issues](https://github.com/martin-minghetti/whatsapp-ai-receptionist/issues) -- bug reports, feature requests, questions
-- **Discussions**: [GitHub Discussions](https://github.com/martin-minghetti/whatsapp-ai-receptionist/discussions) -- ideas, show & tell, general chat
+- **Issues**: [GitHub Issues](https://github.com/PratikGautam-dev/whatsapp-ai-receptionist/issues) — bug reports, feature requests, questions
 
 ---
 
