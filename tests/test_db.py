@@ -384,3 +384,44 @@ def test_init_db_on_connection_is_idempotent(hospital_id):
         "SELECT COUNT(*) AS c FROM departments WHERE hospital_id = ?", (hospital_id,)
     ).fetchone()["c"]
     assert dept_count == 4  # not doubled by the second call
+
+
+# --- Connection resilience (Neon closes idle connections server-side) ---
+
+def test_execute_reconnects_when_connection_already_closed(hospital_id):
+    """Covers db/connection.py's pre-check path: if .closed is already known
+    True (e.g. a previous statement on this connection already discovered it
+    was dead) the next query must transparently reconnect, not raise."""
+    conn = db_connection.get_connection()
+    conn._conn.close()
+    assert conn._conn.closed
+
+    depts = db.get_departments(hospital_id)
+
+    assert len(depts) == 4
+    assert not conn._conn.closed  # a fresh connection is in place afterward
+
+
+def test_execute_reconnects_when_connection_dies_server_side_mid_session(hospital_id):
+    """Covers db/connection.py's catch-and-retry path -- the one that actually
+    matters for Neon's real failure mode. Unlike an explicit .close(), a
+    server-side idle-close (or here, pg_terminate_backend from a second
+    connection, standing in for it) leaves psycopg2's .closed attribute at 0
+    until the client actually tries to use the connection and the query
+    itself fails -- so this specifically proves the retry-after-exception
+    path, not just the "already known closed" pre-check."""
+    import psycopg2
+
+    conn = db_connection.get_connection()
+    backend_pid = conn.execute("SELECT pg_backend_pid() AS pid").fetchone()["pid"]
+
+    killer = psycopg2.connect(conn._dsn)
+    killer.autocommit = True
+    killer.cursor().execute("SELECT pg_terminate_backend(%s)", (backend_pid,))
+    killer.close()
+
+    assert conn._conn.closed == 0  # not yet detected -- this is the point
+
+    depts = db.get_departments(hospital_id)  # must reconnect transparently, not raise
+
+    assert len(depts) == 4

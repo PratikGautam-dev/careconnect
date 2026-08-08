@@ -150,6 +150,46 @@ class WhatsAppClient:
         else:
             logger.error("WhatsApp send_buttons error %s: %s", resp.status_code, resp.text)
 
+    async def send_document(self, to: str, document_url: str, filename: str, caption: str | None = None) -> bool:
+        """Section 12.10: the portal's "Send to WhatsApp" action on a patient
+        document. `document_url` must be a URL Meta's servers can fetch
+        (an S3/R2 presigned URL in production; core/storage.py's
+        LocalFileStorage signed URLs are relative/localhost-only and can't
+        actually be fetched by Meta -- fine for local dev/testing the rest of
+        this feature, a real limitation only once this needs to send for
+        real, same as every other "swap for real infra before production"
+        note elsewhere in this codebase).
+
+        Unlike send_text/send_list/send_buttons above, this returns a bool
+        rather than always None -- the portal needs to show staff a real
+        "failed to send" error for this one (uploading a document and
+        silently failing to deliver it is a worse outcome than a patient
+        never getting a menu prompt), so swallowing the result the same way
+        those do isn't the right call here specifically.
+        """
+        to = normalize_phone(to)
+        url = f"{WA_API_BASE}/{self._phone_number_id}/messages"
+        document: dict = {"link": document_url, "filename": filename}
+        if caption:
+            document["caption"] = caption
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "document",
+            "document": document,
+        }
+        logger.info("WhatsApp send_document: POSTing to %s for %s", url, to)
+        try:
+            resp = await self._client.post(url, json=payload, headers=self._headers)
+        except httpx.HTTPError:
+            logger.exception("WhatsApp send_document request to %s failed (network/transport error)", url)
+            return False
+        if resp.is_success:
+            logger.info("WhatsApp send_document: %s OK for %s", resp.status_code, to)
+            return True
+        logger.error("WhatsApp send_document error %s: %s", resp.status_code, resp.text)
+        return False
+
 
 def parse_incoming_message(message: dict) -> dict:
     """

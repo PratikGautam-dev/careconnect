@@ -23,9 +23,26 @@ client = TestClient(app)
 
 
 def test_health_check():
-    resp = client.get("/")
+    resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+def test_landing_page_renders():
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    # Onboarding is the client-facing signup flow (ADMIN_SECRET only gates
+    # its final submit step, as basic protection -- not meant to keep real
+    # prospective hospitals from finding it), so it's a public CTA here.
+    assert 'href="/admin/onboard-hospital"' in resp.text
+    assert 'href="/portal/login"' in resp.text
+    # /admin/tenants (every hospital on the whole platform) is different --
+    # purely internal ops tooling, must not be linked from the public
+    # homepage. (Checking for an actual href, not a bare substring: the
+    # shared admin/theme.py stylesheet's CSS comments mention this route
+    # name too, which is harmless and not what this assertion guards against.)
+    assert 'href="/admin/tenants"' not in resp.text
 
 
 def test_webhook_verification():
@@ -134,6 +151,61 @@ def test_reaction_message_type_ignored_gracefully(httpx_mock):
     resp = client.post("/webhook", content=body,
                         headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
     assert resp.status_code == 200
+
+
+# --- SPEC Section 12.9's phone-validation follow-up: a webhook message whose
+# `from` field is empty/whitespace-only/digit-free must be ignored gracefully
+# (200, same "malformed payload" treatment as the section above), never
+# processed as a real booking attempt. Not a realistic threat in practice --
+# genuine Meta traffic always populates `from` with the sender's real
+# WhatsApp ID, and this point in the handler is only reached AFTER the HMAC
+# signature check passes, so forging a payload this deep already requires the
+# hospital's own app_secret -- this is cheap defense-in-depth for an
+# unexpected/malformed payload shape, not a response to a live attack vector. ---
+
+def _webhook_body_with_phone(from_phone) -> bytes:
+    return json.dumps({
+        "entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "123"},
+            "messages": [{"from": from_phone, "type": "text", "text": {"body": "hi"}}],
+        }}]}]
+    }).encode()
+
+
+def test_webhook_empty_phone_ignored_no_send_attempted(httpx_mock, hospital_id):
+    body = _webhook_body_with_phone("")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0
+
+
+def test_webhook_whitespace_only_phone_ignored_no_send_attempted(httpx_mock, hospital_id):
+    body = _webhook_body_with_phone("   ")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0
+
+
+def test_webhook_digit_free_phone_ignored_no_send_attempted(httpx_mock, hospital_id):
+    body = _webhook_body_with_phone("not-a-phone-number!!")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0
+
+
+def test_webhook_normal_phone_still_processed_unaffected(httpx_mock, hospital_id):
+    """Confirms the new check doesn't accidentally reject real phone numbers
+    -- a normal WhatsApp-format phone still reaches the booking flow and
+    gets a reply, exactly as before this change."""
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", json={"messages": [{"id": "wamid.ok"}]})
+    body = _webhook_body_with_phone("919999999996")
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": _sign(body), "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 1
 
 
 # --- Phase 8 item 6: a failed outbound send must not crash the webhook handler ---

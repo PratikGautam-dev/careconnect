@@ -321,3 +321,65 @@ async def test_reminders_endpoint_sends_separately_to_each_active_hospital(hospi
     urls = {str(r.url) for r in requests}
     assert "https://graph.facebook.com/v22.0/123/messages" in urls
     assert "https://graph.facebook.com/v22.0/TEST_HOSPITAL_2_PHONE_ID/messages" in urls
+
+
+# --- Connector dispatch (SPEC Section 12.6.2) at the webhook/reminder boundary ---
+
+def _set_data_tier(hospital_id: int, tier: str) -> None:
+    import db.connection as db_connection
+    conn = db_connection.get_connection()
+    conn.execute("UPDATE hospitals SET data_tier = ? WHERE id = ?", (tier, hospital_id))
+    conn.commit()
+
+
+def test_webhook_message_to_a_tier2_hospital_acks_200_without_crashing(second_hospital_id, httpx_mock):
+    """A hospital configured for a tier with no real connector yet (Tier 2/3,
+    SPEC Section 12.6) must not turn an incoming webhook into a 500 -- same
+    "always ack Meta with 200" pattern as every other failure mode in
+    core/main.py's webhook handler.
+
+    A plain first "hi" only reaches the static main menu (STATE_IDLE never
+    touches the connector at all), so this puts the session in
+    AWAITING_DEPARTMENT first -- the tap that follows calls
+    connector.get_departments() as the very first thing it does, before any
+    send, so a ConnectorNotImplementedError here proves the "no crash" case
+    with zero sends attempted, not just "some earlier state happened to not
+    need the connector"."""
+    import core.main as m
+
+    _set_app_secret(second_hospital_id, "hospital-b-secret")
+    _set_data_tier(second_hospital_id, "tier2")
+    phone = "919999999993"
+    m.SESSIONS.set(second_hospital_id, phone, "AWAITING_DEPARTMENT", {})
+
+    body = json.dumps({
+        "entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "TEST_HOSPITAL_2_PHONE_ID"},
+            "messages": [{"from": phone, "type": "interactive",
+                          "interactive": {"type": "list_reply", "list_reply": {"id": "some_department", "title": ""}}}],
+        }}]}]
+    }).encode()
+    sig = "sha256=" + hmac.new(b"hospital-b-secret", body, hashlib.sha256).hexdigest()
+
+    resp = client.post("/webhook", content=body,
+                        headers={"X-Hub-Signature-256": sig, "Content-Type": "application/json"})
+
+    assert resp.status_code == 200
+    assert len(httpx_mock.get_requests()) == 0  # failed before any send was attempted
+
+
+@pytest.mark.asyncio
+async def test_reminders_endpoint_skips_a_tier2_hospital_without_failing_others(hospital_id, second_hospital_id, httpx_mock):
+    """One hospital with no working connector must not stop every other
+    hospital's reminders from sending (SPEC Section 12.6.2)."""
+    httpx_mock.add_response(url="https://graph.facebook.com/v22.0/123/messages", json={"messages": [{"id": "a"}]})
+    _set_data_tier(second_hospital_id, "tier2")
+    db.create_appointment(hospital_id, "111", "cardiology", "doc_card_1", datetime.now() + timedelta(hours=5))
+    db.create_appointment(second_hospital_id, "222", "t2_neurology", "t2_doc_neuro_1", datetime.now() + timedelta(hours=5))
+
+    resp = client.post("/internal/send-reminders", headers={"X-Internal-Secret": "internalsecret"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["by_hospital"]["Default Hospital"] == 1
+    assert "Test Hospital 2" not in body["by_hospital"]  # skipped, not crashed

@@ -19,6 +19,50 @@ from db.connection import get_connection, get_database_url
 _SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 
 
+def _backfill_enabled_features(conn) -> None:
+    """SPEC Section 14.5: one-time, idempotent backfill for any hospital row
+    with enabled_features still NULL (created before this column existed, or
+    seeded by seed.py's explicit column lists, which don't set it directly).
+    Only ever touches NULL rows, so re-running this on every startup is safe
+    and never overwrites a real tenant's own later choices. 'booking' rows
+    get EXACTLY the old flow_type='booking' main menu, item for item: Book
+    Appointment, Reschedule, Cancel, and the static "FAQ" button (which just
+    sent hospital-info text -- now the "hospital_info" feature) -- true
+    behavior parity, no new capability silently switched on for an existing
+    tenant. 'faq' rows get just ["faq"]; anything else (a flow_type this
+    migration doesn't recognize) gets an empty set rather than guessing."""
+    conn.execute(
+        "UPDATE hospitals SET enabled_features = ? "
+        "WHERE enabled_features IS NULL AND flow_type = 'booking'",
+        ('["booking","reschedule","cancel","hospital_info"]',),
+    )
+    conn.execute(
+        "UPDATE hospitals SET enabled_features = ? WHERE enabled_features IS NULL AND flow_type = 'faq'",
+        ('["faq"]',),
+    )
+    conn.execute("UPDATE hospitals SET enabled_features = '[]' WHERE enabled_features IS NULL")
+    conn.commit()
+
+
+def _backfill_patients(conn) -> None:
+    """SPEC Section 12.9: patients was always in Section 4's original data
+    model but never actually built until staff-side patient SEARCH (by name,
+    not just phone) needed somewhere to store one. Every distinct
+    (hospital_id, phone) pair already sitting in appointments gets a row here
+    (name NULL -- WhatsApp bookings never collected one) so existing patients
+    are searchable by phone immediately, without waiting for their next
+    booking to (re-)upsert them. ON CONFLICT DO NOTHING makes this a safe
+    no-op to re-run on every startup -- it only ever ADDS a missing row, never
+    touches one that already exists (so it can never clobber a name staff
+    already filled in)."""
+    conn.execute(
+        "INSERT INTO patients (hospital_id, phone) "
+        "SELECT DISTINCT hospital_id, phone FROM appointments "
+        "ON CONFLICT (hospital_id, phone) DO NOTHING"
+    )
+    conn.commit()
+
+
 def init_db_on_connection(conn) -> int:
     """Apply schema + seed data to an already-open connection. Used directly by
     tests (against an in-memory DB) and internally by init_db() below."""
@@ -36,6 +80,8 @@ def init_db_on_connection(conn) -> int:
         access_token=access_token, app_secret=app_secret,
     )
     conn.commit()
+    _backfill_enabled_features(conn)
+    _backfill_patients(conn)
     return hospital_id
 
 
