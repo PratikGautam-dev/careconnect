@@ -7,32 +7,44 @@ Designed to run on a fixed interval via an *external* trigger — POST
 than an in-process scheduler, matching SPEC Section 6's serverless-first infra
 choice (no long-running worker process to babysit).
 
-Reads from db/repository.py (SPEC Section 12.6 Tier 1 — a real SQLite database),
-scoped by hospital_id (Section 12.2) same as core/booking_flow.py.
+Reaches appointment data ONLY through the connector interface (SPEC Section
+12.6.2, connectors.py), never db/repository.py directly — same rule as
+core/booking_flow.py. `connector` defaults to a Tier 1 connector so every
+pre-existing caller (including the test suite) keeps working unchanged.
 """
 import logging
 
-import db.repository as db
+from connectors import Connector, Tier1Connector
 from core.whatsapp import WhatsAppClient
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_CONNECTOR = Tier1Connector()
 
-async def send_reminders(wa: WhatsAppClient, hospital_id: int, offsets_hours: list[float]) -> int:
+
+async def send_reminders(
+    wa: WhatsAppClient, hospital_id: int, offsets_hours: list[float], connector: Connector | None = None
+) -> int:
     """
     A hospital can configure multiple reminder offsets (SPEC Section 4's
     reminder_offsets_hours, e.g. [24, 1] for a 24h-before AND a 1h-before
     reminder) — each is its own independent pass: find appointments due for
     *that* offset that haven't had a reminder sent for it yet, message each
-    patient, and record it (db/repository.py:mark_reminded) so a repeat call
+    patient, and record it (connector.mark_reminder_sent) so a repeat call
     (e.g. the next hourly cron tick, or this same offset appearing twice in a
     misconfigured list) doesn't double-send.
+
+    connector (SPEC Section 12.6.2) is resolved once by core/main.py from the
+    hospital's stored data_tier and passed in here; defaults to a Tier 1
+    connector for backward compatibility with pre-existing callers/tests.
+
     Returns the total number of reminders sent across all offsets.
     """
+    connector = connector or _DEFAULT_CONNECTOR
     sent = 0
 
     for offset_hours in offsets_hours:
-        due = db.get_upcoming_appointments(hospital_id, offset_hours)
+        due = connector.get_upcoming_appointments(hospital_id, offset_hours=offset_hours)
 
         for appt in due:
             # NOTE: plain text reminder, for local dev/testing only. In production, any
@@ -48,7 +60,7 @@ async def send_reminders(wa: WhatsAppClient, hospital_id: int, offsets_hours: li
                 f"Message us here if you need to reschedule or cancel."
             )
             await wa.send_text(appt.phone, message)
-            db.mark_reminded(hospital_id, appt.id, offset_hours)
+            connector.mark_reminder_sent(hospital_id, appt.id, offset_hours)
             sent += 1
             logger.info("Reminder sent to %s for appointment %s (offset=%sh)", appt.phone, appt.id, offset_hours)
 

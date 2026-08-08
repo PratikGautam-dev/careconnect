@@ -96,7 +96,7 @@ See [DECISIONS.md](DECISIONS.md) for the full rationale behind each technical ch
 git clone https://github.com/martin-minghetti/whatsapp-ai-receptionist.git
 cd whatsapp-ai-receptionist
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate      # Windows (PowerShell): venv\Scripts\Activate.ps1 -- Windows (Git Bash): source venv/Scripts/activate
 pip install -r requirements.txt
 ```
 
@@ -118,13 +118,31 @@ For booking (optional):
 
 Edit `config.yaml` with your business details and `knowledge/client.txt` with your knowledge base.
 
-### 3. Run
+To safely preview what's actually set in an env file without printing secret values, use `python scripts/show_env.py .env` rather than `cat`/`type` -- it redacts by variable name (fails closed: anything not explicitly known-safe is masked), not by guessing at what a secret's value looks like.
+
+### 3. Database
+
+Local development runs against its own Postgres, never the real deployed database:
+
+```bash
+docker compose up -d          # starts a local Postgres on localhost:5433 (data persists in a Docker volume)
+```
+
+`.env`'s `DATABASE_URL` already points here by default (`postgresql://postgres:postgres@localhost:5433/whatsapp_dev`) -- the app creates its schema and seeds a default hospital automatically on first startup, no separate migration step needed.
+
+The real, deployed database's connection string lives in `.env.production` (gitignored, never loaded automatically -- `core/main.py` only reads `.env`). Use it only deliberately, e.g. `set -a; source .env.production; set +a` before a one-off command that specifically needs to touch real data. Never rename it to `.env` for routine local development.
+
+### 4. Run
 
 ```bash
 uvicorn core.main:app --reload
 ```
 
-### 4. Expose for WhatsApp
+(Windows, if the venv isn't activated: `venv\Scripts\uvicorn core.main:app --reload`)
+
+Serves at `http://127.0.0.1:8000` -- creates the schema and seeds a default hospital against whichever `DATABASE_URL` is active on first request (step 3's local Postgres by default).
+
+### 5. Expose for WhatsApp
 
 Use [ngrok](https://ngrok.com/) for local development:
 

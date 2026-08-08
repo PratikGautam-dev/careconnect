@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hospital onboarding — preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F7F5F0;
+    --card: #FFFFFF;
+    --ink: #26332E;
+    --ink-muted: #5B6B63;
+    --ink-faint: #8B968F;
+    --sage-deep: #2B4C43;
+    --sage-line: #D8DDD4;
+    --clay: #C9603C;
+    --clay-tint: #F4E2D9;
+    --success: #3E7A5D;
+    --success-tint: #DEEEE4;
+    --radius: 10px;
+    --font-display: 'Fraunces', serif;
+    --font-body: 'Inter', -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .shell {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 40px;
+  }
+  .brand {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .brand-mark {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: var(--sage-deep);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-family: var(--font-display); font-weight: 600; font-size: 15px;
+    flex-shrink: 0;
+  }
+  .brand-name { font-family: var(--font-display); font-weight: 500; font-size: 17px; color: var(--sage-deep); }
+  .brand-sub { color: var(--ink-faint); font-size: 13px; }
+
+  /* Intake rail */
+  .rail {
+    background: var(--card);
+    border: 1px solid var(--sage-line);
+    border-radius: 14px;
+    padding: 24px 20px;
+    align-self: start;
+    position: sticky;
+    top: 40px;
+  }
+  .rail-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+    margin: 0 0 18px;
+    font-weight: 600;
+  }
+  .rail-list { list-style: none; margin: 0; padding: 0; position: relative; }
+  .rail-item {
+    display: flex;
+    gap: 12px;
+    padding-bottom: 22px;
+    position: relative;
+  }
+  .rail-item::before {
+    content: '';
+    position: absolute;
+    left: 11px; top: 26px; bottom: 0;
+    width: 1px;
+    background: var(--sage-line);
+  }
+  .rail-item:last-child::before { display: none; }
+  .rail-item:last-child { padding-bottom: 0; }
+  .rail-dot {
+    width: 23px; height: 23px;
+    border-radius: 50%;
+    border: 1.5px solid var(--sage-line);
+    background: var(--paper);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: var(--ink-faint);
+    z-index: 1;
+  }
+  .rail-item.done .rail-dot {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+  }
+  .rail-item.active .rail-dot {
+    background: var(--clay);
+    border-color: var(--clay);
+    color: #fff;
+  }
+  .rail-label { font-size: 13.5px; color: var(--ink-faint); padding-top: 2px; }
+  .rail-item.active .rail-label { color: var(--ink); font-weight: 500; }
+  .rail-item.done .rail-label { color: var(--ink-muted); }
+
+  /* Main panel */
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--sage-line);
+    border-radius: 14px;
+    padding: 40px 44px;
+  }
+  .eyebrow {
+    font-size: 12px;
+    color: var(--clay);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    margin: 0 0 6px;
+  }
+  h1.step-title {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 26px;
+    margin: 0 0 10px;
+    color: var(--ink);
+  }
+  .step-desc {
+    color: var(--ink-muted);
+    margin: 0 0 28px;
+    max-width: 46ch;
+  }
+
+  .guide-box {
+    background: var(--paper);
+    border: 1px solid var(--sage-line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .guide-num {
+    font-family: var(--font-display);
+    color: var(--sage-deep);
+    font-size: 20px;
+    font-weight: 500;
+    flex-shrink: 0;
+    width: 24px;
+  }
+  .guide-text { flex: 1; }
+  .guide-text p { margin: 0 0 8px; font-size: 14px; }
+  .guide-text p:last-child { margin-bottom: 0; }
+  .ext-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--sage-deep);
+    font-weight: 500;
+    font-size: 13.5px;
+    text-decoration: none;
+    border-bottom: 1px solid var(--sage-deep);
+    padding-bottom: 1px;
+  }
+
+  label.field-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    margin: 18px 0 6px;
+  }
+  label.field-label:first-of-type { margin-top: 0; }
+  .field-hint { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0 0; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%;
+    font-family: var(--font-body);
+    font-size: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--sage-line);
+    border-radius: 8px;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--clay);
+    box-shadow: 0 0 0 3px var(--clay-tint);
+  }
+
+  .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .tier-card {
+    border: 1.5px solid var(--sage-line);
+    border-radius: var(--radius);
+    padding: 16px;
+    cursor: pointer;
+  }
+  .tier-card.selected { border-color: var(--clay); background: var(--clay-tint); }
+  .tier-title { font-weight: 600; font-size: 13.5px; margin: 0 0 4px; }
+  .tier-desc { font-size: 12.5px; color: var(--ink-muted); margin: 0; }
+  .tier-badge {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--success);
+    background: var(--success-tint);
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-bottom: 6px;
+  }
+
+  .btn-row { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--sage-line); }
+  button.primary {
+    background: var(--sage-deep);
+    color: #fff;
+    border: none;
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 14px;
+    padding: 11px 22px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button.ghost {
+    background: transparent;
+    color: var(--ink-muted);
+    border: 1px solid var(--sage-line);
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 14px;
+    padding: 11px 22px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .doctor-card {
+    border: 1px solid var(--sage-line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .doctor-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .add-doctor {
+    background: none;
+    border: 1.5px dashed var(--sage-line);
+    color: var(--sage-deep);
+    font-weight: 500;
+    font-size: 13.5px;
+    padding: 10px;
+    width: 100%;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="brand">
+    <div class="brand-mark">D</div>
+    <span class="brand-name">DAAP Engage</span>
+    <span class="brand-sub">— Hospital onboarding</span>
+  </div>
+
+  <nav class="rail">
+    <p class="rail-title">Intake checklist</p>
+    <ul class="rail-list">
+      <li class="rail-item done"><span class="rail-dot">✓</span><span class="rail-label">Create Meta Business Account</span></li>
+      <li class="rail-item done"><span class="rail-dot">✓</span><span class="rail-label">Set up WhatsApp app</span></li>
+      <li class="rail-item done"><span class="rail-dot">✓</span><span class="rail-label">Verify business &amp; add payment</span></li>
+      <li class="rail-item active"><span class="rail-dot">4</span><span class="rail-label">Generate permanent token</span></li>
+      <li class="rail-item"><span class="rail-dot">5</span><span class="rail-label">Connect your number</span></li>
+      <li class="rail-item"><span class="rail-dot">6</span><span class="rail-label">Choose data setup</span></li>
+      <li class="rail-item"><span class="rail-dot">7</span><span class="rail-label">Add departments &amp; doctors</span></li>
+      <li class="rail-item"><span class="rail-dot">8</span><span class="rail-label">Review &amp; go live</span></li>
+    </ul>
+  </nav>
+
+  <main class="panel">
+    <p class="eyebrow">Step 4 of 8</p>
+    <h1 class="step-title">Generate a permanent access token</h1>
+    <p class="step-desc">This keeps your hospital connected without needing to reconnect every day. It only takes a minute inside Meta's Business Settings.</p>
+
+    <div class="guide-box">
+      <span class="guide-num">1</span>
+      <div class="guide-text">
+        <p>Open Business Settings and go to <strong>Users → System Users</strong>.</p>
+        <a class="ext-link" href="#">Open Meta Business Settings ↗</a>
+      </div>
+    </div>
+    <div class="guide-box">
+      <span class="guide-num">2</span>
+      <div class="guide-text">
+        <p>Create a system user and assign it to your WhatsApp app, then generate a token with messaging permissions.</p>
+        <p class="field-hint">This token won't expire every 24 hours like the default one — that's what makes it permanent.</p>
+      </div>
+    </div>
+
+    <label class="field-label" for="token">Paste your access token</label>
+    <input type="text" id="token" placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxx">
+    <p class="field-hint">You'll find this on the System User's "Generate token" screen.</p>
+
+    <div class="btn-row">
+      <button class="ghost">Back</button>
+      <button class="primary">Continue</button>
+    </div>
+  </main>
+
+</div>
+</body>
+</html>

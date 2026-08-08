@@ -37,9 +37,43 @@ CREATE TABLE IF NOT EXISTS hospitals (
     data_tier TEXT NOT NULL DEFAULT 'tier1' CHECK (data_tier IN ('tier1', 'tier2', 'tier3')),
     external_api_base_url TEXT,
     external_api_key TEXT,
+    -- Section 12.7: the hospital-staff bookings portal's login credential --
+    -- salted PBKDF2-SHA256 (db/repository.py:hash_portal_password()), never
+    -- the plaintext password. NULL means the hospital hasn't set one yet
+    -- (portal login is simply unavailable until it does, via onboarding or
+    -- the edit-tenant form) -- not enforced UNIQUE, since two hospitals can
+    -- legitimately pick the same password and get different hashes (each
+    -- has its own random salt); portal.py finds the right hospital by
+    -- hashing the login attempt against every stored hash, not by lookup.
+    portal_password_hash TEXT,
+    -- Section 14.1 (superseded by 14.5): originally "which single conversation
+    -- shape this tenant runs" -- kept as a historical/unread column (never
+    -- dropped, per this file's existing no-destructive-migrations convention)
+    -- now that Section 14.5 replaced it with enabled_features below. Nothing
+    -- in the app reads this column anymore except the one-time backfill in
+    -- db/init_db.py that seeds enabled_features for rows from before that change.
+    flow_type TEXT NOT NULL DEFAULT 'booking',
+    -- Section 14.5: which capabilities this tenant's WhatsApp number offers
+    -- patients, as a JSON array of feature keys (e.g. ["booking","reschedule",
+    -- "cancel","faq"]) -- a hospital enables a SET of features simultaneously
+    -- rather than picking one exclusive flow_type (the model above). The IDLE
+    -- main menu (flows.py) shows only the enabled ones; tapping one hands the
+    -- conversation to that feature's own handler/state machine. NULL means
+    -- "not yet migrated from flow_type" -- db/init_db.py backfills every NULL
+    -- row once, at startup; every hospital created after Section 14.5 always
+    -- gets a real value at creation time, never NULL.
+    enabled_features TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (now()::text)
 );
+
+-- CREATE TABLE IF NOT EXISTS above won't retroactively add these columns to a
+-- database created before each was added (same limitation already noted for
+-- whatsapp_phone_number_id's UNIQUE constraint) -- this makes them idempotent
+-- and self-healing on the next app startup against the live database too.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_password_hash TEXT;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS flow_type TEXT NOT NULL DEFAULT 'booking';
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS enabled_features TEXT;
 
 -- id is a human-readable slug (e.g. "cardiology") rather than a surrogate integer,
 -- so it can be used directly as a WhatsApp list-reply id, same as before this
@@ -59,6 +93,18 @@ CREATE TABLE IF NOT EXISTS departments (
 -- db/repository.py:generate_slots_for_doctor() reads to produce real rows in
 -- doctor_slots below (Section 12.1.1) -- a doctor with no working_days/
 -- working_hours simply generates zero slots, rather than erroring.
+--
+-- Section 14.7 (richer scheduling) additions below -- deliberately kept flat
+-- on this table rather than a separate doctor_schedule_settings table, same
+-- reasoning as working_days/working_hours already being flat columns here:
+-- one doctor has exactly one active schedule pattern at a time, so a 1:1
+-- side table would just be this table with extra JOINs, no real normalization
+-- benefit. breaks mirrors working_hours' own shape/convention deliberately
+-- (comma-separated "HH:MM-HH:MM" ranges, applied uniformly across every
+-- working day, not a per-day structure) -- working_hours already applies the
+-- same shift pattern to every working day, so per-day breaks would be an
+-- inconsistent one-off; a break must fall inside some shift on any day that
+-- shift runs, which is what "per working-day" means in practice here.
 CREATE TABLE IF NOT EXISTS doctors (
     id TEXT PRIMARY KEY,
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
@@ -69,7 +115,72 @@ CREATE TABLE IF NOT EXISTS doctors (
     years_experience INTEGER,
     working_days TEXT NOT NULL DEFAULT '',
     working_hours TEXT NOT NULL DEFAULT '',
-    slot_duration_minutes INTEGER NOT NULL DEFAULT 30
+    slot_duration_minutes INTEGER NOT NULL DEFAULT 30,
+    -- Comma-separated "HH:MM-HH:MM" ranges excluded from slot generation
+    -- within whichever shift each one falls inside (e.g. a lunch break).
+    breaks TEXT NOT NULL DEFAULT '',
+    -- How many separate BOOKED appointments this doctor can hold at the exact
+    -- same scheduled_at (default 1 = today's existing behavior, one patient
+    -- per slot). >1 is enforced via appointments.booking_ordinal below, not
+    -- by relaxing the old single-booking unique index.
+    max_bookings_per_slot INTEGER NOT NULL DEFAULT 1,
+    -- NULL = uncapped. Enforced at slot-generation time (generate_slots_for_doctor
+    -- stops generating more slots for a given date once this many would exist),
+    -- not at booking time -- once a day's slots are generated, patients can
+    -- book any of them same as always.
+    daily_booking_limit INTEGER,
+    -- Reserved split of daily_booking_limit between WhatsApp-booked (online)
+    -- and front-desk-created (walk-in) patients. Stored and validated now but
+    -- NOT enforced anywhere yet -- the staff portal has no walk-in booking
+    -- creation path yet (upcoming work), so there's nothing on the walk-in
+    -- side to actually split capacity against.
+    online_quota INTEGER,
+    walkin_quota INTEGER,
+    -- A separate, typically shorter duration for follow-up visits. NULL means
+    -- "no distinct follow-up duration configured" -- the booking flow falls
+    -- back to slot_duration_minutes for a follow-up in that case.
+    followup_duration_minutes INTEGER,
+    -- The date this doctor's CURRENT working_days/working_hours/breaks/etc.
+    -- pattern takes effect. NULL means "effective immediately / no
+    -- restriction" (matches every doctor's behavior before this column
+    -- existed). update_doctor()'s slot regeneration only replaces slots dated
+    -- on/after this date, leaving any earlier still-unbooked slots (generated
+    -- under the doctor's previous pattern) untouched -- a schedule change
+    -- applies going forward, not retroactively.
+    effective_from TEXT,
+    -- Staff-controlled on/off switch, independent of leave dates/working
+    -- hours: a hospital may want a doctor to simply stop appearing as
+    -- bookable (resigned, long-term unavailable, etc.) without deleting
+    -- their record or editing their schedule. FALSE excludes them from
+    -- get_doctors() (the connector interface both the WhatsApp bot and the
+    -- staff new-booking flow read from) entirely -- same enforcement point,
+    -- so "off" means off everywhere a patient or staff member could book
+    -- them, not just the bot. Portal's own doctor MANAGEMENT list
+    -- (get_all_doctors_for_hospital) still shows inactive doctors, so staff
+    -- can toggle them back on.
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT '';
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS max_bookings_per_slot INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS daily_booking_limit INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS online_quota INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS walkin_quota INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS followup_duration_minutes INTEGER;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS effective_from TEXT;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Section 14.7: one row per date a doctor is unavailable for the whole day
+-- (leave/holiday/on-call elsewhere). generate_slots_for_doctor() skips any
+-- date present here entirely for that doctor, rather than generating slots
+-- and hoping nobody books them. UNIQUE(doctor_id, date) makes re-adding the
+-- same leave date harmlessly idempotent instead of a duplicate row.
+CREATE TABLE IF NOT EXISTS doctor_leave (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    doctor_id TEXT NOT NULL REFERENCES doctors(id),
+    date TEXT NOT NULL,
+    reason TEXT,
+    UNIQUE(doctor_id, date)
 );
 
 -- Real, persisted bookable slots (Section 12.1.1) generated from a doctor's
@@ -96,6 +207,47 @@ CREATE TABLE IF NOT EXISTS doctor_slots (
 -- on the fly -- db/repository.py:get_slots() reads real rows there, filtering
 -- out ones with a booked appointment below, same as before this change.
 --
+-- Section 12.9 (staff-created bookings): Section 4's original data model
+-- always planned a `patients` table ("phone_number (unique, WhatsApp-linked),
+-- name, hospital_id") but nothing before this normalized patients out of
+-- appointments.phone -- there was simply no need to until staff-side patient
+-- SEARCH (by name, not just phone) required somewhere to actually store a
+-- name. Deliberately minimal -- exactly what Section 4 originally specified,
+-- nothing more. UNIQUE(hospital_id, phone), not phone alone: two different
+-- hospitals' patients can share a phone number (Section 12.2's own tenant-
+-- isolation discipline applies here too). db/init_db.py backfills a row (name
+-- NULL) for every distinct (hospital_id, phone) pair already in appointments
+-- so existing WhatsApp-only patients are searchable by phone immediately.
+CREATE TABLE IF NOT EXISTS patients (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    phone TEXT NOT NULL,
+    name TEXT,
+    -- Section 12.10: basic demographics for the patient-record feature, all
+    -- nullable -- none required at creation (WhatsApp self-bookings still
+    -- never collect any of this; only ever filled in later by staff via the
+    -- patient detail page). Deliberately no medical/clinical fields yet
+    -- (allergies, conditions, diagnosis codes) -- out of scope for this
+    -- first version, see Section 12.10.
+    date_of_birth TEXT,
+    gender TEXT,
+    address TEXT,
+    -- Section 12.11 (language selection + patient name/age during booking):
+    -- deliberately separate from date_of_birth above, not a second way to
+    -- express the same fact -- a WhatsApp patient typing "34" is a much
+    -- lower-friction ask than collecting a full birthdate over chat, and the
+    -- staff portal's date_of_birth field (Section 12.10) stays the source of
+    -- truth when a hospital does have it. The two are never reconciled
+    -- against each other.
+    age INTEGER,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    UNIQUE(hospital_id, phone)
+);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS date_of_birth TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS age INTEGER;
+
 -- No reminder_sent_at column (an earlier version had one) — reminder status is
 -- now tracked per-offset in appointment_reminders below, not as a single flag
 -- here. Note CREATE TABLE IF NOT EXISTS won't retroactively drop that column
@@ -109,9 +261,35 @@ CREATE TABLE IF NOT EXISTS appointments (
     doctor_id TEXT NOT NULL REFERENCES doctors(id),
     scheduled_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'cancelled', 'rescheduled')),
-    source TEXT NOT NULL DEFAULT 'whatsapp',
-    created_at TEXT NOT NULL DEFAULT (now()::text)
+    -- Section 12.9: 'whatsapp' (patient self-booking, core/booking_flow.py) or
+    -- 'staff' (portal.py's /portal/new-booking, front-desk/phone bookings) --
+    -- both go through the exact same db.create_appointment()/get_slots()
+    -- availability and double-booking logic, this column is purely
+    -- descriptive/for later reporting, never branched on for booking logic
+    -- itself. CHECK constraint only applies to freshly created tables (same
+    -- caveat as the status CHECK above) -- not retroactively added to an
+    -- already-existing database.
+    source TEXT NOT NULL DEFAULT 'whatsapp' CHECK (source IN ('whatsapp', 'staff')),
+    -- Section 14.7: which "seat" within a doctor's max_bookings_per_slot this
+    -- booking occupies at its scheduled_at (0-indexed, 0 for every doctor
+    -- whose max_bookings_per_slot is the default 1 -- identical to how the
+    -- old doctor_id+scheduled_at-only uniqueness behaved). Assigned by
+    -- db/repository.py:create_appointment()'s count-then-insert-with-retry
+    -- loop, never chosen by a caller.
+    booking_ordinal INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    -- Section 12.8 (staff dashboard): when this row's status last changed
+    -- (cancel/reschedule), set by db/repository.py's cancel_appointment()/
+    -- mark_rescheduled(). NULL for a still-'booked' row that's never changed
+    -- status -- read as COALESCE(updated_at, created_at) everywhere, so a
+    -- never-changed row's "event time" is just its booking time. Added
+    -- specifically so the dashboard's recent-activity feed can show a
+    -- cancellation/reschedule at the time it actually happened, not
+    -- mislabeled with the original booking's created_at.
+    updated_at TEXT
 );
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_ordinal INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TEXT;
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already
@@ -131,14 +309,24 @@ CREATE TABLE IF NOT EXISTS appointment_reminders (
 );
 
 -- Double-booking prevention at the DB level (ties into Phase 8's race-condition
--- handling): only one BOOKED appointment per doctor per exact scheduled_at can
--- exist, no matter how many requests race to insert it. A conflicting
--- create_appointment() call raises db.connection.IntegrityError (psycopg2's
--- IntegrityError, re-exported from db/connection.py) -- core/booking_flow.py
--- catches that and shows a friendly "that slot was just taken" message
--- (Phase 8), not Tier 1's job.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_doctor_slot_booked
-    ON appointments(doctor_id, scheduled_at)
+-- handling), extended by Section 14.7 to allow more than one BOOKED
+-- appointment per doctor per exact scheduled_at when max_bookings_per_slot > 1:
+-- uniqueness is now on (doctor_id, scheduled_at, booking_ordinal), not just
+-- (doctor_id, scheduled_at). For the default max_bookings_per_slot = 1 case
+-- every booking_ordinal is 0, so this is byte-for-byte the same guarantee as
+-- before for every doctor that hasn't opted into >1. db/repository.py's
+-- create_appointment() assigns booking_ordinal by counting existing bookings
+-- at that scheduled_at and retrying on a losing race (an IntegrityError from
+-- this exact index, same exception core/booking_flow.py already catches and
+-- turns into a friendly "that slot was just taken" message -- Phase 8), never
+-- by the caller. The old two-column version of this index is dropped, not
+-- kept alongside -- it would incorrectly block the 2nd..Nth booking for any
+-- doctor with max_bookings_per_slot > 1, so keeping it would silently break
+-- the feature it's dropped to enable; this is a constraint, not stored data,
+-- so it's exempt from this file's normal no-destructive-migrations convention.
+DROP INDEX IF EXISTS ux_appointments_doctor_slot_booked;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_doctor_slot_ordinal_booked
+    ON appointments(doctor_id, scheduled_at, booking_ordinal)
     WHERE status = 'booked';
 
 -- Present per Section 4's schema, but NOT wired up in this build — core/history.py's
@@ -155,3 +343,88 @@ CREATE TABLE IF NOT EXISTS conversation_sessions (
     updated_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(patient_phone, hospital_id)
 );
+
+-- SPEC Section 14.2: the FAQ flow_type's entire data model -- deliberately
+-- just this one table. A pure FAQ-flow tenant needs no departments, doctors,
+-- doctor_slots, or appointments at all, which is exactly why forcing a
+-- non-booking tenant (DaaPrime) through booking's placeholder department/
+-- doctor data was the wrong fit (Section 14.0) that this flow type replaces.
+-- display_order is a plain sort key (not a UNIQUE constraint) -- faq_flow.py
+-- orders by it, then by id as a tiebreaker; ties are harmless, not an error.
+CREATE TABLE IF NOT EXISTS faq_topics (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    topic_label TEXT NOT NULL,
+    answer_text TEXT NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- Human-handoff queue: a "needs a person" inbox for the staff portal, fed by
+-- two different triggers that otherwise have nothing to do with each other --
+-- a patient deliberately tapping "Talk to Reception" (reception_handoff,
+-- promoted from a PLACEHOLDER_FEATURE to real, flows.py), and the webhook
+-- handler catching a genuine unexpected exception while processing a message
+-- (core/main.py's _process_message, previously only caught
+-- ConnectorNotImplementedError specifically and let anything else propagate
+-- uncaught with no patient-facing reply and no record of what happened).
+-- Both funnel into this one table/queue rather than two separate mechanisms,
+-- since a staff member reviewing "what needs my attention" doesn't care which
+-- trigger fired -- reason is kept only so the portal can label the two cases
+-- differently, not to branch behavior anywhere.
+CREATE TABLE IF NOT EXISTS handoff_requests (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    phone TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK (reason IN ('patient_requested', 'system_error')),
+    -- What the patient sent (patient_requested) or a short description of
+    -- what failed (system_error) -- context for the staff member, not
+    -- parsed/branched on by any code.
+    message_text TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_requests_hospital_status ON handoff_requests(hospital_id, status);
+
+-- Section 12.10: patient records, first version -- visit history (existing
+-- `appointments` rows already give this, nothing new needed there), free-text
+-- notes, and document upload/WhatsApp-send. Deliberately NOT full clinical
+-- records: no diagnosis coding, no allergy/condition tracking -- see
+-- Spec.md Section 12.10 for the explicit scope line and the audit-logging
+-- follow-up this table's `created_by_session_id`/`uploaded_by_session_id`
+-- columns are a deliberate stand-in for (real per-staff accounts don't exist
+-- yet -- portal auth is still one shared password per hospital, Section 12.7
+-- -- so a note/document can only be traced back to a *login session*, not a
+-- named person; flagged as a priority follow-up given this is more sensitive
+-- data than appointment scheduling).
+CREATE TABLE IF NOT EXISTS patient_visit_notes (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    patient_id INTEGER NOT NULL REFERENCES patients(id),
+    -- Nullable: a note can exist without a formal appointment (e.g. a
+    -- walk-in the front desk never logged as a booking).
+    appointment_id INTEGER REFERENCES appointments(id),
+    doctor_id TEXT REFERENCES doctors(id),
+    note_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    created_by_session_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_patient_visit_notes_hospital_patient ON patient_visit_notes(hospital_id, patient_id);
+
+CREATE TABLE IF NOT EXISTS patient_documents (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    patient_id INTEGER NOT NULL REFERENCES patients(id),
+    appointment_id INTEGER REFERENCES appointments(id),
+    file_name TEXT NOT NULL,
+    -- The object-storage KEY (core/storage.py), not a public URL -- files are
+    -- private, never a public bucket; every read goes through
+    -- storage.get_signed_url(), which mints a short-lived expiring URL on
+    -- demand rather than this column ever storing something directly
+    -- browsable.
+    file_url TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL DEFAULT (now()::text),
+    uploaded_by_session_id TEXT,
+    sent_to_whatsapp_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_patient_documents_hospital_patient ON patient_documents(hospital_id, patient_id);

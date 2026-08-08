@@ -22,12 +22,25 @@ sqlite3 driver did) — switching to asyncpg would mean async-ifying every
 repository function and every caller, a far bigger change than "swap the
 database backend."
 
-A single module-level connection is reused for the process lifetime (this
-app's traffic doesn't need pooling yet — a connection pool, e.g. psycopg2's
-ThreadedConnectionPool or pgbouncer in front of Neon, is a reasonable next
-step once concurrent load justifies it, not done here). Tests swap it out via
-set_connection() to point at a real (testcontainers-provisioned) Postgres
-instance whose schema gets reset between tests — see tests/conftest.py.
+A single module-level connection is reused for the process lifetime. Neon
+(serverless Postgres) closes idle connections server-side after a period of
+inactivity, so _PGConnection transparently detects and reconnects around
+that (see execute()/_ensure_connected() below) rather than the app crashing
+on the next query after a quiet spell. Tests swap it out via set_connection()
+to point at a real (testcontainers-provisioned) Postgres instance whose
+schema gets reset between tests — see tests/conftest.py.
+
+Recommendation (not implemented here): a single persistent connection is
+adequate for this app's current traffic and is what the detect-and-reconnect
+fix below targets, but it's a stopgap, not the ideal end state for a
+serverless-Postgres backend. Neon's own pooled connection string (the
+"-pooler" host, already what most Neon connection strings default to) or a
+proper client-side pool (psycopg2.pool.ThreadedConnectionPool, or an
+external pgbouncer) would avoid single-point-of-failure reconnect latency
+entirely and handle concurrent requests better once traffic grows beyond
+what one connection can serialize through. Worth revisiting before this
+app has enough concurrent load that connection-per-request contention (or
+this module's reconnect-on-failure retry) becomes a bottleneck.
 """
 import os
 import re
@@ -49,10 +62,26 @@ class _PGConnection:
     """Wraps a psycopg2 connection to give it sqlite3.Connection's
     conn.execute(sql, params).fetchone()/.fetchall() chaining convenience,
     dict-like row access (via RealDictCursor), and an executescript() for
-    running db/schema.sql's multi-statement script in one call."""
+    running db/schema.sql's multi-statement script in one call.
+
+    Also resilient to Neon closing this connection server-side after a period
+    of inactivity: execute()/executescript() check for an already-known-closed
+    connection before running a statement, AND catch psycopg2.InterfaceError/
+    OperationalError from the statement itself and retry once against a fresh
+    connection -- the pre-check alone isn't enough, because psycopg2's
+    .closed attribute only reflects a connection the client has already tried
+    (and failed) to use; a connection Neon just silently dropped still reports
+    .closed == 0 until the next query actually hits the dead socket. Only one
+    retry is attempted -- a second consecutive failure is a real problem
+    (Neon down, bad DSN, etc.), not another idle-timeout, and should surface
+    as an error rather than retry forever."""
 
     def __init__(self, dsn: str):
-        self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+        self._dsn = dsn
+        self._conn = self._new_raw_connection()
+
+    def _new_raw_connection(self):
+        conn = psycopg2.connect(self._dsn, cursor_factory=psycopg2.extras.RealDictCursor)
         # Critical behavioral difference from SQLite: Postgres aborts the
         # *entire* transaction after any failed statement (e.g. the
         # IntegrityError core/booking_flow.py's double-booking race and
@@ -65,17 +94,42 @@ class _PGConnection:
         # codebase's existing "execute, then explicitly .commit()" pattern,
         # never spanning a transaction across multiple repository calls)
         # already behaved.
-        self._conn.autocommit = True
+        conn.autocommit = True
+        return conn
+
+    def _reconnect(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass  # already broken/closed -- nothing to clean up
+        self._conn = self._new_raw_connection()
 
     def execute(self, sql: str, params=()):
-        cur = self._conn.cursor()
-        cur.execute(_QUESTION_MARK_RE.sub("%s", sql), params)
-        return cur
+        translated = _QUESTION_MARK_RE.sub("%s", sql)
+        if self._conn.closed:
+            self._reconnect()
+        try:
+            cur = self._conn.cursor()
+            cur.execute(translated, params)
+            return cur
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            # The connection died between our .closed check above and this
+            # statement actually running (or was never flagged closed at all,
+            # e.g. a Neon-side idle close the client hasn't discovered yet) --
+            # reconnect once and retry this exact statement before giving up.
+            self._reconnect()
+            cur = self._conn.cursor()
+            cur.execute(translated, params)
+            return cur
 
     def executescript(self, sql: str) -> None:
-        cur = self._conn.cursor()
-        cur.execute(sql)
-        self._conn.commit()
+        if self._conn.closed:
+            self._reconnect()
+        try:
+            self._conn.cursor().execute(sql)
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            self._reconnect()
+            self._conn.cursor().execute(sql)
 
     def commit(self) -> None:
         self._conn.commit()

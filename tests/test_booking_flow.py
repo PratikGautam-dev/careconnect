@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 import db.repository as db
-from core.booking_flow import handle_incoming
+from core.booking_flow import _MAX_LIST_ROWS, handle_incoming
 from core.history import InMemorySessionStore
 
 
@@ -106,6 +106,80 @@ async def test_idle_faq_tap_replies_with_faq_text(hospital_id):
     assert kind == "text"
     assert "Hours" in kwargs["text"]
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
+async def test_slot_menu_capped_to_whatsapp_list_limit(hospital_id):
+    """Live-found bug: a doctor whose working hours/slot duration generate
+    more than Meta's 10-row WhatsApp list limit (e.g. a wide shift with a
+    short slot duration -- easily 100+ slots over the 14-day window) used to
+    make send_list() silently fail end to end (Meta rejects the >10-row
+    request, core/whatsapp.py logs and swallows it) -- the patient saw
+    nothing at all after tapping the doctor. core/booking_flow.py's
+    _cap_rows() now caps every send_list() call site to the soonest
+    _MAX_LIST_ROWS slots instead of sending the full (potentially huge) list."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    department = db.get_departments(hospital_id)[0]
+    doctor = db.create_doctor(
+        hospital_id, department["id"], "Dr. Overbooked",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri"],
+        working_hours=["09:00-17:00"],
+        slot_duration_minutes=10,
+    )
+    all_slots = db.get_slots(hospital_id, doctor["id"])
+    assert len(all_slots) > _MAX_LIST_ROWS  # sanity check this doctor actually reproduces the bug's precondition
+
+    sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": department["id"], "department_name": department["name"]})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor["id"]))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    rows = kwargs["sections"][0]["rows"]
+    assert len(rows) == _MAX_LIST_ROWS
+    # The soonest slots, not an arbitrary subset.
+    assert {r["id"] for r in rows} == {s["id"] for s in all_slots[:_MAX_LIST_ROWS]}
+
+
+@pytest.mark.asyncio
+async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
+    """A patient stuck mid-flow (e.g. from the list-limit bug above, or just
+    confusion) must be able to type a common greeting/reset word and get back
+    to the main menu immediately -- not stay stuck re-prompted with "please
+    choose from the list" until the 30-minute session timeout."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Hi"), hospital_name="City Hospital")
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert "City Hospital" in kwargs["body_text"]
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}
+    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
+async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_id):
+    """Only the recognized reset keywords escape a mid-flow state -- ordinary
+    free text (not a valid list tap) still gets the existing "please choose
+    from the list" re-prompt, unchanged."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_SLOT", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("whatever"))
+
+    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_SLOT"
 
 
 @pytest.mark.asyncio
@@ -349,8 +423,12 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
+    # Capped to Meta's 10-row WhatsApp list limit (core/booking_flow.py's
+    # _cap_rows()) -- the soonest 10 of this doctor's available slots, not
+    # necessarily all of them.
     slot_ids = _row_ids(kwargs)
-    assert slot_ids == {s["id"] for s in db.get_slots(hospital_id, appt.doctor_id)}
+    all_slot_ids = [s["id"] for s in db.get_slots(hospital_id, appt.doctor_id)]
+    assert slot_ids == set(all_slot_ids[:10])
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_RESCHEDULE_SLOT"
     assert session["context"]["doctor_id"] == appt.doctor_id

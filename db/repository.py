@@ -13,16 +13,33 @@ synthetic/computed-on-the-fly slots. As of Phase 8 they still exclude slots
 that already have a *booked* appointment, so an already-taken slot is never
 re-offered to another patient.
 """
+import hashlib
+import hmac
 import json as json_lib
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from db.connection import get_connection
+from db.connection import IntegrityError, get_connection
 
 STATUS_BOOKED = "booked"
 STATUS_CANCELLED = "cancelled"
 STATUS_RESCHEDULED = "rescheduled"
+
+SOURCE_WHATSAPP = "whatsapp"
+SOURCE_STAFF = "staff"
+
+
+class QuotaExceededError(IntegrityError):
+    """Section 12.9: raised by create_appointment() specifically when a
+    booking is rejected because the doctor's online_quota/walkin_quota/
+    daily_booking_limit (Section 14.7) is exhausted, as opposed to the exact
+    requested slot being full. Subclasses IntegrityError so every EXISTING
+    `except IntegrityError:` call site (core/booking_flow.py's double-booking
+    handling) keeps working unchanged with its generic "that slot was just
+    taken" message; portal.py's staff-booking route catches THIS specifically
+    first, to show str(e) (a purpose-written message) instead."""
 
 _SLOT_DAYS_AHEAD = 14
 
@@ -30,7 +47,7 @@ _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
-           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status
+           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -48,6 +65,10 @@ class Appointment:
     doctor_name: str
     scheduled_at: datetime
     status: str = STATUS_BOOKED
+    # Section 12.9: 'whatsapp' (patient self-booking) or 'staff' (portal.py's
+    # /portal/new-booking) -- descriptive only, never branched on by booking
+    # logic itself (both go through the exact same create_appointment()).
+    source: str = "whatsapp"
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -61,10 +82,37 @@ def _row_to_appointment(row) -> Appointment:
         doctor_name=row["doctor_name"],
         scheduled_at=datetime.fromisoformat(row["scheduled_at"]),
         status=row["status"],
+        source=row["source"],
     )
 
 
 # --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
+
+_PBKDF2_ITERATIONS = 100_000
+
+
+def hash_portal_password(password: str) -> str:
+    """Salted PBKDF2-SHA256, stdlib only (no new dependency for what's still a
+    'basic protection, not production-grade auth' project) -- used for the
+    Section 12.7 hospital-staff bookings portal login, which is stored as an
+    irreversible hash (unlike access_token/app_secret, which the app must be
+    able to read back to call Meta's API with -- a login password never needs
+    to be reversed, only verified, so there's no reason to store it in a
+    reversible form the way those are). Stored as 'salt_hex:hash_hex'."""
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return f"{salt.hex()}:{digest.hex()}"
+
+
+def verify_portal_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt_hex, digest_hex = stored_hash.split(":", 1)
+    except (ValueError, AttributeError):
+        return False
+    salt = bytes.fromhex(salt_hex)
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return hmac.compare_digest(candidate.hex(), digest_hex)
+
 
 @dataclass
 class Hospital:
@@ -81,6 +129,8 @@ class Hospital:
     data_tier: str
     external_api_base_url: str | None
     external_api_key: str | None
+    portal_password_hash: str | None
+    enabled_features: list[str]
 
 
 def _row_to_hospital(row) -> Hospital:
@@ -90,6 +140,15 @@ def _row_to_hospital(row) -> Hospital:
             raise ValueError
     except (TypeError, ValueError):
         offsets = [24]
+    try:
+        enabled_features = json_lib.loads(row["enabled_features"])
+        if not isinstance(enabled_features, list):
+            raise ValueError
+    except (TypeError, ValueError):
+        # NULL (not yet backfilled -- db/init_db.py's _backfill_enabled_features()
+        # should have already run by the time anything queries this, but fail
+        # safe to "nothing enabled" rather than crash a row read) or malformed.
+        enabled_features = []
     return Hospital(
         id=row["id"],
         name=row["name"],
@@ -104,6 +163,8 @@ def _row_to_hospital(row) -> Hospital:
         data_tier=row["data_tier"],
         external_api_base_url=row["external_api_base_url"],
         external_api_key=row["external_api_key"],
+        portal_password_hash=row["portal_password_hash"],
+        enabled_features=enabled_features,
     )
 
 
@@ -128,10 +189,36 @@ def get_active_hospitals() -> list[Hospital]:
     return [_row_to_hospital(r) for r in rows]
 
 
+def get_all_hospitals() -> list[Hospital]:
+    """Every hospital regardless of is_active -- admin/onboarding.py's tenant
+    list page (Section 12.1 follow-up: closing the "onboarding is self-serve,
+    correcting it isn't" gap) needs to show every onboarded tenant, not just
+    active ones, so there's somewhere to find a deactivated tenant's id too."""
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM hospitals ORDER BY id").fetchall()
+    return [_row_to_hospital(r) for r in rows]
+
+
 def get_hospital(hospital_id: int) -> Hospital | None:
     conn = get_connection()
     row = conn.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,)).fetchone()
     return _row_to_hospital(row) if row else None
+
+
+def find_hospital_by_portal_password(password: str) -> Hospital | None:
+    """portal.py's login: which hospital does this password belong to. Each
+    hash carries its own random salt (hash_portal_password()), so two
+    hospitals CAN pick the identical password and still get different stored
+    hashes -- there's no way to look one up by an equality WHERE clause, only
+    by hashing the candidate against every stored hash and checking for a
+    match. Fine at this project's scale (dozens/hundreds of hospitals, not
+    millions); an actual login-throughput bottleneck would need a different
+    scheme, but isn't a real concern yet."""
+    for hospital in get_all_hospitals():
+        if hospital.portal_password_hash and hospital.is_active:
+            if verify_portal_password(password, hospital.portal_password_hash):
+                return hospital
+    return None
 
 
 def create_hospital(
@@ -146,6 +233,8 @@ def create_hospital(
     data_tier: str = "tier1",
     external_api_base_url: str | None = None,
     external_api_key: str | None = None,
+    portal_password: str | None = None,
+    enabled_features: list[str] | None = None,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -153,24 +242,98 @@ def create_hospital(
     against breaking Phase 9's per-message routing, not application logic;
     callers (admin/onboarding.py) are responsible for catching it.
 
-    data_tier (Section 12.6, Step 6 of the wizard): "tier1" (default, this
-    product's own database), "tier2" (external_api_base_url/external_api_key
-    are only stored here -- no connector logic reads them yet), or "tier3"
-    (direct DB connection, not self-serve -- neither field is meaningful for it)."""
+    data_tier (Section 12.6, Step 0 of the wizard as of Section 14.6's
+    reorder): "tier1" (default, this product's own database), "tier2"
+    (external_api_base_url/external_api_key are only stored here -- no
+    connector logic reads them yet), or "tier3" (direct DB connection, not
+    self-serve -- neither field is meaningful for it).
+
+    portal_password (Section 12.7): plaintext in, hashed before storage --
+    optional at onboarding time (a hospital can set it later via the edit
+    form); left unset, the bookings portal simply has no way to log into that
+    hospital yet.
+
+    enabled_features (Section 14.5): the set of patient-facing capabilities
+    this hospital's WhatsApp number offers (e.g. ["booking","reschedule",
+    "cancel","faq"]) -- flows.py's IDLE main menu shows only these. Replaces
+    the earlier single-value flow_type (Section 14.1); defaults to an empty
+    list (no capabilities enabled) rather than guessing "booking", since an
+    empty set is a safe, honest default a caller has to deliberately override,
+    not a value that quietly implies functionality nothing configured yet."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
+    features_json = json_lib.dumps(enabled_features or [])
+    portal_password_hash = hash_portal_password(portal_password) if portal_password else None
     cur = conn.execute(
         "INSERT INTO hospitals (name, whatsapp_phone_number_id, meta_access_token_ref, app_secret_ref, "
         "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
-        "data_tier, external_api_base_url, external_api_key) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key),
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json),
     )
     new_id = cur.fetchone()["id"]
     conn.commit()
     return get_hospital(new_id)
+
+
+def update_hospital(
+    hospital_id: int,
+    name: str,
+    whatsapp_phone_number_id: str,
+    access_token: str | None = None,
+    app_secret: str | None = None,
+    timezone: str = "UTC",
+    welcome_message_text: str | None = None,
+    reminder_offsets_hours: list[float] | None = None,
+    reminder_template_name: str | None = None,
+    data_tier: str = "tier1",
+    external_api_base_url: str | None = None,
+    external_api_key: str | None = None,
+    portal_password_hash: str | None = None,
+    enabled_features: list[str] | None = None,
+) -> Hospital:
+    """admin/onboarding.py's tenant edit form -- the only way to correct an
+    already-onboarded hospital's stored values (there's no way to change
+    departments/doctors here, only the hospitals row itself). Raises
+    db.connection.IntegrityError if whatsapp_phone_number_id is changed to a
+    value another hospital already uses -- same UNIQUE constraint create_hospital()
+    relies on; a hospital keeping its own existing phone_number_id unchanged
+    never conflicts with itself. Callers (admin/onboarding.py) are responsible
+    for catching it, same as create_hospital().
+
+    portal_password_hash takes an ALREADY-HASHED value (or the hospital's
+    existing one, to leave it unchanged) -- unlike create_hospital(), which
+    takes a raw password, because the edit route needs to decide whether a
+    blank submitted field means "keep current hash" *before* this function
+    ever sees it (hashing here would turn a blank field into a real password).
+
+    Deliberately does NOT touch _wa_clients (core/main.py's per-hospital
+    WhatsAppClient cache) -- it can't, from here; a hospital whose credentials
+    just changed keeps using its OLD cached client until the process restarts.
+    See core/main.py's _wa_clients comment and the post-edit confirmation page.
+
+    enabled_features (Section 14.5) defaults to an empty list like
+    create_hospital(), but every caller (admin/onboarding.py's edit-tenant
+    route, portal.py's settings route) passes the hospital's own current
+    value through explicitly -- neither exposes a way to CHANGE which
+    features are enabled yet, so an edit to something else must never
+    silently reset a tenant's real feature set back to empty."""
+    conn = get_connection()
+    offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
+    features_json = json_lib.dumps(enabled_features or [])
+    conn.execute(
+        "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
+        "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
+        "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
+        "portal_password_hash = ?, enabled_features = ? WHERE id = ?",
+        (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
+         welcome_message_text, offsets_json, reminder_template_name,
+         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json, hospital_id),
+    )
+    conn.commit()
+    return get_hospital(hospital_id)
 
 
 # --- Departments / doctors ---
@@ -194,9 +357,17 @@ def find_department(hospital_id: int, department_id: str) -> dict | None:
 
 
 def get_doctors(hospital_id: int, department_id: str) -> list[dict]:
+    """The connector interface's own get_doctors() (Section 12.6.2) -- both
+    the WhatsApp bot's booking flow AND the staff portal's new-booking page
+    read doctor lists through this one function, so excluding is_active=FALSE
+    doctors here is the single enforcement point for "staff turned this
+    doctor off" everywhere a booking could actually be created, not just the
+    bot. The portal's own doctor MANAGEMENT list uses
+    get_all_doctors_for_hospital() instead, which intentionally still shows
+    inactive doctors so staff can toggle them back on."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT id, name FROM doctors WHERE hospital_id = ? AND department_id = ? ORDER BY name",
+        "SELECT id, name FROM doctors WHERE hospital_id = ? AND department_id = ? AND is_active = TRUE ORDER BY name",
         (hospital_id, department_id),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -237,6 +408,13 @@ def create_doctor(
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
     slot_duration_minutes: int = 30,
+    breaks: list[str] | None = None,
+    max_bookings_per_slot: int = 1,
+    daily_booking_limit: int | None = None,
+    online_quota: int | None = None,
+    walkin_quota: int | None = None,
+    followup_duration_minutes: int | None = None,
+    effective_from: str | None = None,
 ) -> dict:
     """working_days (e.g. ["Mon", "Wed", "Fri"]) and working_hours (e.g.
     ["10:00-13:00", "17:00-20:00"]) are this doctor's working pattern (Section
@@ -244,16 +422,149 @@ def create_doctor(
     produce the initial rolling window of real doctor_slots rows from it
     (Section 12.1.1), so onboarding a doctor through this function is what
     "run slot generation at onboarding submission time" means in practice. A
-    doctor with no working_days/working_hours simply generates zero slots."""
+    doctor with no working_days/working_hours simply generates zero slots.
+
+    breaks (Section 14.7, e.g. ["11:20-11:40"]) is comma-stored exactly like
+    working_hours, and applies the same way -- uniformly across every working
+    day, not per-specific-day. effective_from has no effect on a brand-new
+    doctor (nothing to preserve yet) -- it only matters on update_doctor()."""
     doctor_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
     conn = get_connection()
     conn.execute(
         "INSERT INTO doctors (id, hospital_id, department_id, name, specialization, qualification, "
-        "years_experience, working_days, working_hours, slot_duration_minutes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "years_experience, working_days, working_hours, slot_duration_minutes, breaks, "
+        "max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota, "
+        "followup_duration_minutes, effective_from) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (doctor_id, hospital_id, department_id, name, specialization, qualification,
-         years_experience, ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes),
+         years_experience, ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
+         ",".join(breaks or []), max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
+         followup_duration_minutes, effective_from),
     )
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return {"id": doctor_id, "name": name}
+
+
+_DOCTOR_FULL_COLUMNS = (
+    "id, department_id, name, specialization, qualification, years_experience, "
+    "working_days, working_hours, slot_duration_minutes, breaks, max_bookings_per_slot, "
+    "daily_booking_limit, online_quota, walkin_quota, followup_duration_minutes, effective_from, is_active"
+)
+
+
+def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
+    """Every column, not just {id, name} like get_doctors()/find_doctor() --
+    portal.py's doctor-edit form (Section 12.7 follow-up: self-serve doctor
+    management) needs the full working pattern to pre-fill, and needs
+    department_id from the doctor_id alone (the edit URL only carries the
+    doctor's id, not which department it's under)."""
+    conn = get_connection()
+    row = conn.execute(
+        f"SELECT {_DOCTOR_FULL_COLUMNS} FROM doctors WHERE hospital_id = ? AND id = ?",
+        (hospital_id, doctor_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return _parse_doctor_row(dict(row))
+
+
+def _parse_doctor_row(d: dict) -> dict:
+    d["working_days"] = [x for x in d["working_days"].split(",") if x]
+    d["working_hours"] = [x for x in d["working_hours"].split(",") if x]
+    d["breaks"] = [x for x in (d.get("breaks") or "").split(",") if x]
+    return d
+
+
+def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
+    """Every doctor at this hospital with its department name attached --
+    portal.py's doctors list page (Section 12.7 follow-up), one query instead
+    of walking get_departments() -> get_doctors() per department. Deliberately
+    NOT filtered by is_active -- this is the management view, so an inactive
+    doctor must still show up (with its off state) so staff can toggle it
+    back on; get_doctors() is the one that hides them from bookable lists."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT doc.id, doc.department_id, d.name AS department_name, doc.name, doc.specialization, doc.is_active "
+        "FROM doctors doc JOIN departments d ON d.id = doc.department_id "
+        "WHERE doc.hospital_id = ? ORDER BY d.name, doc.name",
+        (hospital_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool:
+    """Staff-facing on/off switch (distinct from doctor_leave's whole-day
+    dates and from editing working hours) -- returns False if no matching
+    doctor row exists for this hospital, True on a real update, so callers
+    can 404 rather than silently no-op."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE doctors SET is_active = ? WHERE hospital_id = ? AND id = ?",
+        (is_active, hospital_id, doctor_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def update_doctor(
+    hospital_id: int,
+    doctor_id: str,
+    name: str,
+    specialization: str | None = None,
+    qualification: str | None = None,
+    years_experience: int | None = None,
+    working_days: list[str] | None = None,
+    working_hours: list[str] | None = None,
+    slot_duration_minutes: int = 30,
+    breaks: list[str] | None = None,
+    max_bookings_per_slot: int = 1,
+    daily_booking_limit: int | None = None,
+    online_quota: int | None = None,
+    walkin_quota: int | None = None,
+    followup_duration_minutes: int | None = None,
+    effective_from: str | None = None,
+) -> dict | None:
+    """portal.py's doctor-edit form. Returns None if no such doctor exists at
+    this hospital (nothing updated), same "hospital_id in the WHERE clause is
+    the actual guard, not application logic" discipline as every other
+    hospital-scoped write here.
+
+    Regenerates doctor_slots against the (possibly changed) working pattern,
+    rather than trying to reconcile old vs. new slots row by row -- safe to do
+    because doctor_slots carries no foreign key from appointments (get_slots()
+    matches them only by scheduled_at string equality, see that function's
+    docstring), so dropping and rebuilding a doctor's still-just-offered slots
+    never touches an appointment a patient has already booked.
+
+    Section 14.7: if effective_from is set, regeneration only touches slots
+    dated on/after it -- any earlier still-unbooked slots (generated under
+    this doctor's PREVIOUS pattern) are left exactly as they were, so a
+    schedule change that's meant to start next month doesn't retroactively
+    rewrite next week's already-offered slots. effective_from=None (the
+    default, matching every doctor before this column existed) wipes and
+    regenerates the whole window, same as before this change."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE doctors SET name = ?, specialization = ?, qualification = ?, years_experience = ?, "
+        "working_days = ?, working_hours = ?, slot_duration_minutes = ?, breaks = ?, "
+        "max_bookings_per_slot = ?, daily_booking_limit = ?, online_quota = ?, walkin_quota = ?, "
+        "followup_duration_minutes = ?, effective_from = ? WHERE hospital_id = ? AND id = ?",
+        (name, specialization, qualification, years_experience,
+         ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
+         ",".join(breaks or []), max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
+         followup_duration_minutes, effective_from,
+         hospital_id, doctor_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    if effective_from:
+        conn.execute(
+            "DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ?",
+            (hospital_id, doctor_id, effective_from),
+        )
+    else:
+        conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id))
     conn.commit()
     generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
     return {"id": doctor_id, "name": name}
@@ -272,6 +583,15 @@ def _parse_time_range(time_range: str) -> tuple[str, str]:
     return start.strip(), end.strip()
 
 
+def _overlaps_break(slot_start: datetime, slot_end: datetime, breaks: list[tuple[str, str]], day: date) -> bool:
+    for break_start_str, break_end_str in breaks:
+        break_start = datetime.combine(day, datetime.strptime(break_start_str, "%H:%M").time())
+        break_end = datetime.combine(day, datetime.strptime(break_end_str, "%H:%M").time())
+        if break_start < slot_end and break_end > slot_start:
+            return True
+    return False
+
+
 def generate_slots_for_doctor(
     hospital_id: int,
     doctor_id: str,
@@ -287,12 +607,29 @@ def generate_slots_for_doctor(
     periodic top-up job, slots/scheduler.py) only adds the new days, never
     duplicates existing ones. Returns the number of *new* slot rows inserted.
 
+    Section 14.7 additions, all read from the same doctor row:
+    - breaks: any candidate slot overlapping a break window (see
+      _overlaps_break()) on that day is skipped entirely -- breaks apply
+      uniformly to every working day, not a specific one (db/schema.sql's
+      comment on doctors.breaks explains why).
+    - doctor_leave: any date present there for this doctor is skipped
+      entirely, no slots generated for it at all.
+    - daily_booking_limit: once a given date would have this many candidate
+      slots, generation stops for THAT date (soonest-in-the-day slots first,
+      since candidates are already built in ascending time order) -- doesn't
+      affect other dates.
+    - effective_from: dates before it are skipped -- update_doctor() only
+      deletes existing slots on/after this date (see its own docstring), so
+      generating for earlier dates here would incorrectly add new-pattern
+      slots alongside still-standing old-pattern ones.
+
     conn is an optional explicit connection (rather than get_connection())
     because db/seed.py calls this against a connection it's still assembling,
     before db.connection's shared connection has been repointed to it."""
     conn = conn or get_connection()
     doctor_row = conn.execute(
-        "SELECT working_days, working_hours, slot_duration_minutes FROM doctors WHERE hospital_id = ? AND id = ?",
+        "SELECT working_days, working_hours, slot_duration_minutes, breaks, daily_booking_limit, effective_from "
+        "FROM doctors WHERE hospital_id = ? AND id = ?",
         (hospital_id, doctor_id),
     ).fetchone()
     if doctor_row is None:
@@ -304,41 +641,134 @@ def generate_slots_for_doctor(
     if not working_days or not working_hours or not slot_duration:
         return 0
 
+    breaks = [_parse_time_range(b) for b in doctor_row["breaks"].split(",") if b.strip()] if doctor_row["breaks"] else []
+    daily_booking_limit = doctor_row["daily_booking_limit"]
+    effective_from = date.fromisoformat(doctor_row["effective_from"]) if doctor_row["effective_from"] else None
+
     today = now or date.today()
-    inserted = 0
+    leave_dates = {
+        row["date"] for row in
+        conn.execute("SELECT date FROM doctor_leave WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id)).fetchall()
+    }
+
+    candidates: list[tuple] = []
     for i in range(1, days_ahead + 1):
         d = today + timedelta(days=i)
         if _WEEKDAY_ABBREVS[d.weekday()] not in working_days:
             continue
+        if effective_from and d < effective_from:
+            continue
+        if d.isoformat() in leave_dates:
+            continue
+        day_count = 0
         for time_range in working_hours:
             start_str, end_str = _parse_time_range(time_range)
             current = datetime.combine(d, datetime.strptime(start_str, "%H:%M").time())
             end = datetime.combine(d, datetime.strptime(end_str, "%H:%M").time())
             step = timedelta(minutes=slot_duration)
             while current + step <= end:
-                cur = conn.execute(
-                    "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?) "
-                    "ON CONFLICT (doctor_id, scheduled_at) DO NOTHING",
-                    (hospital_id, doctor_id, current.isoformat()),
-                )
-                inserted += cur.rowcount
+                if daily_booking_limit is not None and day_count >= daily_booking_limit:
+                    break
+                if not _overlaps_break(current, current + step, breaks, d):
+                    candidates.append((hospital_id, doctor_id, current.isoformat()))
+                    day_count += 1
                 current += step
+
+    if not candidates:
+        return 0
+
+    # One multi-row INSERT instead of one round-trip per slot -- this used to
+    # be a per-slot conn.execute() in a loop, which against a real (non-local)
+    # Postgres like Neon meant one network round-trip per slot: a doctor with
+    # even a single ordinary shift over a 14-day window is 100+ slots, so
+    # onboarding a hospital with a few doctors could take tens of seconds just
+    # here. Building one INSERT with all rows' worth of "(?, ?, ?)" placeholders
+    # (well within Postgres's ~65535 parameter limit for any realistic doctor
+    # count/window) turns that into a single round-trip per doctor.
+    placeholders = ", ".join(["(?, ?, ?)"] * len(candidates))
+    flat_params = [value for row in candidates for value in row]
+    cur = conn.execute(
+        f"INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES {placeholders} "
+        "ON CONFLICT (doctor_id, scheduled_at) DO NOTHING",
+        flat_params,
+    )
+    inserted = cur.rowcount
     conn.commit()
     return inserted
+
+
+# --- Doctor leave (Section 14.7 -- whole-day unavailability) ---
+
+def get_doctor_leave(hospital_id: int, doctor_id: str) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, date, reason FROM doctor_leave WHERE hospital_id = ? AND doctor_id = ? ORDER BY date",
+        (hospital_id, doctor_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_doctor_leave(hospital_id: int, doctor_id: str, leave_date: str, reason: str | None = None) -> dict:
+    """leave_date is an ISO 'YYYY-MM-DD' string, matching doctor_slots'/
+    appointments' own "store dates/datetimes as ISO text" convention.
+    UNIQUE(doctor_id, date) (db/schema.sql) makes re-adding the same date
+    harmless -- ON CONFLICT DO NOTHING rather than erroring, since a staff
+    member re-submitting a date they already marked isn't a real problem.
+    Regenerates this doctor's slots immediately so the new leave date takes
+    effect right away, not just on the next periodic top-up."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO doctor_leave (hospital_id, doctor_id, date, reason) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (doctor_id, date) DO NOTHING",
+        (hospital_id, doctor_id, leave_date, reason),
+    )
+    conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ?",
+                 (hospital_id, doctor_id, leave_date))
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return {"date": leave_date, "reason": reason}
+
+
+def delete_doctor_leave(hospital_id: int, doctor_id: str, leave_id: int) -> bool:
+    """Returns False if no such leave row exists for this doctor/hospital
+    (nothing deleted) -- same hospital_id-scoped-guard discipline as every
+    other write here. Regenerates slots so the now-freed date becomes
+    bookable again immediately."""
+    conn = get_connection()
+    cur = conn.execute(
+        "DELETE FROM doctor_leave WHERE id = ? AND hospital_id = ? AND doctor_id = ?",
+        (leave_id, hospital_id, doctor_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return True
 
 
 # --- Slots (real, persisted rows — see module docstring) ---
 
 def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
-    """This doctor's generated doctor_slots rows, minus any that already have a
-    *booked* appointment at that exact time (Phase 8: an already-taken slot
-    must never be offered to another patient)."""
+    """This doctor's generated doctor_slots rows, minus any that have already
+    reached this doctor's max_bookings_per_slot worth of *booked* appointments
+    at that exact time (Phase 8, extended by Section 14.7: the default
+    max_bookings_per_slot=1 means "any booked appointment at all," exactly
+    Phase 8's original behavior; >1 keeps offering the slot until that many
+    patients have booked it)."""
     conn = get_connection()
+    doctor_row = conn.execute(
+        "SELECT max_bookings_per_slot FROM doctors WHERE hospital_id = ? AND id = ?",
+        (hospital_id, doctor_id),
+    ).fetchone()
+    max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+
     booked_rows = conn.execute(
         "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ?",
         (hospital_id, doctor_id, STATUS_BOOKED),
     ).fetchall()
-    booked_at = {row["scheduled_at"] for row in booked_rows}
+    booked_counts: dict[str, int] = {}
+    for row in booked_rows:
+        booked_counts[row["scheduled_at"]] = booked_counts.get(row["scheduled_at"], 0) + 1
 
     slot_rows = conn.execute(
         "SELECT scheduled_at FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? ORDER BY scheduled_at",
@@ -348,7 +778,7 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
     slots = []
     for row in slot_rows:
         scheduled_at_iso = row["scheduled_at"]
-        if scheduled_at_iso in booked_at:
+        if booked_counts.get(scheduled_at_iso, 0) >= max_bookings_per_slot:
             continue
         dt = datetime.fromisoformat(scheduled_at_iso)
         slots.append({
@@ -367,7 +797,270 @@ def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
     return None
 
 
+# --- Patients (Section 12.9 -- staff-created bookings need to search by name,
+# not just phone; see db/schema.sql's comment on the patients table and
+# create_appointment()'s _upsert_patient() for how rows get here) ---
+
+def is_valid_phone(phone: str | None) -> bool:
+    """Deliberately permissive (SPEC Section 12.9's phone-validation follow-up)
+    -- rejects only the unambiguous garbage cases (empty, whitespace-only, or
+    containing no digits at all, e.g. "not-a-phone-number!!"), not a strict
+    phone-number format spec: no length requirement, no country-code check,
+    no separator/whitespace-shape rules. International phone formats vary too
+    much to validate meaningfully without a dedicated library this project
+    doesn't otherwise need -- filtering garbage, not enforcing a spec, is the
+    actual goal here. Called at every point a phone number is first captured:
+    core/main.py's webhook intake (WhatsApp) and portal.py's new-booking form
+    (staff) -- not re-checked here in create_appointment() itself, since both
+    of those are the only real entry points and re-validating a third time
+    at the shared data-access layer would just be the same rule maintained
+    in three places instead of two."""
+    if not phone:
+        return False
+    phone = phone.strip()
+    if not phone:
+        return False
+    return any(c.isdigit() for c in phone)
+
+
+def search_patients(hospital_id: int, query: str, limit: int = 10) -> list[dict]:
+    """Case-insensitive partial match on name OR phone, hospital-scoped.
+    Powers portal.py's /portal/patients/search (staff typing into the new-
+    booking form's patient search box)."""
+    query = query.strip()
+    if not query:
+        return []
+    conn = get_connection()
+    like = f"%{query}%"
+    rows = conn.execute(
+        "SELECT phone, name FROM patients WHERE hospital_id = ? "
+        "AND (phone ILIKE ? OR name ILIKE ?) ORDER BY name NULLS LAST, phone LIMIT ?",
+        (hospital_id, like, like, limit),
+    ).fetchall()
+    return [{"phone": r["phone"], "name": r["name"]} for r in rows]
+
+
+def _patients_with_visit_stats_sql(where_extra: str = "") -> str:
+    """Shared by list_patients()/get_recent_patients() -- last_visit is the
+    most recent scheduled_at across every appointment (any status, same
+    "staff want to see the full history" reasoning as
+    get_all_appointments_for_hospital()), visit_count counts every
+    appointment row ever created for that phone, not just kept ones."""
+    return (
+        "SELECT p.id, p.phone, p.name, MAX(a.scheduled_at) AS last_visit, COUNT(a.id) AS visit_count "
+        "FROM patients p LEFT JOIN appointments a ON a.hospital_id = p.hospital_id AND a.phone = p.phone "
+        f"WHERE p.hospital_id = ? {where_extra} "
+        "GROUP BY p.id, p.phone, p.name "
+        "ORDER BY last_visit DESC NULLS LAST, p.name NULLS LAST, p.phone "
+    )
+
+
+def list_patients(hospital_id: int, search: str | None = None, limit: int = 200) -> list[dict]:
+    """Full patient directory for /portal/patients -- unlike search_patients()
+    (name/phone only, built for the new-booking form's autocomplete), this
+    also surfaces last_visit/visit_count so staff can see engagement at a
+    glance, and returns every patient (not just search hits) when no query
+    is given."""
+    conn = get_connection()
+    search = (search or "").strip()
+    if search:
+        like = f"%{search}%"
+        rows = conn.execute(
+            _patients_with_visit_stats_sql("AND (p.phone ILIKE ? OR p.name ILIKE ?)") + "LIMIT ?",
+            (hospital_id, like, like, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(_patients_with_visit_stats_sql() + "LIMIT ?", (hospital_id, limit)).fetchall()
+    return [
+        {"id": r["id"], "phone": r["phone"], "name": r["name"], "last_visit": r["last_visit"], "visit_count": r["visit_count"]}
+        for r in rows
+    ]
+
+
+def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
+    """The dashboard's small "Patients" widget -- same shape as list_patients()
+    but capped short and always unfiltered (most-recently-seen patients),
+    since it's a glance-and-click-through widget, not a search surface."""
+    return list_patients(hospital_id, search=None, limit=limit)
+
+
+# --- Patient records (Section 12.10: visit history, notes, documents) ---
+
+def get_patient(hospital_id: int, patient_id: int) -> dict | None:
+    """The single ownership check every patient-detail/notes/documents route
+    uses before doing anything else -- returns None for a patient_id that
+    doesn't exist OR belongs to a different hospital, so callers can't tell
+    the two cases apart from the response (same 404-not-403 discipline as
+    get_doctor_full())."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, created_at "
+        "FROM patients WHERE hospital_id = ? AND id = ?",
+        (hospital_id, patient_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
+    """Section 12.11: the WhatsApp booking flow's "have we met this patient
+    before" check -- unlike get_patient() (looked up by the portal's own
+    numeric id), the bot only ever knows a phone number. Exact match, not
+    search_patients()'s partial ILIKE -- this is an identity lookup, not a
+    staff-typed search box."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, created_at "
+        "FROM patients WHERE hospital_id = ? AND phone = ?",
+        (hospital_id, phone),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_patient_demographics(
+    hospital_id: int, patient_id: int, date_of_birth: str | None, gender: str | None, address: str | None,
+) -> dict | None:
+    """All three fields optional -- an empty-string/None value clears that
+    field rather than being rejected, since none of this was ever required
+    at patient creation and staff filling it in gradually is the expected
+    path, not an all-at-once form."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patients SET date_of_birth = ?, gender = ?, address = ? WHERE hospital_id = ? AND id = ?",
+        (date_of_birth or None, gender or None, address or None, hospital_id, patient_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    conn.commit()
+    return get_patient(hospital_id, patient_id)
+
+
+def get_patient_visit_history(hospital_id: int, patient_id: int) -> list[Appointment]:
+    """Every appointment for this patient (any status, most recent first) --
+    reuses the exact same `appointments` data the rest of the app already
+    has; no new table needed for "visit history" itself, only for notes/
+    documents attached to a visit. Returns [] for an unknown/foreign
+    patient_id rather than raising -- callers that need to distinguish
+    "no visits" from "no such patient" should call get_patient() first."""
+    conn = get_connection()
+    patient = conn.execute(
+        "SELECT phone FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
+    ).fetchone()
+    if patient is None:
+        return []
+    rows = conn.execute(
+        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? AND a.phone = ? ORDER BY a.scheduled_at DESC",
+        (hospital_id, patient["phone"]),
+    ).fetchall()
+    return [_row_to_appointment(r) for r in rows]
+
+
+def create_patient_visit_note(
+    hospital_id: int, patient_id: int, note_text: str,
+    appointment_id: int | None = None, doctor_id: str | None = None, created_by_session_id: str | None = None,
+) -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO patient_visit_notes "
+        "(hospital_id, patient_id, appointment_id, doctor_id, note_text, created_by_session_id) "
+        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, created_at",
+        (hospital_id, patient_id, appointment_id, doctor_id, note_text, created_by_session_id),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "patient_id": patient_id, "appointment_id": appointment_id, "doctor_id": doctor_id,
+        "note_text": note_text, "created_at": row["created_at"], "created_by_session_id": created_by_session_id,
+    }
+
+
+def get_patient_visit_notes(hospital_id: int, patient_id: int) -> list[dict]:
+    """Most recent first. Includes the doctor's name (not just id) so the
+    portal can render it directly without a second lookup."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT n.id, n.patient_id, n.appointment_id, n.doctor_id, doc.name AS doctor_name, "
+        "n.note_text, n.created_at, n.created_by_session_id "
+        "FROM patient_visit_notes n LEFT JOIN doctors doc ON doc.id = n.doctor_id "
+        "WHERE n.hospital_id = ? AND n.patient_id = ? ORDER BY n.created_at DESC",
+        (hospital_id, patient_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_patient_document(
+    hospital_id: int, patient_id: int, file_name: str, file_url: str,
+    appointment_id: int | None = None, uploaded_by_session_id: str | None = None,
+) -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO patient_documents "
+        "(hospital_id, patient_id, appointment_id, file_name, file_url, uploaded_by_session_id) "
+        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, uploaded_at",
+        (hospital_id, patient_id, appointment_id, file_name, file_url, uploaded_by_session_id),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "patient_id": patient_id, "appointment_id": appointment_id, "file_name": file_name,
+        "file_url": file_url, "uploaded_at": row["uploaded_at"], "uploaded_by_session_id": uploaded_by_session_id,
+        "sent_to_whatsapp_at": None,
+    }
+
+
+def get_patient_documents(hospital_id: int, patient_id: int) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, patient_id, appointment_id, file_name, file_url, uploaded_at, "
+        "uploaded_by_session_id, sent_to_whatsapp_at FROM patient_documents "
+        "WHERE hospital_id = ? AND patient_id = ? ORDER BY uploaded_at DESC",
+        (hospital_id, patient_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_patient_document(hospital_id: int, document_id: int) -> dict | None:
+    """The ownership check portal_api.py's send-to-WhatsApp and
+    download/signed-URL routes both use before touching storage."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, patient_id, appointment_id, file_name, file_url, uploaded_at, "
+        "uploaded_by_session_id, sent_to_whatsapp_at FROM patient_documents "
+        "WHERE hospital_id = ? AND id = ?",
+        (hospital_id, document_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def mark_document_sent_to_whatsapp(hospital_id: int, document_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patient_documents SET sent_to_whatsapp_at = ? WHERE hospital_id = ? AND id = ?",
+        (datetime.now().isoformat(), hospital_id, document_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.commit()
+    return True
+
+
 # --- Appointments ---
+
+def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: int | None = None) -> None:
+    """Section 12.9: keeps `patients` in sync on every booking, both sources.
+    COALESCE(EXCLUDED.name, patients.name) means a name, when given (staff
+    bookings, or as of Section 12.11 a WhatsApp patient asked for the first
+    time), always wins and fills in/overwrites; when not given (a repeat
+    WhatsApp patient who's already on file, so booking_flow.py skips asking
+    again), an existing name/age is never clobbered back to NULL. Same
+    COALESCE treatment for `age` -- Section 12.11's WhatsApp-collected field,
+    independent of the staff portal's date_of_birth (Section 12.10)."""
+    conn.execute(
+        "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (hospital_id, phone) DO UPDATE SET "
+        "name = COALESCE(EXCLUDED.name, patients.name), age = COALESCE(EXCLUDED.age, patients.age)",
+        (hospital_id, phone, name, age),
+    )
+
 
 def create_appointment(
     hospital_id: int,
@@ -375,19 +1068,156 @@ def create_appointment(
     department_id: str,
     doctor_id: str,
     scheduled_at: datetime,
+    source: str = SOURCE_WHATSAPP,
+    patient_name: str | None = None,
+    patient_age: int | None = None,
 ) -> Appointment:
-    """Raises db.connection.IntegrityError if this doctor already has a
-    *booked* appointment at this exact scheduled_at (db/schema.sql's partial
-    unique index) — that's the actual double-booking guard, not application
-    logic. Catching it gracefully is Phase 8 work, not done here."""
+    """Raises db.connection.IntegrityError if this doctor's max_bookings_per_slot
+    (default 1) worth of *booked* appointments already exist at this exact
+    scheduled_at -- that's the actual double-booking guard, not application
+    logic. Catching it gracefully is Phase 8 work, not done here. Raises the
+    more specific QuotaExceededError (still an IntegrityError) if the
+    doctor's daily_booking_limit or the requested source's online_quota/
+    walkin_quota (Section 14.7, first enforced here as of Section 12.9) is
+    exhausted for scheduled_at's date.
+
+    `source` distinguishes a WhatsApp patient self-booking (the default --
+    every pre-Section-12.9 call site keeps working completely unchanged) from
+    a staff-created walk-in/phone booking ("staff", portal.py's
+    /portal/new-booking) -- purely descriptive, never branched on for booking
+    LOGIC beyond which quota column it counts against. `patient_name`/
+    `patient_age` are supplied by the staff path OR, as of Section 12.11, by
+    core/booking_flow.py's own AWAITING_PATIENT_NAME/AGE states the first
+    time a WhatsApp patient books (None on every later booking, once
+    they're on file -- see _upsert_patient()'s COALESCE for why that's safe).
+
+    Concurrency (Section 12.9): daily_booking_limit/online_quota/walkin_quota
+    are per-DOCTOR-configured values, not fixed schema constants, so unlike
+    the OLD max_bookings_per_slot-only design (a plain UNIQUE index needed no
+    lock at all) they can't be enforced as a static constraint. A Postgres
+    advisory transaction lock scoped to (doctor_id, date) serializes every
+    booking attempt -- staff AND WhatsApp alike -- for the same doctor on the
+    same day, so the whole check-then-insert sequence below (quotas AND the
+    per-slot ordinal assignment) is atomic against genuine concurrent
+    requests, not just correct when called one at a time. The lock is
+    released automatically on COMMIT/ROLLBACK (that's what "_xact_lock"
+    means).
+
+    Wrapped in a real BEGIN/ROLLBACK/COMMIT block (unlike every other
+    function in this file, which relies on db/connection.py's
+    autocommit=True) -- the `except BaseException` below is not optional:
+    this is the ONE place in the app that opens a real multi-statement
+    transaction on the single shared connection, and leaving it open after an
+    unexpected error would poison every subsequent query on that connection
+    (db/connection.py's own docstring explains exactly this failure mode,
+    which is why autocommit=True was chosen everywhere else) -- so every exit
+    path, expected or not, must ROLLBACK or COMMIT. This is also exactly why
+    there's deliberately no retry-on-conflict inside this transaction (an
+    earlier version had one, a leftover from before this lock existed): once
+    ANY statement in an explicit Postgres transaction fails, the whole
+    transaction is aborted and every FURTHER statement on it fails too, with
+    "current transaction is aborted" (a different exception than whatever
+    actually went wrong) until a ROLLBACK -- so "catch a failure and issue
+    another statement to retry, inside the same transaction" doesn't just
+    not-help here, it actively replaces a meaningful IntegrityError/
+    QuotaExceededError with a useless, wrong-typed one that no caller's
+    `except IntegrityError:` would catch. Confirmed live: forcing a genuine
+    INSERT failure here and then issuing an unrelated query on the same
+    connection afterward shows the connection recovers cleanly either way
+    (see tests/test_create_appointment_transaction_safety.py) -- but ONLY
+    the current code (no inner retry) also gets the exception TYPE right for
+    the caller."""
     conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at) "
-        "VALUES (?, ?, ?, ?, ?) RETURNING id",
-        (hospital_id, phone, department_id, doctor_id, scheduled_at.isoformat()),
-    )
-    new_id = cur.fetchone()["id"]
-    conn.commit()
+    scheduled_at_iso = scheduled_at.isoformat()
+    scheduled_date = scheduled_at.date()
+    day_start = datetime.combine(scheduled_date, datetime.min.time()).isoformat()
+    day_end = datetime.combine(scheduled_date, datetime.max.time()).isoformat()
+
+    doctor_row = conn.execute(
+        "SELECT max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota "
+        "FROM doctors WHERE hospital_id = ? AND id = ?",
+        (hospital_id, doctor_id),
+    ).fetchone()
+    max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+    daily_booking_limit = doctor_row["daily_booking_limit"] if doctor_row else None
+    source_quota = None
+    if doctor_row:
+        source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
+
+    conn.execute("BEGIN")
+    try:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"{doctor_id}|{scheduled_date.isoformat()}",),
+        )
+
+        if daily_booking_limit is not None:
+            day_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+                "AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
+                (hospital_id, doctor_id, day_start, day_end, STATUS_BOOKED),
+            ).fetchone()["c"]
+            if day_count >= daily_booking_limit:
+                raise QuotaExceededError("This doctor has reached today's booking limit.")
+
+        if source_quota is not None:
+            source_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+                "AND scheduled_at >= ? AND scheduled_at <= ? AND status = ? AND source = ?",
+                (hospital_id, doctor_id, day_start, day_end, STATUS_BOOKED, source),
+            ).fetchone()["c"]
+            if source_count >= source_quota:
+                kind = "Online booking" if source == SOURCE_WHATSAPP else "Walk-in"
+                raise QuotaExceededError(f"{kind} quota full for this doctor today.")
+
+        # The smallest booking_ordinal in [0, max_bookings_per_slot) NOT
+        # already used by a currently-BOOKED row at this exact slot --
+        # deliberately NOT a plain COUNT(*): a cancellation doesn't delete
+        # its row or free its ordinal implicitly, so booked ordinals can have
+        # gaps (book A -> ordinal 0, book B -> ordinal 1, cancel A, book C ->
+        # COUNT(booked) is 1, but ordinal 1 is already B's -- COUNT(*) as the
+        # ordinal would collide with B here, a real sequence, not a
+        # contrived one). generate_series against the valid ordinal range,
+        # minus whichever are taken, correctly finds a real gap or reports
+        # none exists.
+        free_ordinal_row = conn.execute(
+            "SELECT MIN(o) AS ordinal FROM generate_series(0, ? - 1) AS o "
+            "WHERE o NOT IN (SELECT booking_ordinal FROM appointments WHERE hospital_id = ? "
+            "AND doctor_id = ? AND scheduled_at = ? AND status = ?)",
+            (max_bookings_per_slot, hospital_id, doctor_id, scheduled_at_iso, STATUS_BOOKED),
+        ).fetchone()
+        if free_ordinal_row["ordinal"] is None:
+            raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
+
+        # No retry-on-conflict here (an earlier version of this function had
+        # one, left over from before the advisory lock above existed): under
+        # the lock, no other transaction can be concurrently computing an
+        # ordinal for this doctor+day, so this INSERT cannot lose a race --
+        # and critically, retrying-by-issuing-more-statements would NOT be
+        # safe here even if it could theoretically happen: Postgres aborts an
+        # entire explicit transaction after any failed statement, so a second
+        # statement issued after a failed INSERT here would itself fail with
+        # "current transaction is aborted", not this table's own
+        # IntegrityError -- silently breaking every caller's
+        # `except IntegrityError:` handling. Let it propagate straight to the
+        # `except BaseException` below instead, which ROLLBACKs correctly and
+        # re-raises the SAME, correctly-typed exception.
+        cur = conn.execute(
+            "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
+            "booking_ordinal, source) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source),
+        )
+        new_id = cur.fetchone()["id"]
+
+        _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+
     return get_appointment(hospital_id, new_id)
 
 
@@ -440,6 +1270,20 @@ def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: dateti
     return [_row_to_appointment(r) for r in rows]
 
 
+def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> list[Appointment]:
+    """Every appointment (any status) for a hospital's own bookings dashboard
+    (portal.py, Tier 1 self-serve view) -- most recently scheduled first.
+    Unlike get_upcoming_appointments_for_phone()/get_upcoming_appointments(),
+    this is intentionally not filtered to booked/future-only: hospital staff
+    reviewing their own bookings want to see cancellations/reschedules too."""
+    conn = get_connection()
+    rows = conn.execute(
+        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? ORDER BY a.scheduled_at DESC LIMIT ?",
+        (hospital_id, limit),
+    ).fetchall()
+    return [_row_to_appointment(r) for r in rows]
+
+
 def mark_reminded(hospital_id: int, appointment_id: int, offset_hours: float) -> None:
     """Records that the reminder for this specific offset has been sent.
     ON CONFLICT DO NOTHING + appointment_reminders' UNIQUE(appointment_id, offset_hours)
@@ -467,11 +1311,13 @@ def get_reminded_offsets(hospital_id: int, appointment_id: int) -> list[float]:
 
 def cancel_appointment(hospital_id: int, appointment_id: int) -> None:
     """Marks the appointment cancelled — does not delete the row, so
-    cancellation history/audit trail isn't lost."""
+    cancellation history/audit trail isn't lost. Also stamps updated_at
+    (Section 12.8) so the dashboard's activity feed can show this event at
+    the time it actually happened, not the original booking's created_at."""
     conn = get_connection()
     conn.execute(
-        "UPDATE appointments SET status = ? WHERE id = ? AND hospital_id = ?",
-        (STATUS_CANCELLED, appointment_id, hospital_id),
+        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ?",
+        (STATUS_CANCELLED, datetime.now().isoformat(), appointment_id, hospital_id),
     )
     conn.commit()
 
@@ -479,10 +1325,311 @@ def cancel_appointment(hospital_id: int, appointment_id: int) -> None:
 def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
     """Marks the old appointment as superseded by a reschedule — does not
     delete the row. Callers are responsible for create_appointment()-ing the
-    new slot separately (see core/booking_flow.py's reschedule confirm)."""
+    new slot separately (see core/booking_flow.py's reschedule confirm).
+    Also stamps updated_at (Section 12.8), same reasoning as cancel_appointment()."""
     conn = get_connection()
     conn.execute(
-        "UPDATE appointments SET status = ? WHERE id = ? AND hospital_id = ?",
-        (STATUS_RESCHEDULED, appointment_id, hospital_id),
+        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ?",
+        (STATUS_RESCHEDULED, datetime.now().isoformat(), appointment_id, hospital_id),
     )
     conn.commit()
+
+
+# --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
+# Every query here is hospital_id-scoped, same discipline as everywhere else
+# in this file; the isolation test that matters is at the HTTP layer
+# (tests/test_portal_dashboard.py), not repeated per-function here. ---
+
+def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
+    """The four "today"-scoped stat tiles (today's appointments, confirmed
+    today, new patients today, no-shows today) plus a week-over-week % change
+    for each, comparing today against the SAME WEEKDAY exactly 7 days ago --
+    picked over a rolling-7-day-average comparison because it's the simplest
+    comparison that's still apples-to-apples (a Monday against last Monday,
+    not "today" against a blended mix of arbitrary weekdays), and needs only
+    a single extra date offset, not a second aggregate shape. Also returns a
+    fifth, non-"today"-scoped `upcoming_appointments` count -- see its own
+    comment below for why.
+
+    Definitions (all hospital_id + date-scoped):
+    - "today's appointments": every appointment (any status) with
+      scheduled_at falling on the date in question.
+    - "confirmed today": of those, the ones still status='booked' (i.e. not
+      cancelled) -- "confirmed" reads most naturally as "still on," not "has
+      been formally re-confirmed" (no such action exists in this app).
+    - "new patients today": distinct phone numbers whose EARLIEST appointment
+      ever at this hospital (by created_at) was created on the date in
+      question -- there's no separate patients table, so "new" is derived
+      from first-appearance-in-appointments.
+    - "no-shows today": still status='booked' appointments whose scheduled_at
+      has already passed as of `now` (or, for last week's comparison day,
+      the whole day, since it's entirely in the past). KNOWN LIMITATION: this
+      app has no "attended"/"completed" status, so this is a heuristic, not a
+      true no-show flag -- a booked appointment the patient actually attended
+      looks identical to one they skipped once its time has passed. Flagged
+      here deliberately rather than silently treated as exact.
+
+    A week-over-week % change with a zero baseline (nothing happened on the
+    comparison day) returns None (not a divide-by-zero, not a misleading
+    "+100%") -- the caller/template shows "—" for that case.
+    """
+    now = now or datetime.now()
+    today = now.date()
+    last_week_day = today - timedelta(days=7)
+    conn = get_connection()
+
+    def _stats_for_day(day, no_show_cutoff: datetime) -> dict:
+        day_start = datetime.combine(day, datetime.min.time()).isoformat()
+        day_end = datetime.combine(day, datetime.max.time()).isoformat()
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ?",
+            (hospital_id, day_start, day_end),
+        ).fetchone()["c"]
+        confirmed = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
+            (hospital_id, day_start, day_end, STATUS_BOOKED),
+        ).fetchone()["c"]
+        new_patients = conn.execute(
+            "SELECT COUNT(DISTINCT a.phone) AS c FROM appointments a "
+            "WHERE a.hospital_id = ? AND a.created_at >= ? AND a.created_at <= ? "
+            "AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.hospital_id = a.hospital_id "
+            "AND a2.phone = a.phone AND a2.created_at < ?)",
+            (hospital_id, day_start, day_end, day_start),
+        ).fetchone()["c"]
+        no_shows = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
+            "AND scheduled_at < ? AND status = ?",
+            (hospital_id, day_start, day_end, no_show_cutoff.isoformat(), STATUS_BOOKED),
+        ).fetchone()["c"]
+        return {"total": total, "confirmed": confirmed, "new_patients": new_patients, "no_shows": no_shows}
+
+    today_stats = _stats_for_day(today, now)
+    last_week_stats = _stats_for_day(last_week_day, datetime.combine(last_week_day, datetime.max.time()))
+
+    def _delta_pct(today_v: int, last_week_v: int) -> float | None:
+        if last_week_v == 0:
+            return None
+        return round((today_v - last_week_v) / last_week_v * 100, 1)
+
+    upcoming_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at > ? AND status = ?",
+        (hospital_id, now.isoformat(), STATUS_BOOKED),
+    ).fetchone()
+
+    return {
+        "today_appointments": today_stats["total"],
+        "today_appointments_delta_pct": _delta_pct(today_stats["total"], last_week_stats["total"]),
+        "confirmed_today": today_stats["confirmed"],
+        "confirmed_today_delta_pct": _delta_pct(today_stats["confirmed"], last_week_stats["confirmed"]),
+        "new_patients_today": today_stats["new_patients"],
+        "new_patients_today_delta_pct": _delta_pct(today_stats["new_patients"], last_week_stats["new_patients"]),
+        "no_shows_today": today_stats["no_shows"],
+        "no_shows_today_delta_pct": _delta_pct(today_stats["no_shows"], last_week_stats["no_shows"]),
+        # Deliberately NOT "today"-scoped, unlike every stat above -- a
+        # hospital's very first booking is very unlikely to land on today's
+        # date specifically, and a dashboard reading all-zeros right after a
+        # real booking just came in reads as broken. No delta_pct: a plain
+        # forward-looking count, not a daily rate, so a week-over-week
+        # comparison doesn't mean the same thing here.
+        "upcoming_appointments": upcoming_row["c"],
+    }
+
+
+def get_weekly_appointment_counts(hospital_id: int, now: datetime | None = None) -> list[dict]:
+    """One point per day for the last 7 calendar days (today inclusive,
+    oldest first) -- counts by scheduled_at (any status), consistent with
+    get_dashboard_stats()'s own "today's appointments" definition (appointment
+    VOLUME by day), not by created_at (which would be a booking-activity
+    trend instead -- a legitimate alternative, but this keeps every dashboard
+    number reading the same way)."""
+    now = now or datetime.now()
+    today = now.date()
+    conn = get_connection()
+    results = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_start = datetime.combine(day, datetime.min.time()).isoformat()
+        day_end = datetime.combine(day, datetime.max.time()).isoformat()
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ?",
+            (hospital_id, day_start, day_end),
+        ).fetchone()["c"]
+        results.append({"date": day.isoformat(), "label": day.strftime("%a"), "count": count})
+    return results
+
+
+def get_appointments_by_department(hospital_id: int, days: int = 30, now: datetime | None = None) -> list[dict]:
+    """Department share of appointment volume over a rolling **±`days`-day**
+    window centered on now (default 30 days back AND 30 days forward) --
+    ordered by count descending so the donut/legend both read
+    largest-share-first. Deliberately NOT a past-only window (that was the
+    original behavior): a hospital's very first booking is almost always for
+    a FUTURE slot, and a past-only window left this donut empty immediately
+    after a real booking came in, right when a staff member would most want
+    to see it reflected."""
+    now = now or datetime.now()
+    window_start = datetime.combine(now.date() - timedelta(days=days - 1), datetime.min.time())
+    window_end = datetime.combine(now.date() + timedelta(days=days), datetime.max.time())
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT d.name AS department_name, COUNT(*) AS c FROM appointments a "
+        "JOIN departments d ON d.id = a.department_id "
+        "WHERE a.hospital_id = ? AND a.scheduled_at >= ? AND a.scheduled_at <= ? "
+        "GROUP BY d.name ORDER BY c DESC",
+        (hospital_id, window_start.isoformat(), window_end.isoformat()),
+    ).fetchall()
+    return [{"department_name": r["department_name"], "count": r["c"]} for r in rows]
+
+
+def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:
+    """A lightweight "what just happened" feed built entirely from
+    appointments' own status/timestamps -- SPEC Section 12.8 looked for an
+    existing WhatsApp message log to reuse and found none exists (nothing in
+    this build persists inbound/outbound message text, only conversation
+    STATE via core/history.py's session store); appointment status changes
+    are the smallest real substitute already captured, so this reuses those
+    rather than adding new message logging.
+
+    Each row contributes exactly ONE event based on its CURRENT status: a
+    still-'booked' row's event is "Booked appointment" at created_at; a
+    cancelled/rescheduled row's event uses updated_at (the column
+    cancel_appointment()/mark_rescheduled() now stamp specifically for this)
+    so it shows the time the status actually changed, not the original
+    booking time. A reschedule legitimately produces two feed entries over
+    time -- the OLD row's "Rescheduled appointment" and the NEW row's own
+    later "Booked appointment" -- which is correct, not a double-count: two
+    real, separately-timed things happened."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT a.status, a.phone, doc.name AS doctor_name, d.name AS department_name,
+               a.created_at, a.updated_at
+        FROM appointments a
+        JOIN departments d ON d.id = a.department_id
+        JOIN doctors doc ON doc.id = a.doctor_id
+        WHERE a.hospital_id = ?
+        ORDER BY COALESCE(a.updated_at, a.created_at) DESC
+        LIMIT ?
+        """,
+        (hospital_id, limit),
+    ).fetchall()
+    labels = {
+        STATUS_BOOKED: "Booked appointment",
+        STATUS_CANCELLED: "Cancelled appointment",
+        STATUS_RESCHEDULED: "Rescheduled appointment",
+    }
+    feed = []
+    for r in rows:
+        event_at = r["updated_at"] or r["created_at"]
+        feed.append({
+            "label": labels.get(r["status"], r["status"]),
+            "phone": r["phone"],
+            "doctor_name": r["doctor_name"],
+            "department_name": r["department_name"],
+            "at": datetime.fromisoformat(event_at),
+        })
+    return feed
+
+
+# --- FAQ topics (SPEC Section 14.2, the FAQ flow_type's entire data model) ---
+
+def get_faq_topics(hospital_id: int) -> list[dict]:
+    """faq_flow.py's topic menu (Section 14.2) -- ordered by display_order,
+    then id as a tiebreaker (display_order isn't unique, ties are expected)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, topic_label, answer_text, display_order FROM faq_topics "
+        "WHERE hospital_id = ? ORDER BY display_order, id",
+        (hospital_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_faq_topic(hospital_id: int, topic_id: str) -> dict | None:
+    """topic_id arrives as a WhatsApp interactive-reply id (always a string)
+    -- faq_topics.id is a SERIAL int, so a non-numeric/stale/cross-hospital id
+    (e.g. a leftover tap from before a flow_type switch) safely resolves to
+    "not found" rather than a raw ValueError from the int() conversion."""
+    try:
+        topic_id_int = int(topic_id)
+    except (TypeError, ValueError):
+        return None
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, topic_label, answer_text, display_order FROM faq_topics "
+        "WHERE hospital_id = ? AND id = ?",
+        (hospital_id, topic_id_int),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def create_faq_topic(
+    hospital_id: int, topic_label: str, answer_text: str, display_order: int | None = None,
+) -> dict:
+    """admin/onboarding.py's wizard Step 7 topic/answer builder (Section 14.3,
+    faq-flow tenants only). display_order defaults to "append at the end" of
+    this hospital's existing topics, so onboarding-time topics keep the order
+    they were entered in without the caller having to compute indices itself."""
+    conn = get_connection()
+    if display_order is None:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(display_order), -1) + 1 AS next_order FROM faq_topics WHERE hospital_id = ?",
+            (hospital_id,),
+        ).fetchone()
+        display_order = row["next_order"]
+    cur = conn.execute(
+        "INSERT INTO faq_topics (hospital_id, topic_label, answer_text, display_order) "
+        "VALUES (?, ?, ?, ?) RETURNING id",
+        (hospital_id, topic_label, answer_text, display_order),
+    )
+    new_id = cur.fetchone()["id"]
+    conn.commit()
+    return {"id": new_id, "topic_label": topic_label, "answer_text": answer_text, "display_order": display_order}
+
+
+# --- Human handoff queue -- fed by flows.py's reception_handoff feature and
+# core/main.py's unexpected-exception catch (see db/schema.sql's own comment
+# on handoff_requests for why these two unrelated triggers share one table). ---
+
+def create_handoff_request(hospital_id: int, phone: str, reason: str, message_text: str | None = None) -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO handoff_requests (hospital_id, phone, reason, message_text) "
+        "VALUES (?, ?, ?, ?) RETURNING id, created_at",
+        (hospital_id, phone, reason, message_text),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "hospital_id": hospital_id, "phone": phone, "reason": reason,
+        "message_text": message_text, "status": "open", "created_at": row["created_at"], "resolved_at": None,
+    }
+
+
+def get_handoff_requests(hospital_id: int, status: str | None = "open", limit: int = 100) -> list[dict]:
+    """status=None returns every request regardless of state (for a staff
+    member reviewing history); the default "open" is the actual work queue."""
+    conn = get_connection()
+    if status is None:
+        rows = conn.execute(
+            "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
+            "WHERE hospital_id = ? ORDER BY created_at DESC LIMIT ?",
+            (hospital_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
+            "WHERE hospital_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?",
+            (hospital_id, status, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE handoff_requests SET status = 'resolved', resolved_at = ? WHERE id = ? AND hospital_id = ? AND status = 'open'",
+        (datetime.now().isoformat(), handoff_id, hospital_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0

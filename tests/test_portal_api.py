@@ -1,0 +1,545 @@
+# tests/test_portal_api.py
+"""
+Audit follow-up (Spec.md Section 0): portal_api.py -- the entire JSON API the
+Next.js staff portal runs on -- had zero test coverage before this file,
+despite being wired into core/main.py and used by every /portal/* page.
+Covers, per the audit's explicit checklist:
+
+  - hospital A cannot cancel, message, toggle, or otherwise read/mutate
+    hospital B's doctors/bookings/handoff requests/patients via ID guessing,
+    on every mutating (and several read) /api/portal/* route
+  - CSV bulk doctor import: success, per-row error isolation, get-or-create
+    department by name (case-insensitive)
+  - the human-handoff reply endpoint: mocked WhatsAppClient (no real HTTP
+    call), correct per-hospital credentials used, does NOT auto-resolve
+  - appointment-cancel-with-message: message sent only after the cancel
+    commits, and a WhatsApp send failure never turns a successful cancel
+    into an error response (portal_cancel_booking's try/except)
+  - doctor active/inactive toggle, and that it actually affects the
+    bot-facing db.get_doctors() list (the real enforcement point)
+  - list_patients/search_patients/get_recent_patients via
+    GET /api/portal/patients and the dashboard's "recent_patients" field
+
+A real (minor) cross-tenant gap was found and fixed while writing this:
+portal_add_doctor_leave/portal_get_doctor_leave never verified doctor_id
+belonged to the authenticated hospital before reading/writing doctor_leave
+rows -- db.create_doctor_leave() itself has no way to know, since its INSERT
+succeeds regardless of which hospital actually owns that doctor_id. Fixed in
+portal_api.py by checking db.get_doctor_full(hospital.id, doctor_id) first,
+same pattern portal_create_doctor() already used for department_id.
+"""
+import os
+from datetime import datetime
+
+import pytest
+
+import db.repository as db
+import portal_api
+
+os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test")
+os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "123")
+os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "mytoken")
+os.environ.setdefault("WHATSAPP_APP_SECRET", "appsecret")
+os.environ.setdefault("INTERNAL_SECRET", "internalsecret")
+os.environ.setdefault("GOOGLE_CALENDAR_ID", "test@calendar")
+os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
+os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
+
+from core.main import app  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+client = TestClient(app)
+
+
+# --- shared setup helpers ---
+
+
+def _set_hospital_creds(hospital_id: int, *, password: str, phone_number_id: str, access_token: str) -> None:
+    h = db.get_hospital(hospital_id)
+    db.update_hospital(
+        hospital_id,
+        name=h.name,
+        whatsapp_phone_number_id=phone_number_id,
+        access_token=access_token,
+        app_secret=h.app_secret,
+        timezone=h.timezone,
+        welcome_message_text=h.welcome_message_text,
+        reminder_offsets_hours=h.reminder_offsets_hours,
+        reminder_template_name=h.reminder_template_name,
+        data_tier=h.data_tier,
+        external_api_base_url=h.external_api_base_url,
+        external_api_key=h.external_api_key,
+        portal_password_hash=db.hash_portal_password(password),
+        enabled_features=h.enabled_features,
+    )
+
+
+def _login(password: str) -> str:
+    resp = client.post("/api/portal/login", json={"password": password})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["token"]
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _create_appointment(hospital_id: int, doctor_id: str, department_id: str, phone: str = "5490001111", patient_name=None):
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    scheduled_at = datetime.fromisoformat(slot["id"])
+    return db.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at, patient_name=patient_name)
+
+
+@pytest.fixture
+def two_hospitals(hospital_id, second_hospital_id):
+    """hospital_id/second_hospital_id (tests/conftest.py) are the two seeded
+    tenants -- distinct portal passwords + distinct fake WhatsApp credentials,
+    so tests can log in as either and prove neither sees or can act on the
+    other's data, and that outgoing sends use the right hospital's creds.
+    Hospital A uses doc_card_1/cardiology (seed_default_hospital); Hospital B
+    uses t2_doc_neuro_1/t2_neurology (seed_test_hospital)."""
+    _set_hospital_creds(hospital_id, password="hospital-a-pw", phone_number_id="hospital-a-phone", access_token="hospital-a-token")
+    _set_hospital_creds(second_hospital_id, password="hospital-b-pw", phone_number_id="hospital-b-phone", access_token="hospital-b-token")
+    return {
+        "a": {"id": hospital_id, "token": _login("hospital-a-pw"), "doctor_id": "doc_card_1", "department_id": "cardiology"},
+        "b": {"id": second_hospital_id, "token": _login("hospital-b-pw"), "doctor_id": "t2_doc_neuro_1", "department_id": "t2_neurology"},
+    }
+
+
+@pytest.fixture
+def fake_whatsapp_send(monkeypatch):
+    """Records every WhatsAppClient.send_text() call along with which
+    instance made it (so tests can assert which hospital's credentials were
+    used) -- no real HTTP call ever happens."""
+    calls = []
+
+    async def fake_send_text(self, to, text):
+        calls.append({"phone_number_id": self._phone_number_id, "access_token": self._token, "to": to, "text": text})
+
+    monkeypatch.setattr(portal_api.WhatsAppClient, "send_text", fake_send_text)
+    return calls
+
+
+# --- Multi-tenant isolation: cancel, message, toggle, and read every
+# mutating/sensitive /api/portal/* route via cross-hospital ID guessing ---
+
+
+def test_cancel_booking_cannot_target_other_hospitals_appointment(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    appt_b = _create_appointment(b["id"], b["doctor_id"], b["department_id"])
+
+    resp = client.post(f"/api/portal/bookings/{appt_b.id}/cancel", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+    # Never actually cancelled.
+    still_booked = db.get_appointment(b["id"], appt_b.id)
+    assert still_booked.status == db.STATUS_BOOKED
+
+
+def test_toggle_doctor_active_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+
+    resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}/active", json={"is_active": False}, headers=_auth(a["token"])
+    )
+    assert resp.status_code == 404
+
+    # Hospital B's doctor is untouched -- still active, still bookable.
+    assert any(d["id"] == b["doctor_id"] for d in db.get_doctors(b["id"], b["department_id"]))
+
+
+def test_doctor_leave_endpoints_cannot_target_other_hospitals_doctor(two_hospitals):
+    """Covers the real gap found+fixed while writing this file (see module
+    docstring): GET/POST both need the ownership check, not just the delete
+    endpoint (which was already safe via its own WHERE clause)."""
+    a, b = two_hospitals["a"], two_hospitals["b"]
+
+    get_resp = client.get(f"/api/portal/doctors/{b['doctor_id']}/leave", headers=_auth(a["token"]))
+    assert get_resp.status_code == 404
+
+    add_resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}/leave", json={"date": "2027-01-01"}, headers=_auth(a["token"])
+    )
+    assert add_resp.status_code == 404
+    assert db.get_doctor_leave(b["id"], b["doctor_id"]) == []  # nothing was inserted under B
+
+
+def test_resolve_handoff_cannot_target_other_hospitals_handoff(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    handoff_b = db.create_handoff_request(b["id"], "919876500000", reason="patient_requested")
+
+    resp = client.post(f"/api/portal/handoffs/{handoff_b['id']}/resolve", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+    still_open = db.get_handoff_requests(b["id"], status="open")
+    assert any(h["id"] == handoff_b["id"] for h in still_open)
+
+
+def test_reply_handoff_cannot_target_other_hospitals_handoff(two_hospitals, fake_whatsapp_send):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    handoff_b = db.create_handoff_request(b["id"], "919876500000", reason="patient_requested")
+
+    resp = client.post(
+        f"/api/portal/handoffs/{handoff_b['id']}/reply", json={"text": "hi from the wrong hospital"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert fake_whatsapp_send == []  # no message was ever sent
+
+
+def test_doctors_list_never_includes_other_hospitals_doctors(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    resp = client.get("/api/portal/doctors", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    doctor_ids = {d["id"] for d in resp.json()["doctors"]}
+    assert b["doctor_id"] not in doctor_ids
+    assert a["doctor_id"] in doctor_ids
+
+    dept_ids = {d["id"] for d in resp.json()["departments"]}
+    assert b["department_id"] not in dept_ids
+
+
+def test_create_doctor_rejects_other_hospitals_department_id(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    resp = client.post(
+        "/api/portal/doctors",
+        json={"department_id": b["department_id"], "name": "Dr. Cross Tenant", "working_days": ["Mon"],
+              "working_hours": ["09:00-10:00"], "slot_duration_minutes": "30"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    assert "valid department" in resp.json()["error"]
+
+
+def test_patients_list_never_includes_other_hospitals_patients(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111", patient_name="Patient A")
+    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490002222", patient_name="Patient B")
+
+    resp = client.get("/api/portal/patients", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    phones = {p["phone"] for p in resp.json()["patients"]}
+    assert "5490001111" in phones
+    assert "5490002222" not in phones
+
+
+def test_bookings_list_never_includes_other_hospitals_appointments(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    appt_a = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
+    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490002222")
+
+    resp = client.get("/api/portal/bookings", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    ids = {row["id"] for row in resp.json()["appointments"]}
+    assert appt_a.id in ids
+    assert len(resp.json()["appointments"]) == 1  # not hospital B's appointment too
+
+
+def test_dashboard_scoped_to_own_hospital_only(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
+    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490002222")
+    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490003333")
+
+    resp = client.get("/api/portal/dashboard", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["recent_appointments"]) == 1
+    assert data["recent_patients"] == [] or all(p["phone"] != "5490002222" for p in data["recent_patients"])
+
+
+def test_handoffs_list_never_includes_other_hospitals_requests(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    db.create_handoff_request(a["id"], "919876500001", reason="patient_requested")
+    db.create_handoff_request(b["id"], "919876500002", reason="patient_requested")
+
+    resp = client.get("/api/portal/handoffs?status=all", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    phones = {h["phone"] for h in resp.json()["handoffs"]}
+    assert phones == {"919876500001"}
+
+
+# --- CSV bulk import ---
+
+
+def _csv_row(**overrides) -> dict:
+    row = {
+        "department_name": "Radiology",
+        "name": "Dr. CSV Import",
+        "specialization": "Imaging",
+        "qualification": "MD",
+        "years_experience": "5",
+        "working_days": "Mon,Tue,Wed",
+        "working_hours": "09:00-12:00",
+        "slot_duration_minutes": "30",
+        "breaks": "",
+        "max_bookings_per_slot": "1",
+        "daily_booking_limit": "",
+        "online_quota": "",
+        "walkin_quota": "",
+        "followup_duration_minutes": "",
+        "effective_from": "",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_csv_import_creates_doctors_and_new_department(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/doctors/csv-import", json={"rows": [_csv_row()]}, headers=_auth(a["token"])
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["created_count"] == 1
+    assert body["row_errors"] == []
+
+    doctors = db.get_all_doctors_for_hospital(a["id"])
+    assert any(d["name"] == "Dr. CSV Import" and d["department_name"] == "Radiology" for d in doctors)
+
+
+def test_csv_import_reuses_existing_department_case_insensitive(two_hospitals):
+    a = two_hospitals["a"]
+    # "Cardiology" already exists (seed_default_hospital) -- a differently-cased
+    # name in the CSV must reuse it, not create a duplicate "cardiology"/"Cardiology" pair.
+    resp = client.post(
+        "/api/portal/doctors/csv-import",
+        json={"rows": [_csv_row(department_name="CARDIOLOGY", name="Dr. Case Insensitive")]},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["created_count"] == 1
+
+    departments = db.get_departments(a["id"])
+    cardiology_depts = [d for d in departments if d["name"].lower() == "cardiology"]
+    assert len(cardiology_depts) == 1
+
+
+def test_csv_import_row_errors_dont_block_good_rows(two_hospitals):
+    a = two_hospitals["a"]
+    rows = [
+        _csv_row(name="Dr. Good One"),
+        _csv_row(name="", department_name="Radiology"),  # missing name -- should fail validation
+        _csv_row(name="Dr. Good Two", department_name="Radiology"),
+    ]
+    resp = client.post("/api/portal/doctors/csv-import", json={"rows": rows}, headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["created_count"] == 2
+    assert len(body["row_errors"]) == 1
+    assert "Row 2" in body["row_errors"][0]
+
+    names = {d["name"] for d in db.get_all_doctors_for_hospital(a["id"])}
+    assert "Dr. Good One" in names
+    assert "Dr. Good Two" in names
+
+
+def test_csv_import_missing_department_name_is_a_row_error(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/doctors/csv-import", json={"rows": [_csv_row(department_name="")]}, headers=_auth(a["token"])
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["created_count"] == 0
+    assert "department_name is required" in body["row_errors"][0]
+
+
+# --- Human handoff reply ---
+
+
+def test_handoff_reply_sends_whatsapp_with_correct_hospital_credentials(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876543210", reason="patient_requested")
+
+    resp = client.post(
+        f"/api/portal/handoffs/{handoff['id']}/reply", json={"text": "Reception here, how can we help?"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+    assert len(fake_whatsapp_send) == 1
+    call = fake_whatsapp_send[0]
+    assert call["to"] == "919876543210"
+    assert call["text"] == "Reception here, how can we help?"
+    assert call["phone_number_id"] == "hospital-a-phone"
+    assert call["access_token"] == "hospital-a-token"
+
+
+def test_handoff_reply_does_not_auto_resolve(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876543210", reason="patient_requested")
+
+    client.post(f"/api/portal/handoffs/{handoff['id']}/reply", json={"text": "still working on it"}, headers=_auth(a["token"]))
+
+    still_open = db.get_handoff_requests(a["id"], status="open")
+    assert any(h["id"] == handoff["id"] for h in still_open)
+
+
+def test_handoff_reply_requires_nonempty_text(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876543210", reason="patient_requested")
+
+    resp = client.post(f"/api/portal/handoffs/{handoff['id']}/reply", json={"text": "   "}, headers=_auth(a["token"]))
+    assert resp.status_code == 400
+    assert fake_whatsapp_send == []
+
+
+# --- Cancel-with-message ---
+
+
+def test_cancel_with_message_sends_whatsapp_after_commit(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490009999")
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/cancel", json={"message": "Your appointment has been cancelled."},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+
+    cancelled = db.get_appointment(a["id"], appt.id)
+    assert cancelled.status == db.STATUS_CANCELLED
+    assert len(fake_whatsapp_send) == 1
+    assert fake_whatsapp_send[0]["to"] == "5490009999"
+    assert fake_whatsapp_send[0]["phone_number_id"] == "hospital-a-phone"
+
+
+def test_cancel_without_message_sends_nothing(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+
+    resp = client.post(f"/api/portal/bookings/{appt.id}/cancel", json={"message": ""}, headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_CANCELLED
+    assert fake_whatsapp_send == []
+
+
+def test_cancel_survives_whatsapp_send_failure(two_hospitals, monkeypatch):
+    """The cancellation itself already committed by the time the WhatsApp
+    send is attempted -- a delivery failure (expired token, etc.) must not
+    turn a successful cancel into a 500."""
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+
+    async def failing_send_text(self, to, text):
+        raise RuntimeError("simulated WhatsApp API failure")
+
+    monkeypatch.setattr(portal_api.WhatsAppClient, "send_text", failing_send_text)
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/cancel", json={"message": "cancelled"}, headers=_auth(a["token"])
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_CANCELLED
+
+
+def test_cancel_nonexistent_appointment_404s(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post("/api/portal/bookings/999999/cancel", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+
+def test_cancel_routes_through_connector_not_directly_through_db(two_hospitals):
+    """Audit follow-up: a Tier 2 hospital's cancel must fail loudly
+    (ConnectorNotImplementedError -> 501), not silently "succeed" against
+    the local DB row only while never touching that hospital's real system.
+    Confirms portal_cancel_booking() no longer calls db.cancel_appointment()
+    directly."""
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+
+    h = db.get_hospital(a["id"])
+    db.update_hospital(
+        a["id"], name=h.name, whatsapp_phone_number_id=h.whatsapp_phone_number_id,
+        access_token=h.access_token, app_secret=h.app_secret, timezone=h.timezone,
+        welcome_message_text=h.welcome_message_text, reminder_offsets_hours=h.reminder_offsets_hours,
+        reminder_template_name=h.reminder_template_name, data_tier="tier2",
+        external_api_base_url="https://example.com/api", external_api_key="fake-key",
+        portal_password_hash=h.portal_password_hash, enabled_features=h.enabled_features,
+    )
+
+    resp = client.post(f"/api/portal/bookings/{appt.id}/cancel", headers=_auth(a["token"]))
+    assert resp.status_code == 501
+
+    # Never touched -- Tier2Connector.cancel_booking() raises before any write.
+    still_booked = db.get_appointment(a["id"], appt.id)
+    assert still_booked.status == db.STATUS_BOOKED
+
+
+# --- Doctor active/inactive toggle ---
+
+
+def test_toggle_doctor_inactive_removes_from_bot_facing_get_doctors(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/active", json={"is_active": False}, headers=_auth(a["token"])
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_active"] is False
+
+    bookable = db.get_doctors(a["id"], a["department_id"])
+    assert all(d["id"] != a["doctor_id"] for d in bookable)
+
+    # Management view still shows it (so staff can re-enable it).
+    all_doctors = db.get_all_doctors_for_hospital(a["id"])
+    assert any(d["id"] == a["doctor_id"] and d["is_active"] is False for d in all_doctors)
+
+
+def test_toggle_doctor_back_active_restores_bookability(two_hospitals):
+    a = two_hospitals["a"]
+    client.post(f"/api/portal/doctors/{a['doctor_id']}/active", json={"is_active": False}, headers=_auth(a["token"]))
+    client.post(f"/api/portal/doctors/{a['doctor_id']}/active", json={"is_active": True}, headers=_auth(a["token"]))
+
+    bookable = db.get_doctors(a["id"], a["department_id"])
+    assert any(d["id"] == a["doctor_id"] for d in bookable)
+
+
+def test_toggle_nonexistent_doctor_404s(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post("/api/portal/doctors/totally-fake-id/active", json={"is_active": False}, headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+
+# --- Patients: list_patients / search_patients / get_recent_patients ---
+
+
+def test_list_patients_search_filters_by_name_or_phone(two_hospitals):
+    a = two_hospitals["a"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5491112223333", patient_name="Rahul Sharma")
+
+    by_name = client.get("/api/portal/patients?search=Rahul", headers=_auth(a["token"]))
+    assert {p["phone"] for p in by_name.json()["patients"]} == {"5491112223333"}
+
+    by_phone = client.get("/api/portal/patients?search=1112223333", headers=_auth(a["token"]))
+    assert {p["phone"] for p in by_phone.json()["patients"]} == {"5491112223333"}
+
+    no_match = client.get("/api/portal/patients?search=nobody-like-this", headers=_auth(a["token"]))
+    assert no_match.json()["patients"] == []
+
+
+def test_recent_patients_on_dashboard_reflects_last_visit(two_hospitals):
+    a = two_hospitals["a"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111", patient_name="Patient One")
+
+    resp = client.get("/api/portal/dashboard", headers=_auth(a["token"]))
+    recent = resp.json()["recent_patients"]
+    assert any(p["phone"] == "5490001111" and p["name"] == "Patient One" and p["visit_count"] == 1 for p in recent)
+
+
+# --- Auth basics (spot check across a representative sample of routes) ---
+
+
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/api/portal/dashboard"),
+    ("GET", "/api/portal/doctors"),
+    ("GET", "/api/portal/patients"),
+    ("GET", "/api/portal/bookings"),
+    ("GET", "/api/portal/handoffs"),
+])
+def test_get_routes_require_bearer_token(hospital_id, method, path):
+    resp = client.get(path)
+    assert resp.status_code == 401
+
+    resp = client.get(path, headers={"Authorization": "Bearer not-a-real-token"})
+    assert resp.status_code == 401

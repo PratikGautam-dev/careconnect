@@ -52,6 +52,21 @@ from db.seed import seed_test_hospital
 
 
 @pytest.fixture(autouse=True)
+def _fresh_rate_limiter():
+    """Login/secret-check rate limiting (core/rate_limit.py) is a module-level
+    singleton, same reason core/history.py's session store is -- real request
+    handling needs failure counts to persist across requests. Tests need the
+    opposite: a clean slate per test, same role this file's _fresh_test_db
+    fixture plays for the database, so one test's lockout never bleeds into
+    the next."""
+    import core.rate_limit as rate_limit
+
+    rate_limit.reset_all_for_tests()
+    yield
+    rate_limit.reset_all_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_test_db():
     """
     Fresh Postgres schema per test (SPEC Section 12.6 Tier 1, now Postgres/Neon
