@@ -386,10 +386,14 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     kind, kwargs = wa.sent[-1]
     assert kwargs["body_text"] == translate("select_doctor", "hi", department_name=department["name"])
 
-    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
+    doctor = db.get_doctors(hospital_id, department["id"])[0]
+    doctor_id = doctor["id"]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     kind, kwargs = wa.sent[-1]
-    assert "डॉ." in kwargs["body_text"] and "तारीख" in kwargs["body_text"]
+    # doctor_name is hospital-entered content, never translated (already
+    # includes "Dr." in English regardless of session language) -- only the
+    # surrounding prompt text is Hindi.
+    assert doctor["name"] in kwargs["body_text"] and "तारीख" in kwargs["body_text"]
     all_slots = db.get_slots(hospital_id, doctor_id)
     date_str = all_slots[0]["date"]
 
@@ -483,6 +487,28 @@ async def test_hindi_reset_keyword_escapes_mid_flow_and_stays_in_hindi(hospital_
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_patient_name_matching_a_reset_keyword_accepted_via_the_router(hospital_id):
+    """Same live-found bug as core/booking_flow.py's own test, but proven at
+    flows.py's router level -- the actual production entry point core/main.py
+    calls, which has its own separate reset-keyword short-circuit."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {
+        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao",
+        "date_label": "Sat, Aug 8", "slot_date": "2026-08-08", "slot_time": "10:00",
+    }, language="en")
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hello"),
+        connector=FakeConnector(), enabled_features=["booking"],
+    )
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"  # not bounced to IDLE
+    assert session["context"]["patient_name"] == "hello"
 
 
 # --- Live webhook round-trip: proves core/main.py actually dispatches

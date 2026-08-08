@@ -327,6 +327,32 @@ async def test_returning_patient_with_name_on_file_skips_straight_to_confirmatio
 
 
 @pytest.mark.asyncio
+async def test_patient_name_matching_a_reset_keyword_is_accepted_as_the_name(hospital_id):
+    """Live-found bug: AWAITING_PATIENT_NAME is the one state in this whole
+    flow that accepts arbitrary free text as a real value, not a menu choice
+    -- someone testing the bot (or, in principle, a real patient literally
+    named "Hi") typing "hi" as the patient name used to trip the GLOBAL
+    reset-keyword short-circuit before this state's own handler ever ran,
+    silently bouncing them back to the main menu instead of accepting the
+    name and proceeding to confirmation."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {
+        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao",
+        "date_label": "Sat, Aug 8", "slot_date": "2026-08-08", "slot_time": "10:00",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"  # not bounced to IDLE
+    assert session["context"]["patient_name"] == "hi"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "👤 *Patient:* hi" in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
 async def test_patient_name_free_text_validation(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()

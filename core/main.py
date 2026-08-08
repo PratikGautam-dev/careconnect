@@ -527,6 +527,12 @@ async def _process_message(wa: WhatsAppClient, hospital: db.Hospital, phone: str
     # is selected.
     await flows.handle_incoming(
         wa, SESSIONS, phone, hospital.id, reply, hospital.name, connector, hospital.enabled_features,
+        feature_labels=hospital.feature_labels,
+        closing_message_text=hospital.closing_message_text,
+        business_hours_text=hospital.business_hours_text,
+        default_language=hospital.default_language,
+        language_prompt_enabled=hospital.language_prompt_enabled,
+        session_timeout_minutes=hospital.session_timeout_minutes,
     )
     logger.info("Flow router returned for %s (hospital %s)", phone, hospital.id)
 

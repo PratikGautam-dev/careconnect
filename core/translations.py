@@ -108,9 +108,14 @@ STRINGS: dict[str, dict[Language, str]] = {
     # RESCHEDULE flow only (_send_slot_menu), which the reference screenshot
     # this section is based on doesn't cover and so was deliberately left
     # as a single combined list, unchanged from before this section.
+    # NOTE: doctor_name already includes a "Dr." prefix everywhere in this
+    # codebase (db/seed.py's own seeded names, e.g. "Dr. Anjali Rao") -- do
+    # NOT hardcode a second "Dr."/"डॉ." here, or every real send doubles it
+    # ("You have selected Dr. Dr. Anjali Rao."), caught live via a full
+    # conversation trace before this shipped.
     "doctor_selected_ask_date": {
-        "en": "You have selected Dr. {doctor_name}. Now please select a consulting date:",
-        "hi": "आपने डॉ. {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
+        "en": "You have selected {doctor_name}. Now please select a consulting date:",
+        "hi": "आपने {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
     },
     "view_dates_button": {"en": "View Dates", "hi": "तारीखें देखें"},
     "available_dates_section_title": {"en": "Available Dates", "hi": "उपलब्ध तारीखें"},

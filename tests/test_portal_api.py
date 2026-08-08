@@ -543,3 +543,82 @@ def test_get_routes_require_bearer_token(hospital_id, method, path):
 
     resp = client.get(path, headers={"Authorization": "Bearer not-a-real-token"})
     assert resp.status_code == 401
+
+
+# --- Section 12.13: self-serve settings customization ---
+
+def test_settings_get_includes_new_customization_fields_with_safe_defaults(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["feature_labels"] == {}
+    assert data["closing_message_text"] == ""
+    assert data["business_hours_text"] == ""
+    assert data["default_language"] == "en"
+    assert data["language_prompt_enabled"] is True
+    assert data["session_timeout_minutes"] == 30
+    assert "booking" in data["feature_default_labels"]
+
+
+def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
+    a = two_hospitals["a"]
+    payload = {
+        "welcome_message_text": "Welcome!",
+        "reminder_offsets_hours": "24",
+        "reminder_template_name": "reminder",
+        "feature_labels": {"booking": "Schedule a visit", "unknown_key": "ignored"},
+        "closing_message_text": "Thank you for choosing us.",
+        "business_hours_text": "Mon-Sat, 9am-8pm",
+        "default_language": "hi",
+        "language_prompt_enabled": False,
+        "session_timeout_minutes": 45,
+    }
+    resp = client.post("/api/portal/settings", json=payload, headers=_auth(a["token"]))
+    assert resp.status_code == 200
+
+    get_resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
+    data = get_resp.json()
+    assert data["feature_labels"] == {"booking": "Schedule a visit"}  # unrecognized key dropped
+    assert data["closing_message_text"] == "Thank you for choosing us."
+    assert data["business_hours_text"] == "Mon-Sat, 9am-8pm"
+    assert data["default_language"] == "hi"
+    assert data["language_prompt_enabled"] is False
+    assert data["session_timeout_minutes"] == 45
+
+
+def test_settings_post_rejects_invalid_default_language(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"welcome_message_text": "", "reminder_offsets_hours": "24", "reminder_template_name": "",
+              "default_language": "fr"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("bad_value", [1, 4, 121, 1000])
+def test_settings_post_rejects_session_timeout_out_of_bounds(two_hospitals, bad_value):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"welcome_message_text": "", "reminder_offsets_hours": "24", "reminder_template_name": "",
+              "session_timeout_minutes": bad_value},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_settings_customization_isolated_across_hospitals(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    client.post(
+        "/api/portal/settings",
+        json={"welcome_message_text": "", "reminder_offsets_hours": "24", "reminder_template_name": "",
+              "closing_message_text": "Hospital A only.", "default_language": "hi"},
+        headers=_auth(a["token"]),
+    )
+
+    b_settings = client.get("/api/portal/settings", headers=_auth(b["token"])).json()
+    assert b_settings["closing_message_text"] == ""
+    assert b_settings["default_language"] == "en"

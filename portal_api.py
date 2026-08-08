@@ -31,9 +31,18 @@ import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _validate_doctor_fields, _parse_offsets
 from core.storage import get_storage
+from core.translations import SUPPORTED_LANGUAGES, t
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
+from flows import REAL_FEATURES
 from portal import _SESSION_TTL_SECONDS, _build_new_booking_context, _sign_session, _verify_session
+
+# Section 12.13: minutes bounds mirror db/schema.sql's session_timeout_minutes
+# CHECK constraint exactly -- validated here too so a bad value gets a clear
+# 400 from this endpoint instead of surfacing as a raw IntegrityError from
+# the DB constraint.
+_MIN_SESSION_TIMEOUT_MINUTES = 5
+_MAX_SESSION_TIMEOUT_MINUTES = 120
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -600,6 +609,18 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
         "welcome_message_text": hospital.welcome_message_text or "",
         "reminder_offsets_hours": ",".join(str(h) for h in hospital.reminder_offsets_hours),
         "reminder_template_name": hospital.reminder_template_name or "",
+        # Section 12.13: self-serve bot customization.
+        "enabled_features": hospital.enabled_features,
+        "feature_labels": hospital.feature_labels,
+        # Fixed default label per real feature, in English, so the frontend
+        # can show it as this field's placeholder ("leave blank to use ...")
+        # rather than duplicating core/translations.py's copy itself.
+        "feature_default_labels": {key: t(f"feature_{key}", "en") for key in REAL_FEATURES},
+        "closing_message_text": hospital.closing_message_text or "",
+        "business_hours_text": hospital.business_hours_text or "",
+        "default_language": hospital.default_language,
+        "language_prompt_enabled": hospital.language_prompt_enabled,
+        "session_timeout_minutes": hospital.session_timeout_minutes or 30,
     })
 
 
@@ -608,6 +629,37 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    # Section 12.13 validation -- a clear 400 instead of a raw DB error/silent
+    # bad value.
+    default_language = payload.get("default_language") or "en"
+    if default_language not in SUPPORTED_LANGUAGES:
+        return JSONResponse({"error": f"default_language must be one of {sorted(SUPPORTED_LANGUAGES)}."}, status_code=400)
+
+    session_timeout_raw = payload.get("session_timeout_minutes")
+    if session_timeout_raw in (None, ""):
+        session_timeout_minutes = None
+    else:
+        try:
+            session_timeout_minutes = int(session_timeout_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "session_timeout_minutes must be a whole number of minutes."}, status_code=400)
+        if not (_MIN_SESSION_TIMEOUT_MINUTES <= session_timeout_minutes <= _MAX_SESSION_TIMEOUT_MINUTES):
+            return JSONResponse({
+                "error": f"session_timeout_minutes must be between {_MIN_SESSION_TIMEOUT_MINUTES} and {_MAX_SESSION_TIMEOUT_MINUTES}.",
+            }, status_code=400)
+
+    # Only real, currently-enabled feature keys can get a custom label -- a
+    # stray/typo'd key in the payload (or one for a feature this hospital
+    # doesn't have enabled) is silently dropped rather than stored forever
+    # unused. A blank override string means "use the default," not "set the
+    # label to empty," so it's dropped too rather than stored as "".
+    raw_feature_labels = payload.get("feature_labels") or {}
+    feature_labels = {
+        key: label.strip()
+        for key, label in raw_feature_labels.items()
+        if key in REAL_FEATURES and isinstance(label, str) and label.strip()
+    }
 
     # Same restriction as portal.py's own settings form: credentials/data_tier/
     # portal_password_hash/enabled_features are never touched here, only
@@ -628,6 +680,12 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         external_api_key=hospital.external_api_key,
         portal_password_hash=hospital.portal_password_hash,
         enabled_features=hospital.enabled_features,
+        feature_labels=feature_labels,
+        closing_message_text=(payload.get("closing_message_text") or "").strip() or None,
+        business_hours_text=(payload.get("business_hours_text") or "").strip() or None,
+        default_language=default_language,
+        language_prompt_enabled=bool(payload.get("language_prompt_enabled", True)),
+        session_timeout_minutes=session_timeout_minutes,
     )
     return JSONResponse({"ok": True})
 

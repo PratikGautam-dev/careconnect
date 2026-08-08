@@ -76,6 +76,17 @@ STATE_AWAITING_PATIENT_NAME = "AWAITING_PATIENT_NAME"
 STATE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
 STATE_BOOKED = "BOOKED"  # momentary only — never persisted, see _handle_awaiting_confirmation
 
+# Live-found bug: a patient's actual typed input can collide with a reset
+# keyword purely by coincidence (a real patient named "Hi", or -- far more
+# commonly hit in practice -- someone testing the bot who types "hi"/"test"
+# as a throwaway name) at the one state in this whole flow that accepts
+# arbitrary free text as a real value, not a menu choice. The global
+# reset-keyword short-circuit in both this module's own handle_incoming()
+# below AND flows.py's router-level one must skip states in this set, so
+# free text typed there is always taken as the actual value, never
+# misread as an escape-to-menu command.
+FREE_TEXT_INPUT_STATES = {STATE_AWAITING_PATIENT_NAME}
+
 # Cancel flow (SPEC Section 3.3/5)
 STATE_AWAITING_CANCEL_SELECTION = "AWAITING_CANCEL_SELECTION"
 STATE_AWAITING_CANCEL_CONFIRM = "AWAITING_CANCEL_CONFIRM"
@@ -123,6 +134,17 @@ def _date_label(date_str: str) -> str:
     slot_label was never translated either)."""
     dt = datetime.fromisoformat(date_str)
     return f"{dt.strftime('%a')}, {dt.strftime('%b')} {dt.day}"
+
+
+def _append_closing_message(text: str, closing_message_text: str | None) -> str:
+    """Section 12.13: a hospital's own custom closing/thank-you text is
+    APPENDED after the standard success message (booking confirmed, cancelled,
+    rescheduled), never replacing it -- e.g. "Thank you for choosing City
+    Hospital. For emergencies, call 102." NULL/blank (the default -- most
+    hospitals never set this) leaves the standard message untouched."""
+    if not closing_message_text:
+        return text
+    return f"{text}\n\n{closing_message_text}"
 
 
 # --- Outgoing menu builders ---
@@ -410,7 +432,7 @@ async def _handle_idle(
 
 async def _handle_awaiting_department(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     if reply["type"] == "interactive_reply":
         dept = _find_by_id(connector.get_departments(hospital_id), reply["id"])
@@ -429,7 +451,7 @@ async def _handle_awaiting_department(
 
 async def _handle_awaiting_doctor(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     department_id = context.get("department_id")
     department_name = context.get("department_name", "")
@@ -456,7 +478,7 @@ async def _handle_awaiting_doctor(
 
 async def _handle_awaiting_date(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Section 12.12, step 1 of the date/time split (was _handle_awaiting_slot
     before this section)."""
@@ -488,7 +510,7 @@ async def _handle_awaiting_date(
 
 async def _handle_awaiting_time_slot(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Section 12.12, step 2 of the date/time split."""
     doctor_id = context.get("doctor_id")
@@ -538,7 +560,7 @@ async def _handle_awaiting_time_slot(
 
 async def _handle_awaiting_patient_name(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Section 12.11, target state updated by Section 12.12 (name now goes
     straight to confirmation -- no age step). Free text only, same
@@ -558,7 +580,7 @@ async def _handle_awaiting_patient_name(
 
 async def _handle_awaiting_confirmation(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
@@ -584,7 +606,7 @@ async def _handle_awaiting_confirmation(
             # the returned Appointment rather than regenerated here, so the
             # id shown to the patient is the exact one actually stored.
             summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
-            await wa.send_text(phone, summary)
+            await wa.send_text(phone, _append_closing_message(summary, closing_message_text))
             # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
             # separate incoming message that moves it out of BOOKED, so it's never
             # actually written to the session store.
@@ -615,7 +637,7 @@ async def _start_cancel_flow(
 
 async def _handle_awaiting_cancel_selection(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     appt = _find_selected_appointment(hospital_id, phone, reply, connector)
     if appt:
@@ -636,7 +658,7 @@ async def _handle_awaiting_cancel_selection(
 
 async def _handle_awaiting_cancel_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     appointment_id = context.get("appointment_id")
     appt = None
@@ -653,7 +675,8 @@ async def _handle_awaiting_cancel_confirm(
         if rid == CONFIRM_YES:
             connector.cancel_booking(hospital_id, appt.id)
             when = appt.scheduled_at.strftime("%A, %d %B at %H:%M")
-            await wa.send_text(phone, t("appointment_cancelled", language, doctor_name=appt.doctor_name, when=when))
+            cancelled_text = t("appointment_cancelled", language, doctor_name=appt.doctor_name, when=when)
+            await wa.send_text(phone, _append_closing_message(cancelled_text, closing_message_text))
             sessions.reset(hospital_id, phone)
             return
         if rid == CONFIRM_NO:
@@ -685,7 +708,7 @@ async def _start_reschedule_flow(
 
 async def _handle_awaiting_reschedule_selection(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     appt = _find_selected_appointment(hospital_id, phone, reply, connector)
     if appt:
@@ -715,7 +738,7 @@ async def _handle_awaiting_reschedule_selection(
 
 async def _handle_awaiting_reschedule_slot(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
@@ -747,7 +770,7 @@ async def _handle_awaiting_reschedule_slot(
 
 async def _handle_awaiting_reschedule_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en",
+    language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
@@ -772,7 +795,7 @@ async def _handle_awaiting_reschedule_confirm(
                 "appointment_rescheduled", language,
                 doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),
             )
-            await wa.send_text(phone, summary)
+            await wa.send_text(phone, _append_closing_message(summary, closing_message_text))
             sessions.reset(hospital_id, phone)
             return
         if rid == CONFIRM_NO:
@@ -807,6 +830,7 @@ async def handle_incoming(
     reply: dict,
     hospital_name: str = "the hospital",
     connector: Connector | None = None,
+    closing_message_text: str | None = None,
 ) -> None:
     """
     Entry point: look up the patient's current session (sessions.get already
@@ -833,7 +857,7 @@ async def handle_incoming(
     context = session["context"]
     language = session.get("language") or "en"
 
-    if state != STATE_IDLE and is_reset_keyword(reply):
+    if state != STATE_IDLE and state not in FREE_TEXT_INPUT_STATES and is_reset_keyword(reply):
         sessions.reset(hospital_id, phone)
         await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language)
         return
@@ -844,4 +868,7 @@ async def handle_incoming(
         await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language)
         return
 
-    await handler(wa, sessions, phone, hospital_id, reply, context, connector, language=language)
+    await handler(
+        wa, sessions, phone, hospital_id, reply, context, connector,
+        language=language, closing_message_text=closing_message_text,
+    )
