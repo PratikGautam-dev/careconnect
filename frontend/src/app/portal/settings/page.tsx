@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { portalFetch } from "@/lib/portalAuth";
 
@@ -60,9 +60,7 @@ export default function PortalSettingsPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="settings" />
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="settings">
         <h1 className="text-display mb-space-5">Hospital settings</h1>
 
         <Card className="max-w-xl p-space-5">
@@ -109,7 +107,6 @@ export default function PortalSettingsPage() {
             </form>
           )}
         </Card>
-      </main>
-    </div>
+    </PortalShell>
   );
 }

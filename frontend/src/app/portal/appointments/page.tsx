@@ -5,7 +5,7 @@ import { Plus, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
@@ -79,10 +79,8 @@ export default function PortalAppointmentsPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="appointments" />
-      <main className="flex-1 overflow-y-auto p-space-6">
-        <div className="mb-space-5 flex items-center justify-between">
+    <PortalShell hospital={hospital} active="appointments">
+        <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
           <h1 className="text-display">Appointments</h1>
           <Button href="/portal/new-booking">
             <Plus size={15} /> New booking
@@ -179,7 +177,6 @@ export default function PortalAppointmentsPage() {
             </div>
           )}
         </Card>
-      </main>
-    </div>
+    </PortalShell>
   );
 }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ActivityFeed } from "@/components/portal/ActivityFeed";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
 import { PatientsWidget } from "@/components/portal/PatientsWidget";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
@@ -80,10 +80,7 @@ export default function PortalDashboardPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="dashboard" />
-
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="dashboard">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
           <div>
             <h1 className="text-display">
@@ -131,7 +128,6 @@ export default function PortalDashboardPage() {
             <PatientsWidget patients={data.recent_patients} />
           </>
         )}
-      </main>
-    </div>
+    </PortalShell>
   );
 }

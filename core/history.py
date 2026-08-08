@@ -86,6 +86,13 @@ def get_history() -> InMemoryHistory | RedisHistory:
 # chosen (or has fully expired past SESSION_TIMEOUT_SECONDS) still resets to
 # a clean slate, which is what makes a new/returning-after-a-gap conversation
 # get asked again -- "each fresh conversation" per the feature's own intent.
+#
+# get() omits the "language" key entirely when unset (rather than including
+# it as None) so every pre-existing `sessions.get(...) == {"state": ...,
+# "context": ...}` equality assertion across the test suite keeps working
+# unchanged for sessions that never touch language. Every caller reads it via
+# `.get("language")`, which returns None either way, so the omission is
+# invisible to real code.
 
 DEFAULT_STATE = "IDLE"
 SESSION_TIMEOUT_SECONDS = 30 * 60  # 30 min inactivity -> treat as IDLE on next message
@@ -99,8 +106,12 @@ class InMemorySessionStore:
     def get(self, hospital_id: int, phone: str) -> dict:
         session = self._store.get((hospital_id, phone))
         if session is None or (time.time() - session["updated_at"]) > self._timeout:
-            return {"state": DEFAULT_STATE, "context": {}, "language": None}
-        return {"state": session["state"], "context": session["context"], "language": session.get("language")}
+            return {"state": DEFAULT_STATE, "context": {}}
+        result = {"state": session["state"], "context": session["context"]}
+        language = session.get("language")
+        if language is not None:
+            result["language"] = language
+        return result
 
     def set(self, hospital_id: int, phone: str, state: str, context: dict | None = None, language: str | None = None) -> None:
         existing = self._store.get((hospital_id, phone))
@@ -133,11 +144,15 @@ class RedisSessionStore:
     def get(self, hospital_id: int, phone: str) -> dict:
         raw = self._redis.get(self._key(hospital_id, phone))
         if not raw:
-            return {"state": DEFAULT_STATE, "context": {}, "language": None}
+            return {"state": DEFAULT_STATE, "context": {}}
         session = json.loads(raw)
         if (time.time() - session["updated_at"]) > self._timeout:
-            return {"state": DEFAULT_STATE, "context": {}, "language": None}
-        return {"state": session["state"], "context": session["context"], "language": session.get("language")}
+            return {"state": DEFAULT_STATE, "context": {}}
+        result = {"state": session["state"], "context": session["context"]}
+        language = session.get("language")
+        if language is not None:
+            result["language"] = language
+        return result
 
     def set(self, hospital_id: int, phone: str, state: str, context: dict | None = None, language: str | None = None) -> None:
         raw = self._redis.get(self._key(hospital_id, phone))

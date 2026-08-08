@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
-import { PortalSidebar } from "@/components/portal/PortalSidebar";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
@@ -78,9 +78,7 @@ export default function NewBookingPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
-      <PortalSidebar hospital={hospital} active="appointments" />
-      <main className="flex-1 overflow-y-auto p-space-6">
+    <PortalShell hospital={hospital} active="appointments">
         <h1 className="text-display mb-space-5">New booking</h1>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
@@ -221,7 +219,6 @@ export default function NewBookingPage() {
             </form>
           )}
         </Card>
-      </main>
-    </div>
+    </PortalShell>
   );
 }

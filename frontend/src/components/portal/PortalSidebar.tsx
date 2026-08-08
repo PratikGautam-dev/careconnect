@@ -8,6 +8,7 @@ import {
   Settings,
   Stethoscope,
   Users,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -27,9 +28,17 @@ const NAV_ITEMS = [
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings" },
 ];
 
-type Props = { hospital: PortalHospital | null; active: string };
+type Props = {
+  hospital: PortalHospital | null;
+  active: string;
+  /** Mobile drawer state -- undefined/false renders the sidebar off-canvas
+   * below the `lg` breakpoint (PortalShell owns the toggle); at `lg` and up
+   * the sidebar is always statically visible regardless of this prop. */
+  open?: boolean;
+  onClose?: () => void;
+};
 
-export function PortalSidebar({ hospital, active }: Props) {
+export function PortalSidebar({ hospital, active, open = false, onClose }: Props) {
   const router = useRouter();
 
   function handleLogout() {
@@ -38,48 +47,74 @@ export function PortalSidebar({ hospital, active }: Props) {
   }
 
   return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col bg-brand-700 px-space-3 py-space-4 text-white">
-      <div className="mb-space-5 flex items-center gap-space-2 px-space-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 font-display text-[14px] font-extrabold">
-          H
-        </div>
-        <span className="truncate text-[14px] font-bold">{hospital?.name || "Hospital"}</span>
-      </div>
+    <>
+      {/* Backdrop, mobile drawer only */}
+      <div
+        aria-hidden="true"
+        onClick={onClose}
+        className={cn(
+          "fixed inset-0 z-40 bg-black/40 transition-opacity duration-200 lg:hidden",
+          open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        )}
+      />
 
-      <nav className="flex-1 space-y-0.5">
-        {NAV_ITEMS.map(({ key, label, icon: Icon, href }) => {
-          const isActive = key === active;
-          const itemClasses = cn(
-            "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium transition-colors duration-150",
-            isActive && "bg-white text-brand-700",
-            !isActive && href && "text-white/85 hover:bg-white/10 hover:text-white",
-            !href && "cursor-not-allowed text-white/40",
-          );
-          if (!href) {
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[85vw] shrink-0 -translate-x-full flex-col bg-brand-700 px-space-3 py-space-4 text-white transition-transform duration-200 ease-out",
+          "lg:static lg:z-auto lg:w-60 lg:max-w-none lg:translate-x-0",
+          open && "translate-x-0",
+        )}
+      >
+        <div className="mb-space-5 flex items-center gap-space-2 px-space-2">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 font-display text-[14px] font-extrabold">
+            H
+          </div>
+          <span className="truncate text-[14px] font-bold">{hospital?.name || "Hospital"}</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
+          >
+            <X size={18} strokeWidth={2} />
+          </button>
+        </div>
+
+        <nav className="flex-1 space-y-0.5 overflow-y-auto">
+          {NAV_ITEMS.map(({ key, label, icon: Icon, href }) => {
+            const isActive = key === active;
+            const itemClasses = cn(
+              "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium transition-colors duration-150",
+              isActive && "bg-white text-brand-700",
+              !isActive && href && "text-white/85 hover:bg-white/10 hover:text-white",
+              !href && "cursor-not-allowed text-white/40",
+            );
+            if (!href) {
+              return (
+                <button key={key} type="button" disabled title="Coming soon" className={itemClasses}>
+                  <Icon size={16} strokeWidth={2} className="shrink-0" />
+                  {label}
+                </button>
+              );
+            }
             return (
-              <button key={key} type="button" disabled title="Coming soon" className={itemClasses}>
+              <Link key={key} href={href} onClick={onClose} className={itemClasses}>
                 <Icon size={16} strokeWidth={2} className="shrink-0" />
                 {label}
-              </button>
+              </Link>
             );
-          }
-          return (
-            <Link key={key} href={href} className={itemClasses}>
-              <Icon size={16} strokeWidth={2} className="shrink-0" />
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
+          })}
+        </nav>
 
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white"
-      >
-        <LogOut size={16} strokeWidth={2} className="shrink-0" />
-        Log out
-      </button>
-    </aside>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white"
+        >
+          <LogOut size={16} strokeWidth={2} className="shrink-0" />
+          Log out
+        </button>
+      </aside>
+    </>
   );
 }
