@@ -22,6 +22,14 @@ guarantee (SPEC Section 4, the Phase 9 follow-up) has no home otherwise, and
 folding "which appointments are due" into one method with two filtering modes
 was the least-new-surface way to cover both booking_flow.py's (patient-scoped)
 and reminders/scheduler.py's (offset-scoped) needs with a single name.
+
+Section 12.11 (patient name/age collection during WhatsApp booking) adds
+`get_patient_info` and a `patient_age` param on `create_booking` — the "have
+we already met this patient" read core/booking_flow.py needs before deciding
+whether to ask for a name/age is exactly the kind of per-tier-varying data
+access this interface exists to abstract (a Tier 2/3 hospital's own system
+may or may not have an equivalent concept), so it goes through here rather
+than booking_flow.py reaching into db/repository.py directly for it.
 """
 import abc
 from datetime import datetime
@@ -52,8 +60,11 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_booking(
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str, scheduled_at: datetime,
-        source: str = "whatsapp", patient_name: str | None = None,
+        source: str = "whatsapp", patient_name: str | None = None, patient_age: int | None = None,
     ) -> Appointment: ...
+
+    @abc.abstractmethod
+    def get_patient_info(self, hospital_id: int, phone: str) -> dict | None: ...
 
     @abc.abstractmethod
     def cancel_booking(self, hospital_id: int, appointment_id: int) -> None: ...
@@ -95,8 +106,14 @@ class Tier1Connector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         return repo.get_slots(hospital_id, doctor_id)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None):
-        return repo.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at, source=source, patient_name=patient_name)
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None):
+        return repo.create_appointment(
+            hospital_id, phone, department_id, doctor_id, scheduled_at,
+            source=source, patient_name=patient_name, patient_age=patient_age,
+        )
+
+    def get_patient_info(self, hospital_id, phone):
+        return repo.get_patient_by_phone(hospital_id, phone)
 
     def cancel_booking(self, hospital_id, appointment_id):
         repo.cancel_appointment(hospital_id, appointment_id)
@@ -149,8 +166,11 @@ class _UnimplementedTierConnector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         self._not_implemented("get_available_slots")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None):
         self._not_implemented("create_booking")
+
+    def get_patient_info(self, hospital_id, phone):
+        self._not_implemented("get_patient_info")
 
     def cancel_booking(self, hospital_id, appointment_id):
         self._not_implemented("cancel_booking")

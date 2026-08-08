@@ -22,6 +22,7 @@ from portal_api import router as portal_api_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 import flows
 from core.history import get_history, get_session_store
+from core.translations import t
 from core.whatsapp import WhatsAppClient, extract_phone_number_id, parse_incoming_message, validate_webhook_signature
 from db.init_db import init_db
 from reminders.scheduler import send_reminders
@@ -450,8 +451,11 @@ async def receive_message(request: Request):
 
         if reply["type"] == "audio":
             # No transcription pipeline (no AI/LLM in this build) — bypass the state
-            # machine entirely and tell the patient to use text instead.
-            await wa.send_text(phone, "I couldn't process your audio. Could you send it as text instead?")
+            # machine entirely and tell the patient to use text instead. Outside
+            # flows.py's normal dispatch, so language is looked up directly off
+            # the session here rather than threaded in as a parameter.
+            language = SESSIONS.get(hospital.id, phone).get("language")
+            await wa.send_text(phone, t("audio_not_supported", language))
             return Response(status_code=200)
 
     except (KeyError, IndexError, TypeError, ValueError):
@@ -490,11 +494,13 @@ async def receive_message(request: Request):
                 hospital.id, phone, reason="system_error",
                 message_text=f"Bot error while handling: {reply.get('text') or reply.get('title') or reply.get('type')}",
             )
-            await wa.send_text(
-                phone,
-                "Sorry, something went wrong on our end. We've notified our team and someone will follow up with "
-                "you here shortly.",
-            )
+            # Outside flows.py's normal dispatch (the failure may have happened
+            # inside it), so language is looked up directly off the session --
+            # wrapped in the same try/except as everything else here, so a
+            # session-store hiccup on top of the original failure still can't
+            # escape this handler.
+            language = SESSIONS.get(hospital.id, phone).get("language")
+            await wa.send_text(phone, t("system_error_notify", language))
         except Exception:
             logger.exception("Also failed to record/notify the handoff for %s (hospital %s)", phone, hospital.id)
     finally:

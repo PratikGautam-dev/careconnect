@@ -232,12 +232,21 @@ CREATE TABLE IF NOT EXISTS patients (
     date_of_birth TEXT,
     gender TEXT,
     address TEXT,
+    -- Section 12.11 (language selection + patient name/age during booking):
+    -- deliberately separate from date_of_birth above, not a second way to
+    -- express the same fact -- a WhatsApp patient typing "34" is a much
+    -- lower-friction ask than collecting a full birthdate over chat, and the
+    -- staff portal's date_of_birth field (Section 12.10) stays the source of
+    -- truth when a hospital does have it. The two are never reconciled
+    -- against each other.
+    age INTEGER,
     created_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(hospital_id, phone)
 );
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS date_of_birth TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS age INTEGER;
 
 -- No reminder_sent_at column (an earlier version had one) — reminder status is
 -- now tracked per-offset in appointment_reminders below, not as a single flag

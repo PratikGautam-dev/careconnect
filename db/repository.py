@@ -894,9 +894,24 @@ def get_patient(hospital_id: int, patient_id: int) -> dict | None:
     get_doctor_full())."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, created_at "
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, created_at "
         "FROM patients WHERE hospital_id = ? AND id = ?",
         (hospital_id, patient_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
+    """Section 12.11: the WhatsApp booking flow's "have we met this patient
+    before" check -- unlike get_patient() (looked up by the portal's own
+    numeric id), the bot only ever knows a phone number. Exact match, not
+    search_patients()'s partial ILIKE -- this is an identity lookup, not a
+    staff-typed search box."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, created_at "
+        "FROM patients WHERE hospital_id = ? AND phone = ?",
+        (hospital_id, phone),
     ).fetchone()
     return dict(row) if row else None
 
@@ -1030,16 +1045,20 @@ def mark_document_sent_to_whatsapp(hospital_id: int, document_id: int) -> bool:
 
 # --- Appointments ---
 
-def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None) -> None:
+def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: int | None = None) -> None:
     """Section 12.9: keeps `patients` in sync on every booking, both sources.
     COALESCE(EXCLUDED.name, patients.name) means a name, when given (staff
-    bookings), always wins and fills in/overwrites; when not given (every
-    WhatsApp booking, which never collects one), an existing name is never
-    clobbered back to NULL."""
+    bookings, or as of Section 12.11 a WhatsApp patient asked for the first
+    time), always wins and fills in/overwrites; when not given (a repeat
+    WhatsApp patient who's already on file, so booking_flow.py skips asking
+    again), an existing name/age is never clobbered back to NULL. Same
+    COALESCE treatment for `age` -- Section 12.11's WhatsApp-collected field,
+    independent of the staff portal's date_of_birth (Section 12.10)."""
     conn.execute(
-        "INSERT INTO patients (hospital_id, phone, name) VALUES (?, ?, ?) "
-        "ON CONFLICT (hospital_id, phone) DO UPDATE SET name = COALESCE(EXCLUDED.name, patients.name)",
-        (hospital_id, phone, name),
+        "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (hospital_id, phone) DO UPDATE SET "
+        "name = COALESCE(EXCLUDED.name, patients.name), age = COALESCE(EXCLUDED.age, patients.age)",
+        (hospital_id, phone, name, age),
     )
 
 
@@ -1051,6 +1070,7 @@ def create_appointment(
     scheduled_at: datetime,
     source: str = SOURCE_WHATSAPP,
     patient_name: str | None = None,
+    patient_age: int | None = None,
 ) -> Appointment:
     """Raises db.connection.IntegrityError if this doctor's max_bookings_per_slot
     (default 1) worth of *booked* appointments already exist at this exact
@@ -1065,9 +1085,11 @@ def create_appointment(
     every pre-Section-12.9 call site keeps working completely unchanged) from
     a staff-created walk-in/phone booking ("staff", portal.py's
     /portal/new-booking) -- purely descriptive, never branched on for booking
-    LOGIC beyond which quota column it counts against. `patient_name` is only
-    ever supplied by the staff path (core/booking_flow.py never collects a
-    patient's name); see _upsert_patient().
+    LOGIC beyond which quota column it counts against. `patient_name`/
+    `patient_age` are supplied by the staff path OR, as of Section 12.11, by
+    core/booking_flow.py's own AWAITING_PATIENT_NAME/AGE states the first
+    time a WhatsApp patient books (None on every later booking, once
+    they're on file -- see _upsert_patient()'s COALESCE for why that's safe).
 
     Concurrency (Section 12.9): daily_booking_limit/online_quota/walkin_quota
     are per-DOCTOR-configured values, not fixed schema constants, so unlike
@@ -1187,7 +1209,7 @@ def create_appointment(
         )
         new_id = cur.fetchone()["id"]
 
-        _upsert_patient(conn, hospital_id, phone, patient_name)
+        _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
         conn.execute("COMMIT")
     except BaseException:
         try:

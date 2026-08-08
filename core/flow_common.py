@@ -40,7 +40,16 @@ def cap_rows(rows: list[dict], context: str) -> list[dict]:
 # waiting out the 30-minute session timeout (core/history.py), and neither is
 # a real patient's first instinct when a bot stops responding. Matches common
 # WhatsApp bot convention.
-RESET_KEYWORDS = {"hi", "hello", "hey", "menu", "start", "restart"}
+#
+# Hindi equivalents included (language-selection follow-up) since a patient
+# who picked Hindi shouldn't need to know the English reset words work too --
+# checked regardless of the session's current language (a patient switching
+# language mid-typing, or just used to typing "menu" out of habit, should
+# still escape a stuck state either way).
+RESET_KEYWORDS = {
+    "hi", "hello", "hey", "menu", "start", "restart",
+    "नमस्ते", "हाय", "मेनू", "शुरू", "रीस्टार्ट",
+}
 
 
 def is_reset_keyword(reply: dict) -> bool:

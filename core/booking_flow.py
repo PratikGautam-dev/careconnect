@@ -25,12 +25,30 @@ Every db call and every session store call here is scoped by hospital_id
 (SPEC Section 12.2, Phase 9), resolved per-message in core/main.py from the
 incoming webhook's phone_number_id — not a single value fixed at startup, so
 this module never assumes there's only one hospital.
+
+Section 12.11 (language selection + patient name/age during booking): every
+function that sends a patient-facing message now takes a `language: str =
+"en"` keyword parameter and looks strings up via core/translations.t()
+instead of hardcoding English -- defaulted so every pre-existing call site
+(including every existing test) keeps working unchanged if it doesn't pass
+one. flows.py's router is what actually resolves a session's chosen language
+and passes it down; this module doesn't own language SELECTION (that's the
+top-level menu's job, flows.py), only respects whichever one it's given.
+
+Also Section 12.11: two new states, AWAITING_PATIENT_NAME and
+AWAITING_PATIENT_AGE, inserted between slot selection and confirmation. A
+first-time WhatsApp patient (no name on file yet, checked via
+connector.get_patient_info()) is asked for both before confirming; a
+returning patient with a name already on file skips straight to confirmation
+exactly as before Section 12.11 -- the bot should feel like it "remembers"
+them, not re-interrogate on every booking.
 """
 import logging
 from datetime import datetime
 
 from connectors import Connector, Tier1Connector
 from core.flow_common import MAX_LIST_ROWS, RESET_KEYWORDS, cap_rows, is_reset_keyword
+from core.translations import t
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 
@@ -42,6 +60,8 @@ STATE_IDLE = "IDLE"
 STATE_AWAITING_DEPARTMENT = "AWAITING_DEPARTMENT"
 STATE_AWAITING_DOCTOR = "AWAITING_DOCTOR"
 STATE_AWAITING_SLOT = "AWAITING_SLOT"
+STATE_AWAITING_PATIENT_NAME = "AWAITING_PATIENT_NAME"
+STATE_AWAITING_PATIENT_AGE = "AWAITING_PATIENT_AGE"
 STATE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
 STATE_BOOKED = "BOOKED"  # momentary only — never persisted, see _handle_awaiting_confirmation
 
@@ -64,7 +84,8 @@ MAIN_MENU_FAQ = "menu_faq"
 CONFIRM_YES = "confirm"
 CONFIRM_NO = "cancel"
 
-_PLEASE_CHOOSE = "Please choose an option from the list above"
+MIN_PATIENT_AGE = 0
+MAX_PATIENT_AGE = 120
 
 # Row-count cap (Meta's 10-row WhatsApp list limit) and reset-keyword handling
 # both now live in core/flow_common.py, shared with every other flow_type
@@ -73,14 +94,6 @@ _PLEASE_CHOOSE = "Please choose an option from the list above"
 _MAX_LIST_ROWS = MAX_LIST_ROWS
 _cap_rows = cap_rows
 _RESET_KEYWORDS = RESET_KEYWORDS
-
-_FAQ_TEXT = (
-    "Frequently Asked Questions:\n\n"
-    "- Hours: Mon-Sat, 9:00 AM - 6:00 PM\n"
-    "- To book, reschedule or cancel an appointment, just send us any message.\n"
-    "- For emergencies, please call the hospital directly instead of messaging here.\n\n"
-    "Send any message to return to the main menu."
-)
 
 
 def _find_by_id(items: list[dict], item_id: str) -> dict | None:
@@ -92,49 +105,66 @@ def _find_by_id(items: list[dict], item_id: str) -> dict | None:
     return next((item for item in items if item["id"] == item_id), None)
 
 
+def _parse_patient_age(text: str) -> int | None:
+    """Deliberately permissive parsing, strict range check: strips whitespace,
+    requires plain digits (rejects "34.5", "-5", "thirty", empty) -- a
+    WhatsApp patient typing an age is realistically always going to type
+    plain digits, so no need for a fancier parser. Returns None for anything
+    that isn't a whole number in [MIN_PATIENT_AGE, MAX_PATIENT_AGE]."""
+    text = text.strip()
+    if not text.isdigit():
+        return None
+    age = int(text)
+    if age < MIN_PATIENT_AGE or age > MAX_PATIENT_AGE:
+        return None
+    return age
+
+
 # --- Outgoing menu builders ---
 
-async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str) -> None:
+async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, language: str = "en") -> None:
     rows = [
-        {"id": MAIN_MENU_BOOK, "title": "Book Appointment"},
-        {"id": MAIN_MENU_RESCHEDULE, "title": "Reschedule"},
-        {"id": MAIN_MENU_CANCEL, "title": "Cancel"},
-        {"id": MAIN_MENU_FAQ, "title": "FAQ"},
+        {"id": MAIN_MENU_BOOK, "title": t("book_appointment_short", language)},
+        {"id": MAIN_MENU_RESCHEDULE, "title": t("reschedule_short", language)},
+        {"id": MAIN_MENU_CANCEL, "title": t("cancel_short", language)},
+        {"id": MAIN_MENU_FAQ, "title": t("faq_short", language)},
     ]
     await wa.send_list(
         to=phone,
-        body_text=f"Welcome to {hospital_name}! How can we help you today?",
-        button_text="Main Menu",
-        sections=[{"title": "Main Menu", "rows": rows}],
+        body_text=t("welcome_menu", language, hospital_name=hospital_name),
+        button_text=t("main_menu_button", language),
+        sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
     )
 
 
-async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector) -> None:
+async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_departments(hospital_id)]
     rows = _cap_rows(rows, "department menu")
     await wa.send_list(
         to=phone,
-        body_text="Please select a department:",
-        button_text="View Departments",
-        sections=[{"title": "Departments", "rows": rows}],
+        body_text=t("select_department", language),
+        button_text=t("view_departments_button", language),
+        sections=[{"title": t("departments_section_title", language), "rows": rows}],
     )
 
 
 async def _send_doctor_menu(
-    wa: WhatsAppClient, phone: str, hospital_id: int, department_id: str, department_name: str, connector: Connector
+    wa: WhatsAppClient, phone: str, hospital_id: int, department_id: str, department_name: str, connector: Connector,
+    language: str = "en",
 ) -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_doctors(hospital_id, department_id)]
     rows = _cap_rows(rows, "doctor menu")
     await wa.send_list(
         to=phone,
-        body_text=f"Please select a doctor in {department_name}:",
-        button_text="View Doctors",
+        body_text=t("select_doctor", language, department_name=department_name),
+        button_text=t("view_doctors_button", language),
         sections=[{"title": department_name, "rows": rows}],
     )
 
 
 async def _send_slot_menu(
-    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, doctor_name: str, connector: Connector
+    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, doctor_name: str, connector: Connector,
+    language: str = "en",
 ) -> None:
     # get_available_slots() returns soonest-first (db.get_slots()'s ORDER BY
     # scheduled_at) -- capping to _MAX_LIST_ROWS keeps the soonest bookable
@@ -143,24 +173,29 @@ async def _send_slot_menu(
     rows = _cap_rows(rows, f"slot menu for doctor {doctor_id}")
     await wa.send_list(
         to=phone,
-        body_text=f"Please select a time slot with {doctor_name}:",
-        button_text="View Slots",
-        sections=[{"title": "Available Slots", "rows": rows}],
+        body_text=t("select_slot", language, doctor_name=doctor_name),
+        button_text=t("view_slots_button", language),
+        sections=[{"title": t("available_slots_section_title", language), "rows": rows}],
     )
 
 
-async def _notify_no_doctors_available(wa: WhatsAppClient, sessions, hospital_id: int, phone: str, department_name: str) -> None:
+async def _notify_no_doctors_available(
+    wa: WhatsAppClient, sessions, hospital_id: int, phone: str, department_name: str, language: str = "en",
+) -> None:
     sessions.reset(hospital_id, phone)
-    await wa.send_text(phone, f"Sorry, there are no doctors available in {department_name} right now. Please check back later.")
+    await wa.send_text(phone, t("no_doctors_available", language, department_name=department_name))
 
 
-async def _notify_no_slots_available(wa: WhatsAppClient, sessions, hospital_id: int, phone: str, doctor_name: str) -> None:
+async def _notify_no_slots_available(
+    wa: WhatsAppClient, sessions, hospital_id: int, phone: str, doctor_name: str, language: str = "en",
+) -> None:
     sessions.reset(hospital_id, phone)
-    await wa.send_text(phone, f"Sorry, there are no available slots for {doctor_name} right now. Please check back later.")
+    await wa.send_text(phone, t("no_slots_available", language, doctor_name=doctor_name))
 
 
 async def _handle_slot_taken(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, target_state: str, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, target_state: str, connector: Connector,
+    language: str = "en",
 ) -> None:
     """Shared recovery path for a double-booking race hit during booking OR
     reschedule confirmation (SPEC Phase 8): tell the patient, then either
@@ -172,30 +207,25 @@ async def _handle_slot_taken(
     logger.info("Double-booking race: hospital=%s doctor=%s slot=%s already taken", hospital_id, doctor_id, context.get("slot_id"))
     if not connector.get_available_slots(hospital_id, doctor_id):
         sessions.reset(hospital_id, phone)
-        await wa.send_text(
-            phone,
-            f"Sorry, that slot was just taken and there are no other slots available "
-            f"for {doctor_name} right now. Please check back later.",
-        )
+        await wa.send_text(phone, t("slot_taken_no_alternatives", language, doctor_name=doctor_name))
         return
     sessions.set(hospital_id, phone, target_state, context)
-    await wa.send_text(phone, "Sorry, that slot was just taken. Please choose another time.")
-    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector)
+    await wa.send_text(phone, t("slot_taken_choose_another", language))
+    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
 
 
-async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict) -> None:
-    summary = (
-        "Please confirm your appointment:\n\n"
-        f"Department: {context.get('department_name')}\n"
-        f"Doctor: {context.get('doctor_name')}\n"
-        f"Slot: {context.get('slot_label')}"
+async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, language: str = "en") -> None:
+    summary = t(
+        "confirm_booking_summary", language,
+        department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
+        slot_label=context.get("slot_label"),
     )
     await wa.send_buttons(
         to=phone,
         body_text=summary,
         buttons=[
-            {"id": CONFIRM_YES, "title": "Confirm"},
-            {"id": CONFIRM_NO, "title": "Cancel"},
+            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
         ],
     )
 
@@ -213,7 +243,9 @@ def _parse_appointment_row_id(row_id: str) -> int | None:
         return None
 
 
-async def _send_appointment_selection_menu(wa: WhatsAppClient, phone: str, appointments: list, body_text: str) -> None:
+async def _send_appointment_selection_menu(
+    wa: WhatsAppClient, phone: str, appointments: list, body_key: str, language: str = "en",
+) -> None:
     rows = [
         {
             "id": _appointment_row_id(a.id),
@@ -225,36 +257,35 @@ async def _send_appointment_selection_menu(wa: WhatsAppClient, phone: str, appoi
     rows = _cap_rows(rows, "appointment selection menu")
     await wa.send_list(
         to=phone,
-        body_text=body_text,
-        button_text="View Appointments",
-        sections=[{"title": "Your Appointments", "rows": rows}],
+        body_text=t(body_key, language),
+        button_text=t("view_appointments_button", language),
+        sections=[{"title": t("your_appointments_section_title", language), "rows": rows}],
     )
 
 
-async def _send_cancel_confirm(wa: WhatsAppClient, phone: str, appointment) -> None:
+async def _send_cancel_confirm(wa: WhatsAppClient, phone: str, appointment, language: str = "en") -> None:
     when = appointment.scheduled_at.strftime("%A, %d %B at %H:%M")
     await wa.send_buttons(
         to=phone,
-        body_text=f"Are you sure you want to cancel your appointment with {appointment.doctor_name} on {when}?",
+        body_text=t("cancel_confirm_question", language, doctor_name=appointment.doctor_name, when=when),
         buttons=[
-            {"id": CONFIRM_YES, "title": "Confirm"},
-            {"id": CONFIRM_NO, "title": "Cancel"},
+            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
         ],
     )
 
 
-async def _send_reschedule_confirm(wa: WhatsAppClient, phone: str, context: dict) -> None:
-    summary = (
-        "Please confirm your new appointment time:\n\n"
-        f"Doctor: {context.get('doctor_name')}\n"
-        f"New Slot: {context.get('slot_label')}"
+async def _send_reschedule_confirm(wa: WhatsAppClient, phone: str, context: dict, language: str = "en") -> None:
+    summary = t(
+        "reschedule_confirm_summary", language,
+        doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),
     )
     await wa.send_buttons(
         to=phone,
         body_text=summary,
         buttons=[
-            {"id": CONFIRM_YES, "title": "Confirm"},
-            {"id": CONFIRM_NO, "title": "Cancel"},
+            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
         ],
     )
 
@@ -282,82 +313,86 @@ def _find_selected_appointment(hospital_id: int, phone: str, reply: dict, connec
 # which also resets the 30-min inactivity clock since the patient did respond).
 
 async def _handle_idle(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str, connector: Connector,
+    language: str = "en",
 ) -> None:
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
         if rid == MAIN_MENU_BOOK:
             sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, {})
-            await _send_department_menu(wa, phone, hospital_id, connector)
+            await _send_department_menu(wa, phone, hospital_id, connector, language=language)
             return
         if rid == MAIN_MENU_RESCHEDULE:
-            await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector)
+            await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language)
             return
         if rid == MAIN_MENU_CANCEL:
-            await _start_cancel_flow(wa, sessions, phone, hospital_id, connector)
+            await _start_cancel_flow(wa, sessions, phone, hospital_id, connector, language=language)
             return
         if rid == MAIN_MENU_FAQ:
             sessions.reset(hospital_id, phone)
-            await wa.send_text(phone, _FAQ_TEXT)
+            await wa.send_text(phone, t("hospital_info_text", language))
             return
     # Any other message while IDLE (first contact, free text, stale/unknown id):
     # per spec, IDLE always responds with the welcome message + main menu.
     sessions.reset(hospital_id, phone)
-    await _send_main_menu(wa, phone, hospital_name)
+    await _send_main_menu(wa, phone, hospital_name, language=language)
 
 
 async def _handle_awaiting_department(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     if reply["type"] == "interactive_reply":
         dept = _find_by_id(connector.get_departments(hospital_id), reply["id"])
         if dept:
             if not connector.get_doctors(hospital_id, dept["id"]):
-                await _notify_no_doctors_available(wa, sessions, hospital_id, phone, dept["name"])
+                await _notify_no_doctors_available(wa, sessions, hospital_id, phone, dept["name"], language=language)
                 return
             new_context = {"department_id": dept["id"], "department_name": dept["name"]}
             sessions.set(hospital_id, phone, STATE_AWAITING_DOCTOR, new_context)
-            await _send_doctor_menu(wa, phone, hospital_id, dept["id"], dept["name"], connector)
+            await _send_doctor_menu(wa, phone, hospital_id, dept["id"], dept["name"], connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_department_menu(wa, phone, hospital_id, connector)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_department_menu(wa, phone, hospital_id, connector, language=language)
 
 
 async def _handle_awaiting_doctor(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     department_id = context.get("department_id")
     department_name = context.get("department_name", "")
     if not department_id:
         # Corrupted/incomplete session context — fail safe back to the main menu.
         sessions.reset(hospital_id, phone)
-        await _send_main_menu(wa, phone, "the hospital")
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
 
     if reply["type"] == "interactive_reply":
         doctor = _find_by_id(connector.get_doctors(hospital_id, department_id), reply["id"])
         if doctor:
             if not connector.get_available_slots(hospital_id, doctor["id"]):
-                await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor["name"])
+                await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor["name"], language=language)
                 return
             new_context = {**context, "doctor_id": doctor["id"], "doctor_name": doctor["name"]}
             sessions.set(hospital_id, phone, STATE_AWAITING_SLOT, new_context)
-            await _send_slot_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector)
+            await _send_slot_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_DOCTOR, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_doctor_menu(wa, phone, hospital_id, department_id, department_name, connector)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_doctor_menu(wa, phone, hospital_id, department_id, department_name, connector, language=language)
 
 
 async def _handle_awaiting_slot(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
     if not doctor_id:
         sessions.reset(hospital_id, phone)
-        await _send_main_menu(wa, phone, "the hospital")
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
 
     if reply["type"] == "interactive_reply":
@@ -370,21 +405,68 @@ async def _handle_awaiting_slot(
                 "slot_date": slot["date"],
                 "slot_time": slot["time"],
             }
-            sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-            await _send_confirmation(wa, phone, new_context)
+            # Section 12.11: a first-time patient (no name on file) is asked
+            # for name+age before confirming; a returning patient skips
+            # straight to confirmation exactly as before this section.
+            patient_info = connector.get_patient_info(hospital_id, phone)
+            if patient_info and patient_info.get("name"):
+                sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
+                await _send_confirmation(wa, phone, new_context, language=language)
+                return
+            sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, new_context)
+            await wa.send_text(phone, t("ask_patient_name", language))
             return
     # Slots are dynamic (another patient's booking can take the last one between
     # this menu being sent and this reply) — recheck rather than blindly re-send.
     if not connector.get_available_slots(hospital_id, doctor_id):
-        await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name)
+        await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_SLOT, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
+
+
+async def _handle_awaiting_patient_name(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
+) -> None:
+    """Section 12.11. Free text only, same "unsupported input re-prompts the
+    same state" pattern as every tap-driven state above, just keyed on
+    non-empty text instead of a valid interactive_reply id."""
+    if reply["type"] == "text" and reply["text"].strip():
+        name = reply["text"].strip()
+        new_context = {**context, "patient_name": name}
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context)
+        await wa.send_text(phone, t("ask_patient_age", language, patient_name=name))
+        return
+    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, context)
+    await wa.send_text(phone, t("invalid_patient_name", language))
+    await wa.send_text(phone, t("ask_patient_name", language))
+
+
+async def _handle_awaiting_patient_age(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
+) -> None:
+    """Section 12.11. Validates a whole number in [MIN_PATIENT_AGE,
+    MAX_PATIENT_AGE] (_parse_patient_age) -- non-numeric or out-of-range
+    input re-prompts with a specific error, same pattern as every other
+    validation failure in this codebase (e.g. db.is_valid_phone() at the
+    staff new-booking form)."""
+    age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
+    if age is not None:
+        new_context = {**context, "patient_age": age}
+        sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
+        await _send_confirmation(wa, phone, new_context, language=language)
+        return
+    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
+    await wa.send_text(phone, t("invalid_patient_age", language))
+    await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("patient_name", "")))
 
 
 async def _handle_awaiting_confirmation(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
@@ -396,20 +478,20 @@ async def _handle_awaiting_confirmation(
                     department_id=context.get("department_id"),
                     doctor_id=context.get("doctor_id"),
                     scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
+                    patient_name=context.get("patient_name"),
+                    patient_age=context.get("patient_age"),
                 )
             except IntegrityError:
                 # Someone else booked this exact doctor+slot first (db/schema.sql's
                 # partial unique index — the real double-booking guard, not this
                 # try/except). Send the patient back to slot selection with a
                 # freshly-queried list that no longer offers the taken slot.
-                await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_SLOT, connector)
+                await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_SLOT, connector, language=language)
                 return
-            summary = (
-                "Your appointment is confirmed!\n\n"
-                f"Department: {context.get('department_name')}\n"
-                f"Doctor: {context.get('doctor_name')}\n"
-                f"Slot: {context.get('slot_label')}\n\n"
-                "We look forward to seeing you."
+            summary = t(
+                "booking_confirmed", language,
+                department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
+                slot_label=context.get("slot_label"),
             )
             await wa.send_text(phone, summary)
             # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
@@ -418,48 +500,52 @@ async def _handle_awaiting_confirmation(
             sessions.reset(hospital_id, phone)
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, "Okay, I've cancelled this booking. Send any message to start over.")
+            await wa.send_text(phone, t("booking_not_confirmed", language))
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_confirmation(wa, phone, context)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_confirmation(wa, phone, context, language=language)
 
 
 # --- Cancel flow (SPEC Section 3.3/5) ---
 
-async def _start_cancel_flow(wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector) -> None:
+async def _start_cancel_flow(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+) -> None:
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, "You don't have any upcoming appointments to cancel.")
+        await wa.send_text(phone, t("no_upcoming_to_cancel", language))
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, {})
-    await _send_appointment_selection_menu(wa, phone, appointments, "Which appointment would you like to cancel?")
+    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_cancel", language=language)
 
 
 async def _handle_awaiting_cancel_selection(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     appt = _find_selected_appointment(hospital_id, phone, reply, connector)
     if appt:
         sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_CONFIRM, {"appointment_id": appt.id})
-        await _send_cancel_confirm(wa, phone, appt)
+        await _send_cancel_confirm(wa, phone, appt, language=language)
         return
 
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
         # Went stale between menu-send and reply (e.g. the appointment's time passed).
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, "You don't have any upcoming appointments to cancel.")
+        await wa.send_text(phone, t("no_upcoming_to_cancel", language))
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_appointment_selection_menu(wa, phone, appointments, "Which appointment would you like to cancel?")
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_cancel", language=language)
 
 
 async def _handle_awaiting_cancel_confirm(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     appointment_id = context.get("appointment_id")
     appt = None
@@ -468,7 +554,7 @@ async def _handle_awaiting_cancel_confirm(
         appt = next((a for a in appointments if a.id == appointment_id), None)
     if not appt:
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, "Something went wrong finding that appointment. Please start over.")
+        await wa.send_text(phone, t("appointment_lookup_error", language))
         return
 
     if reply["type"] == "interactive_reply":
@@ -476,16 +562,16 @@ async def _handle_awaiting_cancel_confirm(
         if rid == CONFIRM_YES:
             connector.cancel_booking(hospital_id, appt.id)
             when = appt.scheduled_at.strftime("%A, %d %B at %H:%M")
-            await wa.send_text(phone, f"Your appointment with {appt.doctor_name} on {when} has been cancelled.")
+            await wa.send_text(phone, t("appointment_cancelled", language, doctor_name=appt.doctor_name, when=when))
             sessions.reset(hospital_id, phone)
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, "Okay, your appointment was not cancelled.")
+            await wa.send_text(phone, t("cancellation_aborted", language))
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_CONFIRM, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_cancel_confirm(wa, phone, appt)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_cancel_confirm(wa, phone, appt, language=language)
 
 
 # --- Reschedule flow (SPEC Section 3.3/5) ---
@@ -494,23 +580,26 @@ async def _handle_awaiting_cancel_confirm(
 # booking flow, scoped to the appointment's existing doctor (no re-picking
 # department/doctor).
 
-async def _start_reschedule_flow(wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector) -> None:
+async def _start_reschedule_flow(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+) -> None:
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, "You don't have any upcoming appointments to reschedule.")
+        await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, {})
-    await _send_appointment_selection_menu(wa, phone, appointments, "Which appointment would you like to reschedule?")
+    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
 
 
 async def _handle_awaiting_reschedule_selection(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     appt = _find_selected_appointment(hospital_id, phone, reply, connector)
     if appt:
         if not connector.get_available_slots(hospital_id, appt.doctor_id):
-            await _notify_no_slots_available(wa, sessions, hospital_id, phone, appt.doctor_name)
+            await _notify_no_slots_available(wa, sessions, hospital_id, phone, appt.doctor_name, language=language)
             return
         new_context = {
             "reschedule_appointment_id": appt.id,
@@ -520,27 +609,28 @@ async def _handle_awaiting_reschedule_selection(
             "doctor_name": appt.doctor_name,
         }
         sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, new_context)
-        await _send_slot_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector)
+        await _send_slot_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector, language=language)
         return
 
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, "You don't have any upcoming appointments to reschedule.")
+        await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_appointment_selection_menu(wa, phone, appointments, "Which appointment would you like to reschedule?")
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
 
 
 async def _handle_awaiting_reschedule_slot(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
     if not doctor_id or context.get("reschedule_appointment_id") is None:
         sessions.reset(hospital_id, phone)
-        await _send_main_menu(wa, phone, "the hospital")
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
 
     if reply["type"] == "interactive_reply":
@@ -554,18 +644,19 @@ async def _handle_awaiting_reschedule_slot(
                 "slot_time": slot["time"],
             }
             sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_CONFIRM, new_context)
-            await _send_reschedule_confirm(wa, phone, new_context)
+            await _send_reschedule_confirm(wa, phone, new_context, language=language)
             return
     if not connector.get_available_slots(hospital_id, doctor_id):
-        await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name)
+        await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
 
 
 async def _handle_awaiting_reschedule_confirm(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
 ) -> None:
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
@@ -584,30 +675,30 @@ async def _handle_awaiting_reschedule_confirm(
                 # reschedule_booking() (Tier1Connector) books the new slot before
                 # touching the old appointment, so a losing race here leaves the
                 # patient's original appointment intact rather than with neither.
-                await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_RESCHEDULE_SLOT, connector)
+                await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_RESCHEDULE_SLOT, connector, language=language)
                 return
-            summary = (
-                "Your appointment has been rescheduled!\n\n"
-                f"Doctor: {context.get('doctor_name')}\n"
-                f"New Slot: {context.get('slot_label')}\n\n"
-                "We look forward to seeing you."
+            summary = t(
+                "appointment_rescheduled", language,
+                doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),
             )
             await wa.send_text(phone, summary)
             sessions.reset(hospital_id, phone)
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, "Okay, your appointment was not rescheduled.")
+            await wa.send_text(phone, t("reschedule_aborted", language))
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_CONFIRM, context)
-    await wa.send_text(phone, _PLEASE_CHOOSE)
-    await _send_reschedule_confirm(wa, phone, context)
+    await wa.send_text(phone, t("please_choose", language))
+    await _send_reschedule_confirm(wa, phone, context, language=language)
 
 
 _HANDLERS = {
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
     STATE_AWAITING_SLOT: _handle_awaiting_slot,
+    STATE_AWAITING_PATIENT_NAME: _handle_awaiting_patient_name,
+    STATE_AWAITING_PATIENT_AGE: _handle_awaiting_patient_age,
     STATE_AWAITING_CONFIRMATION: _handle_awaiting_confirmation,
     STATE_AWAITING_CANCEL_SELECTION: _handle_awaiting_cancel_selection,
     STATE_AWAITING_CANCEL_CONFIRM: _handle_awaiting_cancel_confirm,
@@ -638,21 +729,28 @@ async def handle_incoming(
     hospital's stored data_tier and passed in here; defaults to a Tier 1
     connector so every pre-existing caller (including the whole test suite)
     keeps working unchanged for Tier 1 hospitals without passing one.
+
+    This module's OWN entry point (superseded for real traffic by flows.py's
+    router, see the module docstring) doesn't own language SELECTION -- it
+    just respects whatever's already on the session, defaulting to English,
+    so its own standalone tests stay meaningful for language too without
+    duplicating flows.py's language-picker logic in a dead code path.
     """
     connector = connector or _DEFAULT_CONNECTOR
     session = sessions.get(hospital_id, phone)
     state = session["state"]
     context = session["context"]
+    language = session.get("language") or "en"
 
     if state != STATE_IDLE and is_reset_keyword(reply):
         sessions.reset(hospital_id, phone)
-        await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector)
+        await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language)
         return
 
     handler = _HANDLERS.get(state)
     if handler is None:
         # IDLE, or any unrecognized/stale state value -> treat as IDLE.
-        await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector)
+        await _handle_idle(wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language)
         return
 
-    await handler(wa, sessions, phone, hospital_id, reply, context, connector)
+    await handler(wa, sessions, phone, hospital_id, reply, context, connector, language=language)
