@@ -36,9 +36,10 @@ and passes it down; this module doesn't own language SELECTION (that's the
 top-level menu's job, flows.py), only respects whichever one it's given.
 
 Section 12.11 also added a patient-name/age collection step; Section 12.12
-(below) restructured it down to name-only and split slot selection into two
-steps (date, then time) to match a reference screenshot's exact flow/wording
--- see that section's note just above the state constants.
+split slot selection into two steps (date, then time) to match a reference
+screenshot's exact flow/wording and briefly dropped the age step to match
+it exactly, then a Section 12.13 follow-up restored age (confirmed wanted
+after all) -- see the state constants' own comment for the full history.
 """
 import logging
 from datetime import datetime
@@ -56,36 +57,39 @@ _DEFAULT_CONNECTOR = Tier1Connector()
 # Section 12.12: restructured to match a reference screenshot's exact flow --
 # department -> doctor (now with an inline "You have selected Dr. X" line) ->
 # DATE (new, was folded into a single combined slot list before this) -> TIME
-# (new) -> patient name (unchanged from Section 12.11, still skipped for a
-# returning patient with a name on file) -> confirmation (restyled as a
-# structured *bold*-markdown card) -> a success message with a generated
-# reference_id. Section 12.11's separate AWAITING_PATIENT_AGE step is
-# deliberately DROPPED here -- the reference screenshot's flow has no age
-# step and the confirmation card has no age field -- but the underlying
-# capability (patients.age, create_booking(patient_age=...)) is left in place
-# rather than removed, since nothing about that storage is wrong, just unused
-# by this flow now. Reschedule keeps its own separate, unchanged single
-# combined slot-list step (_send_slot_menu/STATE_AWAITING_RESCHEDULE_SLOT) --
-# the reference screenshot this section matches is booking-only.
+# (new) -> patient name -> confirmation (restyled as a structured
+# *bold*-markdown card) -> a success message with a generated reference_id.
+# Section 12.12 originally dropped Section 12.11's separate age step to match
+# the reference screenshot exactly (it had no age field) -- a Section 12.13
+# follow-up restored it (confirmed wanted after all) with age now also shown
+# on the confirmation card, which the original reference screenshot didn't
+# have either but was explicitly requested this time. Reschedule keeps its
+# own separate, unchanged single combined slot-list step
+# (_send_slot_menu/STATE_AWAITING_RESCHEDULE_SLOT) -- none of this ever
+# applied to it.
 STATE_IDLE = "IDLE"
 STATE_AWAITING_DEPARTMENT = "AWAITING_DEPARTMENT"
 STATE_AWAITING_DOCTOR = "AWAITING_DOCTOR"
 STATE_AWAITING_DATE = "AWAITING_DATE"
 STATE_AWAITING_TIME_SLOT = "AWAITING_TIME_SLOT"
 STATE_AWAITING_PATIENT_NAME = "AWAITING_PATIENT_NAME"
+STATE_AWAITING_PATIENT_AGE = "AWAITING_PATIENT_AGE"
 STATE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
 STATE_BOOKED = "BOOKED"  # momentary only — never persisted, see _handle_awaiting_confirmation
+
+MIN_PATIENT_AGE = 0
+MAX_PATIENT_AGE = 120
 
 # Live-found bug: a patient's actual typed input can collide with a reset
 # keyword purely by coincidence (a real patient named "Hi", or -- far more
 # commonly hit in practice -- someone testing the bot who types "hi"/"test"
-# as a throwaway name) at the one state in this whole flow that accepts
+# as a throwaway name/age) at the two states in this whole flow that accept
 # arbitrary free text as a real value, not a menu choice. The global
 # reset-keyword short-circuit in both this module's own handle_incoming()
 # below AND flows.py's router-level one must skip states in this set, so
 # free text typed there is always taken as the actual value, never
 # misread as an escape-to-menu command.
-FREE_TEXT_INPUT_STATES = {STATE_AWAITING_PATIENT_NAME}
+FREE_TEXT_INPUT_STATES = {STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_AGE}
 
 # Cancel flow (SPEC Section 3.3/5)
 STATE_AWAITING_CANCEL_SELECTION = "AWAITING_CANCEL_SELECTION"
@@ -134,6 +138,21 @@ def _date_label(date_str: str) -> str:
     slot_label was never translated either)."""
     dt = datetime.fromisoformat(date_str)
     return f"{dt.strftime('%a')}, {dt.strftime('%b')} {dt.day}"
+
+
+def _parse_patient_age(text: str) -> int | None:
+    """Deliberately permissive parsing, strict range check: strips whitespace,
+    requires plain digits (rejects "34.5", "-5", "thirty", empty) -- a
+    WhatsApp patient typing an age is realistically always going to type
+    plain digits, so no need for a fancier parser. Returns None for anything
+    that isn't a whole number in [MIN_PATIENT_AGE, MAX_PATIENT_AGE]."""
+    text = text.strip()
+    if not text.isdigit():
+        return None
+    age = int(text)
+    if age < MIN_PATIENT_AGE or age > MAX_PATIENT_AGE:
+        return None
+    return age
 
 
 def _append_closing_message(text: str, closing_message_text: str | None) -> str:
@@ -305,12 +324,14 @@ async def _handle_slot_taken(
 
 async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, language: str = "en") -> None:
     """Section 12.12: structured *bold*-markdown card matching the reference
-    screenshot -- see core/translations.py's confirm_booking_summary."""
+    screenshot -- see core/translations.py's confirm_booking_summary. Age
+    (Section 12.13 follow-up) is included too, even though the original
+    reference screenshot didn't have it -- explicitly requested."""
     summary = t(
         "confirm_booking_summary", language,
         department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
-        patient_name=context.get("patient_name"),
+        patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
     )
     await wa.send_buttons(
         to=phone,
@@ -530,15 +551,25 @@ async def _handle_awaiting_time_slot(
                 "slot_date": slot["date"],
                 "slot_time": slot["time"],
             }
-            # Section 12.11 (patient-info skip, unchanged by Section 12.12):
-            # a first-time patient (no name on file) is asked for a name
-            # before confirming; a returning patient skips straight to
-            # confirmation.
+            # Section 12.11 (patient-info skip), age restored by a Section
+            # 12.13 follow-up: a patient with BOTH a name and an age already
+            # on file skips straight to confirmation; one with a name but no
+            # age (e.g. booked once back when this flow only collected a
+            # name) skips just the name question and is asked for age only;
+            # a genuinely first-time patient is asked for both.
             patient_info = connector.get_patient_info(hospital_id, phone)
-            if patient_info and patient_info.get("name"):
+            has_name = bool(patient_info and patient_info.get("name"))
+            has_age = bool(patient_info and patient_info.get("age") is not None)
+            if has_name and has_age:
                 new_context["patient_name"] = patient_info["name"]
+                new_context["patient_age"] = patient_info["age"]
                 sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
                 await _send_confirmation(wa, phone, new_context, language=language)
+                return
+            if has_name:
+                new_context["patient_name"] = patient_info["name"]
+                sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context)
+                await wa.send_text(phone, t("ask_patient_age", language, patient_name=patient_info["name"]))
                 return
             sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, new_context)
             await wa.send_text(phone, t("ask_patient_name", language))
@@ -562,20 +593,40 @@ async def _handle_awaiting_patient_name(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Section 12.11, target state updated by Section 12.12 (name now goes
-    straight to confirmation -- no age step). Free text only, same
-    "unsupported input re-prompts the same state" pattern as every tap-driven
-    state above, just keyed on non-empty text instead of a valid
-    interactive_reply id."""
+    """Section 12.11, target state restored to AWAITING_PATIENT_AGE by a
+    Section 12.13 follow-up (Section 12.12 had briefly sent this straight to
+    confirmation instead). Free text only, same "unsupported input
+    re-prompts the same state" pattern as every tap-driven state above, just
+    keyed on non-empty text instead of a valid interactive_reply id."""
     if reply["type"] == "text" and reply["text"].strip():
         name = reply["text"].strip()
         new_context = {**context, "patient_name": name}
-        sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-        await _send_confirmation(wa, phone, new_context, language=language)
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context)
+        await wa.send_text(phone, t("ask_patient_age", language, patient_name=name))
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, context)
     await wa.send_text(phone, t("invalid_patient_name", language))
     await wa.send_text(phone, t("ask_patient_name", language))
+
+
+async def _handle_awaiting_patient_age(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    """Section 12.11, restored by a Section 12.13 follow-up. Validates a
+    whole number in [MIN_PATIENT_AGE, MAX_PATIENT_AGE] (_parse_patient_age)
+    -- non-numeric or out-of-range input re-prompts with a specific error,
+    same pattern as every other validation failure in this codebase (e.g.
+    db.is_valid_phone() at the staff new-booking form)."""
+    age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
+    if age is not None:
+        new_context = {**context, "patient_age": age}
+        sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
+        await _send_confirmation(wa, phone, new_context, language=language)
+        return
+    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
+    await wa.send_text(phone, t("invalid_patient_age", language))
+    await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("patient_name", "")))
 
 
 async def _handle_awaiting_confirmation(
@@ -593,6 +644,7 @@ async def _handle_awaiting_confirmation(
                     doctor_id=context.get("doctor_id"),
                     scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
                     patient_name=context.get("patient_name"),
+                    patient_age=context.get("patient_age"),
                 )
             except IntegrityError:
                 # Someone else booked this exact doctor+slot first (db/schema.sql's
@@ -813,6 +865,7 @@ _HANDLERS = {
     STATE_AWAITING_DATE: _handle_awaiting_date,
     STATE_AWAITING_TIME_SLOT: _handle_awaiting_time_slot,
     STATE_AWAITING_PATIENT_NAME: _handle_awaiting_patient_name,
+    STATE_AWAITING_PATIENT_AGE: _handle_awaiting_patient_age,
     STATE_AWAITING_CONFIRMATION: _handle_awaiting_confirmation,
     STATE_AWAITING_CANCEL_SELECTION: _handle_awaiting_cancel_selection,
     STATE_AWAITING_CANCEL_CONFIRM: _handle_awaiting_cancel_confirm,

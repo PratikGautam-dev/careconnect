@@ -72,7 +72,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     summary_en = t(
         "confirm_booking_summary", "en",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
-        time_label="10:00", patient_name="Ravi Kumar",
+        time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
     )
     assert "*Confirm Booking Details:*" in summary_en
     assert "🏥 *Dept:* Cardiology" in summary_en
@@ -80,13 +80,14 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     assert "📅 *Date:* Sat, Aug 8" in summary_en
     assert "🕐 *Slot:* 10:00" in summary_en
     assert "👤 *Patient:* Ravi Kumar" in summary_en
+    assert "🎂 *Age:* 34" in summary_en
 
     summary_hi = t(
         "confirm_booking_summary", "hi",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
-        time_label="10:00", patient_name="Ravi Kumar",
+        time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
     )
-    for emoji in ("🏥", "👨‍⚕️", "📅", "🕐", "👤"):
+    for emoji in ("🏥", "👨‍⚕️", "📅", "🕐", "👤", "🎂"):
         assert emoji in summary_hi
     assert "Cardiology" in summary_hi and "Ravi Kumar" in summary_hi
 

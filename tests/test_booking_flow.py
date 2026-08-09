@@ -209,8 +209,9 @@ async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_i
 async def test_full_happy_path_through_confirmation(hospital_id):
     """Section 12.12's exact reference-screenshot sequence: department ->
     doctor (inline "You have selected Dr. X" + date list) -> date -> time ->
-    patient name (first-time patient, no age step) -> structured confirmation
-    card -> success message with a generated reference_id."""
+    patient name -> patient age (both restored by a Section 12.13 follow-up
+    after briefly being name-only) -> structured confirmation card -> success
+    message with a generated reference_id."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
@@ -246,8 +247,8 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert kind == "list"
     assert kwargs["body_text"] == "Please select a preferred consulting time slot:"
 
-    # Pick a time -- a first-time patient (no name on file) is asked for a
-    # name before confirmation (no age step, Section 12.12).
+    # Pick a time -- a first-time patient (no name/age on file) is asked for
+    # a name first.
     slot = [s for s in all_slots if s["date"] == date_str][0]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
     session = sessions.get(hospital_id, PHONE)
@@ -257,17 +258,27 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert kind == "text"
     assert "full name" in kwargs["text"].lower()
 
-    # Give a name -> structured confirmation card
+    # Give a name -> asked for age
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["state"] == "AWAITING_PATIENT_AGE"
     assert session["context"]["patient_name"] == "Ravi Kumar"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "age" in kwargs["text"].lower()
+
+    # Give an age -> structured confirmation card
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["context"]["patient_age"] == 34
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {"confirm", "cancel"}
     assert "*Confirm Booking Details:*" in kwargs["body_text"]
     assert "🏥 *Dept:* Cardiology" in kwargs["body_text"]
     assert "👤 *Patient:* Ravi Kumar" in kwargs["body_text"]
+    assert "🎂 *Age:* 34" in kwargs["body_text"]
 
     # Confirm -> booked, resets to IDLE, structured success message with a
     # generated reference_id.
@@ -289,10 +300,10 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert appt.reference_id is not None and appt.reference_id.startswith("apt_")
     assert f"Reference ID: *{appt.reference_id}*" in kwargs["text"]
 
-    # ...and saved the patient's name (Section 12.11's other half; age is no
-    # longer collected via WhatsApp as of Section 12.12).
+    # ...and saved the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
+    assert patient["age"] == 34
 
 
 @pytest.mark.asyncio
@@ -328,13 +339,13 @@ async def test_returning_patient_with_name_on_file_skips_straight_to_confirmatio
 
 @pytest.mark.asyncio
 async def test_patient_name_matching_a_reset_keyword_is_accepted_as_the_name(hospital_id):
-    """Live-found bug: AWAITING_PATIENT_NAME is the one state in this whole
-    flow that accepts arbitrary free text as a real value, not a menu choice
-    -- someone testing the bot (or, in principle, a real patient literally
-    named "Hi") typing "hi" as the patient name used to trip the GLOBAL
-    reset-keyword short-circuit before this state's own handler ever ran,
-    silently bouncing them back to the main menu instead of accepting the
-    name and proceeding to confirmation."""
+    """Live-found bug: AWAITING_PATIENT_NAME/AWAITING_PATIENT_AGE are the two
+    states in this whole flow that accept arbitrary free text as a real
+    value, not a menu choice -- someone testing the bot (or, in principle, a
+    real patient literally named "Hi") typing "hi" as the patient name used
+    to trip the GLOBAL reset-keyword short-circuit before this state's own
+    handler ever ran, silently bouncing them back to the main menu instead
+    of accepting the name and proceeding to the next step."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {
@@ -345,15 +356,30 @@ async def test_patient_name_matching_a_reset_keyword_is_accepted_as_the_name(hos
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"))
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"  # not bounced to IDLE
+    assert session["state"] == "AWAITING_PATIENT_AGE"  # not bounced to IDLE
     assert session["context"]["patient_name"] == "hi"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert "👤 *Patient:* hi" in kwargs["body_text"]
 
 
 @pytest.mark.asyncio
-async def test_patient_name_free_text_validation(hospital_id):
+async def test_reset_keyword_shaped_age_input_fails_validation_instead_of_resetting(hospital_id):
+    """Same protection, AWAITING_PATIENT_AGE side: "hi" isn't a valid age
+    either way, but it must fail through the normal invalid-age re-prompt,
+    not get intercepted as a reset keyword first."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_AGE", {
+        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao", "patient_name": "Test Patient",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_PATIENT_AGE"  # re-prompted, not reset to IDLE
+    assert "valid age" in wa.sent[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_patient_name_and_age_free_text_validation(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {"slot_id": "x"})
@@ -363,12 +389,25 @@ async def test_patient_name_free_text_validation(hospital_id):
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
     assert "valid name" in wa.sent[0][1]["text"].lower()
 
-    # A valid name proceeds straight to confirmation -- no age step
-    # (Section 12.12 dropped the separate AWAITING_PATIENT_AGE state).
+    # A valid name proceeds to the age question.
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["state"] == "AWAITING_PATIENT_AGE"
     assert session["context"]["patient_name"] == "Asha Rao"
+
+    # Non-numeric and out-of-range ages both re-prompt with the specific error.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("not a number"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
+    assert "valid age" in wa.sent[-2][1]["text"].lower()
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("200"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
+
+    # A valid age proceeds to confirmation.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("41"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["context"]["patient_age"] == 41
 
 
 @pytest.mark.asyncio

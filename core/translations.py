@@ -153,12 +153,12 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "क्षमा करें, वह स्लॉट अभी-अभी बुक हो गया। कृपया कोई और समय चुनें।",
     },
 
-    # --- Booking: patient name collection ---
-    # Section 12.12: the reference screenshot's flow only collects a name (no
-    # separate age step -- age collection, added in Section 12.11, is now
-    # dropped from the WhatsApp flow specifically; `patients.age`/
-    # `create_booking(patient_age=...)` stay in place as a still-usable
-    # extension point, just nothing currently calls into them from here).
+    # --- Booking: patient name + age collection ---
+    # Section 12.13 follow-up: age is BACK in the WhatsApp flow (Section 12.12
+    # had dropped it to match a reference screenshot's exact wording, flagged
+    # in Spec.md as a decision worth confirming -- confirmed the user did
+    # want it, so it's restored here, now also shown on the confirmation card
+    # per that follow-up's own explicit choice).
     "ask_patient_name": {
         "en": "Almost done! Please type the patient's full name in the chat box below and send it:",
         "hi": "लगभग हो गया! कृपया चैट बॉक्स में मरीज़ का पूरा नाम टाइप करें और भेजें:",
@@ -167,24 +167,36 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "Please enter a valid name.",
         "hi": "कृपया एक मान्य नाम दर्ज करें।",
     },
+    "ask_patient_age": {
+        "en": "Thanks, {patient_name}! And could you share the patient's age?",
+        "hi": "धन्यवाद, {patient_name}! और क्या आप मरीज़ की उम्र बता सकते हैं?",
+    },
+    "invalid_patient_age": {
+        "en": "Please enter a valid age (a number between 0 and 120).",
+        "hi": "कृपया एक मान्य उम्र दर्ज करें (0 से 120 के बीच की संख्या)।",
+    },
 
     # --- Booking: confirmation ---
     # Section 12.12: structured "card" style with WhatsApp *bold* markdown and
-    # fixed emoji per field, matching the reference screenshot exactly.
+    # fixed emoji per field, matching the reference screenshot exactly, with
+    # an added age line (Section 12.13 follow-up, not in the original
+    # reference screenshot but explicitly requested).
     "confirm_booking_summary": {
         "en": "*Confirm Booking Details:*\n"
               "🏥 *Dept:* {department_name}\n"
               "👨‍⚕️ *Doctor:* {doctor_name}\n"
               "📅 *Date:* {date_label}\n"
               "🕐 *Slot:* {time_label}\n"
-              "👤 *Patient:* {patient_name}\n\n"
+              "👤 *Patient:* {patient_name}\n"
+              "🎂 *Age:* {patient_age}\n\n"
               "Please confirm this appointment:",
         "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
               "🏥 *विभाग:* {department_name}\n"
               "👨‍⚕️ *डॉक्टर:* {doctor_name}\n"
               "📅 *तारीख:* {date_label}\n"
               "🕐 *स्लॉट:* {time_label}\n"
-              "👤 *मरीज़:* {patient_name}\n\n"
+              "👤 *मरीज़:* {patient_name}\n"
+              "🎂 *उम्र:* {patient_age}\n\n"
               "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
     },
     "confirm_button": {"en": "Confirm", "hi": "पुष्टि करें"},
