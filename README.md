@@ -123,7 +123,7 @@ To safely preview what's actually set in an env file without printing secret val
 Local development runs against its own Postgres, never the real deployed database:
 
 ```bash
-docker compose up -d          # starts a local Postgres on localhost:5433 (data persists in a Docker volume)
+docker compose -f docker-compose.dev-db.yml up -d   # starts a local Postgres on localhost:5433 (data persists in a Docker volume)
 ```
 
 `.env`'s `DATABASE_URL` already points here by default (`postgresql://postgres:postgres@localhost:5433/whatsapp_dev`) — the app creates its schema and seeds a default hospital automatically on first startup, no separate migration step needed. If Docker isn't an option on your machine, any locally-installed Postgres (or a portable, non-Docker binary distribution) works too — just point `DATABASE_URL` at it.

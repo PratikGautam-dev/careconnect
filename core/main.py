@@ -11,6 +11,7 @@ load_dotenv()  # must run before os.environ[...] reads below, or db.init_db()'s 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 import db.repository as db
 from admin.onboarding import router as onboarding_router
@@ -19,6 +20,7 @@ from admin.tenants_api import router as tenants_api_router
 from admin.theme import STYLE as _STYLE
 from portal import router as portal_router
 from portal_api import router as portal_api_router
+from user_auth import AUTH_SECRET, router as user_auth_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 import flows
 from core.history import get_history, get_session_store
@@ -151,11 +153,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Section 15: only used by user_auth.py's Google OAuth handshake to hold the
+# short-lived state/nonce Authlib generates between /auth/google/login and
+# /auth/google/callback -- both routes are on THIS backend's own origin
+# (see user_auth.py's module docstring), so this cookie is same-origin
+# throughout and never faces the cross-origin-cookie problem portal_api.py's
+# Bearer-token session already had to work around. Reuses AUTH_SECRET rather
+# than adding yet another secret, since it's scoped to the same
+# "user identity" concern that secret already covers.
+app.add_middleware(SessionMiddleware, secret_key=AUTH_SECRET or "insecure-dev-only-session-secret")
+
 app.include_router(onboarding_router)
 app.include_router(onboarding_api_router)
 app.include_router(tenants_api_router)
 app.include_router(portal_router)
 app.include_router(portal_api_router)
+app.include_router(user_auth_router)
 
 
 # /admin/onboard-hospital IS the client-facing signup flow (gated by

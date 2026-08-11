@@ -75,6 +75,11 @@ def _tenant_detail(h) -> dict:
         "external_api_key": h.external_api_key or "",
         "has_portal_password": bool(h.portal_password_hash),
         "is_active": h.is_active,
+        # Section 15: which Google account(s), if any, own this hospital's
+        # portal -- empty for hospitals onboarded before Google sign-in
+        # existed (hospital #1, DaaPrime), which still fall back to
+        # portal_password_hash login until an owner is assigned below.
+        "owners": [{"id": u.id, "email": u.email, "name": u.name} for u in db.get_owners_for_hospital(h.id)],
     }
 
 
@@ -197,3 +202,37 @@ async def update_tenant(
         }, status_code=400)
 
     return JSONResponse({"tenant": _tenant_detail(updated)})
+
+
+class AssignOwnerPayload(BaseModel):
+    email: str = ""
+
+
+@router.post("/api/admin/tenants/{tenant_id}/assign-owner")
+async def assign_tenant_owner(
+    tenant_id: int, payload: AssignOwnerPayload, request: Request, x_admin_secret: str | None = Header(default=None)
+):
+    """Section 15's migration tool for hospitals onboarded before Google
+    sign-in existed (hospital #1, DaaPrime): links a hospital to a Google
+    account by email alone, without that person needing to have signed in
+    yet -- db.assign_hospital_owner_by_email() creates a placeholder users
+    row (google_id NULL) if none exists for that email, and the OAuth
+    callback (user_auth.py) backfills google_id the first time that person
+    actually signs in with a matching Google account. Doubles as the
+    general "reassign ownership" tool going forward, not just a one-off
+    script -- a hospital can have more than one owner (hospital_users is a
+    join table), so calling this again for a second email just adds another
+    owner rather than replacing the first."""
+    if not _check_secret(x_admin_secret, request):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    hospital = db.get_hospital(tenant_id)
+    if hospital is None:
+        return JSONResponse({"error": f"No tenant with id {tenant_id}."}, status_code=404)
+
+    email = payload.email.strip().lower()
+    if not email or "@" not in email:
+        return JSONResponse({"error": "A valid email address is required."}, status_code=400)
+
+    owner = db.assign_hospital_owner_by_email(tenant_id, email)
+    return JSONResponse({"tenant": _tenant_detail(hospital), "owner": {"id": owner.id, "email": owner.email}})

@@ -1,0 +1,41 @@
+# Local development database ONLY -- this is what .env's DATABASE_URL points
+# at by default (see .env's own comment). Same postgres:16-alpine image
+# tests/conftest.py already provisions via testcontainers for the test suite,
+# so local dev and CI both run against the same Postgres version the real
+# Neon database uses.
+#
+# The real, deployed database's connection string lives in .env.production
+# (gitignored, never loaded automatically by core/main.py's load_dotenv())
+# -- it should only ever be used deliberately (e.g. to run a one-off
+# migration against it), never as a side effect of `uvicorn --reload` or any
+# other routine local dev command.
+#
+# Renamed from docker-compose.yml when the Section 15 Docker/VPS deployment
+# work added a real docker-compose.yml for the backend+frontend app services
+# themselves -- this file's job (a throwaway local Postgres) is unrelated to
+# that and would have been confusing to merge into the same default file.
+#
+# Usage:
+#   docker compose -f docker-compose.dev-db.yml up -d    # start the local dev Postgres
+#   docker compose -f docker-compose.dev-db.yml down     # stop it (data persists in the pgdata volume)
+#   docker compose -f docker-compose.dev-db.yml down -v  # stop it AND wipe local dev data
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: whatsapp_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
