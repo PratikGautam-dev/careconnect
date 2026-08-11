@@ -17,10 +17,14 @@ export type OnboardingFailure = {
 export async function submitOnboarding(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload: Record<string, any>,
+  userToken: string | null,
 ): Promise<{ ok: true; data: OnboardingSuccess } | { ok: false; data: OnboardingFailure }> {
   const res = await fetch(`${API_BASE_URL}/api/onboarding`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}),
+    },
     body: JSON.stringify(payload),
   });
   const data = await res.json();

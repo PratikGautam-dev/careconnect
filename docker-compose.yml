@@ -1,0 +1,63 @@
+# CareConnect deployment compose -- backend (FastAPI) + frontend (Next.js),
+# for a self-hosted DigitalOcean VPS behind Coolify. See DEPLOYMENT.md for
+# the full env var reference and deploy walkthrough.
+#
+# Reverse proxy / TLS: intentionally NOT included here. Coolify runs its own
+# reverse proxy (Traefik) in front of whatever containers/compose stacks it
+# manages, and terminates TLS itself -- adding Nginx/Caddy in this file
+# would just be a second proxy hop Coolify doesn't need. If you're deploying
+# this compose file WITHOUT Coolify (e.g. directly on a bare VPS), you'll
+# need to add a reverse-proxy service yourself (Caddy is the least config
+# for automatic HTTPS) in front of these two services -- ask if you want
+# that added, since it changes the shape of this file.
+#
+# Database: NOT included as a service here -- see the "Database" section in
+# DEPLOYMENT.md for the reasoning (recommendation: keep using the existing
+# managed Neon Postgres rather than self-hosting it on this VPS too). If you
+# decide to self-host Postgres instead, docker-compose.dev-db.yml already
+# has a working service definition (postgres:16-alpine, the same image this
+# project's test suite provisions) to copy from -- just move it into this
+# file, add a named volume, and point DATABASE_URL in .env at it.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    # Every secret/config value is read from .env at container start (never
+    # baked into the image -- see Dockerfile/.dockerignore) -- see
+    # DEPLOYMENT.md for the full list of what's required vs. optional.
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Next.js bakes NEXT_PUBLIC_* values into the client bundle at BUILD
+        # time (frontend/Dockerfile's own comment has the full story) --
+        # this MUST be a build arg, not a runtime `environment:` entry, or
+        # the browser bundle will never see it. Point this at wherever the
+        # backend is actually reachable from a USER'S BROWSER (e.g.
+        # https://api.yourdomain.com), not at the "backend" Docker service
+        # name -- that name only resolves inside this compose network, a
+        # browser on the public internet can't reach it.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+# No top-level `env_file` for the frontend service: it has no server-side
+# secrets of its own (everything it reads is the single NEXT_PUBLIC_
+# build arg above) -- see DEPLOYMENT.md.

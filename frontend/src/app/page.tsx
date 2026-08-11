@@ -78,7 +78,7 @@ export default function LandingPage() {
 
             {/* CTAs */}
             <div className="mb-space-3 flex flex-wrap gap-space-3">
-              <Button href="/admin/onboard-hospital" variant="primary" size="lg">
+              <Button href="/auth" variant="primary" size="lg">
                 Set up your hospital
               </Button>
               <Button

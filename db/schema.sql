@@ -484,3 +484,36 @@ CREATE TABLE IF NOT EXISTS patient_documents (
     sent_to_whatsapp_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_patient_documents_hospital_patient ON patient_documents(hospital_id, patient_id);
+
+-- Section 15 (Google OAuth + per-user identity): one row per Google account
+-- that's ever signed in. google_id is nullable -- a platform admin can
+-- pre-create a placeholder row by email alone via /admin/edit-tenant's
+-- owner-assignment field (the migration path for hospital #1/DaaPrime,
+-- onboarded before this section existed and still using portal_password_hash
+-- login); the OAuth callback matches an incoming Google sign-in by google_id
+-- first, then by email, backfilling google_id onto that same placeholder row
+-- rather than creating a second, disconnected one for the same person.
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    google_id TEXT UNIQUE,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    created_at TEXT NOT NULL DEFAULT (now()::text)
+);
+
+-- Join table, not a single owner_user_id column on hospitals -- deliberately
+-- future-proofs for real per-staff accounts (Section 12.10's flagged
+-- follow-up: patient notes/documents can currently only be traced to a
+-- login session, not a named person) without a later migration off a
+-- single-owner column onto a join table. role is stored but not yet
+-- enforced differently (every row created today is 'owner') -- same
+-- "store now, enforce later" pattern as doctors.online_quota/walkin_quota
+-- (Section 14.7).
+CREATE TABLE IF NOT EXISTS hospital_users (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    role TEXT NOT NULL DEFAULT 'owner',
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    UNIQUE(hospital_id, user_id)
+);

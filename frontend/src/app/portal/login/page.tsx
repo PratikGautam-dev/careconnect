@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
+import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
 import { savePortalSession } from "@/lib/portalAuth";
+import { googleLoginUrl } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -16,6 +18,12 @@ export default function PortalLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showForgotHelp, setShowForgotHelp] = useState(false);
+  // Section 15: Google sign-in is the primary path now -- the password form
+  // is a permanent fallback (not scheduled for removal) for hospitals that
+  // don't have a Google owner assigned yet (see admin/tenants_api.py's
+  // assign-owner migration tool), so it stays available but collapsed
+  // rather than front-and-center.
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,43 +63,62 @@ export default function PortalLoginPage() {
         </div>
 
         <h1 className="text-display mb-space-1 !text-[22px]">Staff login</h1>
-        <p className="text-body mb-space-5">Enter your hospital&apos;s bookings portal password.</p>
+        <p className="text-body mb-space-5">Continue with the Google account that manages your hospital.</p>
 
-        <form onSubmit={handleSubmit}>
-          <Field label="Password" htmlFor="password" error={error || undefined}>
-            <Input
-              id="password"
-              type="password"
-              autoFocus
-              value={password}
-              invalid={!!error}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
-          <Button type="submit" disabled={submitting || !password} className="mt-space-2 w-full" size="lg">
-            {submitting ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
+        <a
+          href={googleLoginUrl()}
+          className="inline-flex h-14 w-full items-center justify-center gap-space-3 rounded-md border border-line bg-card text-[15px] font-semibold text-ink-900 shadow-[var(--shadow-sm)] transition-colors duration-150 hover:border-brand-300 hover:bg-brand-50 active:bg-brand-100"
+        >
+          <GoogleIcon size={20} />
+          Continue with Google
+        </a>
 
-        <p className="mt-space-3 text-center text-[12.5px]">
-          <button
-            type="button"
-            onClick={() => setShowForgotHelp((v) => !v)}
-            className="font-semibold text-brand-600 hover:underline"
-          >
-            Forgot password?
-          </button>
-        </p>
-        {showForgotHelp && (
-          <p className="mt-space-2 rounded-md bg-paper p-space-3 text-center text-[12.5px] text-ink-600">
-            Portal passwords are reset by your platform administrator, not self-service. Contact them to have it
-            changed.
+        {!showPasswordForm ? (
+          <p className="mt-space-3 text-center text-[12.5px]">
+            <button
+              type="button"
+              onClick={() => setShowPasswordForm(true)}
+              className="font-semibold text-brand-600 hover:underline"
+            >
+              Sign in with hospital password instead
+            </button>
           </p>
+        ) : (
+          <form onSubmit={handleSubmit} className="mt-space-5 border-t border-line pt-space-5">
+            <Field label="Password" htmlFor="password" error={error || undefined}>
+              <Input
+                id="password"
+                type="password"
+                autoFocus
+                value={password}
+                invalid={!!error}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </Field>
+            <Button type="submit" disabled={submitting || !password} className="mt-space-2 w-full" size="lg">
+              {submitting ? "Signing in…" : "Sign in"}
+            </Button>
+            <p className="mt-space-3 text-center text-[12.5px]">
+              <button
+                type="button"
+                onClick={() => setShowForgotHelp((v) => !v)}
+                className="font-semibold text-brand-600 hover:underline"
+              >
+                Forgot password?
+              </button>
+            </p>
+            {showForgotHelp && (
+              <p className="mt-space-2 rounded-md bg-paper p-space-3 text-center text-[12.5px] text-ink-600">
+                Portal passwords are reset by your platform administrator, not self-service. Contact them to have it
+                changed.
+              </p>
+            )}
+          </form>
         )}
 
         <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
           Don&apos;t have a hospital account yet?{" "}
-          <a href="/admin/onboard-hospital" className="font-semibold text-brand-600 hover:underline">
+          <a href="/auth" className="font-semibold text-brand-600 hover:underline">
             Set one up
           </a>
         </p>

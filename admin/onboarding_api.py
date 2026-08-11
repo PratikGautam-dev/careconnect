@@ -9,7 +9,7 @@ validation or database-write logic. Field-level rules (doctor schedule
 parsing, department/topic reconstruction, tier requirements) are imported
 straight from admin.onboarding so the two entry points can never drift apart.
 """
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,7 @@ import db.repository as db
 import flows
 from admin.onboarding import _VALID_TIERS, _parse_offsets, _validate_doctor_fields, check_admin_secret
 from db.connection import IntegrityError
+from user_auth import authenticate_user
 
 router = APIRouter()
 
@@ -127,7 +128,19 @@ def _validate_topics(topics: list[TopicIn]) -> tuple[list[dict], list[str]]:
 
 
 @router.post("/api/onboarding")
-async def submit_onboarding(payload: OnboardingSubmission, request: Request):
+async def submit_onboarding(
+    payload: OnboardingSubmission, request: Request, authorization: str | None = Header(default=None)
+):
+    # Section 15: two independent gates, not one replacing the other --
+    # ADMIN_SECRET stays required deliberately (this product isn't open to
+    # public self-serve signup yet, only the two tenants actually running
+    # today), while Google sign-in adds the real per-user identity that
+    # ADMIN_SECRET alone never gave us (every prior onboarding was
+    # anonymous past this one shared secret). Once public signup is ready,
+    # this admin_secret check is the one line to remove.
+    user = authenticate_user(authorization)
+    if user is None:
+        return JSONResponse({"errors": ["You must be signed in with Google to onboard a hospital."]}, status_code=401)
     if not check_admin_secret(payload.admin_secret, request):
         return JSONResponse({"errors": ["Incorrect admin secret."]}, status_code=403)
 
@@ -196,6 +209,8 @@ async def submit_onboarding(payload: OnboardingSubmission, request: Request):
             },
             status_code=400,
         )
+
+    db.link_hospital_owner(hospital.id, user.id)
 
     created_departments = []
     if "booking" in payload.enabled_features:

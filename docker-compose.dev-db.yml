@@ -10,10 +10,15 @@
 # migration against it), never as a side effect of `uvicorn --reload` or any
 # other routine local dev command.
 #
+# Renamed from docker-compose.yml when the Section 15 Docker/VPS deployment
+# work added a real docker-compose.yml for the backend+frontend app services
+# themselves -- this file's job (a throwaway local Postgres) is unrelated to
+# that and would have been confusing to merge into the same default file.
+#
 # Usage:
-#   docker compose up -d        # start the local dev Postgres
-#   docker compose down         # stop it (data persists in the pgdata volume)
-#   docker compose down -v      # stop it AND wipe local dev data
+#   docker compose -f docker-compose.dev-db.yml up -d    # start the local dev Postgres
+#   docker compose -f docker-compose.dev-db.yml down     # stop it (data persists in the pgdata volume)
+#   docker compose -f docker-compose.dev-db.yml down -v  # stop it AND wipe local dev data
 services:
   db:
     image: postgres:16-alpine

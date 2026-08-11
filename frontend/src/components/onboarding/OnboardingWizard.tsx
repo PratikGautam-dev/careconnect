@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -30,10 +31,12 @@ import { Step8Review } from "./steps/Step8Review";
 import { StepGuide } from "./steps/StepGuide";
 import { RAIL_TITLES, buildSubmissionPayload } from "./types";
 import { useWizardState } from "./useWizardState";
+import { getUserToken } from "@/lib/userAuth";
 
 const TOTAL_STEPS = RAIL_TITLES.length;
 
 export function OnboardingWizard() {
+  const router = useRouter();
   const [state, dispatch] = useWizardState();
   const [currentStep, setCurrentStep] = useState(0);
   const [maxUnlockedStep, setMaxUnlockedStep] = useState(0);
@@ -41,6 +44,14 @@ export function OnboardingWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
   const [success, setSuccess] = useState<OnboardingSuccess | null>(null);
+
+  // Section 15: this wizard is only reachable after Google sign-in now (the
+  // landing page CTA goes through /auth first) -- a direct visit with no
+  // user session (e.g. a stale bookmark) gets bounced back there rather
+  // than letting the form fill out only to fail at the final submit.
+  useEffect(() => {
+    if (!getUserToken()) router.replace("/auth");
+  }, [router]);
 
   // goToStep is for rail clicks, gated by maxUnlockedStep already committed to
   // state from a previous render. handleNext must NOT route through it --
@@ -75,7 +86,7 @@ export function OnboardingWizard() {
     setSubmitting(true);
     setSubmitErrors([]);
     const payload = buildSubmissionPayload(state);
-    const result = await submitOnboarding(payload);
+    const result = await submitOnboarding(payload, getUserToken());
     setSubmitting(false);
     if (result.ok) {
       setSuccess(result.data);
