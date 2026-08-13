@@ -1,0 +1,48 @@
+# Production, manual image-based deployment (Option A) -- for the VPS,
+# pulling images already built and pushed by docker-publish.sh. This is
+# deliberately separate from docker-compose.yml at the repo root, which
+# BUILDS from local Dockerfiles (that one is for a Coolify-managed
+# deployment, or local docker-compose smoke testing) -- this file never
+# builds anything, it only pulls and runs, since the VPS in this workflow
+# has no copy of the source tree it needs to build from.
+#
+# Usage on the VPS (see DEPLOYMENT.md for the full walkthrough):
+#   docker login -u daaprime                            # Docker Hub -- once, or when the access token rotates
+#   IMAGE_TAG=latest docker compose -f docker-compose.prod.yml pull
+#   IMAGE_TAG=latest docker compose -f docker-compose.prod.yml up -d
+#
+# IMAGE_TAG defaults to `latest` if unset, but pin it to a real version tag
+# (whatever docker-publish.sh printed, e.g. `v1.2.3` or a commit hash) for
+# an actual production rollout -- `latest` always means "whatever was
+# pushed most recently," which makes rollback ("go back to what was
+# running before") impossible to express.
+services:
+  backend:
+    image: ${REGISTRY:-daaprime}/careconnect-backend:${IMAGE_TAG:-latest}
+    container_name: careconnect-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: ${REGISTRY:-daaprime}/careconnect-frontend:${IMAGE_TAG:-latest}
+    container_name: careconnect-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+# No build.args here for NEXT_PUBLIC_API_BASE_URL -- unlike docker-compose.yml
+# (the build-from-source file), this file never builds the frontend image,
+# so that value was already baked in whenever docker-publish.sh built it.
+# Changing the backend's public URL means rebuilding+republishing the
+# frontend image (docker-publish.sh), not editing anything in this file.
