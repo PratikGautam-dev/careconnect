@@ -748,3 +748,6 @@ When implementing:
 5. Ask before assuming which serverless platform/database is already set up — confirm what's actually provisioned rather than assuming Supabase by default.
 6. Every state in Section 3.3 (and Section 14.2's FAQ flow) must be implemented as a WhatsApp interactive list/button message, never a free-text prompt expecting a typed answer.
 7. Do not begin a new flow type (Section 14) until the flow-type dispatch mechanism (14.1) itself is proven working for existing `booking`-type tenants with zero behavior change, before building FAQ on top of it.
+
+
+done
