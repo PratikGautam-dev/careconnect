@@ -29,14 +29,8 @@ os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
 from admin.onboarding import _validate_doctor_fields  # noqa: E402
 from core.main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-# test_portal's own module-level TestClient, reused (not a fresh instance) for
-# every portal-cookie-based test below -- the signed session cookie
-# _login() sets is only visible to requests made through THAT SAME client
-# instance, so a separate TestClient() here would silently look logged out.
-from tests.test_portal import _login, client as portal_client  # noqa: E402
 
 client = TestClient(app)
-ADMIN_SECRET = "test-admin-secret"
 
 
 # --- generate_slots_for_doctor(): breaks, leave, daily_booking_limit, effective_from ---
@@ -145,9 +139,9 @@ def test_effective_from_gates_slot_generation_to_future_dates(hospital_id):
 def test_update_doctor_with_effective_from_preserves_earlier_unbooked_slots(hospital_id):
     """Section 14.7: a schedule change with a future effective_from must not
     retroactively touch already-offered slots dated before it -- only dates
-    on/after effective_from get the new pattern. Mirrors
-    tests/test_portal.py's regeneration-safety test, but for the
-    effective_from-scoped case rather than a full wipe."""
+    on/after effective_from get the new pattern (a db.update_doctor()-level
+    regeneration-safety check; unrelated to the doctor-EDIT HTTP route,
+    which no longer exists anywhere -- see Spec.md Section 0)."""
     doctor = db.create_doctor(
         hospital_id, "cardiology", "Dr. Effective Update",
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
@@ -340,138 +334,3 @@ def test_defaults_when_no_section_14_7_fields_given():
     assert doctor["followup_duration_minutes"] is None
     assert doctor["effective_from"] is None
 
-
-# --- Wizard/portal HTTP paths: end-to-end wiring, including "copy to other days" ---
-
-def _doctor_form_fields(**overrides):
-    """Mirrors tests/test_onboarding.py's _build_form() doctor-array shape,
-    for a single doctor with every Section 14.7 field populated -- exercises
-    the wizard's new Form() params end to end. "Copy to other days" is a pure
-    JS form-population convenience (see admin/onboarding.py's copy-days-btn
-    handler) -- there's no separate backend code path for it, so testing that
-    the backend correctly accepts and stores a doctor with MANY working days
-    (exactly what clicking it produces) is what actually proves that side of
-    the feature works, per Section 14.7's own "not new backend logic" scope."""
-    fields = {
-        "admin_secret": ADMIN_SECRET,
-        "name": "Scheduling Test Hospital",
-        "whatsapp_phone_number_id": "SCHEDULING_TEST_PHONE_ID",
-        "access_token": "tok", "app_secret": "secret",
-        "enabled_features": ["booking"],
-        "data_tier": "tier1",
-        "department_name": ["Cardiology"],
-        "doctor_department_index": ["0"],
-        "doctor_name": ["Dr. Copy Days"],
-        "doctor_specialization": [""], "doctor_qualification": [""], "doctor_years_experience": [""],
-        "doctor_working_days": ["Mon,Tue,Wed,Thu,Fri,Sat,Sun"],  # "copy to other days" -> all 7 selected
-        "doctor_working_hours": ["09:00-12:00"],
-        "doctor_slot_duration_minutes": ["30"],
-        "doctor_breaks": ["10:00-10:15"],
-        "doctor_max_bookings_per_slot": ["2"],
-        "doctor_daily_booking_limit": ["5"],
-        "doctor_online_quota": [""],
-        "doctor_walkin_quota": [""],
-        "doctor_followup_duration_minutes": ["15"],
-        "doctor_effective_from": [""],
-    }
-    fields.update(overrides)
-    return fields
-
-
-def test_wizard_creates_doctor_with_all_section_14_7_fields(hospital_id):
-    resp = client.post("/admin/onboard-hospital", data=_doctor_form_fields())
-    assert resp.status_code == 200
-
-    hospital = db.find_hospital_by_phone_number_id("SCHEDULING_TEST_PHONE_ID")
-    assert hospital is not None
-    dept = db.get_departments(hospital.id)[0]
-    doctor = db.get_doctors(hospital.id, dept["id"])[0]
-    full = db.get_doctor_full(hospital.id, doctor["id"])
-
-    assert full["working_days"] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    assert full["breaks"] == ["10:00-10:15"]
-    assert full["max_bookings_per_slot"] == 2
-    assert full["daily_booking_limit"] == 5
-    assert full["followup_duration_minutes"] == 15
-
-
-def test_wizard_rejects_invalid_break_without_creating_hospital(hospital_id):
-    resp = client.post("/admin/onboard-hospital", data=_doctor_form_fields(doctor_breaks=["23:00-23:30"]))
-    assert resp.status_code == 400
-    assert db.find_hospital_by_phone_number_id("SCHEDULING_TEST_PHONE_ID") is None
-
-
-def test_portal_add_doctor_with_break_and_quota_fields(hospital_id):
-    _login(hospital_id, "sched-pw")
-    try:
-        dept = db.get_departments(hospital_id)[0]
-        resp = portal_client.post("/portal/doctors", data={
-            "department_id": dept["id"],
-            "name": "Dr. Portal Schedule",
-            "working_days": ["Mon", "Wed"],
-            "shift1_start": "09:00", "shift1_end": "12:00",
-            "slot_duration_minutes": "30",
-            "break1_start": "10:00", "break1_end": "10:30",
-            "max_bookings_per_slot": "1",
-            "daily_booking_limit": "4",
-        }, follow_redirects=False)
-        assert resp.status_code == 303
-
-        doctors = db.get_all_doctors_for_hospital(hospital_id)
-        new_doctor = next(d for d in doctors if d["name"] == "Dr. Portal Schedule")
-        full = db.get_doctor_full(hospital_id, new_doctor["id"])
-        assert full["breaks"] == ["10:00-10:30"]
-        assert full["daily_booking_limit"] == 4
-
-        slots = db.get_slots(hospital_id, new_doctor["id"])
-        assert all(s["time"] != "10:00" for s in slots)
-    finally:
-        portal_client.cookies.clear()
-
-
-def test_portal_add_doctor_quota_warning_shown_but_doctor_still_created(hospital_id):
-    _login(hospital_id, "sched-warn-pw")
-    try:
-        dept = db.get_departments(hospital_id)[0]
-        resp = portal_client.post("/portal/doctors", data={
-            "department_id": dept["id"],
-            "name": "Dr. Quota Warning",
-            "working_days": ["Mon"],
-            "shift1_start": "09:00", "shift1_end": "12:00",
-            "slot_duration_minutes": "30",
-            "daily_booking_limit": "2",
-            "online_quota": "2",
-            "walkin_quota": "2",
-        }, follow_redirects=False)
-        assert resp.status_code == 200  # not a redirect -- warnings render inline, not blocking
-        assert "worth double-checking" in resp.text.lower()
-
-        doctors = db.get_all_doctors_for_hospital(hospital_id)
-        assert any(d["name"] == "Dr. Quota Warning" for d in doctors)
-    finally:
-        portal_client.cookies.clear()
-
-
-def test_portal_doctor_leave_add_and_remove(hospital_id):
-    _login(hospital_id, "leave-pw")
-    try:
-        dept = db.get_departments(hospital_id)[0]
-        doctor = db.get_doctors(hospital_id, dept["id"])[0]
-
-        resp = portal_client.post(f"/portal/doctors/{doctor['id']}/leave", data={
-            "date": "2027-03-01", "reason": "Vacation",
-        }, follow_redirects=False)
-        assert resp.status_code == 303
-
-        leave = db.get_doctor_leave(hospital_id, doctor["id"])
-        assert len(leave) == 1
-        assert leave[0]["date"] == "2027-03-01"
-
-        edit_page = portal_client.get(f"/portal/doctors/{doctor['id']}/edit")
-        assert "2027-03-01" in edit_page.text
-
-        resp2 = portal_client.post(f"/portal/doctors/{doctor['id']}/leave/{leave[0]['id']}/delete", follow_redirects=False)
-        assert resp2.status_code == 303
-        assert db.get_doctor_leave(hospital_id, doctor["id"]) == []
-    finally:
-        portal_client.cookies.clear()

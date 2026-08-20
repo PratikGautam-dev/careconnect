@@ -24,11 +24,6 @@ os.environ.setdefault("GOOGLE_CALENDAR_ID", "test@calendar")
 os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
 os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
 
-from core.main import app  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from tests.test_portal import _login, _set_portal_password, client as portal_client  # noqa: E402
-
-client = TestClient(app)
 
 
 def _insert_appointment(
@@ -247,87 +242,3 @@ def test_recent_activity_feed_uses_updated_at_for_status_changes(hospital_id):
 
 def test_recent_activity_feed_empty_when_no_appointments(second_hospital_id):
     assert db.get_recent_activity_feed(second_hospital_id) == []
-
-
-# --- HTTP layer: /portal/dashboard ---
-
-def test_dashboard_requires_login(hospital_id):
-    resp = portal_client.get("/portal/dashboard", follow_redirects=False)
-    assert resp.status_code == 303
-    assert resp.headers["location"] == "/portal/login"
-
-
-def test_dashboard_renders_for_hospital_with_data(hospital_id):
-    _insert_appointment(hospital_id, "5490011111", "cardiology", "doc_card_1",
-                         datetime.now(), datetime.now())
-    _login(hospital_id, "dash-data-pw")
-    try:
-        resp = portal_client.get("/portal/dashboard")
-        assert resp.status_code == 200
-        assert "Dashboard" in resp.text
-        assert "Today's Appointments" in resp.text
-        assert "weekly-chart" in resp.text
-        assert "5490011111" in resp.text  # shows up in the recent appointments table
-        assert "chart.js" in resp.text.lower()  # CDN script actually included
-    finally:
-        portal_client.cookies.clear()
-
-
-def test_dashboard_renders_empty_state_for_brand_new_hospital(hospital_id):
-    """A hospital with zero departments/doctors/appointments at all -- every
-    section must fall back to its empty-state message, not error out."""
-    conn = db_connection.get_connection()
-    cur = conn.execute(
-        "INSERT INTO hospitals (name, whatsapp_phone_number_id, portal_password_hash) VALUES (?, ?, ?) RETURNING id",
-        ("Brand New Hospital", "BRAND_NEW_PHONE_ID", db.hash_portal_password("brand-new-pw")),
-    )
-    conn.commit()
-    new_hospital_id = cur.fetchone()["id"]
-
-    resp = portal_client.post("/portal/login", data={"password": "brand-new-pw"}, follow_redirects=False)
-    assert resp.status_code == 303
-    try:
-        resp = portal_client.get("/portal/dashboard")
-        assert resp.status_code == 200
-        assert "No appointments in the last 30 days" in resp.text
-        assert "No appointments yet" in resp.text
-        assert "No recent activity" in resp.text
-        assert ">0<" in resp.text  # stat tiles render 0, not blank/broken
-    finally:
-        portal_client.cookies.clear()
-
-
-def test_dashboard_cross_tenant_isolation(hospital_id, second_hospital_id):
-    """Central requirement (SPEC Section 12.2): hospital A's dashboard must
-    never surface hospital B's appointments, departments, or patient phones."""
-    _insert_appointment(hospital_id, "5490011111", "cardiology", "doc_card_1",
-                         datetime.now(), datetime.now())
-    _insert_appointment(second_hospital_id, "5490099999", "t2_neurology", "t2_doc_neuro_1",
-                         datetime.now(), datetime.now())
-
-    _login(hospital_id, "isolation-a-pw")
-    try:
-        resp = portal_client.get("/portal/dashboard")
-        assert resp.status_code == 200
-        assert "5490011111" in resp.text
-        assert "5490099999" not in resp.text
-        assert "Neurology" not in resp.text
-    finally:
-        portal_client.cookies.clear()
-
-    _login(second_hospital_id, "isolation-b-pw")
-    try:
-        resp = portal_client.get("/portal/dashboard")
-        assert resp.status_code == 200
-        assert "5490099999" in resp.text
-        assert "5490011111" not in resp.text
-        assert "Cardiology" not in resp.text
-    finally:
-        portal_client.cookies.clear()
-
-    # And the underlying stats themselves are correctly scoped too, not just
-    # incidentally absent from the rendered HTML.
-    stats_a = db.get_dashboard_stats(hospital_id)
-    stats_b = db.get_dashboard_stats(second_hospital_id)
-    assert stats_a["today_appointments"] >= 1
-    assert stats_b["today_appointments"] >= 1

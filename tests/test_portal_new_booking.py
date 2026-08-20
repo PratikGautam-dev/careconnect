@@ -36,9 +36,27 @@ os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
 
 from core.main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from tests.test_portal import _login, client as portal_client  # noqa: E402
 
 client = TestClient(app)
+
+
+def _login(hospital_id: int, password: str) -> dict:
+    """Sets hospital_id's portal password and returns an Authorization
+    header for it -- same shape as test_portal_api.py's own _login()/_auth()
+    pair, kept local here rather than imported since this module only needs
+    the one combined step."""
+    h = db.get_hospital(hospital_id)
+    db.update_hospital(
+        hospital_id, name=h.name, whatsapp_phone_number_id=h.whatsapp_phone_number_id,
+        access_token=h.access_token, app_secret=h.app_secret, timezone=h.timezone,
+        welcome_message_text=h.welcome_message_text, reminder_offsets_hours=h.reminder_offsets_hours,
+        reminder_template_name=h.reminder_template_name, data_tier=h.data_tier,
+        external_api_base_url=h.external_api_base_url, external_api_key=h.external_api_key,
+        portal_password_hash=db.hash_portal_password(password), enabled_features=h.enabled_features,
+    )
+    resp = client.post("/api/portal/login", json={"password": password})
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['token']}"}
 
 
 def _first_slot(hospital_id, doctor_id):
@@ -199,76 +217,62 @@ def test_search_patients_scoped_to_hospital(hospital_id, second_hospital_id):
     assert db.search_patients(second_hospital_id, "5496661234") == []
 
 
-# --- HTTP layer: /portal/new-booking ---
 
-def test_new_booking_requires_login(hospital_id):
-    resp = portal_client.get("/portal/new-booking", follow_redirects=False)
-    assert resp.status_code == 303
-    assert resp.headers["location"] == "/portal/login"
+# --- JSON API layer: /api/portal/new-booking (replaces the old HTML-portal
+# tests removed with portal.py's HTML routes -- see Spec.md Section 0) ---
 
 
-def test_new_booking_form_renders_with_departments_and_doctors(hospital_id):
-    _login(hospital_id, "newbook-pw")
-    try:
-        resp = portal_client.get("/portal/new-booking")
-        assert resp.status_code == 200
-        assert "New Booking" in resp.text
-        assert "Cardiology" in resp.text
-        assert "Main Branch" in resp.text  # the deliberate no-op branch dropdown
-    finally:
-        portal_client.cookies.clear()
+def test_new_booking_context_requires_login(hospital_id):
+    resp = client.get("/api/portal/new-booking/context")
+    assert resp.status_code == 401
 
 
-def test_staff_booking_via_form_succeeds_and_appears_in_bookings_and_dashboard(hospital_id):
+def test_new_booking_context_returns_departments_and_doctors(hospital_id):
+    headers = _login(hospital_id, "newbook-pw")
+    resp = client.get("/api/portal/new-booking/context", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(d["name"] == "Cardiology" for d in data["departments"])
+    assert any(d["id"] == "doc_card_1" for d in data["doctors_by_department"]["cardiology"])
+
+
+def test_staff_booking_via_api_succeeds_and_appears_in_bookings_and_dashboard(hospital_id):
     doctor_id = "doc_card_1"
     slot = db.get_slots(hospital_id, doctor_id)[0]
-    _login(hospital_id, "newbook-success-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Walk-in Patient",
-            "patient_phone": "5497771234",
-            "department_id": "cardiology",
-            "doctor_id": doctor_id,
-            "slot_id": slot["id"],
-        }, follow_redirects=False)
-        assert resp.status_code == 303
-        assert resp.headers["location"] == "/portal/bookings"
+    headers = _login(hospital_id, "newbook-success-pw")
 
-        bookings_page = portal_client.get("/portal/bookings")
-        assert "5497771234" in bookings_page.text
-        assert "Walk-in" in bookings_page.text
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Walk-in Patient", "patient_phone": "5497771234",
+        "department_id": "cardiology", "doctor_id": doctor_id, "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
 
-        dashboard_page = portal_client.get("/portal/dashboard")
-        assert "5497771234" in dashboard_page.text
-    finally:
-        portal_client.cookies.clear()
+    bookings = client.get("/api/portal/bookings", headers=headers).json()["appointments"]
+    assert any(a["phone"] == "5497771234" and a["source"] == "staff" for a in bookings)
+
+    dashboard = client.get("/api/portal/dashboard", headers=headers).json()
+    assert any(a["phone"] == "5497771234" for a in dashboard["recent_appointments"])
 
     appt = next(a for a in db.get_all_appointments_for_hospital(hospital_id) if a.phone == "5497771234")
     assert appt.source == "staff"
     assert appt.department_id == "cardiology"
 
 
-def test_staff_booking_rejected_when_slot_already_taken(hospital_id):
+def test_staff_booking_via_api_rejected_when_slot_already_taken(hospital_id):
     doctor_id = "doc_card_1"
     scheduled_at = _first_slot(hospital_id, doctor_id)
-    db.create_appointment(hospital_id, "5498881234", "cardiology", doctor_id, scheduled_at)  # takes the slot first
+    db.create_appointment(hospital_id, "5498881234", "cardiology", doctor_id, scheduled_at)
 
-    _login(hospital_id, "newbook-taken-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Too Late",
-            "patient_phone": "5498882345",
-            "department_id": "cardiology",
-            "doctor_id": doctor_id,
-            "slot_id": scheduled_at.isoformat(),
-        })
-        assert resp.status_code == 400
-        assert "just taken" in resp.text.lower()
-    finally:
-        portal_client.cookies.clear()
+    headers = _login(hospital_id, "newbook-taken-pw")
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Too Late", "patient_phone": "5498882345",
+        "department_id": "cardiology", "doctor_id": doctor_id, "slot_id": scheduled_at.isoformat(),
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert "just taken" in resp.json()["errors"][0].lower()
 
 
-def test_staff_booking_rejected_when_walkin_quota_full_shows_clear_message(hospital_id):
+def test_staff_booking_via_api_rejected_when_walkin_quota_full(hospital_id):
     doctor = db.create_doctor(
         hospital_id, "cardiology", "Dr. Portal Quota",
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
@@ -277,149 +281,55 @@ def test_staff_booking_rejected_when_walkin_quota_full_shows_clear_message(hospi
     slot1, slot2 = _same_day_slots(hospital_id, doctor["id"], 2)
     db.create_appointment(hospital_id, "5499991234", "cardiology", doctor["id"], slot1, source=db.SOURCE_STAFF)
 
-    _login(hospital_id, "newbook-quota-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Quota Blocked",
-            "patient_phone": "5499992345",
-            "department_id": "cardiology",
-            "doctor_id": doctor["id"],
-            "slot_id": slot2.isoformat(),
-        })
-        assert resp.status_code == 400
-        assert "walk-in quota full" in resp.text.lower()
-    finally:
-        portal_client.cookies.clear()
+    headers = _login(hospital_id, "newbook-quota-pw")
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Quota Blocked", "patient_phone": "5499992345",
+        "department_id": "cardiology", "doctor_id": doctor["id"], "slot_id": slot2.isoformat(),
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert "walk-in quota full" in resp.json()["errors"][0].lower()
 
 
 @pytest.mark.parametrize("bad_phone", ["", "   ", "not-a-phone-number!!"])
-def test_staff_booking_rejects_garbage_phone_before_creating_anything(hospital_id, bad_phone):
-    """SPEC Section 12.9's phone-validation follow-up: empty, whitespace-only,
-    and digit-free phone values must be rejected with a clear error --
-    before any appointment or patients row is created, not after."""
+def test_staff_booking_via_api_rejects_garbage_phone_before_creating_anything(hospital_id, bad_phone):
     doctor_id = "doc_card_1"
     slot = db.get_slots(hospital_id, doctor_id)[0]
-    _login(hospital_id, "newbook-badphone-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Bad Phone Patient",
-            "patient_phone": bad_phone,
-            "department_id": "cardiology",
-            "doctor_id": doctor_id,
-            "slot_id": slot["id"],
-        })
-        assert resp.status_code == 400
-        assert "phone" in resp.text.lower()
-    finally:
-        portal_client.cookies.clear()
-
+    headers = _login(hospital_id, "newbook-badphone-pw")
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Bad Phone Patient", "patient_phone": bad_phone,
+        "department_id": "cardiology", "doctor_id": doctor_id, "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert any("phone" in e.lower() for e in resp.json()["errors"])
     assert db.search_patients(hospital_id, "Bad Phone Patient") == []
-    assert not any(a.phone == bad_phone for a in db.get_all_appointments_for_hospital(hospital_id))
 
 
-def test_staff_booking_accepts_a_normal_phone_unaffected(hospital_id):
-    """Confirms the new validation doesn't accidentally reject real input --
-    a normal phone number still creates the booking exactly as before."""
-    doctor_id = "doc_card_1"
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    _login(hospital_id, "newbook-goodphone-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Good Phone Patient",
-            "patient_phone": "5490001234",
-            "department_id": "cardiology",
-            "doctor_id": doctor_id,
-            "slot_id": slot["id"],
-        }, follow_redirects=False)
-        assert resp.status_code == 303
-    finally:
-        portal_client.cookies.clear()
-
-
-def test_new_booking_cannot_target_another_hospitals_department_or_doctor(hospital_id, second_hospital_id):
-    """SPEC Section 12.2: staff logged into hospital A must not be able to
-    book against hospital B's departments/doctors, even by crafting the
-    request directly (not just because the UI wouldn't normally show them)."""
+def test_new_booking_via_api_cannot_target_another_hospitals_department_or_doctor(hospital_id, second_hospital_id):
     other_doctor_id = "t2_doc_neuro_1"
     other_dept_id = "t2_neurology"
-    _login(hospital_id, "newbook-crosstenant-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Cross Tenant Attempt",
-            "patient_phone": "5490001111",
-            "department_id": other_dept_id,
-            "doctor_id": other_doctor_id,
-            "slot_id": datetime(2099, 1, 1, 9, 0).isoformat(),
-        })
-        assert resp.status_code == 400
-        assert "valid department" in resp.text.lower()
-    finally:
-        portal_client.cookies.clear()
-
-    assert db.find_doctor(second_hospital_id, other_dept_id, other_doctor_id) is not None  # sanity: it really does exist, just not for hospital_id
+    headers = _login(hospital_id, "newbook-crosstenant-pw")
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Cross Tenant Attempt", "patient_phone": "5490001111",
+        "department_id": other_dept_id, "doctor_id": other_doctor_id,
+        "slot_id": datetime(2099, 1, 1, 9, 0).isoformat(),
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert any("valid department" in e.lower() for e in resp.json()["errors"])
     assert not any(a.phone == "5490001111" for a in db.get_all_appointments_for_hospital(hospital_id))
-    assert not any(a.phone == "5490001111" for a in db.get_all_appointments_for_hospital(second_hospital_id))
 
 
-def test_new_patient_created_inline_via_booking_form(hospital_id):
+def test_new_patient_created_inline_via_booking_api(hospital_id):
     doctor_id = "doc_card_1"
     slot = db.get_slots(hospital_id, doctor_id)[0]
     assert db.search_patients(hospital_id, "Brand New Patient") == []
 
-    _login(hospital_id, "newbook-newpatient-pw")
-    try:
-        resp = portal_client.post("/portal/new-booking", data={
-            "patient_name": "Brand New Patient",
-            "patient_phone": "5495559999",
-            "department_id": "cardiology",
-            "doctor_id": doctor_id,
-            "slot_id": slot["id"],
-        }, follow_redirects=False)
-        assert resp.status_code == 303
-    finally:
-        portal_client.cookies.clear()
+    headers = _login(hospital_id, "newbook-newpatient-pw")
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Brand New Patient", "patient_phone": "5495559999",
+        "department_id": "cardiology", "doctor_id": doctor_id, "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
 
     matches = db.search_patients(hospital_id, "Brand New Patient")
     assert len(matches) == 1
     assert matches[0]["phone"] == "5495559999"
-
-
-# --- HTTP layer: /portal/patients/search ---
-
-def test_patient_search_endpoint_requires_login(hospital_id):
-    resp = portal_client.get("/portal/patients/search?q=test")
-    assert resp.status_code == 401
-
-
-def test_patient_search_endpoint_returns_matches(hospital_id):
-    doctor_id = "doc_card_1"
-    slot = _first_slot(hospital_id, doctor_id)
-    db.create_appointment(hospital_id, "5493334444", "cardiology", doctor_id, slot,
-                           source=db.SOURCE_STAFF, patient_name="Searchable Patient")
-
-    _login(hospital_id, "search-pw")
-    try:
-        resp = portal_client.get("/portal/patients/search?q=Searchable")
-        assert resp.status_code == 200
-        results = resp.json()
-        assert any(r["phone"] == "5493334444" for r in results)
-    finally:
-        portal_client.cookies.clear()
-
-
-def test_patient_search_endpoint_cross_tenant_isolation(hospital_id, second_hospital_id):
-    doctor_id = "t2_doc_neuro_1"
-    slot = db.get_slots(second_hospital_id, doctor_id)[0]
-    scheduled_at = datetime.fromisoformat(f"{slot['date']}T{slot['time']}:00")
-    db.create_appointment(second_hospital_id, "5497778888", "t2_neurology", doctor_id, scheduled_at,
-                           source=db.SOURCE_STAFF, patient_name="Hospital B Only Patient")
-
-    _login(hospital_id, "search-crosstenant-pw")
-    try:
-        resp = portal_client.get("/portal/patients/search?q=Hospital B Only")
-        assert resp.status_code == 200
-        assert resp.json() == []
-        resp2 = portal_client.get("/portal/patients/search?q=5497778888")
-        assert resp2.json() == []
-    finally:
-        portal_client.cookies.clear()

@@ -18,7 +18,6 @@ from admin.onboarding import router as onboarding_router
 from admin.onboarding_api import router as onboarding_api_router
 from admin.tenants_api import router as tenants_api_router
 from admin.theme import STYLE as _STYLE
-from portal import router as portal_router
 from portal_api import router as portal_api_router
 from user_auth import AUTH_SECRET, router as user_auth_router
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
@@ -166,219 +165,39 @@ app.add_middleware(SessionMiddleware, secret_key=AUTH_SECRET or "insecure-dev-on
 app.include_router(onboarding_router)
 app.include_router(onboarding_api_router)
 app.include_router(tenants_api_router)
-app.include_router(portal_router)
 app.include_router(portal_api_router)
 app.include_router(user_auth_router)
 
 
-# /admin/onboard-hospital IS the client-facing signup flow (gated by
-# ADMIN_SECRET only at the final submit step -- "basic protection" against a
-# random stranger creating fake hospital rows, not a wall meant to keep real
-# prospective hospitals out), so it belongs on the homepage as the main CTA.
-# /admin/tenants (every hospital on the whole platform) is different -- that
-# one stays off this page; a client has no reason to see or reach it.
-#
-# Design reference: design-reference/ "DAAP CareConnect" landing mockup
-# (WhatsApp Image 2026-08-03 at 01.59.58.jpeg) -- reuses admin/theme.py's
-# shared tokens for consistency with the rest of the admin/onboarding/portal
-# surface, plus page-specific hero/phone-mockup CSS below that nothing else
-# needs. The phone mockup is hand-built HTML/CSS (no image asset), including
-# the exact main-menu copy shown in the reference. "Request a product demo"
-# has no backend flow to link to yet -- points at a placeholder mailto;
-# swap in a real address (or a real demo-request flow) once one exists.
-_LANDING_HTML = f"""<!doctype html>
+# Section 15 follow-up: this used to serve a full marketing landing page
+# (hero, phone mockup, feature list) -- genuinely redundant now that the
+# Next.js frontend (frontend/src/app/page.tsx, deployed on Vercel) IS the
+# real public-facing site; nobody should be landing on the backend's own
+# root URL as an end user. What's left is a minimal internal page with just
+# two buttons through to the admin/onboarding.py's own minimal entry
+# points -- useful if you only have the backend's URL on hand, nothing more.
+@app.get("/", response_class=HTMLResponse)
+async def landing_page():
+    return f"""<!doctype html>
 <html>
-<head>
-<title>DAAP CareConnect — WhatsApp Appointment Booking &amp; Reminder Platform for Hospitals</title>
-{_STYLE}
-<style>
-  /* Section 15.x layout pass (spacing/alignment only -- colors, fonts,
-     copy, icons, and branding are unchanged from the values above/below).
-     All spacing uses the 8px scale (8/16/24/32/40/48/56/64/80/96) except
-     where a specific value was explicitly requested (20px, 36px). */
-  .hero-wrap {{ max-width: 1440px; margin: 0 auto; padding: 80px 64px; }}
-  .hero-grid {{ display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 80px; align-items: center; }}
-
-  .hero-logo {{ display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }}
-  .hero-logo-mark {{
-    width: 52px; height: 52px; border-radius: 14px; background: var(--sage-deep);
-    color: #fff; display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-display); font-weight: 800; font-size: 26px; flex-shrink: 0;
-  }}
-  .hero-logo-super {{ display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-faint); }}
-  .hero-logo-word {{ font-family: var(--font-display); font-weight: 800; font-size: 34px; line-height: 1.1; }}
-  .hero-logo-word .accent {{ color: var(--sage-deep); }}
-
-  .hero-tagline {{ color: var(--ink-muted); font-size: 14.5px; margin: 0 0 20px; }}
-
-  .hero-heading {{
-    font-family: var(--font-display); font-weight: 800; font-size: 40px;
-    max-width: 650px; line-height: 1.08; letter-spacing: -0.03em; text-wrap: balance;
-    margin: 0 0 32px;
-  }}
-  .hero-heading .accent {{ color: var(--sage-deep); }}
-
-  .hero-desc {{ color: var(--ink-muted); font-size: 18px; line-height: 1.7; max-width: 620px; margin: 0 0 36px; }}
-
-  .hero-features {{ display: flex; flex-wrap: wrap; gap: 32px; margin-bottom: 40px; }}
-  .hero-feature {{ display: flex; align-items: flex-start; gap: 16px; padding: 8px 0; flex: 1 1 160px; }}
-  .hero-feature-icon {{
-    width: 40px; height: 40px; border-radius: 10px; background: var(--success-tint); color: var(--success);
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }}
-  .hero-feature strong {{ display: block; font-size: 15px; color: var(--ink); }}
-  .hero-feature span {{ display: block; font-size: 13px; color: var(--ink-muted); margin-top: 4px; }}
-
-  .hero-ctas {{ display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }}
-  .hero-ctas a {{
-    height: 56px; padding: 0 32px; border-radius: 14px; font-size: 16px; font-weight: 600;
-    display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
-  }}
-
-  .hero-portal-link {{ display: inline-flex; align-items: center; gap: 4px; color: var(--sage-deep); font-weight: 600; font-size: 14px; text-decoration: none; }}
-  .hero-portal-link:hover {{ text-decoration: underline; }}
-
-  /* Phone mockup -- hand-built HTML/CSS, no image asset. */
-  .hero-phone-wrap {{ display: flex; justify-content: center; align-items: center; }}
-  .phone-frame {{
-    width: 312px; border-radius: 32px; background: #0E0E10; padding: 10px;
-    box-shadow: 0 24px 60px -20px rgba(20, 40, 32, 0.35);
-  }}
-  .phone-screen {{ background: #EDE6DA; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; height: 580px; }}
-  .phone-header {{
-    background: var(--sage-deep); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px;
-  }}
-  .phone-avatar {{
-    width: 30px; height: 30px; border-radius: 50%; background: #fff; color: var(--sage-deep);
-    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0;
-  }}
-  .phone-header-text {{ line-height: 1.25; }}
-  .phone-header-text strong {{ display: block; font-size: 13.5px; }}
-  .phone-header-text span {{ display: block; font-size: 10.5px; color: #D9E9E1; letter-spacing: 0.03em; text-transform: uppercase; }}
-  .phone-body {{ flex: 1; padding: 16px 14px; overflow: hidden; }}
-  .phone-bubble {{
-    background: #fff; border-radius: 10px; padding: 12px 14px; font-size: 12.5px; color: var(--ink);
-    line-height: 1.55; box-shadow: 0 1px 1px rgba(0,0,0,0.06); max-width: 92%;
-  }}
-  .phone-bubble ol {{ margin: 6px 0 0; padding-left: 18px; }}
-  .phone-bubble li {{ margin-bottom: 2px; }}
-  .phone-timestamp {{ display: block; text-align: right; font-size: 10px; color: var(--ink-faint); margin-top: 6px; }}
-  .phone-input-bar {{
-    background: #F7F5F0; border-top: 1px solid var(--sage-line); padding: 10px 14px;
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  }}
-  .phone-input-bar span:first-child {{ color: var(--ink-faint); font-size: 12.5px; }}
-  .phone-mic {{
-    width: 28px; height: 28px; border-radius: 50%; background: var(--sage-deep); color: #fff;
-    display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;
-  }}
-
-  /* Tablet: still two columns, tighter gap and side padding. */
-  @media (max-width: 1024px) {{
-    .hero-wrap {{ padding: 64px 40px; }}
-    .hero-grid {{ gap: 48px; }}
-  }}
-
-  /* Mobile: single column. hero-phone-wrap has no `order` override, so it
-     stays in its natural DOM position -- last, after the staff portal link. */
-  @media (max-width: 640px) {{
-    .hero-wrap {{ padding: 48px 24px; }}
-    .hero-grid {{ grid-template-columns: 1fr; gap: 48px; }}
-    .hero-heading {{ font-size: 32px; }}
-    .hero-ctas {{ flex-direction: column; align-items: stretch; }}
-    .hero-ctas a {{ width: 100%; }}
-  }}
-</style>
-</head>
+<head><title>CareConnect</title>{_STYLE}</head>
 <body>
-<div class="hero-wrap">
-  <div class="hero-grid">
-    <div class="hero-content">
-      <div class="hero-logo">
-        <div class="hero-logo-mark">H</div>
-        <div>
-          <span class="hero-logo-super">DAAP</span>
-          <span class="hero-logo-word">Care<span class="accent">Connect</span></span>
-        </div>
-      </div>
-      <p class="hero-tagline">WhatsApp Appointment Booking &amp; Reminder Platform for Hospitals</p>
-
-      <h1 class="hero-heading">Appointments on <span class="accent">WhatsApp</span>.<br>Managed from one hospital dashboard.</h1>
-      <p class="hero-desc">
-        Let patients book, reschedule and cancel appointments through WhatsApp. Use this platform's own
-        booking database, connect your existing hospital system, or activate directly inside your hospital ERP.
-      </p>
-
-      <div class="hero-features">
-        <div class="hero-feature">
-          <div class="hero-feature-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12l2.5 2.5L16 9"/></svg>
-          </div>
-          <div><strong>No app for patients</strong><span>Works directly on WhatsApp</span></div>
-        </div>
-        <div class="hero-feature">
-          <div class="hero-feature-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 10h8M8 14h5"/></svg>
-          </div>
-          <div><strong>Simple &amp; guided</strong><span>Menu-driven booking that just works</span></div>
-        </div>
-        <div class="hero-feature">
-          <div class="hero-feature-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 15s1 1.5 2.5 1.5 2.5-.8 2.5-2-1-1.5-2.5-2-2.5-.8-2.5-2 1-2 2.5-2 2.5 1.5 2.5 1.5"/></svg>
-          </div>
-          <div><strong>Transparent pricing</strong><span>Meta messaging charges may apply</span></div>
-        </div>
-      </div>
-
-      <div class="hero-ctas">
-        <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Set up your hospital</a>
-        <a class="btn-secondary" href="mailto:hello@example.com?subject=DAAP%20CareConnect%20demo%20request">Request a product demo</a>
-      </div>
-      <a class="hero-portal-link" href="/portal/login">Open staff booking portal →</a>
-    </div>
-
-    <div class="hero-phone-wrap">
-      <div class="phone-frame">
-        <div class="phone-screen">
-          <div class="phone-header">
-            <div class="phone-avatar">H</div>
-            <div class="phone-header-text">
-              <strong>ABC Hospital</strong>
-              <span>Business Account</span>
-            </div>
-          </div>
-          <div class="phone-body">
-            <div class="phone-bubble">
-              Hi! Welcome to ABC Hospital.<br>How can we help you today?<br>Please choose an option below.
-              <ol>
-                <li>Book an appointment</li>
-                <li>Reschedule appointment</li>
-                <li>Cancel appointment</li>
-                <li>My appointments</li>
-                <li>Hospital information</li>
-                <li>Talk to reception</li>
-              </ol>
-              <span class="phone-timestamp">10:30 AM</span>
-            </div>
-          </div>
-          <div class="phone-input-bar">
-            <span>Type a message</span>
-            <div class="phone-mic">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19 11a7 7 0 01-14 0M12 18v3"/></svg>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+<div class="ok-page">
+  <div class="brand">
+    <div class="brand-mark">H</div>
+    <span class="brand-name">DAAP CareConnect</span>
   </div>
+  <h1>CareConnect backend</h1>
+  <p class="hint">This is the API backend. The product itself lives on the deployed frontend.</p>
+  <p>
+    <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/onboard-hospital">Admin</a>
+    &nbsp;&middot;&nbsp;
+    <a class="btn-secondary" style="background: var(--sage-deep); color: #fff; border: none;" href="/admin/tenants">Super Admin</a>
+  </p>
 </div>
 </body>
 </html>"""
 
-
-@app.get("/", response_class=HTMLResponse)
-async def landing_page():
-    return _LANDING_HTML
 
 
 @app.get("/health")

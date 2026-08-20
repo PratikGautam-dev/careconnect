@@ -622,3 +622,72 @@ def test_settings_customization_isolated_across_hospitals(two_hospitals):
     b_settings = client.get("/api/portal/settings", headers=_auth(b["token"])).json()
     assert b_settings["closing_message_text"] == ""
     assert b_settings["default_language"] == "en"
+
+
+# --- Doctor break/quota fields + leave management (JSON equivalents of the
+# old HTML-portal tests removed with portal.py's HTML routes -- see
+# Spec.md Section 0) ---
+
+
+def test_create_doctor_with_break_and_quota_fields(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/doctors",
+        json={
+            "department_id": a["department_id"], "name": "Dr. Portal Schedule",
+            "working_days": ["Mon", "Wed"], "working_hours": ["09:00-12:00"],
+            "slot_duration_minutes": "30", "breaks": ["10:00-10:30"],
+            "max_bookings_per_slot": "1", "daily_booking_limit": "4",
+        },
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    doctor = resp.json()["doctor"]
+
+    full = db.get_doctor_full(a["id"], doctor["id"])
+    assert full["breaks"] == ["10:00-10:30"]
+    assert full["daily_booking_limit"] == 4
+
+    slots = db.get_slots(a["id"], doctor["id"])
+    assert all(s["time"] != "10:00" for s in slots)
+
+
+def test_create_doctor_quota_warning_shown_but_doctor_still_created(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/doctors",
+        json={
+            "department_id": a["department_id"], "name": "Dr. Quota Warning",
+            "working_days": ["Mon"], "working_hours": ["09:00-12:00"],
+            "slot_duration_minutes": "30", "daily_booking_limit": "2",
+            "online_quota": "2", "walkin_quota": "2",
+        },
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["warnings"]  # non-blocking -- doctor is still created
+    doctors = db.get_all_doctors_for_hospital(a["id"])
+    assert any(d["name"] == "Dr. Quota Warning" for d in doctors)
+
+
+def test_doctor_leave_add_list_and_delete(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/leave",
+        json={"date": "2027-03-01", "reason": "Vacation"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["leave"] == {"date": "2027-03-01", "reason": "Vacation"}
+
+    listed = client.get(f"/api/portal/doctors/{a['doctor_id']}/leave", headers=_auth(a["token"]))
+    assert listed.status_code == 200
+    assert [row["date"] for row in listed.json()["leave"]] == ["2027-03-01"]
+    leave_id = listed.json()["leave"][0]["id"]
+
+    deleted = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/leave/{leave_id}/delete", headers=_auth(a["token"]),
+    )
+    assert deleted.status_code == 200
+    assert db.get_doctor_leave(a["id"], a["doctor_id"]) == []

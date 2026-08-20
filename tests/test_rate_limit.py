@@ -128,50 +128,36 @@ def test_limiter_lockout_expires_after_window_passes(monkeypatch):
 def test_portal_login_locks_out_after_max_attempts(hospital_id):
     _set_portal_password(hospital_id, "correct-horse-battery-staple")
     for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        resp = client.post("/portal/login", data={"password": "wrong"})
+        resp = client.post("/api/portal/login", json={"password": "wrong"})
         assert resp.status_code == 403
 
-    locked = client.post("/portal/login", data={"password": "wrong"})
+    locked = client.post("/api/portal/login", json={"password": "wrong"})
     assert locked.status_code == 429
 
     # Locked out blocks even the CORRECT password -- not just repeats of the wrong one.
-    still_locked = client.post("/portal/login", data={"password": "correct-horse-battery-staple"})
+    still_locked = client.post("/api/portal/login", json={"password": "correct-horse-battery-staple"})
     assert still_locked.status_code == 429
-    assert "portal_session" not in still_locked.cookies
-
-
-def test_portal_login_json_and_html_share_one_lockout_counter(hospital_id):
-    """core/main.py mounts both portal.py (HTML/cookie) and portal_api.py
-    (JSON/Bearer) as two transports for the same login feature -- an
-    attacker switching endpoints mid-attack must not get a fresh attempt
-    budget."""
-    _set_portal_password(hospital_id, "correct-horse-battery-staple")
-    for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        client.post("/portal/login", data={"password": "wrong"})
-
-    locked = client.post("/api/portal/login", json={"password": "correct-horse-battery-staple"})
-    assert locked.status_code == 429
+    assert "token" not in still_locked.json()
 
 
 def test_portal_login_success_resets_failure_count(hospital_id):
     _set_portal_password(hospital_id, "correct-horse-battery-staple")
     # A couple of wrong guesses (well under the threshold)...
-    client.post("/portal/login", data={"password": "wrong"})
-    client.post("/portal/login", data={"password": "wrong"})
+    client.post("/api/portal/login", json={"password": "wrong"})
+    client.post("/api/portal/login", json={"password": "wrong"})
     # ...then a correct one.
-    ok = client.post("/portal/login", data={"password": "correct-horse-battery-staple"}, follow_redirects=False)
-    assert ok.status_code == 303
+    ok = client.post("/api/portal/login", json={"password": "correct-horse-battery-staple"})
+    assert ok.status_code == 200
 
-    client.cookies.clear()
     # If the earlier failures hadn't been cleared, only
     # (DEFAULT_MAX_ATTEMPTS - 2) more wrong guesses would be allowed before
     # lockout. Prove the full budget is available again.
     for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        resp = client.post("/portal/login", data={"password": "still-wrong"})
+        resp = client.post("/api/portal/login", json={"password": "still-wrong"})
         assert resp.status_code == 403, "locked out earlier than a fresh counter should allow"
 
 
-# --- admin/onboarding.py + admin/onboarding_api.py's ADMIN_SECRET (shared counter) ---
+# --- admin/onboarding_api.py's ADMIN_SECRET gate ---
 
 
 def _onboarding_payload(admin_secret: str) -> dict:
@@ -190,13 +176,13 @@ def _onboarding_payload(admin_secret: str) -> dict:
     }
 
 
-def test_admin_secret_locks_out_after_max_attempts():
+def test_admin_secret_locks_out_after_max_attempts(user_auth_header):
     for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        resp = client.post("/admin/onboard-hospital", data=_onboarding_payload("wrong-secret"))
+        resp = client.post("/api/onboarding", json=_onboarding_payload("wrong-secret"), headers=user_auth_header)
         assert resp.status_code == 403
 
-    locked = client.post("/admin/onboard-hospital", data=_onboarding_payload("wrong-secret"))
-    assert locked.status_code == 403  # HTML wizard renders the same 403 page while locked out too
+    locked = client.post("/api/onboarding", json=_onboarding_payload("wrong-secret"), headers=user_auth_header)
+    assert locked.status_code == 403
 
     # Confirm it's genuinely a lockout, not coincidence, via the shared
     # in-process counter directly (this TestClient's requests all carry the
@@ -204,33 +190,14 @@ def test_admin_secret_locks_out_after_max_attempts():
     assert rate_limit.is_locked_out(rate_limit.client_key("admin_secret", None)) is False  # "unknown" key, unaffected
     assert rate_limit.is_locked_out(f"admin_secret:testclient") is True
 
-
-def test_admin_secret_json_endpoint_shares_lockout_with_html_wizard():
-    for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        client.post("/admin/onboard-hospital", data=_onboarding_payload("wrong-secret"))
-
-    resp = client.post(
-        "/api/onboarding",
-        json={
-            "admin_secret": ADMIN_SECRET,  # even the CORRECT secret, now locked out
-            "name": "Should Not Be Created",
-            "whatsapp_phone_number_id": "rl-test-phone-id-2",
-            "access_token": "tok",
-            "app_secret": "sec",
-            "portal_password": "irrelevant",
-            "enabled_features": ["booking"],
-            "data_tier": "tier1",
-            "departments": [],
-            "topics": [],
-        },
-    )
-    assert resp.status_code == 403
-    assert resp.json()["errors"] == ["Incorrect admin secret."]
+    # Locked out blocks even the CORRECT secret, not just repeats of the wrong one.
+    still_locked = client.post("/api/onboarding", json=_onboarding_payload(ADMIN_SECRET), headers=user_auth_header)
+    assert still_locked.status_code == 403
 
 
-def test_admin_secret_correct_value_still_works_before_lockout():
-    resp = client.post("/admin/onboard-hospital", data=_onboarding_payload(ADMIN_SECRET))
-    assert resp.status_code == 200  # wizard re-renders (a confirmation page), not a 403
+def test_admin_secret_correct_value_still_works_before_lockout(user_auth_header):
+    resp = client.post("/api/onboarding", json=_onboarding_payload(ADMIN_SECRET), headers=user_auth_header)
+    assert resp.status_code == 200, resp.text
 
 
 # --- admin/tenants_api.py's TENANTS_ADMIN_SECRET ---

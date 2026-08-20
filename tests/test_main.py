@@ -29,20 +29,15 @@ def test_health_check():
 
 
 def test_landing_page_renders():
+    """Section 15 follow-up: the backend's own '/' is no longer the public
+    marketing site (that's the Next.js frontend now) -- just a minimal
+    internal page linking to the backend's own admin/superadmin entry
+    points (admin/onboarding.py's admin_page()/superadmin_page())."""
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    # Onboarding is the client-facing signup flow (ADMIN_SECRET only gates
-    # its final submit step, as basic protection -- not meant to keep real
-    # prospective hospitals from finding it), so it's a public CTA here.
     assert 'href="/admin/onboard-hospital"' in resp.text
-    assert 'href="/portal/login"' in resp.text
-    # /admin/tenants (every hospital on the whole platform) is different --
-    # purely internal ops tooling, must not be linked from the public
-    # homepage. (Checking for an actual href, not a bare substring: the
-    # shared admin/theme.py stylesheet's CSS comments mention this route
-    # name too, which is harmless and not what this assertion guards against.)
-    assert 'href="/admin/tenants"' not in resp.text
+    assert 'href="/admin/tenants"' in resp.text
 
 
 def test_webhook_verification():

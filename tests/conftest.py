@@ -10,6 +10,15 @@ import pytest
 # in this directory, so this is the one place that setting can't lose a race
 # against which test file pytest happens to collect first.
 os.environ.setdefault("ADMIN_SECRET", "test-admin-secret")
+# Section 15: same reasoning as ADMIN_SECRET above -- user_auth.py reads this
+# at import time (core.main imports it), so it must be set before that
+# first import too.
+os.environ.setdefault("AUTH_SECRET", "test-auth-secret")
+# Deliberately a different value from ADMIN_SECRET (admin/tenants_api.py's
+# own module docstring: a leaked onboarding secret must not also gate the
+# platform-admin tenant pages) -- same "must be set before core.main's
+# first import" reasoning.
+os.environ.setdefault("TENANTS_ADMIN_SECRET", "test-tenants-admin-secret")
 
 # SPEC Section 6/12.6: the app moved off SQLite onto Postgres (Neon), so tests
 # need a real Postgres to run against -- an in-memory swap-in-a-connection
@@ -100,3 +109,20 @@ def hospital_id(_fresh_test_db):
 def second_hospital_id(_fresh_test_db):
     """The id of the second, fake hospital seeded purely for isolation tests."""
     return _fresh_test_db[1]
+
+
+@pytest.fixture
+def user_auth_header(_fresh_test_db):
+    """Section 15: a real signed-in Google-account user, for tests hitting
+    endpoints that require one (POST /api/onboarding, /api/auth/*) --
+    creates a real users row (not a mock) and signs a real user-session
+    token the exact way user_auth.py's OAuth callback does, so these tests
+    exercise the same _verify_user_session() path a real request would."""
+    import time
+
+    import db.repository as db
+    from user_auth import _sign_user_session
+
+    user = db.create_user(email="test-owner@example.com", google_id="google-test-id", name="Test Owner")
+    token = _sign_user_session(user.id, int(time.time()) + 3600)
+    return {"Authorization": f"Bearer {token}"}
