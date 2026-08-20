@@ -32,14 +32,23 @@ live deployment.
   Railway-specific.
 - **Frontend (Vercel)**: no `vercel.json` — Vercel auto-detects Next.js and
   runs its own build/output pipeline (`npm run build`, its own serverless
-  function packaging), independent of `frontend/Dockerfile` or
-  `next.config.ts`'s `output: "standalone"` (Vercel does its own file
-  tracing and ignores that setting — it exists only for the Docker image's
-  benefit). `NEXT_PUBLIC_API_BASE_URL` is set as a Vercel **Environment
-  Variable** and, because Next.js inlines `NEXT_PUBLIC_*` values at build
-  time, changing it requires a Vercel **redeploy** to take effect, not
-  just a dashboard save (this project hit exactly this gotcha once
-  already — Spec.md Section 0).
+  function packaging). `next.config.ts`'s `output: "standalone"` (added for
+  the Docker image) is conditioned on `process.env.VERCEL` and disabled on
+  Vercel — **this is a correction, not a design choice stated once and
+  trusted**: an earlier version of this doc claimed Vercel simply "ignores"
+  that setting, which was never verified against a real deploy and turned
+  out to be false — `output: "standalone"` broke Vercel's own
+  `onBuildComplete` step with `ENOENT: .next/next-server.js.nft.json`
+  (standalone mode moves that trace file to a different path Vercel's
+  pipeline doesn't look in), a real production deploy failure. Verified
+  live afterward, not just reasoned about: `VERCEL=1 next build` produces
+  no `.next/standalone` and the trace file lands in the path Vercel
+  expects; a plain `next build` (the Docker path) still produces
+  `.next/standalone/server.js` as before. `NEXT_PUBLIC_API_BASE_URL` is set
+  as a Vercel **Environment Variable** and, because Next.js inlines
+  `NEXT_PUBLIC_*` values at build time, changing it requires a Vercel
+  **redeploy** to take effect, not just a dashboard save (this project hit
+  exactly this gotcha once already — Spec.md Section 0).
 
 ## Coexistence with Railway/Vercel — real incident, corrected below
 
