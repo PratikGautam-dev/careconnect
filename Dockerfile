@@ -30,4 +30,12 @@ EXPOSE 8000
 # No --reload (dev-only, watches the filesystem and restarts on every
 # change -- wasted overhead in a container that's rebuilt on every deploy
 # anyway, not restarted in place).
-CMD ["uvicorn", "core.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers/--forwarded-allow-ips: this container always sits behind
+# a reverse proxy (Coolify's Traefik, or Nginx per DEPLOYMENT.md) that
+# terminates TLS and forwards plain HTTP internally -- without trusting
+# X-Forwarded-Proto, Starlette's request.url_for() (used by
+# user_auth.py's Google OAuth redirect_uri) builds an http:// URL even
+# though the real request was https://, which Google rejects as
+# redirect_uri_mismatch (a real incident on Railway, same underlying
+# cause -- see Spec.md Section 0 and railway.toml's own startCommand).
+CMD ["uvicorn", "core.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
