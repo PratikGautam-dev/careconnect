@@ -136,6 +136,77 @@ def test_cancel_booking_cannot_target_other_hospitals_appointment(two_hospitals)
     assert still_booked.status == db.STATUS_BOOKED
 
 
+def test_mark_attendance_cannot_target_other_hospitals_appointment(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    appt_b = _create_appointment(b["id"], b["doctor_id"], b["department_id"])
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt_b.id}/attendance", json={"attended": True}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert db.get_appointment(b["id"], appt_b.id).status == db.STATUS_BOOKED
+
+
+def test_mark_attendance_attended_and_no_show(two_hospitals):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/attendance", json={"attended": True}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "attended"
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_ATTENDED
+
+    appt2 = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490002222")
+    resp2 = client.post(
+        f"/api/portal/bookings/{appt2.id}/attendance", json={"attended": False}, headers=_auth(a["token"]),
+    )
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["status"] == "no_show"
+    assert db.get_appointment(a["id"], appt2.id).status == db.STATUS_NO_SHOW
+
+
+def test_mark_attendance_twice_is_rejected_not_silently_overwritten(two_hospitals):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+
+    resp1 = client.post(
+        f"/api/portal/bookings/{appt.id}/attendance", json={"attended": True}, headers=_auth(a["token"]),
+    )
+    assert resp1.status_code == 200
+
+    resp2 = client.post(
+        f"/api/portal/bookings/{appt.id}/attendance", json={"attended": False}, headers=_auth(a["token"]),
+    )
+    assert resp2.status_code == 404
+    # Still 'attended' from the first call -- the second didn't overwrite it.
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_ATTENDED
+
+
+def test_needs_attendance_review_lists_only_past_still_booked_appointments(two_hospitals):
+    from datetime import timedelta
+
+    a = two_hospitals["a"]
+    past_appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490003333")
+    # Backdate it directly -- _create_appointment() always books a real,
+    # future slot (db/repository.py never generates past ones).
+    conn = db.get_connection()
+    conn.execute(
+        "UPDATE appointments SET scheduled_at = ? WHERE id = ?",
+        ((datetime.now() - timedelta(hours=2)).isoformat(), past_appt.id),
+    )
+    conn.commit()
+
+    future_appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490004444")
+
+    resp = client.get("/api/portal/bookings/needs-attendance-review", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    ids = {row["id"] for row in resp.json()["appointments"]}
+    assert past_appt.id in ids
+    assert future_appt.id not in ids
+
+
 def test_toggle_doctor_active_cannot_target_other_hospitals_doctor(two_hospitals):
     a, b = two_hospitals["a"], two_hospitals["b"]
 
@@ -162,6 +233,52 @@ def test_doctor_leave_endpoints_cannot_target_other_hospitals_doctor(two_hospita
     )
     assert add_resp.status_code == 404
     assert db.get_doctor_leave(b["id"], b["doctor_id"]) == []  # nothing was inserted under B
+
+
+def test_doctor_leave_range_endpoint_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+
+    resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}/leave/range",
+        json={"from_date": "2027-01-01", "to_date": "2027-01-03"}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert db.get_doctor_leave(b["id"], b["doctor_id"]) == []
+
+
+def test_doctor_leave_range_creates_one_row_per_day_and_excludes_slots(two_hospitals):
+    """Item 10 (Spec.md Section 0): a 3-day range creates 3 leave rows in one
+    call, and the doctor's slots are regenerated excluding every date in
+    that range -- composes with the existing exclusion logic (Section 14.7)
+    with no separate availability-toggle mechanism needed."""
+    a = two_hospitals["a"]
+    doctor_id = a["doctor_id"]
+    before_slots = {s["date"] for s in db.get_slots(a["id"], doctor_id)}
+    from_date, to_date = sorted(before_slots)[0], sorted(before_slots)[2]
+
+    resp = client.post(
+        f"/api/portal/doctors/{doctor_id}/leave/range",
+        json={"from_date": from_date, "to_date": to_date, "reason": "Conference"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["dates"]) == 3
+
+    leave_dates = {row["date"] for row in db.get_doctor_leave(a["id"], doctor_id)}
+    assert {from_date, to_date} <= leave_dates
+
+    after_slots = {s["date"] for s in db.get_slots(a["id"], doctor_id)}
+    assert from_date not in after_slots
+    assert to_date not in after_slots
+
+
+def test_doctor_leave_range_rejects_to_before_from(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/leave/range",
+        json={"from_date": "2027-01-05", "to_date": "2027-01-01"}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
 
 
 def test_resolve_handoff_cannot_target_other_hospitals_handoff(two_hospitals):
@@ -716,7 +833,7 @@ def test_settings_post_rejects_invalid_default_language(two_hospitals):
     assert resp.status_code == 400
 
 
-@pytest.mark.parametrize("bad_value", [1, 4, 121, 1000])
+@pytest.mark.parametrize("bad_value", [0, 1, 121, 1000])
 def test_settings_post_rejects_session_timeout_out_of_bounds(two_hospitals, bad_value):
     a = two_hospitals["a"]
     resp = client.post(
@@ -726,6 +843,21 @@ def test_settings_post_rejects_session_timeout_out_of_bounds(two_hospitals, bad_
         headers=_auth(a["token"]),
     )
     assert resp.status_code == 400
+
+
+def test_settings_post_accepts_2_minute_timeout(two_hospitals):
+    """The lowered bound (was 5-120, now 2-120) -- a short timeout for
+    testing/demoing the flow without a real 5+ minute wait."""
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"welcome_message_text": "", "reminder_offsets_hours": "24", "reminder_template_name": "",
+              "session_timeout_minutes": 2},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    get_resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
+    assert get_resp.json()["session_timeout_minutes"] == 2
 
 
 def test_settings_customization_isolated_across_hospitals(two_hospitals):

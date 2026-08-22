@@ -35,7 +35,11 @@ import abc
 from datetime import datetime
 
 import db.repository as repo
-from db.repository import Appointment, Hospital
+from db.repository import Appointment, DuplicateBookingError, Hospital  # noqa: F401 -- DuplicateBookingError
+# re-exported so core/booking_flow.py can catch it specifically (item 5,
+# Spec.md Section 0) without importing db/repository.py directly, same
+# "no direct db import" rule the module docstring already states for that
+# file (SPEC Section 12.6.2's connector-only boundary).
 
 
 class ConnectorNotImplementedError(NotImplementedError):

@@ -86,9 +86,10 @@ async def test_department_menu_isolated_between_hospitals(hospital_id, second_ho
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, tap("menu_book"))
     hospital_b_depts = _row_ids(wa2.sent[-1][1])
 
-    assert hospital_a_depts == {"cardiology", "orthopedics", "general_medicine", "pediatrics"}
-    assert hospital_b_depts == {"t2_neurology", "t2_dermatology"}
-    assert hospital_a_depts.isdisjoint(hospital_b_depts)
+    # "Go back" navigation appends a BACK_ID row to every department menu.
+    assert hospital_a_depts == {"cardiology", "orthopedics", "general_medicine", "pediatrics", "nav_back"}
+    assert hospital_b_depts == {"t2_neurology", "t2_dermatology", "nav_back"}
+    assert (hospital_a_depts - {"nav_back"}).isdisjoint(hospital_b_depts - {"nav_back"})
 
 
 @pytest.mark.asyncio

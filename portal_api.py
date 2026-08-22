@@ -41,7 +41,7 @@ from portal import _SESSION_TTL_SECONDS, _build_new_booking_context, _sign_sessi
 # CHECK constraint exactly -- validated here too so a bad value gets a clear
 # 400 from this endpoint instead of surfacing as a raw IntegrityError from
 # the DB constraint.
-_MIN_SESSION_TIMEOUT_MINUTES = 5
+_MIN_SESSION_TIMEOUT_MINUTES = 2
 _MAX_SESSION_TIMEOUT_MINUTES = 120
 
 logger = logging.getLogger(__name__)
@@ -341,6 +341,40 @@ async def portal_bookings(authorization: str | None = Header(default=None)):
     return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
 
 
+@router.get("/api/portal/bookings/needs-attendance-review")
+async def portal_bookings_needing_attendance_review(authorization: str | None = Header(default=None)):
+    """Item 9 (Spec.md Section 0): appointments whose scheduled time has
+    passed but are still status='booked' -- the real, staff-actionable list
+    behind the dashboard's existing no-show heuristic, for the appointments
+    page to prompt "Did the patient visit?" against."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointments = db.get_appointments_needing_attendance_review(hospital.id)
+    return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/attendance")
+async def portal_mark_attendance(
+    appointment_id: int, payload: dict, authorization: str | None = Header(default=None)
+):
+    """Item 9: payload = {"attended": true|false}. Only ever moves a
+    still-'booked' row to 'attended'/'no_show' -- db.mark_attendance()'s own
+    WHERE status='booked' guard makes re-marking an already-resolved
+    appointment (or a wrong-hospital/nonexistent one) a clean 404, not a
+    silent overwrite."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if "attended" not in (payload or {}):
+        return JSONResponse({"error": "attended (true/false) is required."}, status_code=400)
+    attended = bool(payload["attended"])
+    ok = db.mark_attendance(hospital.id, appointment_id, attended)
+    if not ok:
+        return JSONResponse({"error": "No such booked appointment to update."}, status_code=404)
+    return JSONResponse({"ok": True, "status": "attended" if attended else "no_show"})
+
+
 @router.post("/api/portal/bookings/{appointment_id}/cancel")
 async def portal_cancel_booking(
     appointment_id: int, payload: dict | None = None, authorization: str | None = Header(default=None)
@@ -574,6 +608,28 @@ async def portal_add_doctor_leave(doctor_id: str, payload: dict, authorization: 
     reason = (payload or {}).get("reason", "").strip() or None
     entry = db.create_doctor_leave(hospital.id, doctor_id, leave_date, reason)
     return JSONResponse({"leave": entry})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/leave/range")
+async def portal_add_doctor_leave_range(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    """Item 10 (Spec.md Section 0): From/To range with one Confirm, instead
+    of adding leave dates one at a time -- same ownership check
+    portal_add_doctor_leave() above already established."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    from_date = (payload or {}).get("from_date", "").strip()
+    to_date = (payload or {}).get("to_date", "").strip()
+    if not from_date or not to_date:
+        return JSONResponse({"error": "Both from_date and to_date are required."}, status_code=400)
+    reason = (payload or {}).get("reason", "").strip() or None
+    try:
+        created_dates = db.create_doctor_leave_range(hospital.id, doctor_id, from_date, to_date, reason)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse({"dates": created_dates})
 
 
 @router.post("/api/portal/doctors/{doctor_id}/leave/{leave_id}/delete")

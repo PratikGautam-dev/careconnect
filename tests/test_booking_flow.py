@@ -3,7 +3,9 @@ from datetime import datetime, timedelta
 import pytest
 
 import db.repository as db
-from core.booking_flow import _MAX_LIST_ROWS, handle_incoming
+from core.booking_flow import (
+    BACK_ID, GOTO_MAIN_MENU, MANAGE_CANCEL_PREFIX, MANAGE_RESCHEDULE_PREFIX, _MAX_LIST_ROWS, handle_incoming,
+)
 from core.history import InMemorySessionStore
 
 
@@ -70,7 +72,9 @@ async def test_idle_book_tap_advances_to_awaiting_department(hospital_id):
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
-    assert row_ids == {d["id"] for d in db.get_departments(hospital_id)}
+    # "Go back" navigation appends a BACK_ID row to this list alongside the
+    # real department rows.
+    assert row_ids == {d["id"] for d in db.get_departments(hospital_id)} | {BACK_ID}
 
 
 @pytest.mark.asyncio
@@ -154,20 +158,21 @@ async def test_date_and_time_menus_capped_to_whatsapp_list_limit(hospital_id):
     sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": department["id"], "department_name": department["name"]})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor["id"]))
 
-    # Date list: capped to the soonest 10 distinct dates.
+    # Date list: capped to the soonest 9 distinct dates + 1 reserved BACK_ID
+    # row (Section 3.3 follow-up's "Go back" navigation), 10 total.
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     date_rows = kwargs["sections"][0]["rows"]
     assert len(date_rows) == _MAX_LIST_ROWS
-    assert {r["id"] for r in date_rows} == set(distinct_dates[:_MAX_LIST_ROWS])
+    assert {r["id"] for r in date_rows} == set(distinct_dates[:_MAX_LIST_ROWS - 1]) | {BACK_ID}
 
-    # Time list for the soonest date: independently capped to 10.
+    # Time list for the soonest date: independently capped the same way.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(distinct_dates[0]))
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     time_rows = kwargs["sections"][0]["rows"]
     assert len(time_rows) == _MAX_LIST_ROWS
-    assert {r["id"] for r in time_rows} == {s["id"] for s in first_date_slots[:_MAX_LIST_ROWS]}
+    assert {r["id"] for r in time_rows} == {s["id"] for s in first_date_slots[:_MAX_LIST_ROWS - 1]} | {BACK_ID}
 
 
 @pytest.mark.asyncio
@@ -314,19 +319,24 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert session["context"]["patient_age"] == 34
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert {b["id"] for b in kwargs["buttons"]} == {"confirm", "cancel"}
+    assert {b["id"] for b in kwargs["buttons"]} == {"confirm", "cancel", BACK_ID}
     assert "*Confirm Booking Details:*" in kwargs["body_text"]
     assert "🏥 *Dept:* Cardiology" in kwargs["body_text"]
     assert "👤 *Patient:* Ravi Kumar" in kwargs["body_text"]
     assert "🎂 *Age:* 34" in kwargs["body_text"]
 
     # Confirm -> booked, resets to IDLE, structured success message with a
-    # generated reference_id.
+    # generated reference_id. Item 3 (Spec.md Section 0): now sent as
+    # buttons (Main Menu/Cancel/Reschedule quick actions), not plain text.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
     kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "booked successfully" in kwargs["text"].lower()
-    assert "Reference ID: *apt_" in kwargs["text"]
+    assert kind == "buttons"
+    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "Reference ID: *apt_" in kwargs["body_text"]
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert GOTO_MAIN_MENU in button_ids
+    assert any(bid.startswith(MANAGE_CANCEL_PREFIX) for bid in button_ids)
+    assert any(bid.startswith(MANAGE_RESCHEDULE_PREFIX) for bid in button_ids)
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
     # And it should have written an appointment record (db/repository.py)
@@ -338,7 +348,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert appt.doctor_id == doctor_id
     assert appt.scheduled_at.isoformat() == f"{slot['date']}T{slot['time']}:00"
     assert appt.reference_id is not None and appt.reference_id.startswith("apt_")
-    assert f"Reference ID: *{appt.reference_id}*" in kwargs["text"]
+    assert f"Reference ID: *{appt.reference_id}*" in kwargs["body_text"]
 
     # ...and saved the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)

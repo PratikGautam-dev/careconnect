@@ -115,7 +115,7 @@ async def test_menu_only_shows_enabled_features(hospital_id):
     assert len(wa.sent) == 1
     kind, kwargs = wa.sent[0]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_change_language"]
 
 
 @pytest.mark.asyncio
@@ -133,7 +133,7 @@ async def test_unselected_features_dont_appear_in_menu(hospital_id):
     assert "menu_faq_bot" not in ids
     assert "menu_reschedule" not in ids
     assert "menu_cancel" not in ids
-    assert ids == ["menu_book"]
+    assert ids == ["menu_book", "menu_change_language"]
 
 
 @pytest.mark.asyncio
@@ -168,7 +168,8 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert {d["id"] for d in departments} == set(_row_ids(kwargs))
+    # "Go back" navigation appends a BACK_ID row to the department menu.
+    assert {d["id"] for d in departments} | {"nav_back"} == set(_row_ids(kwargs))
     assert sessions.get(hospital_id, PHONE)["state"] != "IDLE"
 
     # A reset keyword mid-booking returns to the TOP-level unified menu (not
@@ -176,7 +177,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # 14.5 behavior.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_change_language"]
 
     # Now tap "FAQ / Information" -> enters faq_flow's topic loop.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_faq_bot"), connector=connector, enabled_features=enabled)
@@ -190,7 +191,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # just faq_flow's own topic list.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("restart"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_change_language"]
 
 
 @pytest.mark.asyncio
@@ -208,17 +209,20 @@ async def test_tap_for_disabled_feature_falls_back_to_menu(hospital_id):
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_change_language"]
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
 @pytest.mark.asyncio
 async def test_view_appointments_feature(hospital_id):
+    """Item 6 (Spec.md Section 0): "My Appointments" is now an interactive
+    list (one row per appointment), not a plain-text dump -- tapping a row
+    is covered separately below."""
     from datetime import datetime
     from types import SimpleNamespace
 
     appt = SimpleNamespace(
-        doctor_name="Dr. Rao", department_name="Cardiology", scheduled_at=datetime(2026, 9, 1, 10, 0),
+        id=501, doctor_name="Dr. Rao", department_name="Cardiology", scheduled_at=datetime(2026, 9, 1, 10, 0),
     )
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
@@ -228,9 +232,57 @@ async def test_view_appointments_feature(hospital_id):
         connector=FakeConnector(appointments=[appt]), enabled_features=["view_appointments"],
     )
 
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    row = kwargs["sections"][0]["rows"][0]
+    assert row["id"] == "appt_501"
+    assert "Dr. Rao" in row["title"]
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_VIEW_APPOINTMENT_ACTION"
+
+
+@pytest.mark.asyncio
+async def test_view_appointments_no_upcoming_sends_plain_text(hospital_id):
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
+        connector=FakeConnector(appointments=[]), enabled_features=["view_appointments"],
+    )
+
     assert wa.sent[-1][0] == "text"
-    assert "Dr. Rao" in wa.sent[-1][1]["text"]
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+
+
+@pytest.mark.asyncio
+async def test_tapping_an_appointment_in_my_appointments_shows_quick_actions(hospital_id):
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    appt = SimpleNamespace(
+        id=502, doctor_name="Dr. Rao", department_name="Cardiology", doctor_id="doc1",
+        department_id="cardiology", scheduled_at=datetime(2026, 9, 1, 10, 0),
+    )
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+    connector = FakeConnector(appointments=[appt])
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_VIEW_APPOINTMENT_ACTION"
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("appt_502"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert flows.GOTO_MAIN_MENU in button_ids
+    assert "manage_cancel_502" in button_ids
+    assert "manage_reschedule_502" in button_ids
 
 
 @pytest.mark.asyncio
@@ -267,6 +319,100 @@ async def test_reception_handoff_queues_request_and_replies(hospital_id):
 
     open_handoffs = db.get_handoff_requests(hospital_id, status="open")
     assert any(h["phone"] == PHONE and h["reason"] == "patient_requested" for h in open_handoffs)
+
+
+@pytest.mark.asyncio
+async def test_bot_goes_silent_while_a_handoff_is_open(hospital_id):
+    """Item 7 (Spec.md Section 0), real production bug reproduced: after
+    "Talk to Reception" queues an open handoff_requests row, a patient saying
+    "hi" (a reset keyword) must NOT get the bot's own menu response back --
+    the bot goes completely silent for that phone until staff resolve the
+    handoff, so replies genuinely route to the human queue instead."""
+    import db.repository as db
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_reception"),
+        connector=FakeConnector(), enabled_features=["reception_handoff"],
+    )
+    assert len(db.get_handoff_requests(hospital_id, status="open")) == 1
+    sent_before = len(wa.sent)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"),
+        connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
+    )
+
+    # Zero new outgoing messages -- neither a reset-keyword menu, nor
+    # anything else the bot would normally send.
+    assert len(wa.sent) == sent_before
+
+    # A different, unrelated phone number is completely unaffected.
+    wa2 = FakeWhatsAppClient()
+    sessions2 = _sessions_with_english_chosen(hospital_id)
+    await flows.handle_incoming(
+        wa2, sessions2, "5491199999999", hospital_id, tap("menu_book"),
+        connector=FakeConnector(), enabled_features=["booking"],
+    )
+    assert wa2.sent  # the bot responds normally for a phone with no open handoff
+
+
+@pytest.mark.asyncio
+async def test_change_language_menu_option_switches_mid_session(hospital_id):
+    """Item 4 (Spec.md Section 0): "Change Language" is always offered on the
+    main menu itself (not gated by enabled_features), and tapping it re-shows
+    the picker without needing a full session reset -- picking Hindi there
+    switches the very next menu to Hindi."""
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    # Any unrecognized message at IDLE shows the top-level unified menu.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hello there"),
+        connector=FakeConnector(), enabled_features=["booking"],
+    )
+    kind, kwargs = wa.sent[0]
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert flows.CHANGE_LANGUAGE_ROW in row_ids
+
+    # Tap "Change Language" instead of a feature.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(flows.CHANGE_LANGUAGE_ROW),
+        connector=FakeConnector(), enabled_features=["booking"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_LANGUAGE"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+
+    # Pick Hindi -> menu re-shown in Hindi, session language actually changed.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("lang_hi"),
+        connector=FakeConnector(), enabled_features=["booking"],
+    )
+    assert sessions.get(hospital_id, PHONE)["language"] == "hi"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert kwargs["body_text"] == translate("welcome_menu", "hi", hospital_name="the hospital")
+
+
+@pytest.mark.asyncio
+async def test_change_language_row_absent_when_picker_disabled(hospital_id):
+    """A hospital that disabled the language picker entirely
+    (language_prompt_enabled=False, Section 12.13) never sees "Change
+    Language" either -- offering it would contradict the hospital's own
+    single-language setting."""
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_book"),
+        connector=FakeConnector(), enabled_features=["booking"], language_prompt_enabled=False,
+    )
+    kind, kwargs = wa.sent[0]
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert flows.CHANGE_LANGUAGE_ROW not in row_ids
 
 
 def test_real_features_are_all_features():
@@ -429,9 +575,10 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
     kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "सफलतापूर्वक" in kwargs["text"]
-    assert "apt_" in kwargs["text"]
+    # Item 3 (Spec.md Section 0): success message is now buttons, not text.
+    assert kind == "buttons"
+    assert "सफलतापूर्वक" in kwargs["body_text"]
+    assert "apt_" in kwargs["body_text"]
     # Booked with the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
@@ -553,7 +700,7 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     sent_body = json.loads(requests[0].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info"]
+    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info", "menu_change_language"]
 
 
 def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_mock):
@@ -587,7 +734,7 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
     assert first_resp.status_code == 200
     first_sent = json.loads(httpx_mock.get_requests()[-1].content)
     menu_row_ids = [row["id"] for section in first_sent["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert menu_row_ids == ["menu_faq_bot"]
+    assert menu_row_ids == ["menu_faq_bot", "menu_change_language"]
 
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",

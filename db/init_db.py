@@ -63,6 +63,20 @@ def _backfill_patients(conn) -> None:
     conn.commit()
 
 
+def _backfill_appointment_patient_denorm(conn) -> None:
+    """Item 8 (Spec.md Section 0): appointments.patient_id/patient_name/
+    patient_phone are populated going forward by create_appointment() itself
+    -- this is the one-time catch-up for every row that predates those
+    columns. Only ever touches rows where patient_id IS NULL, so re-running
+    on every startup is a safe no-op once caught up, and it can never
+    overwrite a value create_appointment() already set correctly."""
+    conn.execute(
+        "UPDATE appointments a SET patient_id = p.id, patient_name = p.name, patient_phone = a.phone "
+        "FROM patients p WHERE p.hospital_id = a.hospital_id AND p.phone = a.phone AND a.patient_id IS NULL"
+    )
+    conn.commit()
+
+
 def init_db_on_connection(conn) -> int:
     """Apply schema + seed data to an already-open connection. Used directly by
     tests (against an in-memory DB) and internally by init_db() below."""
@@ -82,6 +96,7 @@ def init_db_on_connection(conn) -> int:
     conn.commit()
     _backfill_enabled_features(conn)
     _backfill_patients(conn)
+    _backfill_appointment_patient_denorm(conn)
     return hospital_id
 
 

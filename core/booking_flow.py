@@ -44,7 +44,7 @@ after all) -- see the state constants' own comment for the full history.
 import logging
 from datetime import datetime
 
-from connectors import Connector, Tier1Connector
+from connectors import Connector, DuplicateBookingError, Tier1Connector
 from core.flow_common import MAX_LIST_ROWS, RESET_KEYWORDS, cap_rows, is_reset_keyword
 from core.translations import t
 from core.whatsapp import WhatsAppClient
@@ -76,6 +76,43 @@ STATE_AWAITING_PATIENT_NAME = "AWAITING_PATIENT_NAME"
 STATE_AWAITING_PATIENT_AGE = "AWAITING_PATIENT_AGE"
 STATE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
 STATE_BOOKED = "BOOKED"  # momentary only — never persisted, see _handle_awaiting_confirmation
+
+# "Go back" navigation: deliberately scoped to exactly the 5 interactive
+# (list/button) booking states explicitly requested -- department, doctor,
+# date, time slot, confirmation -- not the free-text name/age states (a
+# typed "back" there would be indistinguishable from a patient's real
+# input, same reasoning FREE_TEXT_INPUT_STATES already exists for), and not
+# cancel/reschedule (their own separate, unrequested flows).
+STATE_AWAITING_CHANGE_SELECTION = "AWAITING_CHANGE_SELECTION"
+BACK_ID = "nav_back"
+CHANGE_DEPARTMENT = "change_department"
+CHANGE_DOCTOR = "change_doctor"
+CHANGE_DATE = "change_date"
+CHANGE_TIME = "change_time"
+# Confirmation's own Back doesn't pop one step -- there's no single "the"
+# field a patient wants to fix -- it routes to this sub-menu instead (no
+# existing UX convention in this codebase for "which field do you want to
+# change" to follow instead, so this is a new, deliberately minimal one).
+_CHANGE_TARGETS = {
+    CHANGE_DEPARTMENT: STATE_AWAITING_DEPARTMENT,
+    CHANGE_DOCTOR: STATE_AWAITING_DOCTOR,
+    CHANGE_DATE: STATE_AWAITING_DATE,
+    CHANGE_TIME: STATE_AWAITING_TIME_SLOT,
+}
+# Context key holding the step-history stack (Section 3.3 follow-up): a list
+# of {"state": ..., "context": {...}} frames, one pushed every time a step is
+# LEFT (advanced past), each capturing that step's own context as it stood
+# at that point -- not nested inside itself, so restoring one frame doesn't
+# carry along the frames captured after it. A leading underscore keeps it
+# visually distinct from the real booking fields (department_id etc.) this
+# context dict otherwise holds, though it's a completely ordinary dict key,
+# not a Python-private attribute.
+_HISTORY_KEY = "_history"
+# Carried forward across ANY back/change-target restore regardless of which
+# frame is being restored -- once collected, the patient's own name/age
+# doesn't depend on which department/doctor/date/time they end up with, and
+# older frames (captured before name/age were ever asked) never have them.
+_PRESERVE_ACROSS_BACK = ("patient_name", "patient_age")
 
 MIN_PATIENT_AGE = 0
 MAX_PATIENT_AGE = 120
@@ -117,6 +154,70 @@ CONFIRM_NO = "cancel"
 _MAX_LIST_ROWS = MAX_LIST_ROWS
 _cap_rows = cap_rows
 _RESET_KEYWORDS = RESET_KEYWORDS
+
+
+def _cap_rows_with_back(rows: list[dict], context: str, language: str = "en") -> list[dict]:
+    """Same row-count enforcement as _cap_rows(), except it reserves one row
+    for the "<- Back" option appended after -- capping real options to
+    MAX_LIST_ROWS - 1 (not MAX_LIST_ROWS) so the total never exceeds Meta's
+    10-row list limit once Back is added. Used by the 4 booking-flow list
+    menus that got a Back option (department/doctor/date/time); reschedule's
+    own _send_slot_menu is untouched -- Back is scoped to exactly the states
+    requested, not every list menu in this file."""
+    max_real = MAX_LIST_ROWS - 1
+    if len(rows) > max_real:
+        logger.warning(
+            "%s: %d rows exceeds WhatsApp's %d-row list limit once the Back option is reserved -- truncating to %d",
+            context, len(rows), MAX_LIST_ROWS, max_real,
+        )
+        rows = rows[:max_real]
+    return rows + [{"id": BACK_ID, "title": t("back_option", language)}]
+
+
+def _push_history(context: dict, state: str) -> list[dict]:
+    """Returns a NEW history list (the existing one, plus one more frame) --
+    called by every handler right before advancing to a new state, so a
+    later Back/change-target tap knows exactly where to return to. The
+    frame's own context snapshot excludes _HISTORY_KEY itself, so restoring
+    a frame later doesn't drag along the frames captured after it."""
+    history = list(context.get(_HISTORY_KEY, []))
+    snapshot = {k: v for k, v in context.items() if k != _HISTORY_KEY}
+    history.append({"state": state, "context": snapshot})
+    return history
+
+
+def _carry_forward_preserved_fields(current_context: dict, restored_context: dict) -> dict:
+    for key in _PRESERVE_ACROSS_BACK:
+        if key in current_context and key not in restored_context:
+            restored_context[key] = current_context[key]
+    return restored_context
+
+
+def _history_pop(context: dict) -> tuple[str, dict] | None:
+    """Single-step Back: pops the most recent frame and returns
+    (state, restored_context) to resume there, or None if there's nothing
+    to go back to (e.g. Back tapped at the very first interactive step)."""
+    history = list(context.get(_HISTORY_KEY, []))
+    if not history:
+        return None
+    frame = history.pop()
+    restored = dict(frame["context"])
+    restored[_HISTORY_KEY] = history
+    return frame["state"], _carry_forward_preserved_fields(context, restored)
+
+
+def _history_pop_to(context: dict, target_state: str) -> dict | None:
+    """Multi-step jump (confirmation's "what would you like to change?"
+    sub-menu): finds the frame for target_state and restores it, truncating
+    history to everything BEFORE that frame -- so a further single-step Back
+    from the restored state still walks back correctly one more step."""
+    history = context.get(_HISTORY_KEY, [])
+    for i, frame in enumerate(history):
+        if frame["state"] == target_state:
+            restored = dict(frame["context"])
+            restored[_HISTORY_KEY] = list(history[:i])
+            return _carry_forward_preserved_fields(context, restored)
+    return None
 
 
 def _find_by_id(items: list[dict], item_id: str) -> dict | None:
@@ -185,7 +286,7 @@ async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, la
 
 async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_departments(hospital_id)]
-    rows = _cap_rows(rows, "department menu")
+    rows = _cap_rows_with_back(rows, "department menu", language=language)
     await wa.send_list(
         to=phone,
         body_text=t("select_department", language),
@@ -199,7 +300,7 @@ async def _send_doctor_menu(
     language: str = "en",
 ) -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_doctors(hospital_id, department_id)]
-    rows = _cap_rows(rows, "doctor menu")
+    rows = _cap_rows_with_back(rows, "doctor menu", language=language)
     await wa.send_list(
         to=phone,
         body_text=t("select_doctor", language, department_name=department_name),
@@ -244,7 +345,7 @@ async def _send_date_menu(
         if s["date"] not in dates_seen:
             dates_seen.append(s["date"])
     rows = [{"id": d, "title": _date_label(d)} for d in dates_seen]
-    rows = _cap_rows(rows, f"date menu for doctor {doctor_id}")
+    rows = _cap_rows_with_back(rows, f"date menu for doctor {doctor_id}", language=language)
     await wa.send_list(
         to=phone,
         body_text=t("doctor_selected_ask_date", language, doctor_name=doctor_name),
@@ -268,7 +369,7 @@ async def _send_time_menu(
         for s in connector.get_available_slots(hospital_id, doctor_id)
         if s["date"] == date_str
     ]
-    rows = _cap_rows(rows, f"time menu for doctor {doctor_id} on {date_str}")
+    rows = _cap_rows_with_back(rows, f"time menu for doctor {doctor_id} on {date_str}", language=language)
     await wa.send_list(
         to=phone,
         body_text=t("select_time_slot", language),
@@ -354,8 +455,72 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
         buttons=[
             {"id": CONFIRM_YES, "title": t("confirm_button", language)},
             {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": BACK_ID, "title": t("back_option", language)},
         ],
     )
+
+
+async def _send_change_selection_menu(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
+    """Confirmation's own Back: there's no single "the" field to pop back to,
+    so this asks which one instead (see the module-level comment by
+    _CHANGE_TARGETS for why)."""
+    rows = [
+        {"id": CHANGE_DEPARTMENT, "title": t("change_department_option", language)},
+        {"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)},
+        {"id": CHANGE_DATE, "title": t("change_date_option", language)},
+        {"id": CHANGE_TIME, "title": t("change_time_option", language)},
+    ]
+    await wa.send_list(
+        to=phone,
+        body_text=t("what_would_you_like_to_change", language),
+        button_text=t("view_change_options_button", language),
+        sections=[{"title": t("change_options_section_title", language), "rows": rows}],
+    )
+
+
+async def _resend_menu_for_state(
+    wa: WhatsAppClient, phone: str, hospital_id: int, state: str, context: dict, connector: Connector,
+    language: str = "en",
+) -> None:
+    """Dispatches to whichever menu builder matches a restored state -- used
+    after both a single-step Back (_history_pop) and a change-target jump
+    (_history_pop_to) land on one of the 4 list states, so the patient
+    actually sees the list to pick from again, not just a silent state change."""
+    if state == STATE_AWAITING_DEPARTMENT:
+        await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+    elif state == STATE_AWAITING_DOCTOR:
+        await _send_doctor_menu(
+            wa, phone, hospital_id, context["department_id"], context["department_name"], connector,
+            language=language,
+        )
+    elif state == STATE_AWAITING_DATE:
+        await _send_date_menu(
+            wa, phone, hospital_id, context["doctor_id"], context["doctor_name"], connector, language=language,
+        )
+    elif state == STATE_AWAITING_TIME_SLOT:
+        await _send_time_menu(
+            wa, phone, hospital_id, context["doctor_id"], context["date"], connector, language=language,
+        )
+
+
+async def _handle_back_navigation(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, connector: Connector,
+    language: str = "en",
+) -> None:
+    """Shared BACK_ID handler for the 4 list states (confirmation's Back is
+    handled separately in _handle_awaiting_confirmation -- it jumps to the
+    change-selection sub-menu, not a single popped frame). Popping with
+    nothing left in the history (Back tapped at the very first interactive
+    step, department) falls back to the main menu -- there's nowhere earlier
+    in the booking flow to return to."""
+    popped = _history_pop(context)
+    if popped is None:
+        sessions.reset(hospital_id, phone)
+        await _send_main_menu(wa, phone, "the hospital", language=language)
+        return
+    state, restored_context = popped
+    sessions.set(hospital_id, phone, state, restored_context)
+    await _resend_menu_for_state(wa, phone, hospital_id, state, restored_context, connector, language=language)
 
 
 def _appointment_row_id(appointment_id: int) -> str:
@@ -369,6 +534,68 @@ def _parse_appointment_row_id(row_id: str) -> int | None:
         return int(row_id[len("appt_"):])
     except ValueError:
         return None
+
+
+# Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a SPECIFIC
+# appointment id, attached to the booking-success message, the
+# duplicate-booking block message, and My Appointments' per-appointment
+# actions -- tapping one routes straight into that appointment's own cancel/
+# reschedule confirm step, skipping the "which appointment" re-identification
+# a generic Cancel/Reschedule menu tap would otherwise require. Recognized
+# from ANY session state (flows.py checks for these before normal state
+# dispatch), since the message carrying them may be tapped long after the
+# session that sent it has expired.
+MANAGE_CANCEL_PREFIX = "manage_cancel_"
+MANAGE_RESCHEDULE_PREFIX = "manage_reschedule_"
+GOTO_MAIN_MENU = "goto_main_menu"
+
+
+def _manage_cancel_id(appointment_id: int) -> str:
+    return f"{MANAGE_CANCEL_PREFIX}{appointment_id}"
+
+
+def _manage_reschedule_id(appointment_id: int) -> str:
+    return f"{MANAGE_RESCHEDULE_PREFIX}{appointment_id}"
+
+
+def _parse_manage_id(row_id: str, prefix: str) -> int | None:
+    if not row_id.startswith(prefix):
+        return None
+    try:
+        return int(row_id[len(prefix):])
+    except ValueError:
+        return None
+
+
+async def _start_cancel_flow_for_appointment(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt, language: str = "en",
+) -> None:
+    """Jumps straight to THIS appointment's own cancel-confirm step, skipping
+    the "which appointment" selection list -- the shared target for the
+    booking-success/duplicate-booking quick-action buttons and My
+    Appointments' inline actions."""
+    sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_CONFIRM, {"appointment_id": appt.id})
+    await _send_cancel_confirm(wa, phone, appt, language=language)
+
+
+async def _start_reschedule_flow_for_appointment(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt, connector: Connector, language: str = "en",
+) -> None:
+    """Same as _start_cancel_flow_for_appointment above, for reschedule --
+    jumps straight to this appointment's doctor's slot list, scoped to the
+    appointment's existing doctor (no re-picking department/doctor)."""
+    if not connector.get_available_slots(hospital_id, appt.doctor_id):
+        await _notify_no_slots_available(wa, sessions, hospital_id, phone, appt.doctor_name, language=language)
+        return
+    new_context = {
+        "reschedule_appointment_id": appt.id,
+        "department_id": appt.department_id,
+        "department_name": appt.department_name,
+        "doctor_id": appt.doctor_id,
+        "doctor_name": appt.doctor_name,
+    }
+    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, new_context)
+    await _send_slot_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector, language=language)
 
 
 async def _send_appointment_selection_menu(
@@ -471,12 +698,24 @@ async def _handle_awaiting_department(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
+            return
         dept = _find_by_id(connector.get_departments(hospital_id), reply["id"])
         if dept:
             if not connector.get_doctors(hospital_id, dept["id"]):
                 await _notify_no_doctors_available(wa, sessions, hospital_id, phone, dept["name"], language=language)
                 return
-            new_context = {"department_id": dept["id"], "department_name": dept["name"]}
+            # Bug fix (Section 3.3 "Go back" follow-up): this branch used to
+            # build new_context from scratch with no **context spread, unlike
+            # every other handler below -- silently dropping _history/
+            # patient_name/patient_age if a patient reached here via the
+            # confirmation screen's "change department" path. Explicit
+            # carry-forward instead of a blanket spread, since department_id/
+            # name from the OLD pick must NOT survive a fresh department pick.
+            history = _push_history(context, STATE_AWAITING_DEPARTMENT)
+            new_context = {"department_id": dept["id"], "department_name": dept["name"], _HISTORY_KEY: history}
+            new_context = _carry_forward_preserved_fields(context, new_context)
             sessions.set(hospital_id, phone, STATE_AWAITING_DOCTOR, new_context)
             await _send_doctor_menu(wa, phone, hospital_id, dept["id"], dept["name"], connector, language=language)
             return
@@ -497,12 +736,16 @@ async def _handle_awaiting_doctor(
         return
 
     if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
+            return
         doctor = _find_by_id(connector.get_doctors(hospital_id, department_id), reply["id"])
         if doctor:
             if not connector.get_available_slots(hospital_id, doctor["id"]):
                 await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor["name"], language=language)
                 return
-            new_context = {**context, "doctor_id": doctor["id"], "doctor_name": doctor["name"]}
+            history = _push_history(context, STATE_AWAITING_DOCTOR)
+            new_context = {**context, "doctor_id": doctor["id"], "doctor_name": doctor["name"], _HISTORY_KEY: history}
             sessions.set(hospital_id, phone, STATE_AWAITING_DATE, new_context)
             await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
             return
@@ -524,9 +767,13 @@ async def _handle_awaiting_date(
         return
 
     if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
+            return
         available_dates = {s["date"] for s in connector.get_available_slots(hospital_id, doctor_id)}
         if reply["id"] in available_dates:
-            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"])}
+            history = _push_history(context, STATE_AWAITING_DATE)
+            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"]), _HISTORY_KEY: history}
             sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, new_context)
             await _send_time_menu(wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language)
             return
@@ -555,6 +802,9 @@ async def _handle_awaiting_time_slot(
         return
 
     if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
+            return
         slot = _find_by_id(connector.get_available_slots(hospital_id, doctor_id), reply["id"])
         if slot and slot["date"] == date_str:
             new_context = {
@@ -562,6 +812,7 @@ async def _handle_awaiting_time_slot(
                 "slot_id": slot["id"],
                 "slot_date": slot["date"],
                 "slot_time": slot["time"],
+                _HISTORY_KEY: _push_history(context, STATE_AWAITING_TIME_SLOT),
             }
             # Re-picking a slot after a double-booking race (_handle_slot_taken
             # re-enters this exact state, context unchanged): this session
@@ -669,6 +920,31 @@ async def _handle_awaiting_confirmation(
                     patient_name=context.get("patient_name"),
                     patient_age=context.get("patient_age"),
                 )
+            except DuplicateBookingError as exc:
+                # Item 5: must be checked BEFORE the generic IntegrityError
+                # catch below -- DuplicateBookingError IS an IntegrityError
+                # (same subclassing pattern as QuotaExceededError), so the
+                # more specific except has to come first or this branch is
+                # unreachable. Offer the SAME quick-action pattern the
+                # booking-success message uses (item 3), scoped to the
+                # already-existing appointment, not a generic error.
+                sessions.reset(hospital_id, phone)
+                existing = next(
+                    (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone)
+                     if a.id == exc.existing_appointment_id),
+                    None,
+                )
+                doctor_name = existing.doctor_name if existing else context.get("doctor_name", "")
+                await wa.send_buttons(
+                    to=phone,
+                    body_text=t("duplicate_booking_text", language, doctor_name=doctor_name),
+                    buttons=[
+                        {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
+                        {"id": _manage_cancel_id(exc.existing_appointment_id), "title": t("cancel_button", language)},
+                        {"id": _manage_reschedule_id(exc.existing_appointment_id), "title": t("reschedule_short", language)},
+                    ],
+                )
+                return
             except IntegrityError:
                 # Someone else booked this exact doctor+slot first (db/schema.sql's
                 # partial unique index — the real double-booking guard, not this
@@ -681,7 +957,20 @@ async def _handle_awaiting_confirmation(
             # the returned Appointment rather than regenerated here, so the
             # id shown to the patient is the exact one actually stored.
             summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
-            await wa.send_text(phone, _append_closing_message(summary, closing_message_text))
+            summary = _append_closing_message(summary, closing_message_text)
+            # Item 3: quick-action buttons attached to the success message --
+            # tapping any of them, even long after this session has expired,
+            # routes straight into that flow for THIS specific appointment
+            # (flows.py checks for these ids before normal session dispatch).
+            await wa.send_buttons(
+                to=phone,
+                body_text=summary,
+                buttons=[
+                    {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
+                    {"id": _manage_cancel_id(appointment.id), "title": t("cancel_button", language)},
+                    {"id": _manage_reschedule_id(appointment.id), "title": t("reschedule_short", language)},
+                ],
+            )
             # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
             # separate incoming message that moves it out of BOOKED, so it's never
             # actually written to the session store.
@@ -691,8 +980,38 @@ async def _handle_awaiting_confirmation(
             await wa.send_text(phone, t("booking_not_confirmed", language))
             sessions.reset(hospital_id, phone)
             return
+        if rid == BACK_ID:
+            sessions.set(hospital_id, phone, STATE_AWAITING_CHANGE_SELECTION, context)
+            await _send_change_selection_menu(wa, phone, language=language)
+            return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
     await _send_confirmation(wa, phone, context, language=language)
+
+
+async def _handle_awaiting_change_selection(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    """Confirmation's "what would you like to change?" sub-menu -- jumps
+    (multi-step, via _history_pop_to) straight to the chosen field's own
+    list state rather than a single popped frame, since the patient may be
+    fixing a field several steps back (e.g. department) from confirmation."""
+    if reply["type"] == "interactive_reply":
+        target_state = _CHANGE_TARGETS.get(reply["id"])
+        if target_state:
+            restored_context = _history_pop_to(context, target_state)
+            if restored_context is not None:
+                sessions.set(hospital_id, phone, target_state, restored_context)
+                await _resend_menu_for_state(wa, phone, hospital_id, target_state, restored_context, connector, language=language)
+                return
+            # No matching frame in history (shouldn't normally happen --
+            # every state on the path to confirmation pushes one) -- fail
+            # safe back to the main menu rather than getting stuck.
+            sessions.reset(hospital_id, phone)
+            await _send_main_menu(wa, phone, "the hospital", language=language)
+            return
+    sessions.set(hospital_id, phone, STATE_AWAITING_CHANGE_SELECTION, context)
+    await _send_change_selection_menu(wa, phone, language=language)
 
 
 # --- Cancel flow (SPEC Section 3.3/5) ---
@@ -717,8 +1036,7 @@ async def _handle_awaiting_cancel_selection(
 ) -> None:
     appt = _find_selected_appointment(hospital_id, phone, reply, connector)
     if appt:
-        sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_CONFIRM, {"appointment_id": appt.id})
-        await _send_cancel_confirm(wa, phone, appt, language=language)
+        await _start_cancel_flow_for_appointment(wa, sessions, phone, hospital_id, appt, language=language)
         return
 
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
@@ -793,18 +1111,7 @@ async def _handle_awaiting_reschedule_selection(
 ) -> None:
     appt = _find_selected_appointment(hospital_id, phone, reply, connector)
     if appt:
-        if not connector.get_available_slots(hospital_id, appt.doctor_id):
-            await _notify_no_slots_available(wa, sessions, hospital_id, phone, appt.doctor_name, language=language)
-            return
-        new_context = {
-            "reschedule_appointment_id": appt.id,
-            "department_id": appt.department_id,
-            "department_name": appt.department_name,
-            "doctor_id": appt.doctor_id,
-            "doctor_name": appt.doctor_name,
-        }
-        sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, new_context)
-        await _send_slot_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector, language=language)
+        await _start_reschedule_flow_for_appointment(wa, sessions, phone, hospital_id, appt, connector, language=language)
         return
 
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
@@ -896,6 +1203,7 @@ _HANDLERS = {
     STATE_AWAITING_PATIENT_NAME: _handle_awaiting_patient_name,
     STATE_AWAITING_PATIENT_AGE: _handle_awaiting_patient_age,
     STATE_AWAITING_CONFIRMATION: _handle_awaiting_confirmation,
+    STATE_AWAITING_CHANGE_SELECTION: _handle_awaiting_change_selection,
     STATE_AWAITING_CANCEL_SELECTION: _handle_awaiting_cancel_selection,
     STATE_AWAITING_CANCEL_CONFIRM: _handle_awaiting_cancel_confirm,
     STATE_AWAITING_RESCHEDULE_SELECTION: _handle_awaiting_reschedule_selection,

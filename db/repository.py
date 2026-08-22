@@ -27,6 +27,14 @@ from db.connection import IntegrityError, get_connection
 STATUS_BOOKED = "booked"
 STATUS_CANCELLED = "cancelled"
 STATUS_RESCHEDULED = "rescheduled"
+# Item 9 (Spec.md Section 0): real, staff-confirmed statuses -- closes the
+# previously-flagged "no-shows are a heuristic, not a real status" gap
+# (get_dashboard_stats()' "no_shows_today" below is UNCHANGED, still the
+# same time-passed-and-still-booked heuristic -- these two new values don't
+# retroactively reclassify it, they give staff a way to record the real
+# outcome going forward once they confirm it).
+STATUS_ATTENDED = "attended"
+STATUS_NO_SHOW = "no_show"
 
 SOURCE_WHATSAPP = "whatsapp"
 SOURCE_STAFF = "staff"
@@ -41,6 +49,22 @@ class QuotaExceededError(IntegrityError):
     handling) keeps working unchanged with its generic "that slot was just
     taken" message; portal.py's staff-booking route catches THIS specifically
     first, to show str(e) (a purpose-written message) instead."""
+
+
+class DuplicateBookingError(IntegrityError):
+    """Item 5 (Spec.md Section 0): raised by create_appointment() when this
+    phone already has an ACTIVE (status='booked') appointment with the SAME
+    doctor and the same patient age on file. Scoped to same-doctor
+    specifically -- a patient legitimately booking two different doctors is
+    never blocked. Subclasses IntegrityError for the same reason
+    QuotaExceededError does (existing `except IntegrityError:` call sites
+    keep working); carries the existing appointment's id so a caller can
+    offer direct Cancel/Reschedule actions for THAT appointment instead of a
+    generic error message."""
+    def __init__(self, message: str, existing_appointment_id: int):
+        super().__init__(message)
+        self.existing_appointment_id = existing_appointment_id
+
 
 _SLOT_DAYS_AHEAD = 14
 
@@ -944,6 +968,51 @@ def create_doctor_leave(hospital_id: int, doctor_id: str, leave_date: str, reaso
     return {"date": leave_date, "reason": reason}
 
 
+_MAX_LEAVE_RANGE_DAYS = 366
+
+
+def create_doctor_leave_range(
+    hospital_id: int, doctor_id: str, from_date: str, to_date: str, reason: str | None = None,
+) -> list[str]:
+    """Item 10 (Spec.md Section 0): From/To range with one Confirm, instead
+    of adding leave dates one at a time. Composes with the existing
+    exclusion logic unchanged -- generate_slots_for_doctor() (Section 14.7)
+    already skips any date present in doctor_leave, so a doctor
+    automatically shows as unavailable for booking across the whole range
+    the moment these rows exist and slots regenerate below; no SEPARATE
+    availability-toggle mechanism is needed (a global is_active flip would
+    be wrong here anyway -- it isn't date-scoped, so it would incorrectly
+    block booking outside the leave range too). Regenerates slots ONCE after
+    inserting every date in the range, not once per date (create_doctor_leave()'s
+    own per-call regeneration would be wasteful looped N times here)."""
+    start = date.fromisoformat(from_date)
+    end = date.fromisoformat(to_date)
+    if end < start:
+        raise ValueError("to_date must not be before from_date.")
+    if (end - start).days + 1 > _MAX_LEAVE_RANGE_DAYS:
+        raise ValueError(f"Leave range cannot exceed {_MAX_LEAVE_RANGE_DAYS} days.")
+
+    conn = get_connection()
+    created_dates = []
+    d = start
+    while d <= end:
+        iso = d.isoformat()
+        conn.execute(
+            "INSERT INTO doctor_leave (hospital_id, doctor_id, date, reason) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (doctor_id, date) DO NOTHING",
+            (hospital_id, doctor_id, iso, reason),
+        )
+        created_dates.append(iso)
+        d += timedelta(days=1)
+    conn.execute(
+        "DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ?",
+        (hospital_id, doctor_id, start.isoformat()),
+    )
+    conn.commit()
+    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    return created_dates
+
+
 def delete_doctor_leave(hospital_id: int, doctor_id: str, leave_id: int) -> bool:
     """Returns False if no such leave row exists for this doctor/hospital
     (nothing deleted) -- same hospital_id-scoped-guard discipline as every
@@ -1260,7 +1329,7 @@ def mark_document_sent_to_whatsapp(hospital_id: int, document_id: int) -> bool:
 
 # --- Appointments ---
 
-def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: int | None = None) -> None:
+def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: int | None = None) -> dict:
     """Section 12.9: keeps `patients` in sync on every booking, both sources.
     COALESCE(EXCLUDED.name, patients.name) means a name, when given (staff
     bookings, or as of Section 12.11 a WhatsApp patient asked for the first
@@ -1268,13 +1337,21 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
     WhatsApp patient who's already on file, so booking_flow.py skips asking
     again), an existing name/age is never clobbered back to NULL. Same
     COALESCE treatment for `age` -- Section 12.11's WhatsApp-collected field,
-    independent of the staff portal's date_of_birth (Section 12.10)."""
-    conn.execute(
+    independent of the staff portal's date_of_birth (Section 12.10).
+
+    Item 8 (Spec.md Section 0): now returns {id, name, age} -- called BEFORE
+    the appointments INSERT (moved up from after, same transaction either
+    way) so create_appointment() can denormalize the RESOLVED id/name (the
+    COALESCE result, not just whatever was passed in this call) onto the new
+    appointments row."""
+    row = conn.execute(
         "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) "
         "ON CONFLICT (hospital_id, phone) DO UPDATE SET "
-        "name = COALESCE(EXCLUDED.name, patients.name), age = COALESCE(EXCLUDED.age, patients.age)",
+        "name = COALESCE(EXCLUDED.name, patients.name), age = COALESCE(EXCLUDED.age, patients.age) "
+        "RETURNING id, name, age",
         (hospital_id, phone, name, age),
-    )
+    ).fetchone()
+    return {"id": row["id"], "name": row["name"], "age": row["age"]}
 
 
 def create_appointment(
@@ -1404,6 +1481,36 @@ def create_appointment(
         if free_ordinal_row["ordinal"] is None:
             raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
 
+        # Item 5 (Spec.md Section 0): booking is free (no payment friction),
+        # so nothing else stops an accidental/duplicate re-booking with the
+        # same doctor. `patients` is one profile per (hospital_id, phone) --
+        # this schema has no multi-patient-per-phone model -- so "same age"
+        # in practice means "the age this booking attempt is using matches
+        # the single profile's age currently on file": a returning patient
+        # (patient_age not re-asked, so it's None here and effective_age
+        # falls back to the stored profile) always matches their own
+        # existing booking; a genuinely different age given for THIS attempt
+        # (the only way today's UI could reflect a different family member)
+        # does not, and is allowed through. Read BEFORE _upsert_patient below
+        # so this compares against the PRE-this-attempt stored age, not a
+        # value this same call may be about to overwrite it with.
+        existing_patient_row = conn.execute(
+            "SELECT age FROM patients WHERE hospital_id = ? AND phone = ?",
+            (hospital_id, phone),
+        ).fetchone()
+        existing_age = existing_patient_row["age"] if existing_patient_row else None
+        effective_age = patient_age if patient_age is not None else existing_age
+        if effective_age is not None and effective_age == existing_age:
+            dup_row = conn.execute(
+                "SELECT id FROM appointments WHERE hospital_id = ? AND phone = ? AND doctor_id = ? AND status = ? "
+                "ORDER BY scheduled_at LIMIT 1",
+                (hospital_id, phone, doctor_id, STATUS_BOOKED),
+            ).fetchone()
+            if dup_row:
+                raise DuplicateBookingError(
+                    "An active appointment with this doctor already exists for this patient.", dup_row["id"],
+                )
+
         # No retry-on-conflict here (an earlier version of this function had
         # one, left over from before the advisory lock above existed): under
         # the lock, no other transaction can be concurrently computing an
@@ -1417,15 +1524,19 @@ def create_appointment(
         # `except IntegrityError:` handling. Let it propagate straight to the
         # `except BaseException` below instead, which ROLLBACKs correctly and
         # re-raises the SAME, correctly-typed exception.
+        # Item 8: upsert BEFORE the insert (moved up from after) so the
+        # resolved patient id/name (the COALESCE result, not just whatever
+        # this call passed in) can be denormalized onto the new row.
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source, reference_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
-             _generate_reference_id()),
+             _generate_reference_id(), patient["id"], patient["name"], phone),
         )
         new_id = cur.fetchone()["id"]
 
-        _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
         conn.execute("COMMIT")
     except BaseException:
         try:
@@ -1549,6 +1660,39 @@ def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
         (STATUS_RESCHEDULED, datetime.now().isoformat(), appointment_id, hospital_id),
     )
     conn.commit()
+
+
+def mark_attendance(hospital_id: int, appointment_id: int, attended: bool) -> bool:
+    """Item 9 (Spec.md Section 0): staff-confirmed attended/no_show, replacing
+    the dashboard's own no-show HEURISTIC with a real recorded outcome for
+    this one appointment. Only allowed FROM status='booked' (an already
+    cancelled/rescheduled/attended/no_show row can't be re-marked through
+    this path -- WHERE status = 'booked' makes that a no-op, not a silent
+    overwrite). Returns False if nothing matched (already resolved, wrong
+    hospital, or doesn't exist), same "bool = did it actually happen"
+    convention resolve_handoff_request() already uses."""
+    conn = get_connection()
+    new_status = STATUS_ATTENDED if attended else STATUS_NO_SHOW
+    cur = conn.execute(
+        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ? AND status = ?",
+        (new_status, datetime.now().isoformat(), appointment_id, hospital_id, STATUS_BOOKED),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_appointments_needing_attendance_review(hospital_id: int, now: datetime | None = None) -> list["Appointment"]:
+    """Item 9: still status='booked' but scheduled_at has already passed --
+    exactly the set the dashboard's no-show heuristic already identifies,
+    surfaced here as real rows for staff to resolve (attended/no_show) via
+    mark_attendance(), rather than just a stat-tile count."""
+    now = now or datetime.now()
+    conn = get_connection()
+    rows = conn.execute(
+        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? AND a.status = ? AND a.scheduled_at < ? ORDER BY a.scheduled_at DESC",
+        (hospital_id, STATUS_BOOKED, now.isoformat()),
+    ).fetchall()
+    return [_row_to_appointment(r) for r in rows]
 
 
 # --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
@@ -1839,6 +1983,19 @@ def get_handoff_requests(hospital_id: int, status: str | None = "open", limit: i
             (hospital_id, status, limit),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def has_open_handoff(hospital_id: int, phone: str) -> bool:
+    """Item 7 (Spec.md Section 0): checked at the very top of flows.py's
+    router, before any bot logic (including the reset-keyword escape hatch)
+    runs -- once a patient is in an active handoff, the bot must go
+    completely silent for that phone, not just skip its own menu."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM handoff_requests WHERE hospital_id = ? AND phone = ? AND status = 'open' LIMIT 1",
+        (hospital_id, phone),
+    ).fetchone()
+    return row is not None
 
 
 def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:

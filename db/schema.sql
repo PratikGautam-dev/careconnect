@@ -95,10 +95,11 @@ CREATE TABLE IF NOT EXISTS hospitals (
     language_prompt_enabled INTEGER,
     -- session_timeout_minutes: replaces core/history.py's fixed 30-minute
     -- SESSION_TIMEOUT_SECONDS constant for this hospital specifically.
-    -- CHECK bounds (5-120) match the portal settings form's own validation --
+    -- CHECK bounds (2-120 -- widened from 5-120, see the ALTER CONSTRAINT
+    -- migration below) match the portal settings form's own validation --
     -- enforced at the DB level too so a direct/future write path can't set
     -- something nonsensical. NULL means "use the 30-minute default."
-    session_timeout_minutes INTEGER CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 5 AND 120)),
+    session_timeout_minutes INTEGER CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 2 AND 120)),
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (now()::text)
 );
@@ -115,7 +116,19 @@ ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS closing_message_text TEXT;
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS business_hours_text TEXT;
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS default_language TEXT;
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS language_prompt_enabled INTEGER;
-ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS session_timeout_minutes INTEGER CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 5 AND 120));
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS session_timeout_minutes INTEGER CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 2 AND 120));
+
+-- Widens the CHECK bound below from 5-120 to 2-120 (a 2-minute idle-timeout
+-- option, for testing/demoing the flow without a real 5+ minute wait) --
+-- the ADD COLUMN IF NOT EXISTS above only fires on a database created
+-- before this column existed at all, so on the real, already-migrated
+-- database it's a no-op and this explicit ALTER is the only thing that
+-- actually widens the constraint. DROP+ADD (not ALTER CHECK, which
+-- Postgres doesn't support) is safe to re-run on every startup: same end
+-- state every time, a fast metadata-only operation, no data movement.
+ALTER TABLE hospitals DROP CONSTRAINT IF EXISTS hospitals_session_timeout_minutes_check;
+ALTER TABLE hospitals ADD CONSTRAINT hospitals_session_timeout_minutes_check
+    CHECK (session_timeout_minutes IS NULL OR (session_timeout_minutes BETWEEN 2 AND 120));
 
 -- id is a human-readable slug (e.g. "cardiology") rather than a surrogate integer,
 -- so it can be used directly as a WhatsApp list-reply id, same as before this
@@ -302,7 +315,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     department_id TEXT NOT NULL REFERENCES departments(id),
     doctor_id TEXT NOT NULL REFERENCES doctors(id),
     scheduled_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'cancelled', 'rescheduled')),
+    status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'cancelled', 'rescheduled', 'attended', 'no_show')),
     -- Section 12.9: 'whatsapp' (patient self-booking, core/booking_flow.py) or
     -- 'staff' (portal.py's /portal/new-booking, front-desk/phone bookings) --
     -- both go through the exact same db.create_appointment()/get_slots()
@@ -346,6 +359,31 @@ CREATE TABLE IF NOT EXISTS appointments (
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_ordinal INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reference_id TEXT;
+-- Item 8 (Spec.md Section 0): denormalized copies of the owning patient's
+-- id/name/phone, same convention appointment_reminders already established
+-- by carrying hospital_id alongside its own appointment_id FK -- directly
+-- supports item 5's duplicate-booking check (same doctor + same phone +
+-- same age on file, without a join to patients for every booking attempt)
+-- and makes this table more directly queryable/exportable by staff without
+-- one. patient_phone duplicates the existing `phone` column's value
+-- (there's only ever one phone per patient per hospital, UNIQUE(hospital_id,
+-- phone) on patients) -- kept as its own explicitly-named column anyway for
+-- a consistent "every patient_* column lives together" shape when exporting,
+-- not because the value itself ever differs from `phone`. All nullable,
+-- backfilled below for rows that predate these columns -- never required at
+-- INSERT time by any CHECK, so a hypothetical future caller that doesn't set
+-- them still works.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patients(id);
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_name TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_phone TEXT;
+-- Item 9: the inline CHECK above only applies to a freshly-created table --
+-- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
+-- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
+-- constraint name confirmed against a live Postgres instance before writing
+-- this (Postgres's own default naming for an inline column CHECK).
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_status_check;
+ALTER TABLE appointments ADD CONSTRAINT appointments_status_check
+    CHECK (status IN ('booked', 'cancelled', 'rescheduled', 'attended', 'no_show'));
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

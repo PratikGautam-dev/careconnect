@@ -85,7 +85,7 @@ async def test_no_custom_label_falls_back_to_default(hospital_id):
     )
 
     kind, kwargs = wa.sent[-1]
-    assert _row_titles(kwargs) == ["Book Appointment"]
+    assert _row_titles(kwargs) == ["Book Appointment", "Change Language"]
 
 
 # --- Closing message ---
@@ -110,9 +110,10 @@ async def test_closing_message_appended_after_booking_confirmed(hospital_id):
     )
 
     kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "booked successfully" in kwargs["text"].lower()
-    assert kwargs["text"].endswith("Thank you for choosing City Hospital. For emergencies, call 102.")
+    # Item 3 (Spec.md Section 0): success message is now buttons, not text.
+    assert kind == "buttons"
+    assert "booked successfully" in kwargs["body_text"].lower()
+    assert kwargs["body_text"].endswith("Thank you for choosing City Hospital. For emergencies, call 102.")
 
 
 @pytest.mark.asyncio
@@ -132,8 +133,9 @@ async def test_no_closing_message_configured_leaves_standard_text_unchanged(hosp
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
 
     kind, kwargs = wa.sent[-1]
-    assert "Your appointment is registered. We look forward to seeing you." in kwargs["text"]
-    assert kwargs["text"].count("\n\n") == 1  # no extra appended block
+    assert kind == "buttons"
+    assert "Your appointment is registered. We look forward to seeing you." in kwargs["body_text"]
+    assert kwargs["body_text"].count("\n\n") == 1  # no extra appended block
 
 
 @pytest.mark.asyncio

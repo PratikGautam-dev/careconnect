@@ -36,8 +36,13 @@ const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
   cancelled: "bg-error-tint text-error",
   rescheduled: "bg-clay-100 text-clay-700",
+  attended: "bg-success-tint text-success",
+  no_show: "bg-error-tint text-error",
 };
-const STATUS_LABELS: Record<string, string> = { booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled" };
+const STATUS_LABELS: Record<string, string> = {
+  booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled",
+  attended: "Attended", no_show: "No-show",
+};
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 
 function formatTime(iso: string) {
@@ -62,6 +67,23 @@ export default function PortalAppointmentsPage() {
   const [rDoctorId, setRDoctorId] = useState("");
   const [rDate, setRDate] = useState("");
   const [rSlotId, setRSlotId] = useState("");
+  const [markingAttendanceId, setMarkingAttendanceId] = useState<number | null>(null);
+
+  // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
+  // real status" gap -- a still-'booked' appointment whose scheduled time
+  // has already passed gets an inline "Did the patient visit?" prompt,
+  // computed here from the same fields the table already has (no separate
+  // fetch needed just to know which rows these are).
+  async function handleAttendance(id: number, attended: boolean) {
+    setMarkingAttendanceId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/attendance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attended }),
+    });
+    setMarkingAttendanceId(null);
+    if (result.ok) load();
+  }
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/bookings");
@@ -202,23 +224,45 @@ export default function PortalAppointmentsPage() {
                           </span>
                         </td>
                         <td className="py-space-2 text-right whitespace-nowrap">
-                          {a.status === "booked" && cancelPanelId !== a.id && reschedulePanelId !== a.id && (
-                            <span className="inline-flex gap-space-3">
+                          {a.status === "booked" && new Date(a.scheduled_at).getTime() < Date.now() ? (
+                            <span className="inline-flex items-center gap-space-3">
+                              <span className="text-[12px] text-ink-400">Did the patient visit?</span>
                               <button
                                 type="button"
-                                onClick={() => openReschedulePanel(a.id)}
-                                className="text-[12.5px] font-semibold text-brand-600 hover:underline"
+                                onClick={() => handleAttendance(a.id, true)}
+                                disabled={markingAttendanceId === a.id}
+                                className="text-[12.5px] font-semibold text-success hover:underline disabled:opacity-50"
                               >
-                                Reschedule
+                                Attended
                               </button>
                               <button
                                 type="button"
-                                onClick={() => openCancelPanel(a.id)}
-                                className="text-[12.5px] font-semibold text-error hover:underline"
+                                onClick={() => handleAttendance(a.id, false)}
+                                disabled={markingAttendanceId === a.id}
+                                className="text-[12.5px] font-semibold text-error hover:underline disabled:opacity-50"
                               >
-                                Cancel
+                                No-show
                               </button>
                             </span>
+                          ) : (
+                            a.status === "booked" && cancelPanelId !== a.id && reschedulePanelId !== a.id && (
+                              <span className="inline-flex gap-space-3">
+                                <button
+                                  type="button"
+                                  onClick={() => openReschedulePanel(a.id)}
+                                  className="text-[12.5px] font-semibold text-brand-600 hover:underline"
+                                >
+                                  Reschedule
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openCancelPanel(a.id)}
+                                  className="text-[12.5px] font-semibold text-error hover:underline"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            )
                           )}
                         </td>
                       </tr>

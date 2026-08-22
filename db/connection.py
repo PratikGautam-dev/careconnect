@@ -58,7 +58,7 @@ IntegrityError = psycopg2.IntegrityError
 _QUESTION_MARK_RE = re.compile(r"\?")
 
 
-class _PGConnection:
+class _PGConnection:4
     """Wraps a psycopg2 connection to give it sqlite3.Connection's
     conn.execute(sql, params).fetchone()/.fetchall() chaining convenience,
     dict-like row access (via RealDictCursor), and an executescript() for

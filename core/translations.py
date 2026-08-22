@@ -66,6 +66,12 @@ STRINGS: dict[str, dict[Language, str]] = {
     "feature_hospital_info": {"en": "Hospital Information", "hi": "अस्पताल की जानकारी"},
     "feature_reception_handoff": {"en": "Talk to Reception", "hi": "रिसेप्शन से बात करें"},
     "feature_faq": {"en": "FAQ / Information", "hi": "सामान्य प्रश्न"},
+    # Item 4 (Spec.md Section 0): not a hospital-toggleable enabled_features
+    # entry like the rows above -- always appended to the main menu itself
+    # (when the hospital hasn't disabled the language picker entirely), since
+    # it's core session behavior, not a business capability a hospital opts
+    # in/out of.
+    "feature_change_language": {"en": "Change Language", "hi": "भाषा बदलें"},
 
     # booking_flow.py's OWN static 4-item menu (superseded for real traffic by
     # flows.py's dynamic one, but tests/test_booking_flow.py exercises it
@@ -90,6 +96,12 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "हमने अपनी रिसेप्शन टीम को सूचित कर दिया है — वे जल्द ही आपसे यहां संपर्क करेंगे। "
               "इस बीच अगर आपको कुछ और चाहिए, तो बस \"menu\" लिखें।",
     },
+
+    # "Go back" navigation (Spec.md Section 0 follow-up): one shared row/button
+    # label, appended to the department/doctor/date/time list menus and as a
+    # 3rd button on the confirmation card (Meta's 3-button max) -- short
+    # enough to clear both the 20-char button limit and 24-char row limit.
+    "back_option": {"en": "◀ Back", "hi": "◀ पीछे"},
 
     # --- Booking: department/doctor/date/time menus ---
     "select_department": {"en": "Please select a medical department:", "hi": "कृपया एक चिकित्सा विभाग चुनें:"},
@@ -204,6 +216,19 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
     "confirm_button": {"en": "Confirm", "hi": "पुष्टि करें"},
     "cancel_button": {"en": "Cancel", "hi": "रद्द करें"},
+
+    # Confirmation's own Back routes here instead of popping one field --
+    # "which one field" isn't knowable, so this asks instead of guessing.
+    "what_would_you_like_to_change": {
+        "en": "No problem — what would you like to change?",
+        "hi": "कोई बात नहीं — आप क्या बदलना चाहेंगे?",
+    },
+    "view_change_options_button": {"en": "Choose", "hi": "चुनें"},
+    "change_options_section_title": {"en": "Change", "hi": "बदलें"},
+    "change_department_option": {"en": "Department", "hi": "विभाग"},
+    "change_doctor_option": {"en": "Doctor", "hi": "डॉक्टर"},
+    "change_date_option": {"en": "Date", "hi": "तारीख"},
+    "change_time_option": {"en": "Time", "hi": "समय"},
     "booking_confirmed": {
         "en": "✅ *Consulting Booked successfully!*\n\n"
               "Reference ID: *{reference_id}*\n"
@@ -215,6 +240,20 @@ STRINGS: dict[str, dict[Language, str]] = {
     "booking_not_confirmed": {
         "en": "Okay, I've cancelled this booking. Send any message to start over.",
         "hi": "ठीक है, मैंने यह बुकिंग रद्द कर दी है। फिर से शुरू करने के लिए कोई भी संदेश भेजें।",
+    },
+    # Item 5 (Spec.md Section 0): shown when create_appointment() raises
+    # DuplicateBookingError -- an active booking with this same doctor (and
+    # age on file) already exists, so this attempt is blocked rather than
+    # creating a second one.
+    "duplicate_booking_text": {
+        "en": "You already have an appointment booked with {doctor_name} — reply below to manage it.",
+        "hi": "आपकी {doctor_name} के साथ पहले से ही एक अपॉइंटमेंट बुक है — इसे प्रबंधित करने के लिए नीचे उत्तर दें।",
+    },
+    # Item 6 (Spec.md Section 0): shown after tapping one appointment in "My
+    # Appointments" -- the same quick-action buttons item 3/5 use.
+    "manage_appointment_prompt": {
+        "en": "Your appointment with {doctor_name} — what would you like to do?",
+        "hi": "{doctor_name} के साथ आपकी अपॉइंटमेंट — आप क्या करना चाहेंगे?",
     },
 
     # --- Cancel flow ---

@@ -54,10 +54,20 @@ import logging
 import db.repository as db
 from core.booking_flow import (
     _HANDLERS as _BOOKING_STATE_HANDLERS,
+    _appointment_row_id,
+    _manage_cancel_id,
+    _manage_reschedule_id,
+    _parse_appointment_row_id,
+    _parse_manage_id,
     _send_department_menu,
     _start_cancel_flow,
+    _start_cancel_flow_for_appointment,
     _start_reschedule_flow,
+    _start_reschedule_flow_for_appointment,
     FREE_TEXT_INPUT_STATES,
+    GOTO_MAIN_MENU,
+    MANAGE_CANCEL_PREFIX,
+    MANAGE_RESCHEDULE_PREFIX,
     STATE_AWAITING_DEPARTMENT,
     STATE_IDLE,
 )
@@ -95,6 +105,11 @@ _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title_key) in _FEATURE_MENU
 REAL_FEATURES = {"booking", "reschedule", "cancel", "faq", "view_appointments", "hospital_info", "reception_handoff"}
 ALL_FEATURES = REAL_FEATURES
 
+# Item 4 (Spec.md Section 0): deliberately NOT a member of _FEATURE_MENU/
+# enabled_features -- always appended to the main menu (unless the hospital
+# has disabled the language picker outright), not a per-hospital toggle.
+CHANGE_LANGUAGE_ROW = "menu_change_language"
+
 
 async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language: str = "en") -> None:
     """Shown before anything else on a genuinely fresh conversation (see
@@ -116,7 +131,7 @@ async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language
 
 async def _send_dynamic_menu(
     wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
-    feature_labels: dict[str, str] | None = None,
+    feature_labels: dict[str, str] | None = None, language_prompt_enabled: bool = True,
 ) -> None:
     feature_labels = feature_labels or {}
     rows = [
@@ -134,9 +149,17 @@ async def _send_dynamic_menu(
         # A hospital with nothing enabled (mid-onboarding data issue, or a
         # brand-new row before enabled_features was ever set) -- graceful
         # patient-facing message, never an empty WhatsApp list send
-        # (Phase 8 / Section 12.7's established discipline).
+        # (Phase 8 / Section 12.7's established discipline). Checked BEFORE
+        # "Change Language" is appended below -- that row alone doesn't count
+        # as "something enabled."
         await wa.send_text(phone, t("feature_menu_unavailable", language, hospital_name=hospital_name))
         return
+    # Item 4: a hospital that disabled the language picker (language_prompt_
+    # enabled=False, Section 12.13) only ever wants one language -- "Change
+    # Language" would offer a picker that contradicts that setting, so it's
+    # left off the menu entirely in that case, same as the picker itself.
+    if language_prompt_enabled:
+        rows.append({"id": CHANGE_LANGUAGE_ROW, "title": t("feature_change_language", language)})
     rows = cap_rows(rows, f"main menu for {hospital_name}")
     await wa.send_list(
         to=phone,
@@ -163,13 +186,19 @@ async def _enter_idle(
     the same as if the patient had tapped that language on the picker."""
     if not language_prompt_enabled:
         sessions.set(hospital_id, phone, STATE_IDLE, {}, language=default_language)
-        await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=default_language, feature_labels=feature_labels)
+        await _send_dynamic_menu(
+            wa, phone, hospital_name, enabled_features, language=default_language, feature_labels=feature_labels,
+            language_prompt_enabled=False,
+        )
         return
     if language is None:
         sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
         await _send_language_picker(wa, phone, default_language=default_language)
         return
-    await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=language, feature_labels=feature_labels)
+    await _send_dynamic_menu(
+        wa, phone, hospital_name, enabled_features, language=language, feature_labels=feature_labels,
+        language_prompt_enabled=True,
+    )
 
 
 async def _handle_awaiting_language(
@@ -184,21 +213,80 @@ async def _handle_awaiting_language(
         await _send_language_picker(wa, phone, default_language=default_language)
         return
     sessions.set(hospital_id, phone, STATE_IDLE, {}, language=chosen)
-    await _send_dynamic_menu(wa, phone, hospital_name, enabled_features, language=chosen, feature_labels=feature_labels)
+    # Reachable only via STATE_AWAITING_LANGUAGE, which _enter_idle only ever
+    # sets when language_prompt_enabled is True (see its own branch above) --
+    # safe and explicit to hardcode True here rather than thread the flag
+    # through a 3rd function signature for a value that can't actually vary.
+    await _send_dynamic_menu(
+        wa, phone, hospital_name, enabled_features, language=chosen, feature_labels=feature_labels,
+        language_prompt_enabled=True,
+    )
+
+
+STATE_AWAITING_VIEW_APPOINTMENT_ACTION = "AWAITING_VIEW_APPOINTMENT_ACTION"
 
 
 async def _send_view_appointments(
-    wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
 ) -> None:
+    """Item 6 (Spec.md Section 0): each listed appointment is now a tappable
+    row (not just a plain-text summary) -- picking one shows THAT
+    appointment's own Cancel/Reschedule quick actions directly, matching the
+    "list -> tap -> action buttons" pattern (no separate re-identification
+    step needed, per the user's own choice of that shape over a generic
+    manage-flow)."""
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
+        sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("view_appointments_list", language))
         return
-    lines = [
-        f"- {a.doctor_name} ({a.department_name}) — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}"
+    rows = [
+        {
+            "id": _appointment_row_id(a.id),
+            "title": a.doctor_name,
+            "description": f"{a.department_name} — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}",
+        }
         for a in appointments
     ]
-    await wa.send_text(phone, t("view_appointments_header", language) + "\n".join(lines))
+    rows = cap_rows(rows, "view appointments menu")
+    sessions.set(hospital_id, phone, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, {})
+    await wa.send_list(
+        to=phone,
+        body_text=t("view_appointments_header", language),
+        button_text=t("view_appointments_button", language),
+        sections=[{"title": t("your_appointments_section_title", language), "rows": rows}],
+    )
+
+
+async def _handle_awaiting_view_appointment_action(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
+    connector: Connector, language: str = "en",
+) -> None:
+    appt_id = _parse_appointment_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
+    appt = None
+    if appt_id is not None:
+        appt = next(
+            (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone) if a.id == appt_id), None,
+        )
+    if appt is None:
+        # Stale/unrecognized tap, or the list went stale between send and
+        # reply -- re-show the current list rather than a dead end.
+        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language)
+        return
+    sessions.reset(hospital_id, phone)
+    # Same 3-button quick-action pattern item 3's booking-success message
+    # uses -- these ids are recognized from ANY session state going forward
+    # (flows.py's own top-of-handle_incoming check), so it doesn't matter
+    # that this session is now reset to IDLE.
+    await wa.send_buttons(
+        to=phone,
+        body_text=t("manage_appointment_prompt", language, doctor_name=appt.doctor_name),
+        buttons=[
+            {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
+            {"id": _manage_cancel_id(appt.id), "title": t("cancel_button", language)},
+            {"id": _manage_reschedule_id(appt.id), "title": t("reschedule_short", language)},
+        ],
+    )
 
 
 async def _start_feature(
@@ -232,8 +320,7 @@ async def _start_feature(
         await faq_flow.send_topic_menu(wa, phone, hospital_id, hospital_name, language=language)
         return
     if key == "view_appointments":
-        sessions.reset(hospital_id, phone)
-        await _send_view_appointments(wa, phone, hospital_id, connector, language=language)
+        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language)
         return
     if key == "hospital_info":
         sessions.reset(hospital_id, phone)
@@ -292,6 +379,18 @@ async def handle_incoming(
     defaults to "no customization" (None/{}/en/True) so a caller that doesn't
     pass them (including the whole pre-Section-12.13 test suite) gets
     byte-for-byte the same fixed behavior as before this section."""
+    # Item 7 (Spec.md Section 0): a real production bug -- once a patient's
+    # "Talk to Reception" request is open, the bot must go completely silent
+    # for that phone (including the reset-keyword escape hatch below, which
+    # is exactly what a patient typing "hi" mid-handoff was tripping) until
+    # staff resolve it. Checked before anything else touches session state,
+    # so a stale/expired session can't accidentally re-engage the bot either.
+    if db.has_open_handoff(hospital_id, phone):
+        logger.info(
+            "Handoff active for hospital=%s phone=%s -- routing to the handoff queue, not the bot",
+            hospital_id, phone,
+        )
+        return
     connector = connector or _DEFAULT_CONNECTOR
     enabled_features = enabled_features or []
     # Section 12.13: a hospital's own session_timeout_minutes (5-120) overrides
@@ -306,6 +405,46 @@ async def handle_incoming(
     if language not in SUPPORTED_LANGUAGES:
         language = None
 
+    # Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a specific
+    # appointment id -- attached to the booking-success message, the
+    # duplicate-booking block message, and My Appointments' inline actions.
+    # Checked BEFORE the reset-keyword/state dispatch below (and regardless
+    # of the CURRENT session state) precisely because the message carrying
+    # one of these may be tapped long after the session that sent it has
+    # expired -- "reopen the chat later and it still works" is the whole
+    # point. Re-validated fresh against this phone's own current upcoming
+    # appointments (never trusted from the tapped id alone) -- an appointment
+    # already cancelled/rescheduled/past falls through to normal routing
+    # instead of silently acting on stale data.
+    if reply["type"] == "interactive_reply":
+        rid = reply["id"]
+        if rid == GOTO_MAIN_MENU:
+            sessions.reset(hospital_id, phone)
+            await _enter_idle(
+                wa, sessions, phone, hospital_id, hospital_name, enabled_features, language,
+                feature_labels=feature_labels, default_language=default_language,
+                language_prompt_enabled=language_prompt_enabled,
+            )
+            return
+        manage_appt_id = _parse_manage_id(rid, MANAGE_CANCEL_PREFIX)
+        if manage_appt_id is not None:
+            appt = next(
+                (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone) if a.id == manage_appt_id),
+                None,
+            )
+            if appt:
+                await _start_cancel_flow_for_appointment(wa, sessions, phone, hospital_id, appt, language=language or "en")
+                return
+        manage_appt_id = _parse_manage_id(rid, MANAGE_RESCHEDULE_PREFIX)
+        if manage_appt_id is not None:
+            appt = next(
+                (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone) if a.id == manage_appt_id),
+                None,
+            )
+            if appt:
+                await _start_reschedule_flow_for_appointment(wa, sessions, phone, hospital_id, appt, connector, language=language or "en")
+                return
+
     if state != STATE_IDLE and state not in FREE_TEXT_INPUT_STATES and is_reset_keyword(reply):
         sessions.reset(hospital_id, phone)
         await _enter_idle(
@@ -319,6 +458,12 @@ async def handle_incoming(
         await _handle_awaiting_language(
             wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features,
             feature_labels=feature_labels, default_language=default_language,
+        )
+        return
+
+    if state == STATE_AWAITING_VIEW_APPOINTMENT_ACTION:
+        await _handle_awaiting_view_appointment_action(
+            wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language or "en",
         )
         return
 
@@ -340,6 +485,17 @@ async def handle_incoming(
     # id from before a feature was disabled) shows the unified menu (via
     # _enter_idle, which gates on language being chosen first).
     if reply["type"] == "interactive_reply":
+        # Item 4: "Change Language" mid-conversation -- re-shows the same
+        # bilingual picker a fresh session sees, without resetting anything
+        # else about the session (there's nothing else to preserve at IDLE
+        # anyway). Only offered when the hospital hasn't disabled the picker
+        # entirely (matches _send_dynamic_menu not showing the row at all in
+        # that case, but re-checked here too since a stale/replayed tap could
+        # otherwise still reach this branch after settings changed).
+        if reply["id"] == CHANGE_LANGUAGE_ROW and language_prompt_enabled:
+            sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
+            await _send_language_picker(wa, phone, default_language=default_language)
+            return
         feature_key = _ROW_ID_TO_FEATURE.get(reply["id"])
         if feature_key is not None and feature_key in enabled_features and language is not None:
             await _start_feature(

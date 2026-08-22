@@ -213,11 +213,11 @@ export default function PortalSettingsPage() {
               <p className="mb-space-3 text-[12.5px] text-ink-400">
                 How long a patient can go quiet mid-conversation before the bot treats their next message as a fresh start.
               </p>
-              <Field label="Timeout (minutes)" htmlFor="session_timeout_minutes" hint="Between 5 and 120 minutes.">
+              <Field label="Timeout (minutes)" htmlFor="session_timeout_minutes" hint="Between 2 and 120 minutes.">
                 <Input
                   id="session_timeout_minutes"
                   type="number"
-                  min={5}
+                  min={2}
                   max={120}
                   value={settings.session_timeout_minutes}
                   onChange={(e) => setSettings({ ...settings, session_timeout_minutes: Number(e.target.value) })}

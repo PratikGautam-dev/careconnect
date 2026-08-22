@@ -48,6 +48,11 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         "view_departments_button", "view_doctors_button", "view_slots_button",
         "view_dates_button", "view_times_button",
         "confirm_button", "cancel_button", "view_appointments_button", "view_topics_button",
+        # "Go back" navigation: back_option is used as BOTH a button (the
+        # confirmation card's 3rd button) and a list-row title (appended to
+        # the department/doctor/date/time menus) -- checked against the
+        # tighter button limit here, and again below against the row limit.
+        "back_option", "view_change_options_button",
     ]
     for key in button_keys:
         for lang in SUPPORTED_LANGUAGES:
@@ -58,6 +63,8 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         "feature_booking", "feature_reschedule", "feature_cancel", "feature_view_appointments",
         "feature_hospital_info", "feature_reception_handoff", "feature_faq",
         "book_appointment_short", "reschedule_short", "cancel_short", "faq_short",
+        "back_option", "change_department_option", "change_doctor_option",
+        "change_date_option", "change_time_option", "feature_change_language",
     ]
     for key in row_title_keys:
         for lang in SUPPORTED_LANGUAGES:

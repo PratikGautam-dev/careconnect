@@ -80,9 +80,10 @@ async def test_confirm_race_second_patient_gets_taken_message_and_updated_slot_l
     sessions_a.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
     sessions_b.set(hospital_id, OTHER_PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
 
-    # Patient A confirms first -> succeeds.
+    # Patient A confirms first -> succeeds. Item 3 (Spec.md Section 0): the
+    # success message is now buttons, not plain text.
     await handle_incoming(wa, sessions_a, PHONE, hospital_id, tap("confirm"))
-    assert "booked successfully" in wa.sent[-1][1]["text"].lower()
+    assert "booked successfully" in wa.sent[-1][1]["body_text"].lower()
     assert sessions_a.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
     # Patient B confirms the same doctor+slot next -> loses the race.
@@ -205,7 +206,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
 
     # A confirms first and wins the contested slot.
     await handle_incoming(wa, sessions_a, PHONE, hospital_id, tap("confirm"))
-    assert "booked successfully" in wa.sent[-1][1]["text"].lower()
+    assert "booked successfully" in wa.sent[-1][1]["body_text"].lower()
 
     # B confirms next -> loses the race, is shown alternate times for the
     # SAME doctor/date (not sent back to department/doctor/date selection).
@@ -234,7 +235,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
     # the earlier failed transaction) finally happens here, on the
     # successful booking.
     await handle_incoming(wa, sessions_b, OTHER_PHONE, hospital_id, tap("confirm"))
-    assert "booked successfully" in wa.sent[-1][1]["text"].lower()
+    assert "booked successfully" in wa.sent[-1][1]["body_text"].lower()
     booked = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
     b_appt = next(a for a in booked if a.phone == OTHER_PHONE and a.doctor_id == doctor_id)
     assert b_appt.scheduled_at.isoformat() == f"{same_day_alternate['date']}T{same_day_alternate['time']}:00"
@@ -363,3 +364,45 @@ async def test_awaiting_slot_fallback_rechecks_availability_if_slots_emptied_mid
     assert "no available slots" in text_kwargs["text"].lower()
     assert wa.sent[-1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_booking_with_same_doctor_and_age_is_blocked_with_quick_actions(hospital_id):
+    """Item 5 (Spec.md Section 0): confirming a booking with the same doctor
+    + same age as an existing active appointment on this phone is blocked --
+    the patient is shown a clear message with Cancel/Reschedule/Main Menu
+    quick actions for the EXISTING appointment, not a generic error."""
+    from core.booking_flow import GOTO_MAIN_MENU, MANAGE_CANCEL_PREFIX, MANAGE_RESCHEDULE_PREFIX
+
+    doctor_id = "doc_card_1"
+    slots = db.get_slots(hospital_id, doctor_id)
+    existing = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slots[0]['date']}T{slots[0]['time']}"),
+        patient_name="Ravi Kumar", patient_age=34,
+    )
+
+    wa2 = FakeWhatsAppClient()
+    sessions2 = InMemorySessionStore()
+    sessions2.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
+        "date": slots[1]["date"], "date_label": "Sat, Aug 8",
+        "slot_id": slots[1]["id"], "slot_date": slots[1]["date"], "slot_time": slots[1]["time"],
+        "patient_name": "Ravi Kumar", "patient_age": 34,
+    })
+
+    await handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("confirm"))
+
+    kind, kwargs = wa2.sent[-1]
+    assert kind == "buttons"
+    assert "already have an appointment" in kwargs["body_text"].lower()
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert GOTO_MAIN_MENU in button_ids
+    assert f"{MANAGE_CANCEL_PREFIX}{existing.id}" in button_ids
+    assert f"{MANAGE_RESCHEDULE_PREFIX}{existing.id}" in button_ids
+
+    # No second appointment was actually created.
+    due = db.get_upcoming_appointments_for_phone(hospital_id, PHONE)
+    assert len(due) == 1
+    assert due[0].id == existing.id

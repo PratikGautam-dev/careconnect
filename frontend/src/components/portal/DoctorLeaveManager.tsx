@@ -10,9 +10,15 @@ type LeaveEntry = { id: number; date: string; reason: string | null };
 
 export function DoctorLeaveManager({ doctorId }: { doctorId: string }) {
   const [leave, setLeave] = useState<LeaveEntry[] | null>(null);
-  const [date, setDate] = useState("");
+  // Item 10 (Spec.md Section 0): From/To range with one Confirm, replacing
+  // the old one-date-at-a-time add. A single date is just a range where
+  // from === to, so this fully replaces the old single-date form rather
+  // than living alongside it.
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [reason, setReason] = useState("");
   const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await portalFetch(`/api/portal/doctors/${doctorId}/leave`);
@@ -24,15 +30,21 @@ export function DoctorLeaveManager({ doctorId }: { doctorId: string }) {
   }, [load]);
 
   async function handleAdd() {
-    if (!date) return;
+    if (!fromDate || !toDate) return;
     setAdding(true);
-    await portalFetch(`/api/portal/doctors/${doctorId}/leave`, {
+    setError(null);
+    const result = await portalFetch(`/api/portal/doctors/${doctorId}/leave/range`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, reason }),
+      body: JSON.stringify({ from_date: fromDate, to_date: toDate, reason }),
     });
     setAdding(false);
-    setDate("");
+    if (!result.ok) {
+      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      return;
+    }
+    setFromDate("");
+    setToDate("");
     setReason("");
     load();
   }
@@ -64,11 +76,29 @@ export function DoctorLeaveManager({ doctorId }: { doctorId: string }) {
           ))}
         </ul>
       )}
-      <div className="flex flex-wrap items-center gap-space-2">
-        <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />
+      {error && <p className="mb-space-2 text-[12.5px] text-error">{error}</p>}
+      <div className="flex flex-wrap items-end gap-space-2">
+        <div>
+          <label className="mb-space-1 block text-[11px] font-semibold text-ink-400">From</label>
+          <Input
+            type="date" value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              // Keep To >= From automatically -- a single day off is just
+              // From === To, the common case, so this shouldn't require an
+              // extra click for the usual one-day-off entry.
+              if (!toDate || toDate < e.target.value) setToDate(e.target.value);
+            }}
+            className="w-40"
+          />
+        </div>
+        <div>
+          <label className="mb-space-1 block text-[11px] font-semibold text-ink-400">To</label>
+          <Input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="w-40" />
+        </div>
         <Input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} className="max-w-[180px]" />
-        <Button type="button" size="md" onClick={handleAdd} disabled={adding || !date}>
-          <Plus size={13} /> Add leave
+        <Button type="button" size="md" onClick={handleAdd} disabled={adding || !fromDate || !toDate}>
+          <Plus size={13} /> {adding ? "Confirming…" : "Confirm leave"}
         </Button>
       </div>
     </div>
