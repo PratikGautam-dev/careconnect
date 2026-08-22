@@ -384,6 +384,15 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reference_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patients(id);
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_name TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_phone TEXT;
+-- Family/multi-person-booking follow-up (Spec.md Section 0): patient_age
+-- joins patient_name/patient_id/patient_phone above -- added so the
+-- duplicate-booking check (create_appointment()) can compare a NEW
+-- booking's name+age against each of THIS PHONE's own existing active
+-- appointments directly, instead of the single mutable `patients.age`
+-- value (which can't tell two different family members on one phone
+-- apart once a 2nd booking's age has overwritten the first's). Same
+-- nullable/no-CHECK/backfilled convention as the columns above.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_age INTEGER;
 -- Item 3 (Spec.md Section 0, this session's 2nd follow-up): soft-delete only
 -- -- this project's standing convention is every appointment status change
 -- (cancel/reschedule/attendance) status-flags, never physically removes the

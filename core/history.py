@@ -134,9 +134,18 @@ class InMemorySessionStore:
             "updated_at": time.time(),
         }
 
-    def reset(self, hospital_id: int, phone: str) -> None:
+    def reset(self, hospital_id: int, phone: str, keep_language: bool = True) -> None:
+        """Section 12.11 established preserving language across every
+        reset(), so a patient is only asked once per genuinely fresh
+        conversation, not after every booking/cancel/reset -- still the
+        default here (keep_language=True). Follow-up (Spec.md Section 0):
+        the ONE exception is a just-COMPLETED booking specifically --
+        core/booking_flow.py's confirm-success path passes
+        keep_language=False so the language picker is shown again next time,
+        while every other reset() call site (cancel, decline, FAQ exit,
+        stale-session cleanup, ...) is untouched and keeps preserving it."""
         existing = self._store.get((hospital_id, phone))
-        language = existing.get("language") if existing else None
+        language = existing.get("language") if (existing and keep_language) else None
         if language:
             self.set(hospital_id, phone, DEFAULT_STATE, {}, language=language)
         else:
@@ -175,10 +184,12 @@ class RedisSessionStore:
         # which is what actually governs "reset to IDLE after 30 min").
         self._redis.setex(self._key(hospital_id, phone), self._timeout + 300, json.dumps(session))
 
-    def reset(self, hospital_id: int, phone: str) -> None:
+    def reset(self, hospital_id: int, phone: str, keep_language: bool = True) -> None:
+        """See InMemorySessionStore.reset()'s docstring -- identical
+        keep_language semantics, mirrored here for the Redis backend."""
         raw = self._redis.get(self._key(hospital_id, phone))
         existing = json.loads(raw) if raw else None
-        language = existing.get("language") if existing else None
+        language = existing.get("language") if (existing and keep_language) else None
         if language:
             self.set(hospital_id, phone, DEFAULT_STATE, {}, language=language)
         else:

@@ -47,9 +47,16 @@ def cap_rows(rows: list[dict], context: str) -> list[dict]:
 # language mid-typing, or just used to typing "menu" out of habit, should
 # still escape a stuck state either way).
 RESET_KEYWORDS = {
-    "hi", "hello", "hey", "menu", "start", "restart",
+    "hi", "hello", "hey", "menu", "start", "restart", "cancel",
     "नमस्ते", "हाय", "मेनू", "शुरू", "रीस्टार्ट",
 }
+# "cancel" (Spec.md Section 0 follow-up) is free-text ONLY -- it's checked by
+# is_reset_keyword() below, which only ever matches reply["type"] == "text".
+# The explicit button-based cancel flow (booking confirmation's Cancel
+# button, core/booking_flow.py's CONFIRM_NO) is a distinct interactive_reply
+# id ("cancel"), matched by exact id comparison in the state handler, not by
+# this keyword set -- an interactive_reply can never reach is_reset_keyword's
+# text check, so the two can't collide.
 
 
 def is_reset_keyword(reply: dict) -> bool:

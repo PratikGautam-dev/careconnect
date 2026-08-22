@@ -88,6 +88,67 @@ def test_second_booking_different_age_same_doctor_is_allowed(hospital_id):
     assert second.doctor_id == doctor_id
 
 
+def test_second_booking_same_age_different_name_same_doctor_is_allowed(hospital_id):
+    """Family/multi-person-booking follow-up (Spec.md Section 0): the
+    duplicate check now compares NAME too, not just age -- a coincidental
+    same-age-different-family-member booking (e.g. twins) is correctly
+    allowed through, which the age-only check would have incorrectly
+    blocked before this fix."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot_a, slot_b = _first_two_slots(hospital_id, doctor_id)
+
+    first = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
+        patient_name="Ravi Kumar", patient_age=34,
+    )
+    second = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
+        patient_name="Priya Kumar", patient_age=34,
+    )
+    assert second.id != first.id
+    assert second.doctor_id == doctor_id
+
+
+def test_second_booking_same_name_and_age_same_doctor_is_still_blocked(hospital_id):
+    """Regression check: the name+age check is an AND, not a replacement for
+    the age check -- truly the same patient (same name, same age) booking
+    the same doctor twice is still blocked."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot_a, slot_b = _first_two_slots(hospital_id, doctor_id)
+
+    first = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
+        patient_name="Ravi Kumar", patient_age=34,
+    )
+    with pytest.raises(DuplicateBookingError) as exc_info:
+        db.create_appointment(
+            hospital_id, PHONE, "cardiology", doctor_id,
+            datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
+            patient_name="Ravi Kumar", patient_age=34,
+        )
+    assert exc_info.value.existing_appointment_id == first.id
+
+
+def test_appointment_stores_its_own_patient_age_denormalized(hospital_id):
+    """The other half of this follow-up: appointments.patient_age is now
+    populated directly, the same way patient_id/patient_name/patient_phone
+    already were (Item 8)."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+
+    appt = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
+        patient_name="Ravi Kumar", patient_age=34,
+    )
+    conn = db.get_connection()
+    row = conn.execute("SELECT patient_age FROM appointments WHERE id = ?", (appt.id,)).fetchone()
+    assert row["patient_age"] == 34
+
+
 def test_cancelling_the_first_appointment_allows_a_new_one(hospital_id):
     """Only an ACTIVE (status='booked') appointment blocks a duplicate --
     cancelling it clears the way."""

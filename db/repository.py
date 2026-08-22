@@ -1649,35 +1649,46 @@ def create_appointment(
         if free_ordinal_row["ordinal"] is None:
             raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
 
-        # Item 5 (Spec.md Section 0): booking is free (no payment friction),
-        # so nothing else stops an accidental/duplicate re-booking with the
-        # same doctor. `patients` is one profile per (hospital_id, phone) --
-        # this schema has no multi-patient-per-phone model -- so "same age"
-        # in practice means "the age this booking attempt is using matches
-        # the single profile's age currently on file": a returning patient
-        # (patient_age not re-asked, so it's None here and effective_age
-        # falls back to the stored profile) always matches their own
-        # existing booking; a genuinely different age given for THIS attempt
-        # (the only way today's UI could reflect a different family member)
-        # does not, and is allowed through. Read BEFORE _upsert_patient below
-        # so this compares against the PRE-this-attempt stored age, not a
-        # value this same call may be about to overwrite it with.
+        # Item 5 (Spec.md Section 0), extended by the family/multi-person-
+        # booking follow-up to also compare NAME: booking is free (no
+        # payment friction), so nothing else stops an accidental/duplicate
+        # re-booking with the same doctor. Originally compared only against
+        # the single mutable `patients.age` value -- `patients` is one
+        # profile per (hospital_id, phone), so that alone couldn't tell two
+        # different family members on one phone apart once a 2nd booking's
+        # age overwrote the first's. Now compares this attempt's effective
+        # name+age against EACH of this phone's own existing active
+        # appointments' OWN denormalized patient_name/patient_age (Item 8 +
+        # this follow-up) -- a real per-booking record, not a single mutable
+        # profile field -- so a genuinely different family member (different
+        # name, different age, or both) is correctly allowed through, while
+        # the same patient re-booking the same doctor is still blocked.
+        # "Effective" name/age (falling back to the current patients profile
+        # when this attempt doesn't pass one -- e.g. a returning patient
+        # whose name/age come from context, not fresh input) uses the
+        # PRE-this-attempt profile, read before _upsert_patient below can
+        # overwrite it.
         existing_patient_row = conn.execute(
-            "SELECT age FROM patients WHERE hospital_id = ? AND phone = ?",
+            "SELECT name, age FROM patients WHERE hospital_id = ? AND phone = ?",
             (hospital_id, phone),
         ).fetchone()
-        existing_age = existing_patient_row["age"] if existing_patient_row else None
-        effective_age = patient_age if patient_age is not None else existing_age
-        if effective_age is not None and effective_age == existing_age:
-            dup_row = conn.execute(
-                "SELECT id FROM appointments WHERE hospital_id = ? AND phone = ? AND doctor_id = ? AND status = ? "
-                "ORDER BY scheduled_at LIMIT 1",
+        profile_name = existing_patient_row["name"] if existing_patient_row else None
+        profile_age = existing_patient_row["age"] if existing_patient_row else None
+        effective_name = (patient_name.strip() if patient_name else None) or profile_name
+        effective_age = patient_age if patient_age is not None else profile_age
+        if effective_name is not None and effective_age is not None:
+            existing_appointments = conn.execute(
+                "SELECT id, patient_name, patient_age FROM appointments WHERE hospital_id = ? AND phone = ? "
+                "AND doctor_id = ? AND status = ? ORDER BY scheduled_at",
                 (hospital_id, phone, doctor_id, STATUS_BOOKED),
-            ).fetchone()
-            if dup_row:
-                raise DuplicateBookingError(
-                    "An active appointment with this doctor already exists for this patient.", dup_row["id"],
-                )
+            ).fetchall()
+            for existing_appt in existing_appointments:
+                same_name = (existing_appt["patient_name"] or "").strip().lower() == effective_name.strip().lower()
+                same_age = existing_appt["patient_age"] == effective_age
+                if same_name and same_age:
+                    raise DuplicateBookingError(
+                        "An active appointment with this doctor already exists for this patient.", existing_appt["id"],
+                    )
 
         # No retry-on-conflict here (an earlier version of this function had
         # one, left over from before the advisory lock above existed): under
@@ -1698,10 +1709,10 @@ def create_appointment(
         patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
-             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone),
+             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age),
         )
         new_id = cur.fetchone()["id"]
 

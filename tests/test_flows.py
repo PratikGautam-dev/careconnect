@@ -770,6 +770,77 @@ async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospita
 
 
 @pytest.mark.asyncio
+async def test_language_resets_to_picker_after_a_completed_booking(hospital_id):
+    """Language-reset follow-up (Spec.md Section 0). Before this fix,
+    core/history.py's reset() (called after EVERY completed action --
+    booking, cancel, decline, ...) preserved the chosen language
+    unconditionally, so a patient was only ever asked once per session,
+    indefinitely. Now specifically a FULLY COMPLETED booking clears it --
+    the very next fresh interaction (after the success message) shows the
+    language picker again, not a silent continuation in the same language."""
+    department = db.get_departments(hospital_id)[0]
+    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
+    connector = flows._DEFAULT_CONNECTOR
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
+    slots = db.get_slots(hospital_id, doctor_id)
+    date_str = slots[0]["date"]
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
+    slot = [s for s in slots if s["date"] == date_str][0]
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
+    assert wa.sent[-1][0] == "buttons"  # booking success
+
+    # Language was cleared -- session.get() no longer carries a "language" key.
+    assert "language" not in sessions.get(hospital_id, PHONE)
+
+    # The very next message (any message, not a special trigger) shows the
+    # bilingual language picker again, not the menu directly.
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hello"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_LANGUAGE"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"lang_en", "lang_hi"}
+
+
+@pytest.mark.asyncio
+async def test_language_preserved_across_non_booking_resets(hospital_id):
+    """The language-reset above is a narrow exception for a COMPLETED
+    booking specifically -- every other reset() call site (declining a
+    booking, cancelling an appointment, a stale-session reset, ...) still
+    preserves the chosen language, per Section 12.11's original "ask once
+    per fresh conversation" reasoning. Covers declining a booking (tap
+    'cancel' at the confirmation step) as the representative non-completion
+    reset."""
+    department = db.get_departments(hospital_id)[0]
+    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
+    connector = flows._DEFAULT_CONNECTOR
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
+    slots = db.get_slots(hospital_id, doctor_id)
+    date_str = slots[0]["date"]
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
+    slot = [s for s in slots if s["date"] == date_str][0]
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
+    # Decline instead of confirming -- NOT a completed booking.
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("cancel"), connector=connector, enabled_features=["booking"])
+
+    assert sessions.get(hospital_id, PHONE)["language"] == "en"
+
+
+@pytest.mark.asyncio
 async def test_hindi_reset_keyword_escapes_mid_flow_and_stays_in_hindi(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()

@@ -974,7 +974,19 @@ async def _handle_awaiting_confirmation(
             # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
             # separate incoming message that moves it out of BOOKED, so it's never
             # actually written to the session store.
-            sessions.reset(hospital_id, phone)
+            #
+            # Language-reset follow-up (Spec.md Section 0): a FULLY COMPLETED
+            # booking specifically clears the chosen language too
+            # (keep_language=False) -- the next fresh conversation from this
+            # patient shows the language picker again, rather than assuming
+            # the last-used language forever. Every OTHER reset() call site
+            # in this file (decline, cancel flow, reschedule, stale-session
+            # cleanup, ...) is deliberately untouched and keeps preserving
+            # language, per Section 12.11's original "only ask once per
+            # fresh conversation" reasoning -- this is a narrow, deliberate
+            # exception for the one specific event requested, not a general
+            # policy change.
+            sessions.reset(hospital_id, phone, keep_language=False)
             return
         if rid == CONFIRM_NO:
             await wa.send_text(phone, t("booking_not_confirmed", language))

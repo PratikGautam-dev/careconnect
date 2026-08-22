@@ -77,6 +77,23 @@ def _backfill_appointment_patient_denorm(conn) -> None:
     conn.commit()
 
 
+def _backfill_appointment_patient_age(conn) -> None:
+    """Family/multi-person-booking follow-up (Spec.md Section 0):
+    appointments.patient_age is populated going forward by
+    create_appointment() itself -- catches up every row that predates that
+    column, from the (single, mutable) patients.age value, same
+    best-effort approximation the column's own docstring already flags.
+    Gated on a.patient_age IS NULL specifically (not reusing the patient_id
+    gate above) since a row can already have patient_id/patient_name set
+    from an earlier startup's run of the backfill above, before this
+    column existed -- that gate alone would skip it here."""
+    conn.execute(
+        "UPDATE appointments a SET patient_age = p.age "
+        "FROM patients p WHERE p.hospital_id = a.hospital_id AND p.phone = a.phone AND a.patient_age IS NULL"
+    )
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -115,6 +132,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_enabled_features(conn)
     _backfill_patients(conn)
     _backfill_appointment_patient_denorm(conn)
+    _backfill_appointment_patient_age(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 
