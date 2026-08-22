@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ActivityFeed } from "@/components/portal/ActivityFeed";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsTable";
@@ -36,7 +35,6 @@ type DashboardData = {
     source: string;
     reference_id: string | null;
   }[];
-  activity_feed: { label: string; phone: string; doctor_name: string; department_name: string; at: string }[];
 };
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
@@ -120,9 +118,8 @@ export default function PortalDashboardPage() {
               <DepartmentDonut data={data.department_breakdown} />
             </div>
 
-            <div className="mb-space-4 grid grid-cols-1 gap-space-4 lg:grid-cols-2">
+            <div className="mb-space-4">
               <RecentAppointmentsTable appointments={data.recent_appointments} />
-              <ActivityFeed items={data.activity_feed} />
             </div>
           </>
         )}

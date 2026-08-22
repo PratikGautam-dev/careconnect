@@ -207,6 +207,68 @@ def test_needs_attendance_review_lists_only_past_still_booked_appointments(two_h
     assert future_appt.id not in ids
 
 
+def test_get_doctor_returns_full_record_for_editing(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.get(f"/api/portal/doctors/{a['doctor_id']}", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    doctor = resp.json()["doctor"]
+    assert doctor["id"] == a["doctor_id"]
+    assert isinstance(doctor["working_days"], list)
+    assert isinstance(doctor["working_hours"], list)
+
+
+def test_get_doctor_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    resp = client.get(f"/api/portal/doctors/{b['doctor_id']}", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+
+def test_update_doctor_changes_working_hours(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}",
+        json={
+            "department_id": a["department_id"], "name": "Dr. Updated Name", "specialization": "Cardiology",
+            "working_days": ["Mon", "Wed", "Fri"], "working_hours": ["09:00-13:00"],
+            "slot_duration_minutes": "20",
+        },
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+    updated = db.get_doctor_full(a["id"], a["doctor_id"])
+    assert updated["name"] == "Dr. Updated Name"
+    assert updated["working_days"] == ["Mon", "Wed", "Fri"]
+    assert updated["working_hours"] == ["09:00-13:00"]
+
+
+def test_update_doctor_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    original = db.get_doctor_full(b["id"], b["doctor_id"])
+
+    resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}",
+        json={
+            "department_id": b["department_id"], "name": "Hijacked Name",
+            "working_days": ["Mon"], "working_hours": ["09:00-10:00"], "slot_duration_minutes": "30",
+        },
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert db.get_doctor_full(b["id"], b["doctor_id"])["name"] == original["name"]
+
+
+def test_update_doctor_rejects_invalid_fields(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}",
+        json={"department_id": a["department_id"], "name": "", "working_days": [], "working_hours": [], "slot_duration_minutes": ""},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    assert resp.json()["errors"]
+
+
 def test_toggle_doctor_active_cannot_target_other_hospitals_doctor(two_hospitals):
     a, b = two_hospitals["a"], two_hospitals["b"]
 

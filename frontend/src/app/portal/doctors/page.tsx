@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Search, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Plus, Search, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -40,6 +40,14 @@ export default function PortalDoctorsPage() {
   const [doctorForm, setDoctorForm] = useState<DoctorScheduleFormState>(emptyDoctorScheduleForm());
   const [doctorErrors, setDoctorErrors] = useState<string[]>([]);
   const [savingDoctor, setSavingDoctor] = useState(false);
+  // Doctor-editing follow-up (Spec.md Section 0) -- previously add-only;
+  // editing an EXISTING doctor's working hours/breaks/quotas was a known,
+  // explicitly flagged gap. Reuses the exact same DoctorScheduleForm the
+  // "Add doctor" flow already uses -- editingDoctorId non-null is what
+  // distinguishes "save" meaning POST /api/portal/doctors (create) vs
+  // POST /api/portal/doctors/{id} (update).
+  const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
+  const [loadingDoctorForEdit, setLoadingDoctorForEdit] = useState<string | null>(null);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -91,7 +99,8 @@ export default function PortalDoctorsPage() {
     const breaks = doctorForm.breaks
       .filter((b) => b && b.start && b.end)
       .map((b) => `${b.start}-${b.end}`);
-    const result = await portalFetch("/api/portal/doctors", {
+    const url = editingDoctorId ? `/api/portal/doctors/${editingDoctorId}` : "/api/portal/doctors";
+    const result = await portalFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -125,7 +134,51 @@ export default function PortalDoctorsPage() {
     }
     setDoctorForm(emptyDoctorScheduleForm());
     setShowDoctorForm(false);
+    setEditingDoctorId(null);
     load();
+  }
+
+  // Doctor-editing follow-up: fetches the full record (working days/hours/
+  // breaks/quotas -- get_all_doctors_for_hospital()'s list-page shape above
+  // doesn't carry these) and maps it into the same form shape "Add doctor"
+  // uses, splitting each stored "HH:MM-HH:MM" string back into a shift/break
+  // row.
+  async function handleEditDoctor(doc: Doctor) {
+    setLoadingDoctorForEdit(doc.id);
+    const result = await portalFetch(`/api/portal/doctors/${doc.id}`);
+    setLoadingDoctorForEdit(null);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setError(result.error);
+      return;
+    }
+    const full = (result.data as { doctor: Record<string, unknown> }).doctor;
+    const toRange = (s: string) => {
+      const [start, end] = s.split("-");
+      return { start: start || "", end: end || "" };
+    };
+    const shifts = ((full.working_hours as string[]) || []).map(toRange);
+    setDoctorForm({
+      department_id: (full.department_id as string) || "",
+      name: (full.name as string) || "",
+      specialization: (full.specialization as string) || "",
+      qualification: (full.qualification as string) || "",
+      years_experience: full.years_experience != null ? String(full.years_experience) : "",
+      working_days: (full.working_days as string[]) || [],
+      shifts: shifts.length > 0 ? shifts : [{ start: "", end: "" }],
+      breaks: ((full.breaks as string[]) || []).map(toRange),
+      slot_duration_minutes: full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
+      max_bookings_per_slot: full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
+      daily_booking_limit: full.daily_booking_limit != null ? String(full.daily_booking_limit) : "",
+      online_quota: full.online_quota != null ? String(full.online_quota) : "",
+      walkin_quota: full.walkin_quota != null ? String(full.walkin_quota) : "",
+      followup_duration_minutes: full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
+      effective_from: (full.effective_from as string) || "",
+    });
+    setEditingDoctorId(doc.id);
+    setDoctorErrors([]);
+    setShowCsvImport(false);
+    setShowDoctorForm(true);
   }
 
   async function handleToggleActive(doc: Doctor) {
@@ -172,6 +225,7 @@ export default function PortalDoctorsPage() {
                   setShowCsvImport(false);
                   setDoctorForm(emptyDoctorScheduleForm());
                   setDoctorErrors([]);
+                  setEditingDoctorId(null);
                 }}
               >
                 <Plus size={14} /> Add doctor
@@ -195,15 +249,20 @@ export default function PortalDoctorsPage() {
               {showCsvImport && <DoctorCsvImport onImported={() => { load(); }} />}
 
               {showDoctorForm && (
-                <DoctorScheduleForm
-                  departments={departments}
-                  value={doctorForm}
-                  onChange={setDoctorForm}
-                  onSave={handleSaveDoctor}
-                  onCancel={() => setShowDoctorForm(false)}
-                  saving={savingDoctor}
-                  errors={doctorErrors}
-                />
+                <>
+                  <p className="text-label -mb-space-2 font-bold text-ink-900">
+                    {editingDoctorId ? "Edit doctor" : "Add doctor"}
+                  </p>
+                  <DoctorScheduleForm
+                    departments={departments}
+                    value={doctorForm}
+                    onChange={setDoctorForm}
+                    onSave={handleSaveDoctor}
+                    onCancel={() => { setShowDoctorForm(false); setEditingDoctorId(null); }}
+                    saving={savingDoctor}
+                    errors={doctorErrors}
+                  />
+                </>
               )}
 
               <Card className="p-space-4">
@@ -255,6 +314,15 @@ export default function PortalDoctorsPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-space-3">
+                              <button
+                                type="button"
+                                onClick={() => handleEditDoctor(doc)}
+                                disabled={loadingDoctorForEdit === doc.id}
+                                className="text-ink-400 hover:text-ink-700 disabled:opacity-50"
+                                title="Edit doctor"
+                              >
+                                <Pencil size={15} />
+                              </button>
                               <Badge tone={doc.is_active ? "success" : "neutral"}>
                                 {doc.is_active ? "Available" : "Unavailable"}
                               </Badge>

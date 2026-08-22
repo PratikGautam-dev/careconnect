@@ -807,6 +807,72 @@ async def portal_csv_import_doctors(
     return JSONResponse({"created_count": created_count, "row_errors": row_errors})
 
 
+# Doctor editing follow-up (Spec.md Section 0) -- these two `{doctor_id}`
+# routes MUST be registered after every static "/api/portal/doctors/..."
+# path above (csv-import included) -- FastAPI matches routes in
+# REGISTRATION order, so a `{doctor_id}` catch-all registered earlier would
+# silently swallow a literal path segment like "csv-import" as if it were a
+# doctor id (hit exactly this bug once while wiring this in -- caught by the
+# existing CSV-import tests, not by inspection).
+@router.get("/api/portal/doctors/{doctor_id}")
+async def portal_get_doctor(doctor_id: str, authorization: str | None = Header(default=None)):
+    """This Next.js portal only ever had create (`POST /api/portal/doctors`
+    above); editing an EXISTING doctor's working hours/breaks/quotas was a
+    known, explicitly flagged gap since the HTML-portal removal (Spec.md's
+    own progress log: "doctor editing... stay FastAPI-only for now...
+    Removing portal.py makes doctor editing genuinely unreachable").
+    db.get_doctor_full()/db.update_doctor() already existed (the old HTML
+    edit form's own backing functions) -- this just re-exposes them here."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    doctor = db.get_doctor_full(hospital.id, doctor_id)
+    if doctor is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    return JSONResponse({"doctor": doctor})
+
+
+@router.post("/api/portal/doctors/{doctor_id}")
+async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authorization: str | None = Header(default=None)):
+    """Same payload shape and validation as portal_create_doctor() above --
+    reuses _validate_doctor_fields()/db.update_doctor() exactly, no
+    duplicated business rules between create and edit."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+
+    doctor_data, errors, warnings = _validate_doctor_fields(
+        0, payload.name, payload.specialization, payload.qualification, payload.years_experience,
+        ",".join(payload.working_days), ",".join(payload.working_hours), payload.slot_duration_minutes,
+        ",".join(payload.breaks), payload.max_bookings_per_slot, payload.daily_booking_limit,
+        payload.online_quota, payload.walkin_quota, payload.followup_duration_minutes, payload.effective_from,
+    )
+    if errors:
+        return JSONResponse({"errors": errors}, status_code=400)
+
+    doctor = db.update_doctor(
+        hospital.id, doctor_id, doctor_data["name"],
+        specialization=doctor_data["specialization"],
+        qualification=doctor_data["qualification"],
+        years_experience=doctor_data["years_experience"],
+        working_days=doctor_data["working_days"],
+        working_hours=doctor_data["working_hours"],
+        slot_duration_minutes=doctor_data["slot_duration_minutes"],
+        breaks=doctor_data["breaks"],
+        max_bookings_per_slot=doctor_data["max_bookings_per_slot"],
+        daily_booking_limit=doctor_data["daily_booking_limit"],
+        online_quota=doctor_data["online_quota"],
+        walkin_quota=doctor_data["walkin_quota"],
+        followup_duration_minutes=doctor_data["followup_duration_minutes"],
+        effective_from=doctor_data["effective_from"],
+    )
+    if doctor is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    return JSONResponse({"doctor": doctor, "warnings": warnings})
+
+
 @router.get("/api/portal/settings")
 async def portal_get_settings(authorization: str | None = Header(default=None)):
     hospital = _authenticate(authorization)

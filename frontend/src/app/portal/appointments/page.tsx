@@ -264,6 +264,7 @@ export default function PortalAppointmentsPage() {
                     <th className="pb-space-2 font-semibold">Department</th>
                     <th className="pb-space-2 font-semibold">Source</th>
                     <th className="pb-space-2 font-semibold">Status</th>
+                    <th className="pb-space-2 font-semibold">Visited</th>
                     <th className="pb-space-2 font-semibold"></th>
                   </tr>
                 </thead>
@@ -287,28 +288,37 @@ export default function PortalAppointmentsPage() {
                             {STATUS_LABELS[a.status] || a.status}
                           </span>
                         </td>
-                        <td className="py-space-2 text-right whitespace-nowrap">
-                          {a.status === "booked" && new Date(a.scheduled_at).getTime() < Date.now() ? (
-                            <span className="inline-flex items-center gap-space-3">
-                              <span className="text-[12px] text-ink-400">Did the patient visit?</span>
+                        <td className="py-space-2 whitespace-nowrap">
+                          {a.status === "attended" ? (
+                            <span className="text-[12.5px] font-semibold text-success">Yes</span>
+                          ) : a.status === "no_show" ? (
+                            <span className="text-[12.5px] font-semibold text-error">No</span>
+                          ) : a.status === "booked" && new Date(a.scheduled_at).getTime() < Date.now() ? (
+                            <span className="inline-flex items-center gap-space-2">
                               <button
                                 type="button"
                                 onClick={() => handleAttendance(a.id, true)}
                                 disabled={markingAttendanceId === a.id}
                                 className="text-[12.5px] font-semibold text-success hover:underline disabled:opacity-50"
                               >
-                                Attended
+                                Yes
                               </button>
+                              <span className="text-ink-300">/</span>
                               <button
                                 type="button"
                                 onClick={() => handleAttendance(a.id, false)}
                                 disabled={markingAttendanceId === a.id}
                                 className="text-[12.5px] font-semibold text-error hover:underline disabled:opacity-50"
                               >
-                                No-show
+                                No
                               </button>
                             </span>
-                          ) : a.status === "booked" ? (
+                          ) : (
+                            <span className="text-[12.5px] text-ink-300">—</span>
+                          )}
+                        </td>
+                        <td className="py-space-2 text-right whitespace-nowrap">
+                          {a.status === "booked" ? (
                             cancelPanelId !== a.id && reschedulePanelId !== a.id && (
                               <span className="inline-flex gap-space-3">
                                 <button
@@ -344,7 +354,7 @@ export default function PortalAppointmentsPage() {
                       </tr>
                       {reschedulePanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={8} className="pb-space-3">
+                          <td colSpan={9} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 sm:grid-cols-2">
                                 <div>
@@ -461,7 +471,7 @@ export default function PortalAppointmentsPage() {
                       )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={8} className="pb-space-3">
+                          <td colSpan={9} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
                                 Message to send {a.phone} on WhatsApp
