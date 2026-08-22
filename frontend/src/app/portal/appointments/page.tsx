@@ -289,17 +289,20 @@ export default function PortalAppointmentsPage() {
                           </span>
                         </td>
                         <td className="py-space-2 whitespace-nowrap">
-                          {a.status === "attended" ? (
-                            <span className="text-[12.5px] font-semibold text-success">Yes</span>
-                          ) : a.status === "no_show" ? (
-                            <span className="text-[12.5px] font-semibold text-error">No</span>
-                          ) : a.status === "booked" && new Date(a.scheduled_at).getTime() < Date.now() ? (
+                          {a.status === "booked" || a.status === "attended" || a.status === "no_show" ? (
+                            // Admin-editable at any time, not gated on the
+                            // scheduled time having passed, and freely
+                            // re-toggleable (not a one-way door) -- per
+                            // direct portal feedback.
                             <span className="inline-flex items-center gap-space-2">
                               <button
                                 type="button"
                                 onClick={() => handleAttendance(a.id, true)}
                                 disabled={markingAttendanceId === a.id}
-                                className="text-[12.5px] font-semibold text-success hover:underline disabled:opacity-50"
+                                className={cn(
+                                  "text-[12.5px] font-semibold disabled:opacity-50",
+                                  a.status === "attended" ? "text-success underline" : "text-ink-400 hover:text-success hover:underline",
+                                )}
                               >
                                 Yes
                               </button>
@@ -308,7 +311,10 @@ export default function PortalAppointmentsPage() {
                                 type="button"
                                 onClick={() => handleAttendance(a.id, false)}
                                 disabled={markingAttendanceId === a.id}
-                                className="text-[12.5px] font-semibold text-error hover:underline disabled:opacity-50"
+                                className={cn(
+                                  "text-[12.5px] font-semibold disabled:opacity-50",
+                                  a.status === "no_show" ? "text-error underline" : "text-ink-400 hover:text-error hover:underline",
+                                )}
                               >
                                 No
                               </button>

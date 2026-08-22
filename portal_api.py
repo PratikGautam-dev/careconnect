@@ -708,6 +708,48 @@ async def portal_set_slot_blocked(doctor_id: str, payload: dict, authorization: 
     return JSONResponse({"ok": True, "blocked": blocked})
 
 
+@router.post("/api/portal/doctors/{doctor_id}/slots/add")
+async def portal_add_slot(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    """Add/remove-slot follow-up (Spec.md Section 0): a genuinely one-off
+    extra slot outside the doctor's normal generated pattern -- payload =
+    {"date": "YYYY-MM-DD", "time": "HH:MM"}. Distinct from the block
+    endpoint above, which only ever toggles an already-generated row."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    date_str = (payload or {}).get("date", "").strip()
+    time_str = (payload or {}).get("time", "").strip()
+    if not date_str or not time_str:
+        return JSONResponse({"error": "date and time are required."}, status_code=400)
+    try:
+        scheduled_at = datetime.fromisoformat(f"{date_str}T{time_str}").isoformat()
+    except ValueError:
+        return JSONResponse({"error": "Invalid date/time."}, status_code=400)
+    db.add_custom_slot(hospital.id, doctor_id, scheduled_at)
+    return JSONResponse({"ok": True, "scheduled_at": scheduled_at})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/slots/remove")
+async def portal_remove_slot(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    """The other half of add/remove: a real hard delete, not a block/hide --
+    refuses (via db.remove_slot()'s own guard) to remove a slot with a real
+    booked appointment on it."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    scheduled_at = (payload or {}).get("scheduled_at", "").strip()
+    if not scheduled_at:
+        return JSONResponse({"error": "scheduled_at is required."}, status_code=400)
+    ok = db.remove_slot(hospital.id, doctor_id, scheduled_at)
+    if not ok:
+        return JSONResponse({"error": "This slot either doesn't exist or already has a booked appointment -- cancel or reschedule it first."}, status_code=400)
+    return JSONResponse({"ok": True})
+
+
 @router.get("/api/portal/doctors/{doctor_id}/appointments/today")
 async def portal_get_doctor_appointments_today(doctor_id: str, authorization: str | None = Header(default=None)):
     """Item 4: a specific doctor's own appointments scheduled for today,

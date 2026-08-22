@@ -1168,6 +1168,57 @@ def set_slot_blocked(
     return cur.rowcount > 0
 
 
+def add_custom_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
+    """Add/remove-slot follow-up (Spec.md Section 0): a genuinely one-off
+    extra slot outside the doctor's normal generated working-hours pattern
+    (e.g. a special Saturday clinic, or filling in a date that generated
+    none at all) -- distinct from set_slot_blocked() above, which only
+    ever toggles an already-generated row. Same UNIQUE(doctor_id,
+    scheduled_at) constraint doctor_slots already has (Section 12.1.1)
+    makes this ON CONFLICT DO NOTHING, so adding a time that already exists
+    is a harmless no-op, not an error.
+
+    Caveat, not fully solved here (flagged rather than silently assumed
+    away): a later doctor-schedule edit with no effective_from
+    (db.update_doctor()) wipes and regenerates EVERY future doctor_slots
+    row purely from the working-hours pattern -- a custom slot added here
+    would be wiped out by that regeneration too, same as any other slot.
+    Acceptable for now (matches how every other slot already behaves under
+    a schedule edit); worth a dedicated "protect custom slots" fix only if
+    that turns out to matter in practice."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?) "
+        "ON CONFLICT (doctor_id, scheduled_at) DO NOTHING",
+        (hospital_id, doctor_id, scheduled_at),
+    )
+    conn.commit()
+    return True
+
+
+def remove_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
+    """The other half of add/remove: a real hard DELETE of the doctor_slots
+    row (not a soft-hide like set_slot_blocked(blocked=True), which keeps
+    the row so it can be unblocked later) -- for permanently taking a slot
+    out of the generated set rather than just toggling its availability.
+    Refuses to remove a slot with a real BOOKED appointment on it, same
+    guard set_slot_blocked() already uses -- cancel/reschedule that
+    appointment first."""
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT 1 FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ? AND status = ?",
+        (hospital_id, doctor_id, scheduled_at, STATUS_BOOKED),
+    ).fetchone()
+    if existing:
+        return False
+    cur = conn.execute(
+        "DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ?",
+        (hospital_id, doctor_id, scheduled_at),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
     for s in get_slots(hospital_id, doctor_id):
         if s["id"] == slot_id:
@@ -1808,19 +1859,25 @@ def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
 
 
 def mark_attendance(hospital_id: int, appointment_id: int, attended: bool) -> bool:
-    """Item 9 (Spec.md Section 0): staff-confirmed attended/no_show, replacing
-    the dashboard's own no-show HEURISTIC with a real recorded outcome for
-    this one appointment. Only allowed FROM status='booked' (an already
-    cancelled/rescheduled/attended/no_show row can't be re-marked through
-    this path -- WHERE status = 'booked' makes that a no-op, not a silent
-    overwrite). Returns False if nothing matched (already resolved, wrong
-    hospital, or doesn't exist), same "bool = did it actually happen"
-    convention resolve_handoff_request() already uses."""
+    """Item 9 (Spec.md Section 0) follow-up: staff-confirmed attended/
+    no_show, replacing the dashboard's own no-show HEURISTIC with a real
+    recorded outcome for this one appointment.
+
+    Originally only allowed FROM status='booked' and not re-markable --
+    relaxed after real portal feedback that staff need full manual control:
+    settable any time (not gated on the scheduled time having passed) and
+    freely re-toggleable between attended/no_show/back to booked-equivalent
+    if staff change their mind, not a one-way door. Allowed FROM 'booked',
+    'attended', OR 'no_show' -- deliberately NOT from 'cancelled'/
+    'rescheduled' (those appointments didn't happen at all in any sense
+    "visited" could mean, so marking attendance on them isn't offered)."""
     conn = get_connection()
     new_status = STATUS_ATTENDED if attended else STATUS_NO_SHOW
     cur = conn.execute(
-        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ? AND status = ?",
-        (new_status, datetime.now().isoformat(), appointment_id, hospital_id, STATUS_BOOKED),
+        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ? "
+        "AND status IN (?, ?, ?)",
+        (new_status, datetime.now().isoformat(), appointment_id, hospital_id,
+         STATUS_BOOKED, STATUS_ATTENDED, STATUS_NO_SHOW),
     )
     conn.commit()
     return cur.rowcount > 0

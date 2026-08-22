@@ -167,7 +167,10 @@ def test_mark_attendance_attended_and_no_show(two_hospitals):
     assert db.get_appointment(a["id"], appt2.id).status == db.STATUS_NO_SHOW
 
 
-def test_mark_attendance_twice_is_rejected_not_silently_overwritten(two_hospitals):
+def test_mark_attendance_is_freely_re_toggleable(two_hospitals):
+    """Relaxed after real portal feedback: staff need full manual control
+    over "visited," not a one-way door -- re-marking must actually change
+    the recorded outcome, not be rejected as already-resolved."""
     a = two_hospitals["a"]
     appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
 
@@ -175,13 +178,31 @@ def test_mark_attendance_twice_is_rejected_not_silently_overwritten(two_hospital
         f"/api/portal/bookings/{appt.id}/attendance", json={"attended": True}, headers=_auth(a["token"]),
     )
     assert resp1.status_code == 200
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_ATTENDED
 
     resp2 = client.post(
         f"/api/portal/bookings/{appt.id}/attendance", json={"attended": False}, headers=_auth(a["token"]),
     )
-    assert resp2.status_code == 404
-    # Still 'attended' from the first call -- the second didn't overwrite it.
+    assert resp2.status_code == 200, resp2.text
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_NO_SHOW
+
+    resp3 = client.post(
+        f"/api/portal/bookings/{appt.id}/attendance", json={"attended": True}, headers=_auth(a["token"]),
+    )
+    assert resp3.status_code == 200
     assert db.get_appointment(a["id"], appt.id).status == db.STATUS_ATTENDED
+
+
+def test_mark_attendance_not_offered_for_cancelled_appointment(two_hospitals):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+    db.cancel_appointment(a["id"], appt.id)
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/attendance", json={"attended": True}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_CANCELLED
 
 
 def test_needs_attendance_review_lists_only_past_still_booked_appointments(two_hospitals):
@@ -423,6 +444,88 @@ def test_block_slot_cannot_target_other_hospitals_doctor(two_hospitals):
     resp = client.post(
         f"/api/portal/doctors/{b['doctor_id']}/slots/block",
         json={"scheduled_at": slot["id"], "blocked": True},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert slot["id"] in {s["id"] for s in db.get_slots(b["id"], b["doctor_id"])}
+
+
+def test_add_slot_creates_a_one_off_bookable_slot(two_hospitals):
+    a = two_hospitals["a"]
+    existing_dates = {s["date"] for s in db.get_slots(a["id"], a["doctor_id"])}
+    # A date the doctor's normal working pattern doesn't already cover --
+    # far enough out that it's very unlikely to collide with generated slots.
+    from datetime import datetime, timedelta
+    new_date = (datetime.now() + timedelta(days=60)).date().isoformat()
+    assert new_date not in existing_dates
+
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/slots/add",
+        json={"date": new_date, "time": "11:15"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    scheduled_at = resp.json()["scheduled_at"]
+
+    admin_view = db.get_doctor_slots_for_admin(a["id"], a["doctor_id"], new_date)
+    assert any(s["scheduled_at"] == scheduled_at for s in admin_view)
+    assert scheduled_at in {s["id"] for s in db.get_slots(a["id"], a["doctor_id"])}
+
+
+def test_add_slot_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    from datetime import datetime, timedelta
+    new_date = (datetime.now() + timedelta(days=60)).date().isoformat()
+
+    resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}/slots/add",
+        json={"date": new_date, "time": "11:15"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert db.get_doctor_slots_for_admin(b["id"], b["doctor_id"], new_date) == []
+
+
+def test_remove_slot_deletes_it_outright(two_hospitals):
+    a = two_hospitals["a"]
+    slot = db.get_slots(a["id"], a["doctor_id"])[0]
+
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/slots/remove",
+        json={"scheduled_at": slot["id"]},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+    admin_view = db.get_doctor_slots_for_admin(a["id"], a["doctor_id"], slot["date"])
+    assert all(s["scheduled_at"] != slot["id"] for s in admin_view)
+
+
+def test_remove_slot_refuses_when_booked(two_hospitals):
+    a = two_hospitals["a"]
+    slot = db.get_slots(a["id"], a["doctor_id"])[0]
+    db.create_appointment(
+        a["id"], "5490007777", a["department_id"], a["doctor_id"], datetime.fromisoformat(slot["id"]),
+        patient_name="Blocker Test", patient_age=30,
+    )
+
+    resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/slots/remove",
+        json={"scheduled_at": slot["id"]},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    admin_view = db.get_doctor_slots_for_admin(a["id"], a["doctor_id"], slot["date"])
+    assert any(s["scheduled_at"] == slot["id"] for s in admin_view)
+
+
+def test_remove_slot_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    slot = db.get_slots(b["id"], b["doctor_id"])[0]
+
+    resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}/slots/remove",
+        json={"scheduled_at": slot["id"]},
         headers=_auth(a["token"]),
     )
     assert resp.status_code == 404
