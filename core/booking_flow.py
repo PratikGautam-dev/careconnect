@@ -282,6 +282,16 @@ async def _notify_no_doctors_available(
 ) -> None:
     sessions.reset(hospital_id, phone)
     await wa.send_text(phone, t("no_doctors_available", language, department_name=department_name))
+    # Item 9 (Spec.md Section 0): a genuine dead end (this department has no
+    # doctors) previously left the patient with nothing to do next but
+    # message again from scratch -- the main menu is the recovery path for
+    # every negative-outcome case that ISN'T specifically "pick another
+    # slot" (that's item 1's own alternate-slot recovery, _handle_slot_taken
+    # above). "the hospital" matches this file's own existing fallback
+    # wording at every other deep-handler-bails-to-main-menu site (e.g.
+    # _handle_awaiting_doctor's corrupted-context guard) -- none of these
+    # state handlers carry the real hospital_name down this far.
+    await _send_main_menu(wa, phone, "the hospital", language=language)
 
 
 async def _notify_no_slots_available(
@@ -289,6 +299,7 @@ async def _notify_no_slots_available(
 ) -> None:
     sessions.reset(hospital_id, phone)
     await wa.send_text(phone, t("no_slots_available", language, doctor_name=doctor_name))
+    await _send_main_menu(wa, phone, "the hospital", language=language)
 
 
 async def _handle_slot_taken(
@@ -310,8 +321,12 @@ async def _handle_slot_taken(
     doctor_name = context.get("doctor_name", "")
     logger.info("Double-booking race: hospital=%s doctor=%s slot=%s already taken", hospital_id, doctor_id, context.get("slot_id"))
     if not connector.get_available_slots(hospital_id, doctor_id):
+        # Item 9: a genuine dead end, not the "pick another slot" case item 1
+        # covers (there's nothing left to pick) -- same recovery as
+        # _notify_no_slots_available above.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("slot_taken_no_alternatives", language, doctor_name=doctor_name))
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, target_state, context)
     await wa.send_text(phone, t("slot_taken_choose_another", language))
@@ -466,7 +481,6 @@ async def _handle_awaiting_department(
             await _send_doctor_menu(wa, phone, hospital_id, dept["id"], dept["name"], connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_department_menu(wa, phone, hospital_id, connector, language=language)
 
 
@@ -493,7 +507,6 @@ async def _handle_awaiting_doctor(
             await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_DOCTOR, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_doctor_menu(wa, phone, hospital_id, department_id, department_name, connector, language=language)
 
 
@@ -525,7 +538,6 @@ async def _handle_awaiting_date(
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
 
 
@@ -551,6 +563,19 @@ async def _handle_awaiting_time_slot(
                 "slot_date": slot["date"],
                 "slot_time": slot["time"],
             }
+            # Re-picking a slot after a double-booking race (_handle_slot_taken
+            # re-enters this exact state, context unchanged): this session
+            # already collected name/age earlier THIS booking attempt, but
+            # create_appointment()'s failed transaction never reached
+            # _upsert_patient() (it runs after the INSERT that raised the
+            # race error, and the whole transaction rolled back) -- so the DB
+            # genuinely doesn't have it yet even though context does. Trust
+            # context over a DB re-query here, or the patient gets asked for
+            # name/age a second time for no reason.
+            if context.get("patient_name") and context.get("patient_age") is not None:
+                sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
+                await _send_confirmation(wa, phone, new_context, language=language)
+                return
             # Section 12.11 (patient-info skip), age restored by a Section
             # 12.13 follow-up: a patient with BOTH a name and an age already
             # on file skips straight to confirmation; one with a name but no
@@ -581,11 +606,9 @@ async def _handle_awaiting_time_slot(
         # doctor) -- step back to date selection rather than a full reset,
         # so the patient picks a different date instead of starting over.
         sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
-        await wa.send_text(phone, t("please_choose", language))
         await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
 
 
@@ -669,7 +692,6 @@ async def _handle_awaiting_confirmation(
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_confirmation(wa, phone, context, language=language)
 
 
@@ -680,8 +702,10 @@ async def _start_cancel_flow(
 ) -> None:
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
+        # Item 9: nothing to cancel is a dead end without a menu offered.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("no_upcoming_to_cancel", language))
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, {})
     await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_cancel", language=language)
@@ -699,12 +723,13 @@ async def _handle_awaiting_cancel_selection(
 
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
-        # Went stale between menu-send and reply (e.g. the appointment's time passed).
+        # Went stale between menu-send and reply (e.g. the appointment's time
+        # passed) -- item 9: dead end, offer the main menu.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("no_upcoming_to_cancel", language))
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_cancel", language=language)
 
 
@@ -718,8 +743,11 @@ async def _handle_awaiting_cancel_confirm(
         appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
         appt = next((a for a in appointments if a.id == appointment_id), None)
     if not appt:
+        # Item 9: an unexpected failure mid-flow -- exactly the "give the
+        # patient a way forward" case, not item 1's alternate-slot recovery.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("appointment_lookup_error", language))
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
 
     if reply["type"] == "interactive_reply":
@@ -736,7 +764,6 @@ async def _handle_awaiting_cancel_confirm(
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_CONFIRM, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_cancel_confirm(wa, phone, appt, language=language)
 
 
@@ -751,8 +778,10 @@ async def _start_reschedule_flow(
 ) -> None:
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
+        # Item 9: nothing to reschedule is a dead end without a menu offered.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, {})
     await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
@@ -780,11 +809,13 @@ async def _handle_awaiting_reschedule_selection(
 
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
     if not appointments:
+        # Went stale between menu-send and reply -- item 9: dead end, offer
+        # the main menu.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
+        await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
 
 
@@ -816,7 +847,6 @@ async def _handle_awaiting_reschedule_slot(
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
 
 
@@ -855,7 +885,6 @@ async def _handle_awaiting_reschedule_confirm(
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_CONFIRM, context)
-    await wa.send_text(phone, t("please_choose", language))
     await _send_reschedule_confirm(wa, phone, context, language=language)
 
 

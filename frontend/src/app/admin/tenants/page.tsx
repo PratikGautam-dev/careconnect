@@ -17,10 +17,19 @@ type Tenant = {
   is_active: boolean;
 };
 
+type StalledSignup = { id: number; email: string; name: string | null; created_at: string };
+
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
+
+function formatSignupDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
 
 function TenantsList() {
   const [tenants, setTenants] = useState<Tenant[] | null>(null);
+  const [stalledSignups, setStalledSignups] = useState<StalledSignup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -30,6 +39,14 @@ function TenantsList() {
       return;
     }
     setTenants((result.data as { tenants: Tenant[] }).tenants);
+
+    // Item 5 (Spec.md Section 0): who's signed in with Google but never
+    // finished onboarding -- a separate, non-fatal fetch, since the main
+    // tenants list is the more important thing on this page to get right.
+    const signupsResult = await adminFetch("/api/admin/stalled-signups");
+    if (signupsResult.ok) {
+      setStalledSignups((signupsResult.data as { users: StalledSignup[] }).users);
+    }
   }, []);
 
   useEffect(() => {
@@ -81,6 +98,35 @@ function TenantsList() {
                     <Pencil size={13} /> Edit
                   </Link>
                 </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <div className="mt-space-7 mb-space-3">
+        <p className="text-eyebrow mb-space-1">Follow-up</p>
+        <h2 className="text-display !text-[20px]">Signed in, never onboarded</h2>
+        <p className="text-[13px] text-ink-600">
+          Google accounts that have signed in but don&apos;t own a hospital yet.
+        </p>
+      </div>
+      <Card className="p-space-4">
+        {!stalledSignups ? (
+          <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+        ) : stalledSignups.length === 0 ? (
+          <p className="py-space-4 text-center text-[13px] text-ink-400">
+            Nobody — every signed-in account owns at least one hospital.
+          </p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {stalledSignups.map((u) => (
+              <li key={u.id} className="flex items-center justify-between py-space-3">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-ink-900">{u.name || u.email}</p>
+                  {u.name && <p className="text-[12px] text-ink-600">{u.email}</p>}
+                </div>
+                <span className="text-[12px] text-ink-400">Signed in {formatSignupDate(u.created_at)}</span>
               </li>
             ))}
           </ul>

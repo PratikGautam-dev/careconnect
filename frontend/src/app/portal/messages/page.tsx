@@ -27,6 +27,14 @@ const FILTERS = [
   { key: "all", label: "All" },
 ] as const;
 
+// Item 4 (Spec.md Section 0): new incoming handoff requests don't push to
+// this tab -- there's no websocket/SSE infra in this app -- so poll instead
+// of requiring a manual refresh, same pattern /portal/dashboard already
+// uses. A plain re-fetch + re-render is enough here: `load()` only replaces
+// the `handoffs` list, never `replyText` (separate local state), so a poll
+// firing mid-type never loses what staff is typing.
+const POLL_INTERVAL_MS = 12_000;
+
 function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -57,7 +65,10 @@ export default function PortalMessagesPage() {
   }, [router, filter]);
 
   useEffect(() => {
-    if (ready) load();
+    if (!ready) return;
+    load();
+    const interval = setInterval(load, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, [ready, load]);
 
   useEffect(() => {

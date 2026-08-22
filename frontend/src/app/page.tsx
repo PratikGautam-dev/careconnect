@@ -82,7 +82,7 @@ export default function LandingPage() {
                 Set up your hospital
               </Button>
               <Button
-                href="mailto:hello@example.com?subject=DAAP%20CareConnect%20demo%20request"
+                href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
                 variant="secondary"
                 size="lg"
               >

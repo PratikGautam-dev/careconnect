@@ -81,6 +81,10 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     assert "🕐 *Slot:* 10:00" in summary_en
     assert "👤 *Patient:* Ravi Kumar" in summary_en
     assert "🎂 *Age:* 34" in summary_en
+    # Item 10 (Spec.md Section 0): patient name/age must come FIRST, ahead of
+    # department/doctor/date/time.
+    assert summary_en.index("👤 *Patient:*") < summary_en.index("🏥 *Dept:*")
+    assert summary_en.index("🎂 *Age:*") < summary_en.index("👨‍⚕️ *Doctor:*")
 
     summary_hi = t(
         "confirm_booking_summary", "hi",

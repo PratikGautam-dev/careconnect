@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { Plus, Send, X } from "lucide-react";
+import { CalendarClock, Plus, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
 
 const DEFAULT_CANCEL_MESSAGE = "Your appointment has been cancelled.";
+const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
 
 type Appointment = {
   id: number;
@@ -20,6 +21,15 @@ type Appointment = {
   scheduled_at: string;
   status: string;
   source: string;
+};
+
+type Department = { id: string; name: string };
+type Doctor = { id: string; name: string };
+type Slot = { id: string; label: string };
+type NewBookingContext = {
+  departments: Department[];
+  doctors_by_department: Record<string, Doctor[]>;
+  slots_by_doctor: Record<string, Record<string, Slot[]>>;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -43,6 +53,16 @@ export default function PortalAppointmentsPage() {
   const [cancelPanelId, setCancelPanelId] = useState<number | null>(null);
   const [cancelMessage, setCancelMessage] = useState(DEFAULT_CANCEL_MESSAGE);
 
+  const [reschedulePanelId, setReschedulePanelId] = useState<number | null>(null);
+  const [reschedulingId, setReschedulingId] = useState<number | null>(null);
+  const [rescheduleCtx, setRescheduleCtx] = useState<NewBookingContext | null>(null);
+  const [rescheduleErrors, setRescheduleErrors] = useState<string[]>([]);
+  const [rescheduleMessage, setRescheduleMessage] = useState(DEFAULT_RESCHEDULE_MESSAGE);
+  const [rDepartmentId, setRDepartmentId] = useState("");
+  const [rDoctorId, setRDoctorId] = useState("");
+  const [rDate, setRDate] = useState("");
+  const [rSlotId, setRSlotId] = useState("");
+
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/bookings");
     if (!result.ok) {
@@ -58,6 +78,7 @@ export default function PortalAppointmentsPage() {
   }, [ready, load]);
 
   function openCancelPanel(id: number) {
+    setReschedulePanelId(null);
     setCancelPanelId(id);
     setCancelMessage(DEFAULT_CANCEL_MESSAGE);
   }
@@ -77,6 +98,59 @@ export default function PortalAppointmentsPage() {
     setCancelPanelId(null);
     if (result.ok) load();
   }
+
+  async function openReschedulePanel(id: number) {
+    setCancelPanelId(null);
+    setReschedulePanelId(id);
+    setRescheduleMessage(DEFAULT_RESCHEDULE_MESSAGE);
+    setRescheduleErrors([]);
+    setRDepartmentId("");
+    setRDoctorId("");
+    setRDate("");
+    setRSlotId("");
+    if (!rescheduleCtx) {
+      // Reuses the exact same context endpoint /portal/new-booking already
+      // reads department/doctor/slot options from -- no separate endpoint,
+      // and staff can pick a different doctor for the reschedule, not just
+      // a different slot with the same one.
+      const result = await portalFetch("/api/portal/new-booking/context");
+      if (result.ok) setRescheduleCtx(result.data as NewBookingContext);
+    }
+  }
+
+  function closeReschedulePanel() {
+    setReschedulePanelId(null);
+  }
+
+  async function handleReschedule(id: number) {
+    setReschedulingId(id);
+    setRescheduleErrors([]);
+    const result = await portalFetch(`/api/portal/bookings/${id}/reschedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        department_id: rDepartmentId, doctor_id: rDoctorId, slot_id: rSlotId,
+        message: rescheduleMessage.trim(),
+      }),
+    });
+    setReschedulingId(null);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setRescheduleErrors([result.error]);
+      return;
+    }
+    const data = result.data as { errors?: string[] };
+    if (data.errors?.length) {
+      setRescheduleErrors(data.errors);
+      return;
+    }
+    setReschedulePanelId(null);
+    load();
+  }
+
+  const rDoctors = rDepartmentId && rescheduleCtx ? rescheduleCtx.doctors_by_department[rDepartmentId] || [] : [];
+  const rDatesForDoctor = rDoctorId && rescheduleCtx ? Object.keys(rescheduleCtx.slots_by_doctor[rDoctorId] || {}).sort() : [];
+  const rSlotsForDate = rDoctorId && rDate && rescheduleCtx ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] || [] : [];
 
   return (
     <PortalShell hospital={hospital} active="appointments">
@@ -111,7 +185,7 @@ export default function PortalAppointmentsPage() {
                 <tbody>
                   {appointments.map((a) => (
                     <Fragment key={a.id}>
-                      <tr className={cn("border-b border-line last:border-0", cancelPanelId === a.id && "border-b-0")}>
+                      <tr className={cn("border-b border-line last:border-0", (cancelPanelId === a.id || reschedulePanelId === a.id) && "border-b-0")}>
                         <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatTime(a.scheduled_at)}</td>
                         <td className="py-space-2 text-ink-900">{a.phone}</td>
                         <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
@@ -127,18 +201,144 @@ export default function PortalAppointmentsPage() {
                             {STATUS_LABELS[a.status] || a.status}
                           </span>
                         </td>
-                        <td className="py-space-2 text-right">
-                          {a.status === "booked" && cancelPanelId !== a.id && (
-                            <button
-                              type="button"
-                              onClick={() => openCancelPanel(a.id)}
-                              className="text-[12.5px] font-semibold text-error hover:underline"
-                            >
-                              Cancel
-                            </button>
+                        <td className="py-space-2 text-right whitespace-nowrap">
+                          {a.status === "booked" && cancelPanelId !== a.id && reschedulePanelId !== a.id && (
+                            <span className="inline-flex gap-space-3">
+                              <button
+                                type="button"
+                                onClick={() => openReschedulePanel(a.id)}
+                                className="text-[12.5px] font-semibold text-brand-600 hover:underline"
+                              >
+                                Reschedule
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openCancelPanel(a.id)}
+                                className="text-[12.5px] font-semibold text-error hover:underline"
+                              >
+                                Cancel
+                              </button>
+                            </span>
                           )}
                         </td>
                       </tr>
+                      {reschedulePanelId === a.id && (
+                        <tr className="border-b border-line last:border-0">
+                          <td colSpan={7} className="pb-space-3">
+                            <div className="rounded-lg border border-line bg-paper p-space-3">
+                              <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Department</label>
+                                  <select
+                                    value={rDepartmentId}
+                                    onChange={(e) => { setRDepartmentId(e.target.value); setRDoctorId(""); setRDate(""); setRSlotId(""); }}
+                                    className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+                                  >
+                                    <option value="">Choose…</option>
+                                    {(rescheduleCtx?.departments || []).map((d) => (
+                                      <option key={d.id} value={d.id}>{d.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Doctor</label>
+                                  <select
+                                    value={rDoctorId}
+                                    onChange={(e) => { setRDoctorId(e.target.value); setRDate(""); setRSlotId(""); }}
+                                    disabled={!rDepartmentId}
+                                    className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900 disabled:cursor-not-allowed disabled:bg-paper"
+                                  >
+                                    <option value="">Choose…</option>
+                                    {rDoctors.map((d) => (
+                                      <option key={d.id} value={d.id}>{d.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+
+                              {rDoctorId && (
+                                <div className="mb-space-2">
+                                  <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Date</label>
+                                  {rDatesForDoctor.length === 0 ? (
+                                    <p className="text-[12.5px] text-ink-400">No available dates for this doctor.</p>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-space-2">
+                                      {rDatesForDoctor.map((d) => (
+                                        <button
+                                          type="button" key={d}
+                                          onClick={() => { setRDate(d); setRSlotId(""); }}
+                                          className={cn(
+                                            "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                                            rDate === d ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                                          )}
+                                        >
+                                          {d}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {rDate && (
+                                <div className="mb-space-3">
+                                  <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Time slot</label>
+                                  {rSlotsForDate.length === 0 ? (
+                                    <p className="text-[12.5px] text-ink-400">No slots available on this date.</p>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-space-2">
+                                      {rSlotsForDate.map((s) => (
+                                        <button
+                                          type="button" key={s.id}
+                                          onClick={() => setRSlotId(s.id)}
+                                          className={cn(
+                                            "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                                            rSlotId === s.id ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                                          )}
+                                        >
+                                          {s.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              <label htmlFor={`reschedule-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
+                                Message to send {a.phone} on WhatsApp (optional)
+                              </label>
+                              <textarea
+                                id={`reschedule-msg-${a.id}`}
+                                value={rescheduleMessage}
+                                onChange={(e) => setRescheduleMessage(e.target.value)}
+                                rows={2}
+                                className="mb-space-2 h-16 w-full resize-none rounded-md border border-line bg-card px-space-3 py-space-2 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                              />
+
+                              {rescheduleErrors.length > 0 && (
+                                <div className="mb-space-2 rounded-md border border-error bg-error-tint p-space-2 text-[12px] text-error">
+                                  <ul className="list-disc pl-space-4">
+                                    {rescheduleErrors.map((e, i) => <li key={i}>{e}</li>)}
+                                  </ul>
+                                </div>
+                              )}
+
+                              <div className="flex gap-space-2">
+                                <Button
+                                  size="md"
+                                  onClick={() => handleReschedule(a.id)}
+                                  disabled={reschedulingId === a.id || !rSlotId}
+                                >
+                                  <CalendarClock size={13} /> {reschedulingId === a.id ? "Rescheduling…" : "Send & reschedule"}
+                                </Button>
+                                <Button size="md" variant="secondary" onClick={closeReschedulePanel} disabled={reschedulingId === a.id}>
+                                  <X size={13} /> Dismiss
+                                </Button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
                           <td colSpan={7} className="pb-space-3">

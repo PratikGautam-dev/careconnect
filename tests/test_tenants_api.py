@@ -142,3 +142,27 @@ def test_assign_owner_requires_secret(hospital_id):
     resp = client.post(f"/api/admin/tenants/{hospital_id}/assign-owner", json={"email": "owner@example.com"})
     assert resp.status_code == 401
     assert db.get_owners_for_hospital(hospital_id) == []
+
+
+# --- Item 5: stalled Google signups (Spec.md Section 0) ---
+
+
+def test_stalled_signups_lists_users_with_no_hospital(hospital_id):
+    stalled = db.create_user(email="stalled@example.com", google_id="g-stalled", name="Stalled Person")
+    owner = db.create_user(email="owner@example.com", google_id="g-owner", name="Real Owner")
+    db.link_hospital_owner(hospital_id, owner.id)
+
+    resp = client.get("/api/admin/stalled-signups", headers=_HEADERS)
+    assert resp.status_code == 200, resp.text
+    emails = {u["email"] for u in resp.json()["users"]}
+    assert emails == {"stalled@example.com"}
+    assert emails.isdisjoint({"owner@example.com"})
+
+    row = next(u for u in resp.json()["users"] if u["id"] == stalled.id)
+    assert row["name"] == "Stalled Person"
+
+
+def test_stalled_signups_requires_secret(hospital_id):
+    db.create_user(email="stalled@example.com", google_id="g-stalled")
+    resp = client.get("/api/admin/stalled-signups")
+    assert resp.status_code == 401

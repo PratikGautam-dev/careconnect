@@ -248,6 +248,19 @@ def test_dashboard_scoped_to_own_hospital_only(two_hospitals):
     assert data["recent_patients"] == [] or all(p["phone"] != "5490002222" for p in data["recent_patients"])
 
 
+def test_dashboard_recent_appointments_includes_patient_name_when_on_file(two_hospitals):
+    """Item 3 (Spec.md Section 0): the dashboard's separate Patients widget
+    was merged into Recent Appointments -- patient name must be inline on
+    each row now, not just the phone number."""
+    a = two_hospitals["a"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490004444", patient_name="Merged Widget Patient")
+
+    resp = client.get("/api/portal/dashboard", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    row = next(r for r in resp.json()["recent_appointments"] if r["phone"] == "5490004444")
+    assert row["patient_name"] == "Merged Widget Patient"
+
+
 def test_handoffs_list_never_includes_other_hospitals_requests(two_hospitals):
     a, b = two_hospitals["a"], two_hospitals["b"]
     db.create_handoff_request(a["id"], "919876500001", reason="patient_requested")
@@ -465,6 +478,111 @@ def test_cancel_routes_through_connector_not_directly_through_db(two_hospitals):
     # Never touched -- Tier2Connector.cancel_booking() raises before any write.
     still_booked = db.get_appointment(a["id"], appt.id)
     assert still_booked.status == db.STATUS_BOOKED
+
+
+# --- Reschedule-with-message (item 2) ---
+
+
+def test_reschedule_with_message_sends_whatsapp_after_commit(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490009999")
+    new_slot = [s for s in db.get_slots(a["id"], a["doctor_id"]) if s["id"] != appt.scheduled_at.isoformat()][0]
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={
+            "department_id": a["department_id"], "doctor_id": a["doctor_id"], "slot_id": new_slot["id"],
+            "message": "Your appointment has been rescheduled.",
+        },
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+    old = db.get_appointment(a["id"], appt.id)
+    assert old.status == db.STATUS_RESCHEDULED
+    new_appts = [x for x in db.get_all_appointments_for_hospital(a["id"]) if x.phone == "5490009999" and x.status == db.STATUS_BOOKED]
+    assert len(new_appts) == 1
+    assert new_appts[0].scheduled_at.isoformat() == new_slot["id"]
+
+    assert len(fake_whatsapp_send) == 1
+    assert fake_whatsapp_send[0]["to"] == "5490009999"
+    assert fake_whatsapp_send[0]["phone_number_id"] == "hospital-a-phone"
+
+
+def test_reschedule_without_message_sends_nothing(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+    new_slot = [s for s in db.get_slots(a["id"], a["doctor_id"]) if s["id"] != appt.scheduled_at.isoformat()][0]
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={"department_id": a["department_id"], "doctor_id": a["doctor_id"], "slot_id": new_slot["id"], "message": ""},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+    assert fake_whatsapp_send == []
+
+
+def test_reschedule_survives_whatsapp_send_failure(two_hospitals, monkeypatch):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+    new_slot = [s for s in db.get_slots(a["id"], a["doctor_id"]) if s["id"] != appt.scheduled_at.isoformat()][0]
+
+    async def failing_send_text(self, to, text):
+        raise RuntimeError("simulated WhatsApp API failure")
+
+    monkeypatch.setattr(portal_api.WhatsAppClient, "send_text", failing_send_text)
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={"department_id": a["department_id"], "doctor_id": a["doctor_id"], "slot_id": new_slot["id"], "message": "moved"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_RESCHEDULED
+
+
+def test_reschedule_race_leaves_original_appointment_intact(two_hospitals):
+    """Same guarantee as core/booking_flow.py's WhatsApp-side reschedule race
+    test (tests/test_phase8_edge_cases.py) -- reuses the same
+    connector.reschedule_booking() call, so it must have the same "new slot
+    booked before the old one is touched" safety."""
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
+    contested_slot = db.get_slots(a["id"], a["doctor_id"])[0]
+    db.create_appointment(a["id"], "5490002222", a["department_id"], a["doctor_id"],
+                           datetime.fromisoformat(contested_slot["id"]))
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={"department_id": a["department_id"], "doctor_id": a["doctor_id"], "slot_id": contested_slot["id"]},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    assert "just taken" in resp.json()["errors"][0].lower()
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_BOOKED
+
+
+def test_reschedule_cannot_target_other_hospitals_department_or_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"])
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={"department_id": b["department_id"], "doctor_id": b["doctor_id"], "slot_id": "2099-01-01T09:00:00"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    assert db.get_appointment(a["id"], appt.id).status == db.STATUS_BOOKED
+
+
+def test_reschedule_nonexistent_appointment_404s(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/bookings/999999/reschedule",
+        json={"department_id": a["department_id"], "doctor_id": a["doctor_id"], "slot_id": "2099-01-01T09:00:00"},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
 
 
 # --- Doctor active/inactive toggle ---

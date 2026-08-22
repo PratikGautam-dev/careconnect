@@ -534,6 +534,23 @@ def assign_hospital_owner_by_email(hospital_id: int, email: str) -> User:
     return user
 
 
+def get_users_without_hospital() -> list[User]:
+    """Item 5 (Spec.md Section 0): platform-admin visibility into stalled
+    signups -- someone signed in with Google (a real users row exists) but
+    never finished onboarding a hospital (no hospital_users row links them
+    to one). assign_hospital_owner_by_email() always creates a user AND
+    links it in the same call, so this can never accidentally include a
+    platform-admin-assigned placeholder -- every row returned here is a
+    genuine "signed in, then stopped" case. Most recent first, since that's
+    the actionable end for a follow-up."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT u.* FROM users u LEFT JOIN hospital_users hu ON hu.user_id = u.id "
+        "WHERE hu.id IS NULL ORDER BY u.created_at DESC",
+    ).fetchall()
+    return [_row_to_user(r) for r in rows]
+
+
 # --- Departments / doctors ---
 
 def get_departments(hospital_id: int) -> list[dict]:

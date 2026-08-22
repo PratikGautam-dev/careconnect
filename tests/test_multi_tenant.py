@@ -102,8 +102,9 @@ async def test_hospital_a_department_id_rejected_when_tapped_against_hospital_b(
 
     await handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("cardiology"))  # hospital A's department id
 
-    # Treated as an invalid/unrecognized tap -> re-prompt, not accepted.
-    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
+    # Treated as an invalid/unrecognized tap -> re-prompt with the real
+    # department list directly (item 8), not accepted.
+    assert wa.sent[0][0] == "list"
     assert sessions.get(second_hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
 
 
@@ -119,7 +120,9 @@ async def test_appointment_never_appears_in_other_hospitals_cancel_list(hospital
     sessions = InMemorySessionStore()
     await handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("menu_cancel"))
 
-    assert wa.sent == [("text", {"to": PHONE, "text": "You don't have any upcoming appointments to cancel."})]
+    # Item 9: the "nothing to cancel" message is now followed by the main menu.
+    assert wa.sent[0] == ("text", {"to": PHONE, "text": "You don't have any upcoming appointments to cancel."})
+    assert wa.sent[1][0] == "list"
 
     # Meanwhile hospital A's own cancel flow still sees it correctly.
     wa_a = FakeWhatsAppClient()
@@ -136,7 +139,9 @@ async def test_appointment_never_appears_in_other_hospitals_reschedule_list(hosp
     sessions = InMemorySessionStore()
     await handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("menu_reschedule"))
 
-    assert wa.sent == [("text", {"to": PHONE, "text": "You don't have any upcoming appointments to reschedule."})]
+    # Item 9: the "nothing to reschedule" message is now followed by the main menu.
+    assert wa.sent[0] == ("text", {"to": PHONE, "text": "You don't have any upcoming appointments to reschedule."})
+    assert wa.sent[1][0] == "list"
 
 
 @pytest.mark.asyncio

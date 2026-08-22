@@ -43,7 +43,7 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
 
   function handleLogout() {
     clearPortalSession();
-    router.push("/portal/login");
+    router.push("/");
   }
 
   return (

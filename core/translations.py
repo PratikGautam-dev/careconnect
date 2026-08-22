@@ -181,22 +181,25 @@ STRINGS: dict[str, dict[Language, str]] = {
     # fixed emoji per field, matching the reference screenshot exactly, with
     # an added age line (Section 12.13 follow-up, not in the original
     # reference screenshot but explicitly requested).
+    # Item 10 (Spec.md Section 0): patient name/age moved first, ahead of
+    # department/doctor/date/time -- was department/doctor/date/time then
+    # patient info last.
     "confirm_booking_summary": {
         "en": "*Confirm Booking Details:*\n"
+              "👤 *Patient:* {patient_name}\n"
+              "🎂 *Age:* {patient_age}\n"
               "🏥 *Dept:* {department_name}\n"
               "👨‍⚕️ *Doctor:* {doctor_name}\n"
               "📅 *Date:* {date_label}\n"
-              "🕐 *Slot:* {time_label}\n"
-              "👤 *Patient:* {patient_name}\n"
-              "🎂 *Age:* {patient_age}\n\n"
+              "🕐 *Slot:* {time_label}\n\n"
               "Please confirm this appointment:",
         "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
+              "👤 *मरीज़:* {patient_name}\n"
+              "🎂 *उम्र:* {patient_age}\n"
               "🏥 *विभाग:* {department_name}\n"
               "👨‍⚕️ *डॉक्टर:* {doctor_name}\n"
               "📅 *तारीख:* {date_label}\n"
-              "🕐 *स्लॉट:* {time_label}\n"
-              "👤 *मरीज़:* {patient_name}\n"
-              "🎂 *उम्र:* {patient_age}\n\n"
+              "🕐 *स्लॉट:* {time_label}\n\n"
               "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
     },
     "confirm_button": {"en": "Confirm", "hi": "पुष्टि करें"},

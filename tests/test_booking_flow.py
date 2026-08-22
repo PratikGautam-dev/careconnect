@@ -80,7 +80,10 @@ async def test_idle_reschedule_tap_with_no_appointments_replies_and_stays_idle(h
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
 
-    assert wa.sent == [("text", {"to": PHONE, "text": "You don't have any upcoming appointments to reschedule."})]
+    # Item 9: the "nothing to reschedule" message is now followed by the
+    # main menu, so the patient has a way forward.
+    assert wa.sent[0] == ("text", {"to": PHONE, "text": "You don't have any upcoming appointments to reschedule."})
+    assert wa.sent[1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
@@ -91,7 +94,10 @@ async def test_idle_cancel_tap_with_no_appointments_replies_and_stays_idle(hospi
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_cancel"))
 
-    assert wa.sent == [("text", {"to": PHONE, "text": "You don't have any upcoming appointments to cancel."})]
+    # Item 9: the "nothing to cancel" message is now followed by the main
+    # menu, so the patient has a way forward.
+    assert wa.sent[0] == ("text", {"to": PHONE, "text": "You don't have any upcoming appointments to cancel."})
+    assert wa.sent[1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
@@ -190,8 +196,9 @@ async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
 @pytest.mark.asyncio
 async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_id):
     """Only the recognized reset keywords escape a mid-flow state -- ordinary
-    free text (not a valid list tap) still gets the existing "please choose
-    from the list" re-prompt, unchanged."""
+    free text (not a valid list tap) re-prompts the same state. Item 8: this
+    re-sends the actual real interactive menu directly, not a separate
+    generic "please choose" text message first."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_DATE", {
@@ -201,8 +208,41 @@ async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_i
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("whatever"))
 
-    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
+    assert len(wa.sent) == 1
+    assert wa.sent[0][0] == "list"
+    assert "Dr. Anjali Rao" in wa.sent[0][1]["body_text"]
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
+
+
+@pytest.mark.asyncio
+async def test_free_text_in_awaiting_time_slot_resends_the_real_time_list(hospital_id):
+    """Item 8's own example scenario: free text during AWAITING_TIME_SLOT
+    must re-send the actual times-available list for that date, not a
+    generic scolding text -- and item 8 also requires this NOT to break the
+    reset-keyword escape hatch, checked in the second half of this test."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    date_str = db.get_slots(hospital_id, doctor_id)[0]["date"]
+    sessions.set(hospital_id, PHONE, "AWAITING_TIME_SLOT", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
+        "date": date_str, "date_label": "Sat, Aug 8",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("umm what times"))
+
+    assert len(wa.sent) == 1
+    assert wa.sent[0][0] == "list"
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_TIME_SLOT"
+
+    # Reset keywords must still escape from here, unaffected by the above.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("menu"), hospital_name="City Hospital")
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}
+    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
 @pytest.mark.asyncio
@@ -428,26 +468,31 @@ async def test_confirmation_cancel_resets_to_idle(hospital_id):
 
 @pytest.mark.asyncio
 async def test_free_text_in_awaiting_department_reprompts_same_state(hospital_id):
+    """Item 8: re-sends the real department list directly -- no separate
+    generic "please choose" text first."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_DEPARTMENT", {})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Cardiology please"))
 
-    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
-    assert wa.sent[1][0] == "list"
+    assert len(wa.sent) == 1
+    assert wa.sent[0][0] == "list"
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
 
 
 @pytest.mark.asyncio
 async def test_unrecognized_tap_id_in_awaiting_doctor_reprompts_same_state(hospital_id):
+    """Item 8: re-sends the real doctor list directly -- no separate generic
+    "please choose" text first."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": "cardiology", "department_name": "Cardiology"})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("not_a_real_doctor_id"))
 
-    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
+    assert len(wa.sent) == 1
+    assert wa.sent[0][0] == "list"
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DOCTOR"
     assert session["context"]["department_id"] == "cardiology"
@@ -569,6 +614,8 @@ async def test_cancel_confirm_decline_leaves_appointment_booked(hospital_id):
 
 @pytest.mark.asyncio
 async def test_cancel_selection_free_text_reprompts_same_state(hospital_id):
+    """Item 8: re-sends the real appointment-selection list directly -- no
+    separate generic "please choose" text first."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     appt = _seed_appointment(hospital_id)
@@ -576,8 +623,8 @@ async def test_cancel_selection_free_text_reprompts_same_state(hospital_id):
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("the first one"))
 
-    assert wa.sent[0] == ("text", {"to": PHONE, "text": "Please choose an option from the list above"})
-    assert wa.sent[1][0] == "list"
+    assert len(wa.sent) == 1
+    assert wa.sent[0][0] == "list"
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CANCEL_SELECTION"
     assert db.get_appointment(hospital_id, appt.id).status == db.STATUS_BOOKED
 

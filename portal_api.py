@@ -125,6 +125,10 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
             {
                 "id": a.id,
                 "phone": a.phone,
+                # Item 3 (Spec.md Section 0): the dashboard's separate "Patients"
+                # widget was merged into this table -- patient name now shown
+                # inline instead of a second, patient-centric list.
+                "patient_name": (db.get_patient_by_phone(hospital.id, a.phone) or {}).get("name"),
                 "department_name": a.department_name,
                 "doctor_name": a.doctor_name,
                 "scheduled_at": a.scheduled_at.isoformat(),
@@ -377,6 +381,78 @@ async def portal_cancel_booking(
             # failure (expired token, patient number issue, ...) must not turn
             # a successful cancel into a 500 that makes staff think it failed.
             logger.exception("Failed to send cancellation message for appointment %s", appointment_id)
+
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/reschedule")
+async def portal_reschedule_booking(
+    appointment_id: int, payload: dict, authorization: str | None = Header(default=None)
+):
+    """Item 2 (staff-initiated reschedule with an optional reason message) --
+    mirrors portal_cancel_booking() above exactly: same auth/lookup shape,
+    same "message sent AFTER the write commits, delivery failure never turns
+    a successful reschedule into an error" discipline. Reuses
+    connector.reschedule_booking() (connectors.py) rather than a parallel
+    write path -- the same call core/booking_flow.py's WhatsApp-side
+    reschedule already uses, so both entry points share the exact
+    "book the new slot before touching the old appointment" race-safety
+    ordering (a losing IntegrityError here leaves the original appointment
+    untouched, same as the WhatsApp flow's own _handle_slot_taken recovery --
+    the portal surfaces it as a plain 400 rather than an alternate-slot
+    picker, since staff can just pick a different slot from the same form
+    and resubmit, unlike a WhatsApp conversation mid-flow)."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None:
+        return JSONResponse({"error": "No such appointment."}, status_code=404)
+
+    department_id = (payload or {}).get("department_id") or ""
+    doctor_id = (payload or {}).get("doctor_id") or ""
+    slot_id = (payload or {}).get("slot_id") or ""
+
+    errors = []
+    department = db.find_department(hospital.id, department_id)
+    if department is None:
+        errors.append("Choose a valid department.")
+    doctor = db.find_doctor(hospital.id, department_id, doctor_id) if department else None
+    if doctor is None:
+        errors.append("Choose a valid doctor.")
+    scheduled_at = None
+    if not slot_id:
+        errors.append("Choose an available slot.")
+    else:
+        try:
+            scheduled_at = datetime.fromisoformat(slot_id)
+        except ValueError:
+            errors.append("That slot is no longer valid — pick another.")
+    if errors:
+        return JSONResponse({"errors": errors}, status_code=400)
+
+    connector = connectors.get_connector_for_hospital(hospital)
+    try:
+        connector.reschedule_booking(
+            hospital_id=hospital.id,
+            old_appointment_id=appointment_id,
+            phone=appointment.phone,
+            department_id=department_id,
+            doctor_id=doctor_id,
+            scheduled_at=scheduled_at,
+        )
+    except connectors.ConnectorNotImplementedError as e:
+        return JSONResponse({"errors": [str(e)]}, status_code=501)
+    except IntegrityError:
+        return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
+
+    message = ((payload or {}).get("message") or "").strip()
+    if message:
+        try:
+            wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+            await wa.send_text(appointment.phone, message)
+        except Exception:
+            logger.exception("Failed to send reschedule message for appointment %s", appointment_id)
 
     return JSONResponse({"ok": True})
 

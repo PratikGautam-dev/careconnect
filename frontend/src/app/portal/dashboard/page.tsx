@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityFeed } from "@/components/portal/ActivityFeed";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
-import { PatientsWidget } from "@/components/portal/PatientsWidget";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
@@ -26,10 +25,10 @@ type DashboardData = {
   };
   weekly_counts: { date: string; label: string; count: number }[];
   department_breakdown: { department_name: string; count: number }[];
-  recent_patients: { id: number; phone: string; name: string | null; last_visit: string | null; visit_count: number }[];
   recent_appointments: {
     id: number;
     phone: string;
+    patient_name: string | null;
     department_name: string;
     doctor_name: string;
     scheduled_at: string;
@@ -124,8 +123,6 @@ export default function PortalDashboardPage() {
               <RecentAppointmentsTable appointments={data.recent_appointments} />
               <ActivityFeed items={data.activity_feed} />
             </div>
-
-            <PatientsWidget patients={data.recent_patients} />
           </>
         )}
     </PortalShell>

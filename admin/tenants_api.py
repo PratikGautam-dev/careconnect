@@ -103,6 +103,20 @@ async def list_tenants(request: Request, x_admin_secret: str | None = Header(def
     return JSONResponse({"tenants": [_tenant_summary(h) for h in hospitals]})
 
 
+@router.get("/api/admin/stalled-signups")
+async def list_stalled_signups(request: Request, x_admin_secret: str | None = Header(default=None)):
+    """Item 5 (Spec.md Section 0): who's signed in with Google but never
+    finished onboarding a hospital -- db.get_users_without_hospital() is
+    already the correct query (a user row with zero hospital_users links),
+    this just exposes it to the platform-admin frontend."""
+    if not _check_secret(x_admin_secret, request):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    users = db.get_users_without_hospital()
+    return JSONResponse({
+        "users": [{"id": u.id, "email": u.email, "name": u.name, "created_at": u.created_at} for u in users],
+    })
+
+
 @router.get("/api/admin/tenants/{tenant_id}")
 async def get_tenant(tenant_id: int, request: Request, x_admin_secret: str | None = Header(default=None)):
     if not _check_secret(x_admin_secret, request):

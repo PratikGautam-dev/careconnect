@@ -165,10 +165,79 @@ async def test_confirm_race_when_doctor_has_no_other_slots_left(hospital_id):
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "no other slots" in kwargs["text"].lower()
+    # Item 9: the "nothing left" text is still sent, now followed by the
+    # main menu as a recovery path (this is a genuine dead end, not item 1's
+    # "pick another slot" case -- there's nothing left to pick).
+    text_kind, text_kwargs = wa.sent[-2]
+    assert text_kind == "text"
+    assert "no other slots" in text_kwargs["text"].lower()
+    menu_kind, menu_kwargs = wa.sent[-1]
+    assert menu_kind == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
+async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_name_or_age(hospital_id):
+    """Full item-1 scenario: patient B loses the confirm race (like the test
+    above), but this time actually picks one of the freshly-offered alternate
+    slots -- since B's name/age were already collected THIS session (held in
+    context) but never reached the DB (create_appointment()'s failed
+    transaction rolls back before _upsert_patient() runs), B must go straight
+    to a new confirmation card, not be asked for name/age a second time."""
+    wa = FakeWhatsAppClient()
+    sessions_a = InMemorySessionStore()
+    sessions_b = InMemorySessionStore()
+
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slots = db.get_slots(hospital_id, doctor_id)
+    contested = slots[0]
+    same_day_alternate = next(s for s in slots[1:] if s["date"] == contested["date"])
+
+    shared_context = {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
+        "date": contested["date"], "date_label": "Sat, Aug 8",
+        "slot_id": contested["id"], "slot_date": contested["date"], "slot_time": contested["time"],
+        "patient_name": "Race Loser", "patient_age": 41,
+    }
+    sessions_a.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
+    sessions_b.set(hospital_id, OTHER_PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
+
+    # A confirms first and wins the contested slot.
+    await handle_incoming(wa, sessions_a, PHONE, hospital_id, tap("confirm"))
+    assert "booked successfully" in wa.sent[-1][1]["text"].lower()
+
+    # B confirms next -> loses the race, is shown alternate times for the
+    # SAME doctor/date (not sent back to department/doctor/date selection).
+    await handle_incoming(wa, sessions_b, OTHER_PHONE, hospital_id, tap("confirm"))
+    session_b = sessions_b.get(hospital_id, OTHER_PHONE)
+    assert session_b["state"] == "AWAITING_TIME_SLOT"
+    assert session_b["context"]["patient_name"] == "Race Loser"
+    assert session_b["context"]["patient_age"] == 41
+    offered_ids = _row_ids(_list_sends(wa)[-1])
+    assert contested["id"] not in offered_ids
+    assert same_day_alternate["id"] in offered_ids
+
+    # B picks one of the alternate slots -- must go STRAIGHT to a new
+    # confirmation card (not AWAITING_PATIENT_NAME/AGE), and the card must
+    # still show B's own name/age, not blank/re-collected values.
+    wa.sent.clear()
+    await handle_incoming(wa, sessions_b, OTHER_PHONE, hospital_id, tap(same_day_alternate["id"]))
+    session_b = sessions_b.get(hospital_id, OTHER_PHONE)
+    assert session_b["state"] == "AWAITING_CONFIRMATION"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "Race Loser" in kwargs["body_text"]
+    assert "41" in kwargs["body_text"]
+
+    # And confirming actually books it -- the DB-level upsert (deferred by
+    # the earlier failed transaction) finally happens here, on the
+    # successful booking.
+    await handle_incoming(wa, sessions_b, OTHER_PHONE, hospital_id, tap("confirm"))
+    assert "booked successfully" in wa.sent[-1][1]["text"].lower()
+    booked = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
+    b_appt = next(a for a in booked if a.phone == OTHER_PHONE and a.doctor_id == doctor_id)
+    assert b_appt.scheduled_at.isoformat() == f"{same_day_alternate['date']}T{same_day_alternate['time']}:00"
 
 
 # --- 2. Stale session resumption enforced everywhere a state is read ---
@@ -224,9 +293,12 @@ async def test_department_with_zero_doctors_shows_graceful_message(hospital_id):
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("empty_dept"))
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "no doctors available" in kwargs["text"].lower()
+    # Item 9: the graceful message is now followed by the main menu, so the
+    # patient has a way forward instead of a dead end.
+    text_kind, text_kwargs = wa.sent[-2]
+    assert text_kind == "text"
+    assert "no doctors available" in text_kwargs["text"].lower()
+    assert wa.sent[-1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
@@ -242,9 +314,10 @@ async def test_doctor_with_zero_available_slots_shows_graceful_message(hospital_
     sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": "cardiology", "department_name": "Cardiology"})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "no available slots" in kwargs["text"].lower()
+    text_kind, text_kwargs = wa.sent[-2]
+    assert text_kind == "text"
+    assert "no available slots" in text_kwargs["text"].lower()
+    assert wa.sent[-1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
@@ -261,9 +334,10 @@ async def test_reschedule_selection_doctor_with_zero_slots_shows_graceful_messag
     sessions.set(hospital_id, PHONE, "AWAITING_RESCHEDULE_SELECTION", {})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "no available slots" in kwargs["text"].lower()
+    text_kind, text_kwargs = wa.sent[-2]
+    assert text_kind == "text"
+    assert "no available slots" in text_kwargs["text"].lower()
+    assert wa.sent[-1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
@@ -284,7 +358,8 @@ async def test_awaiting_slot_fallback_rechecks_availability_if_slots_emptied_mid
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("whatever"))
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "no available slots" in kwargs["text"].lower()
+    text_kind, text_kwargs = wa.sent[-2]
+    assert text_kind == "text"
+    assert "no available slots" in text_kwargs["text"].lower()
+    assert wa.sent[-1][0] == "list"
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
