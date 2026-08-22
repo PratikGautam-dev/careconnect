@@ -81,6 +81,7 @@ export default function PortalPatientsPage() {
               <table className="w-full text-left text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
+                    <th className="pb-space-2 font-semibold">Patient ID</th>
                     <th className="pb-space-2 font-semibold">Name</th>
                     <th className="pb-space-2 font-semibold">Phone</th>
                     <th className="pb-space-2 font-semibold">Last visit</th>
@@ -95,6 +96,7 @@ export default function PortalPatientsPage() {
                       onClick={() => router.push(`/portal/patients/${p.id}`)}
                       className="cursor-pointer border-b border-line last:border-0 hover:bg-black/[0.02]"
                     >
+                      <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">#{p.id}</td>
                       <td className="py-space-2 font-semibold text-ink-900">
                         <Link href={`/portal/patients/${p.id}`} className="hover:underline">
                           {p.name || "—"}

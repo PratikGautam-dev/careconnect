@@ -1108,28 +1108,51 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
     return slots
 
 
-def get_doctor_slots_for_admin(hospital_id: int, doctor_id: str, date_str: str) -> list[dict]:
-    """Item 1 (Spec.md Section 0): every generated slot for this doctor ON
-    a specific date, blocked or not and booked or not -- the admin/portal
-    view for manually blocking/unblocking individual slots needs to see all
-    of them, unlike get_slots() above (the bot/staff-booking-facing list,
-    which only ever shows what's actually still offerable)."""
+def get_doctor_slots_for_admin(
+    hospital_id: int, doctor_id: str, date_str: str | None = None, now: datetime | None = None,
+) -> list[dict]:
+    """Item 1 (Spec.md Section 0) + "view all slots" follow-up: every
+    generated slot for this doctor, blocked or not and booked or not -- the
+    admin/portal view for manually blocking/removing individual slots needs
+    to see all of them, unlike get_slots() above (the bot/staff-booking-
+    facing list, which only ever shows what's actually still offerable).
+
+    date_str scopes to one calendar day (the original behavior); omitting
+    it returns every slot from now onward across the doctor's whole
+    generated window, each row carrying its own "date" so the portal can
+    group them by day in one list rather than paging through dates one at a
+    time to find (and remove) a specific slot."""
     conn = get_connection()
-    slot_rows = conn.execute(
-        "SELECT scheduled_at, blocked, block_reason FROM doctor_slots "
-        "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
-        "ORDER BY scheduled_at",
-        (hospital_id, doctor_id, f"{date_str}T00:00:00", f"{date_str}T23:59:59"),
-    ).fetchall()
-    booked_rows = conn.execute(
-        "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ? "
-        "AND scheduled_at >= ? AND scheduled_at <= ?",
-        (hospital_id, doctor_id, STATUS_BOOKED, f"{date_str}T00:00:00", f"{date_str}T23:59:59"),
-    ).fetchall()
+    if date_str:
+        start, end = f"{date_str}T00:00:00", f"{date_str}T23:59:59"
+        slot_rows = conn.execute(
+            "SELECT scheduled_at, blocked, block_reason FROM doctor_slots "
+            "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
+            "ORDER BY scheduled_at",
+            (hospital_id, doctor_id, start, end),
+        ).fetchall()
+        booked_rows = conn.execute(
+            "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ? "
+            "AND scheduled_at >= ? AND scheduled_at <= ?",
+            (hospital_id, doctor_id, STATUS_BOOKED, start, end),
+        ).fetchall()
+    else:
+        start = (now or datetime.now()).isoformat()
+        slot_rows = conn.execute(
+            "SELECT scheduled_at, blocked, block_reason FROM doctor_slots "
+            "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ? ORDER BY scheduled_at",
+            (hospital_id, doctor_id, start),
+        ).fetchall()
+        booked_rows = conn.execute(
+            "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ? "
+            "AND scheduled_at >= ?",
+            (hospital_id, doctor_id, STATUS_BOOKED, start),
+        ).fetchall()
     booked_at = {row["scheduled_at"] for row in booked_rows}
     return [
         {
             "scheduled_at": row["scheduled_at"],
+            "date": datetime.fromisoformat(row["scheduled_at"]).date().isoformat(),
             "time": datetime.fromisoformat(row["scheduled_at"]).strftime("%H:%M"),
             "blocked": row["blocked"],
             "block_reason": row["block_reason"],

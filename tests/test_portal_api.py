@@ -437,6 +437,23 @@ def test_doctor_slots_admin_view_and_block_endpoint(two_hospitals):
     assert slot["id"] not in {s["id"] for s in db.get_slots(a["id"], a["doctor_id"])}
 
 
+def test_doctor_slots_view_all_omits_date_and_groups_across_days(two_hospitals):
+    """"View all slots" follow-up (Spec.md Section 0): omitting `date`
+    returns every upcoming slot across the doctor's whole generated window,
+    each carrying its own "date" field for the portal to group by day."""
+    a = two_hospitals["a"]
+    all_slots = db.get_slots(a["id"], a["doctor_id"])
+    distinct_dates = {s["date"] for s in all_slots}
+    assert len(distinct_dates) > 1  # sanity check -- this doctor spans multiple days
+
+    resp = client.get(f"/api/portal/doctors/{a['doctor_id']}/slots", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    returned = resp.json()["slots"]
+    assert len(returned) >= len(all_slots)
+    assert {s["date"] for s in returned} >= distinct_dates
+    assert all("date" in s for s in returned)
+
+
 def test_block_slot_cannot_target_other_hospitals_doctor(two_hospitals):
     a, b = two_hospitals["a"], two_hospitals["b"]
     slot = db.get_slots(b["id"], b["doctor_id"])[0]

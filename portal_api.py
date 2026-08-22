@@ -673,10 +673,12 @@ async def portal_delete_doctor_leave(
 
 
 @router.get("/api/portal/doctors/{doctor_id}/slots")
-async def portal_get_doctor_slots(doctor_id: str, date: str, authorization: str | None = Header(default=None)):
+async def portal_get_doctor_slots(doctor_id: str, date: str | None = None, authorization: str | None = Header(default=None)):
     """Item 1 (Spec.md Section 0): every generated slot for this doctor on
     one date (blocked/booked flags included) -- the manual per-slot-block
-    admin view."""
+    admin view. "View all slots" follow-up: `date` is now optional --
+    omitting it returns every upcoming slot across the doctor's whole
+    generated window instead of just one day."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
