@@ -578,7 +578,8 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     # Item 3 (Spec.md Section 0): success message is now buttons, not text.
     assert kind == "buttons"
     assert "सफलतापूर्वक" in kwargs["body_text"]
-    assert "apt_" in kwargs["body_text"]
+    # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMMYY>-<NNN>.
+    assert "APT-" in kwargs["body_text"]
     # Booked with the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
@@ -618,6 +619,64 @@ async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospital_id):
+    """Item 10 (Spec.md Section 0): audits that the name/age skip isn't just
+    a within-one-session-object convenience (Section 12.12's race-loser
+    test covers THAT scenario separately) -- a completed booking in one
+    InMemorySessionStore(), then a brand new InMemorySessionStore() instance
+    (a genuinely new day/new session, same phone) must still skip straight
+    to confirmation. connector.get_patient_info() is a pure DB lookup keyed
+    on (hospital_id, phone), independent of session state, so this is
+    expected to already work -- this test proves it rather than assuming it."""
+    department = db.get_departments(hospital_id)[0]
+    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
+    connector = flows._DEFAULT_CONNECTOR
+
+    # Session #1: a full booking from scratch, collecting name/age for the
+    # first time.
+    wa1 = FakeWhatsAppClient()
+    sessions1 = _sessions_with_english_chosen(hospital_id)
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
+    slots = db.get_slots(hospital_id, doctor_id)
+    date_str = slots[0]["date"]
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
+    slot = [s for s in slots if s["date"] == date_str][0]
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
+    assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
+    assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
+    assert wa1.sent[-1][0] == "buttons"  # booking success
+
+    # Session #2: an entirely new session store (nothing shared with
+    # sessions1's in-memory state -- the only thing carrying over is the DB
+    # row _upsert_patient() wrote during session #1's booking), same phone,
+    # a fresh booking for a DIFFERENT slot.
+    wa2 = FakeWhatsAppClient()
+    sessions2 = _sessions_with_english_chosen(hospital_id)
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
+    slots2 = db.get_slots(hospital_id, doctor_id)  # first slot is now booked, list has moved on
+    date_str2 = slots2[0]["date"]
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(date_str2), connector=connector, enabled_features=["booking"])
+    slot2 = [s for s in slots2 if s["date"] == date_str2][0]
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(slot2["id"]), connector=connector, enabled_features=["booking"])
+
+    session2 = sessions2.get(hospital_id, PHONE)
+    assert session2["state"] == "AWAITING_CONFIRMATION"  # NOT AWAITING_PATIENT_NAME
+    assert session2["context"]["patient_name"] == "Priya Shah"
+    assert session2["context"]["patient_age"] == 29
+    kind, kwargs = wa2.sent[-1]
+    assert kind == "buttons"
+    assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
+    assert "🎂 *Age:* 29" in kwargs["body_text"]
 
 
 @pytest.mark.asyncio

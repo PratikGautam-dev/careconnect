@@ -76,13 +76,46 @@ _APPOINTMENT_SELECT = """
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
+    WHERE a.deleted_at IS NULL
 """
+# Item 3 (Spec.md Section 0): every normal read of an appointment excludes a
+# soft-deleted one (deleted_at IS NOT NULL) -- baked into the base SELECT's
+# own WHERE clause so every call site below appends "AND ..." instead of a
+# fresh "WHERE ...", and none of them can forget this filter individually.
+# The one deliberate exception is get_total_bookings_count() (Section 0,
+# platform-admin lifetime usage stat) -- a soft-deleted row still represents
+# a real historical booking event, so that one query is NOT built on this
+# constant.
 
 
-def _generate_reference_id() -> str:
-    """Section 12.12: millisecond-precision epoch, not second-precision -- see
-    db/schema.sql's reference_id column comment for why."""
-    return f"apt_{int(time.time() * 1000)}"
+def _next_daily_reference_sequence(conn, hospital_id: int, day: str) -> int:
+    """Atomic per-(hospital, day) increment -- INSERT...ON CONFLICT DO UPDATE
+    is a single statement, so this is race-safe under real concurrent
+    bookings (unlike a read-then-increment-then-write pair)."""
+    row = conn.execute(
+        "INSERT INTO reference_id_counters (hospital_id, day, counter) VALUES (?, ?, 1) "
+        "ON CONFLICT (hospital_id, day) DO UPDATE SET counter = reference_id_counters.counter + 1 "
+        "RETURNING counter",
+        (hospital_id, day),
+    ).fetchone()
+    return row["counter"]
+
+
+def _generate_reference_id(conn, hospital_id: int, now: datetime | None = None) -> str:
+    """Item 8 (Spec.md Section 0): structured, human-readable format --
+    APT-<DDMMMYY>-<NNN>, e.g. APT-13AUG26-001 -- replacing the old
+    apt_<millisecond-epoch> format (Section 12.12). Sequence is PER HOSPITAL
+    PER DAY (reference_id_counters' composite PK), not globally sequential
+    across tenants, and resets to 001 each new calendar day. Based on the
+    booking's CREATION time (when create_appointment() runs), not the
+    appointment's scheduled visit date -- same convention a receipt/invoice
+    number uses (the transaction date), and matches the OLD format's own
+    basis (time.time() at creation, not scheduled_at)."""
+    now = now or datetime.now()
+    day_key = now.strftime("%Y-%m-%d")
+    seq = _next_daily_reference_sequence(conn, hospital_id, day_key)
+    date_part = now.strftime("%d%b%y").upper()
+    return f"APT-{date_part}-{seq:03d}"
 
 
 @dataclass
@@ -1055,7 +1088,8 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
         booked_counts[row["scheduled_at"]] = booked_counts.get(row["scheduled_at"], 0) + 1
 
     slot_rows = conn.execute(
-        "SELECT scheduled_at FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? ORDER BY scheduled_at",
+        "SELECT scheduled_at FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND blocked = FALSE "
+        "ORDER BY scheduled_at",
         (hospital_id, doctor_id),
     ).fetchall()
 
@@ -1072,6 +1106,66 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
             "label": f"{dt.strftime('%a %d %b')} {dt.strftime('%H:%M')}",
         })
     return slots
+
+
+def get_doctor_slots_for_admin(hospital_id: int, doctor_id: str, date_str: str) -> list[dict]:
+    """Item 1 (Spec.md Section 0): every generated slot for this doctor ON
+    a specific date, blocked or not and booked or not -- the admin/portal
+    view for manually blocking/unblocking individual slots needs to see all
+    of them, unlike get_slots() above (the bot/staff-booking-facing list,
+    which only ever shows what's actually still offerable)."""
+    conn = get_connection()
+    slot_rows = conn.execute(
+        "SELECT scheduled_at, blocked, block_reason FROM doctor_slots "
+        "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
+        "ORDER BY scheduled_at",
+        (hospital_id, doctor_id, f"{date_str}T00:00:00", f"{date_str}T23:59:59"),
+    ).fetchall()
+    booked_rows = conn.execute(
+        "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ? "
+        "AND scheduled_at >= ? AND scheduled_at <= ?",
+        (hospital_id, doctor_id, STATUS_BOOKED, f"{date_str}T00:00:00", f"{date_str}T23:59:59"),
+    ).fetchall()
+    booked_at = {row["scheduled_at"] for row in booked_rows}
+    return [
+        {
+            "scheduled_at": row["scheduled_at"],
+            "time": datetime.fromisoformat(row["scheduled_at"]).strftime("%H:%M"),
+            "blocked": row["blocked"],
+            "block_reason": row["block_reason"],
+            "booked": row["scheduled_at"] in booked_at,
+        }
+        for row in slot_rows
+    ]
+
+
+def set_slot_blocked(
+    hospital_id: int, doctor_id: str, scheduled_at: str, blocked: bool, reason: str | None = None,
+) -> bool:
+    """Item 1: manual per-slot override. Refuses to block a slot that
+    already has a real BOOKED appointment on it (staff must cancel/
+    reschedule that appointment first, same as this project's existing
+    "never silently override an active booking" discipline elsewhere) --
+    returns False rather than raising, since this is a normal/expected
+    rejection a caller should show as a clear message, not a 500. Unblocking
+    has no such restriction (a blocked slot can never have a real booking on
+    it in the first place, since get_slots() never offers a blocked slot to
+    book)."""
+    conn = get_connection()
+    if blocked:
+        existing = conn.execute(
+            "SELECT 1 FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ? AND status = ?",
+            (hospital_id, doctor_id, scheduled_at, STATUS_BOOKED),
+        ).fetchone()
+        if existing:
+            return False
+    cur = conn.execute(
+        "UPDATE doctor_slots SET blocked = ?, block_reason = ? "
+        "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ?",
+        (blocked, reason if blocked else None, hospital_id, doctor_id, scheduled_at),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
@@ -1232,7 +1326,7 @@ def get_patient_visit_history(hospital_id: int, patient_id: int) -> list[Appoint
     if patient is None:
         return []
     rows = conn.execute(
-        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? AND a.phone = ? ORDER BY a.scheduled_at DESC",
+        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.phone = ? ORDER BY a.scheduled_at DESC",
         (hospital_id, patient["phone"]),
     ).fetchall()
     return [_row_to_appointment(r) for r in rows]
@@ -1533,7 +1627,7 @@ def create_appointment(
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
-             _generate_reference_id(), patient["id"], patient["name"], phone),
+             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone),
         )
         new_id = cur.fetchone()["id"]
 
@@ -1551,7 +1645,7 @@ def create_appointment(
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:
     conn = get_connection()
     row = conn.execute(
-        _APPOINTMENT_SELECT + " WHERE a.id = ? AND a.hospital_id = ?",
+        _APPOINTMENT_SELECT + " AND a.id = ? AND a.hospital_id = ?",
         (appointment_id, hospital_id),
     ).fetchone()
     return _row_to_appointment(row) if row else None
@@ -1564,7 +1658,7 @@ def get_upcoming_appointments_for_phone(hospital_id: int, phone: str, now: datet
     now = now or datetime.now()
     conn = get_connection()
     rows = conn.execute(
-        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? AND a.phone = ? AND a.status = ? AND a.scheduled_at > ? "
+        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.phone = ? AND a.status = ? AND a.scheduled_at > ? "
         "ORDER BY a.scheduled_at ASC",
         (hospital_id, phone, STATUS_BOOKED, now.isoformat()),
     ).fetchall()
@@ -1584,7 +1678,7 @@ def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: dateti
     conn = get_connection()
     rows = conn.execute(
         _APPOINTMENT_SELECT + """
-        WHERE a.hospital_id = ? AND a.status = ?
+        AND a.hospital_id = ? AND a.status = ?
           AND a.scheduled_at >= ? AND a.scheduled_at <= ?
           AND NOT EXISTS (
               SELECT 1 FROM appointment_reminders ar
@@ -1605,8 +1699,59 @@ def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> lis
     reviewing their own bookings want to see cancellations/reschedules too."""
     conn = get_connection()
     rows = conn.execute(
-        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? ORDER BY a.scheduled_at DESC LIMIT ?",
+        _APPOINTMENT_SELECT + " AND a.hospital_id = ? ORDER BY a.scheduled_at DESC LIMIT ?",
         (hospital_id, limit),
+    ).fetchall()
+    return [_row_to_appointment(r) for r in rows]
+
+
+def soft_delete_appointment(hospital_id: int, appointment_id: int) -> bool:
+    """Item 3 (Spec.md Section 0): soft-delete only -- stamps deleted_at
+    rather than removing the row, preserving this project's standing
+    never-hard-delete-appointments convention (cancel_appointment()'s own
+    docstring states it explicitly; this extends the same principle to
+    "delete"). Restricted to already-resolved appointments (status !=
+    'booked') -- an active booking must be cancelled first, not deleted out
+    from under the patient without notice. _APPOINTMENT_SELECT's own WHERE
+    clause excludes deleted_at IS NOT NULL rows from every normal read, so
+    this is enough to hide it everywhere without a matching change at each
+    call site."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE appointments SET deleted_at = ? WHERE id = ? AND hospital_id = ? AND status != ? AND deleted_at IS NULL",
+        (datetime.now().isoformat(), appointment_id, hospital_id, STATUS_BOOKED),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_total_bookings_count() -> int:
+    """Item 7 (Spec.md Section 0): platform-admin lifetime usage stat --
+    EVERY row ever inserted into appointments, across every hospital,
+    regardless of current status (booked/cancelled/rescheduled/attended/
+    no_show) AND regardless of soft-deletion (Item 3) -- a deleted row still
+    represents a real historical booking transaction. Deliberately NOT built
+    on _APPOINTMENT_SELECT (which excludes soft-deleted rows) -- this is the
+    one query in this file that must NOT apply that filter. A reschedule
+    counts as a 2nd use (it's a genuinely separate create_appointment() call/
+    INSERT), per this feature's own confirmed definition."""
+    conn = get_connection()
+    return conn.execute("SELECT COUNT(*) AS c FROM appointments").fetchone()["c"]
+
+
+def get_doctor_appointments_today(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[Appointment]:
+    """Item 4: a specific doctor's own appointments scheduled for today
+    (any status, so staff/the doctor can see the full picture -- cancelled/
+    rescheduled included -- not just still-booked ones), within the existing
+    shared staff portal (no separate doctor-level login exists)."""
+    now = now or datetime.now()
+    day_start = datetime.combine(now.date(), datetime.min.time()).isoformat()
+    day_end = datetime.combine(now.date(), datetime.max.time()).isoformat()
+    conn = get_connection()
+    rows = conn.execute(
+        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.doctor_id = ? AND a.scheduled_at >= ? AND a.scheduled_at <= ? "
+        "ORDER BY a.scheduled_at ASC",
+        (hospital_id, doctor_id, day_start, day_end),
     ).fetchall()
     return [_row_to_appointment(r) for r in rows]
 
@@ -1689,7 +1834,7 @@ def get_appointments_needing_attendance_review(hospital_id: int, now: datetime |
     now = now or datetime.now()
     conn = get_connection()
     rows = conn.execute(
-        _APPOINTMENT_SELECT + " WHERE a.hospital_id = ? AND a.status = ? AND a.scheduled_at < ? ORDER BY a.scheduled_at DESC",
+        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.status = ? AND a.scheduled_at < ? ORDER BY a.scheduled_at DESC",
         (hospital_id, STATUS_BOOKED, now.isoformat()),
     ).fetchall()
     return [_row_to_appointment(r) for r in rows]
@@ -1966,22 +2111,38 @@ def create_handoff_request(hospital_id: int, phone: str, reason: str, message_te
     }
 
 
-def get_handoff_requests(hospital_id: int, status: str | None = "open", limit: int = 100) -> list[dict]:
+def get_handoff_requests(
+    hospital_id: int, status: str | None = "open", limit: int = 100, date_str: str | None = None,
+) -> list[dict]:
     """status=None returns every request regardless of state (for a staff
-    member reviewing history); the default "open" is the actual work queue."""
+    member reviewing history); the default "open" is the actual work queue.
+    Item 6 (Spec.md Section 0): date_str ("YYYY-MM-DD"), when given, scopes
+    to requests created on that one calendar day. Item 3: soft-deleted
+    requests (deleted_at IS NOT NULL) are always excluded, same convention
+    _APPOINTMENT_SELECT enforces for appointments."""
     conn = get_connection()
-    if status is None:
-        rows = conn.execute(
-            "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
-            "WHERE hospital_id = ? ORDER BY created_at DESC LIMIT ?",
-            (hospital_id, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
-            "WHERE hospital_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?",
-            (hospital_id, status, limit),
-        ).fetchall()
+    conditions = ["hospital_id = ?", "deleted_at IS NULL"]
+    params: list = [hospital_id]
+    if status is not None:
+        conditions.append("status = ?")
+        params.append(status)
+    if date_str:
+        # created_at is stamped by Postgres's own `now()::text` default
+        # (space-separated, "YYYY-MM-DD HH:MM:SS.ffffff+TZ" -- NOT the
+        # "T"-separated ISO format datetime.isoformat() produces elsewhere in
+        # this file), so the boundaries here must match THAT shape, not
+        # reuse the T-separated pattern appointments.scheduled_at uses.
+        # Exclusive next-day upper bound sidesteps any further precision
+        # mismatch at the boundary itself.
+        next_day = (date.fromisoformat(date_str) + timedelta(days=1)).isoformat()
+        conditions.append("created_at >= ? AND created_at < ?")
+        params.extend([f"{date_str} 00:00:00", f"{next_day} 00:00:00"])
+    params.append(limit)
+    rows = conn.execute(
+        "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
+        f"WHERE {' AND '.join(conditions)} ORDER BY created_at DESC LIMIT ?",
+        tuple(params),
+    ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -1992,7 +2153,7 @@ def has_open_handoff(hospital_id: int, phone: str) -> bool:
     completely silent for that phone, not just skip its own menu."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT 1 FROM handoff_requests WHERE hospital_id = ? AND phone = ? AND status = 'open' LIMIT 1",
+        "SELECT 1 FROM handoff_requests WHERE hospital_id = ? AND phone = ? AND status = 'open' AND deleted_at IS NULL LIMIT 1",
         (hospital_id, phone),
     ).fetchone()
     return row is not None
@@ -2002,6 +2163,21 @@ def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:
     conn = get_connection()
     cur = conn.execute(
         "UPDATE handoff_requests SET status = 'resolved', resolved_at = ? WHERE id = ? AND hospital_id = ? AND status = 'open'",
+        (datetime.now().isoformat(), handoff_id, hospital_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def soft_delete_handoff(hospital_id: int, handoff_id: int) -> bool:
+    """Item 3: same soft-delete convention as soft_delete_appointment() --
+    no restriction on status here (unlike appointments' "must be resolved
+    first" guard) since an open handoff has no in-progress side effect a
+    delete could silently orphan -- staff can delete a stale/mistaken
+    request directly."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE handoff_requests SET deleted_at = ? WHERE id = ? AND hospital_id = ? AND deleted_at IS NULL",
         (datetime.now().isoformat(), handoff_id, hospital_id),
     )
     conn.commit()

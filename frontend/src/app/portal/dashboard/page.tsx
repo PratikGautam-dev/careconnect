@@ -34,6 +34,7 @@ type DashboardData = {
     scheduled_at: string;
     status: string;
     source: string;
+    reference_id: string | null;
   }[];
   activity_feed: { label: string; phone: string; doctor_name: string; department_name: string; at: string }[];
 };

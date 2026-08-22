@@ -166,3 +166,34 @@ def test_stalled_signups_requires_secret(hospital_id):
     db.create_user(email="stalled@example.com", google_id="g-stalled")
     resp = client.get("/api/admin/stalled-signups")
     assert resp.status_code == 401
+
+
+def test_total_bookings_stat_counts_every_booking_across_hospitals(hospital_id, second_hospital_id):
+    from datetime import datetime
+
+    before = client.get("/api/admin/stats/total-bookings", headers=_HEADERS).json()["total_bookings"]
+
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    appt = db.create_appointment(
+        hospital_id, "5490001111", "cardiology", doctor_id, datetime.fromisoformat(slot["id"]),
+        patient_name="Ravi Kumar", patient_age=34,
+    )
+    t2_doctor_id = db.get_doctors(second_hospital_id, "t2_neurology")[0]["id"]
+    t2_slot = db.get_slots(second_hospital_id, t2_doctor_id)[0]
+    db.create_appointment(
+        second_hospital_id, "5490002222", "t2_neurology", t2_doctor_id, datetime.fromisoformat(t2_slot["id"]),
+        patient_name="Cross Tenant", patient_age=40,
+    )
+
+    # Cancelling doesn't reduce the lifetime count -- item 7's own definition.
+    db.cancel_appointment(hospital_id, appt.id)
+
+    resp = client.get("/api/admin/stats/total-bookings", headers=_HEADERS)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total_bookings"] == before + 2
+
+
+def test_total_bookings_stat_requires_secret(hospital_id):
+    resp = client.get("/api/admin/stats/total-bookings")
+    assert resp.status_code == 401

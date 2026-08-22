@@ -292,6 +292,113 @@ def test_resolve_handoff_cannot_target_other_hospitals_handoff(two_hospitals):
     assert any(h["id"] == handoff_b["id"] for h in still_open)
 
 
+def test_delete_handoff_cannot_target_other_hospitals_handoff(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    handoff_b = db.create_handoff_request(b["id"], "919876500000", reason="patient_requested")
+
+    resp = client.post(f"/api/portal/handoffs/{handoff_b['id']}/delete", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+    assert any(h["id"] == handoff_b["id"] for h in db.get_handoff_requests(b["id"], status=None))
+
+
+def test_delete_handoff_removes_it_from_listing(two_hospitals):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876500001", reason="patient_requested")
+
+    resp = client.post(f"/api/portal/handoffs/{handoff['id']}/delete", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+
+    listing = client.get("/api/portal/handoffs?status=all", headers=_auth(a["token"]))
+    assert handoff["id"] not in {h["id"] for h in listing.json()["handoffs"]}
+
+
+def test_delete_booking_requires_non_booked_status(two_hospitals):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490005555")
+
+    resp = client.post(f"/api/portal/bookings/{appt.id}/delete", headers=_auth(a["token"]))
+    assert resp.status_code == 400
+
+    client.post(f"/api/portal/bookings/{appt.id}/cancel", headers=_auth(a["token"]))
+    resp2 = client.post(f"/api/portal/bookings/{appt.id}/delete", headers=_auth(a["token"]))
+    assert resp2.status_code == 200, resp2.text
+
+    listing = client.get("/api/portal/bookings", headers=_auth(a["token"]))
+    assert appt.id not in {row["id"] for row in listing.json()["appointments"]}
+
+
+def test_delete_booking_cannot_target_other_hospitals_appointment(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    appt_b = _create_appointment(b["id"], b["doctor_id"], b["department_id"])
+    db.cancel_appointment(b["id"], appt_b.id)
+
+    resp = client.post(f"/api/portal/bookings/{appt_b.id}/delete", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+
+def test_doctor_slots_admin_view_and_block_endpoint(two_hospitals):
+    a = two_hospitals["a"]
+    slot = db.get_slots(a["id"], a["doctor_id"])[0]
+    date_str = slot["date"]
+
+    resp = client.get(f"/api/portal/doctors/{a['doctor_id']}/slots?date={date_str}", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    assert any(s["scheduled_at"] == slot["id"] for s in resp.json()["slots"])
+
+    block_resp = client.post(
+        f"/api/portal/doctors/{a['doctor_id']}/slots/block",
+        json={"scheduled_at": slot["id"], "blocked": True, "reason": "Meeting"},
+        headers=_auth(a["token"]),
+    )
+    assert block_resp.status_code == 200, block_resp.text
+    assert slot["id"] not in {s["id"] for s in db.get_slots(a["id"], a["doctor_id"])}
+
+
+def test_block_slot_cannot_target_other_hospitals_doctor(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    slot = db.get_slots(b["id"], b["doctor_id"])[0]
+
+    resp = client.post(
+        f"/api/portal/doctors/{b['doctor_id']}/slots/block",
+        json={"scheduled_at": slot["id"], "blocked": True},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 404
+    assert slot["id"] in {s["id"] for s in db.get_slots(b["id"], b["doctor_id"])}
+
+
+def test_doctor_appointments_today(two_hospitals):
+    from datetime import datetime as dt, timedelta
+
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490006666")
+    conn = db.get_connection()
+    conn.execute("UPDATE appointments SET scheduled_at = ? WHERE id = ?", (dt.now().isoformat(), appt.id))
+    conn.commit()
+
+    resp = client.get(f"/api/portal/doctors/{a['doctor_id']}/appointments/today", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    assert appt.id in {row["id"] for row in resp.json()["appointments"]}
+
+
+def test_handoffs_date_filter(two_hospitals):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876500002", reason="patient_requested")
+    # Derived from the row's own created_at (the DB server's clock/timezone,
+    # via Postgres's `now()::text` default) rather than the test process's
+    # local datetime.now() -- those two can legitimately disagree on the
+    # calendar date near a timezone boundary, which isn't what this test is
+    # trying to prove.
+    today = handoff["created_at"].split(" ")[0]
+
+    resp = client.get(f"/api/portal/handoffs?status=all&date={today}", headers=_auth(a["token"]))
+    assert resp.status_code == 200
+    assert handoff["id"] in {h["id"] for h in resp.json()["handoffs"]}
+
+    resp2 = client.get("/api/portal/handoffs?status=all&date=2020-01-01", headers=_auth(a["token"]))
+    assert handoff["id"] not in {h["id"] for h in resp2.json()["handoffs"]}
+
+
 def test_reply_handoff_cannot_target_other_hospitals_handoff(two_hospitals, fake_whatsapp_send):
     a, b = two_hospitals["a"], two_hospitals["b"]
     handoff_b = db.create_handoff_request(b["id"], "919876500000", reason="patient_requested")

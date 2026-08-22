@@ -117,6 +117,19 @@ async def list_stalled_signups(request: Request, x_admin_secret: str | None = He
     })
 
 
+@router.get("/api/admin/stats/total-bookings")
+async def get_total_bookings_stat(request: Request, x_admin_secret: str | None = Header(default=None)):
+    """Item 7 (Spec.md Section 0): platform-wide lifetime "how many times has
+    this application been used for booking" -- every appointments row ever
+    inserted, across every hospital, regardless of current status or later
+    soft-deletion (db.get_total_bookings_count()'s own docstring has the
+    full definition). Deliberately NOT the attended-status count from the
+    earlier no-show work -- a separate metric entirely."""
+    if not _check_secret(x_admin_secret, request):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    return JSONResponse({"total_bookings": db.get_total_bookings_count()})
+
+
 @router.get("/api/admin/tenants/{tenant_id}")
 async def get_tenant(tenant_id: int, request: Request, x_admin_secret: str | None = Header(default=None)):
     if not _check_secret(x_admin_secret, request):

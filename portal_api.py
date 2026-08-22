@@ -134,6 +134,9 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
                 "scheduled_at": a.scheduled_at.isoformat(),
                 "status": a.status,
                 "source": a.source,
+                # Item 9 (Spec.md Section 0): column parity with the full
+                # Appointments page, which already surfaces this.
+                "reference_id": a.reference_id,
             }
             for a in recent_appointments
         ],
@@ -329,6 +332,10 @@ def _appointment_json(a) -> dict:
         "scheduled_at": a.scheduled_at.isoformat(),
         "status": a.status,
         "source": a.source,
+        # Item 8 (Spec.md Section 0): now surfaced to the frontend -- was
+        # generated and stored since Section 12.12 but never actually
+        # returned by this JSON shape.
+        "reference_id": a.reference_id,
     }
 
 
@@ -373,6 +380,26 @@ async def portal_mark_attendance(
     if not ok:
         return JSONResponse({"error": "No such booked appointment to update."}, status_code=404)
     return JSONResponse({"ok": True, "status": "attended" if attended else "no_show"})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/delete")
+async def portal_delete_booking(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Item 3 (Spec.md Section 0): soft-delete only, per this project's
+    standing never-hard-delete-appointments convention -- db.soft_delete_
+    appointment()'s own guard refuses a still-'booked' row (cancel it
+    first), surfaced here as a clear 400 rather than a generic failure."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None:
+        return JSONResponse({"error": "No such appointment."}, status_code=404)
+    if appointment.status == db.STATUS_BOOKED:
+        return JSONResponse({"error": "Cancel this appointment before deleting it."}, status_code=400)
+    ok = db.soft_delete_appointment(hospital.id, appointment_id)
+    if not ok:
+        return JSONResponse({"error": "No such appointment."}, status_code=404)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/api/portal/bookings/{appointment_id}/cancel")
@@ -645,6 +672,55 @@ async def portal_delete_doctor_leave(
     return JSONResponse({"ok": True})
 
 
+@router.get("/api/portal/doctors/{doctor_id}/slots")
+async def portal_get_doctor_slots(doctor_id: str, date: str, authorization: str | None = Header(default=None)):
+    """Item 1 (Spec.md Section 0): every generated slot for this doctor on
+    one date (blocked/booked flags included) -- the manual per-slot-block
+    admin view."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    return JSONResponse({"slots": db.get_doctor_slots_for_admin(hospital.id, doctor_id, date)})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/slots/block")
+async def portal_set_slot_blocked(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    """Item 1: payload = {"scheduled_at": "...", "blocked": true|false,
+    "reason": "..."}. Refusing to block an already-BOOKED slot is
+    db.set_slot_blocked()'s own guard, surfaced here as a clear 400."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    scheduled_at = (payload or {}).get("scheduled_at", "").strip()
+    if not scheduled_at:
+        return JSONResponse({"error": "scheduled_at is required."}, status_code=400)
+    blocked = bool((payload or {}).get("blocked", True))
+    reason = (payload or {}).get("reason", "").strip() or None
+    ok = db.set_slot_blocked(hospital.id, doctor_id, scheduled_at, blocked, reason)
+    if not ok:
+        if blocked:
+            return JSONResponse({"error": "This slot already has a booked appointment -- cancel or reschedule it first."}, status_code=400)
+        return JSONResponse({"error": "No such slot."}, status_code=404)
+    return JSONResponse({"ok": True, "blocked": blocked})
+
+
+@router.get("/api/portal/doctors/{doctor_id}/appointments/today")
+async def portal_get_doctor_appointments_today(doctor_id: str, authorization: str | None = Header(default=None)):
+    """Item 4: a specific doctor's own appointments scheduled for today,
+    within the existing shared staff portal (no separate doctor login)."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    appointments = db.get_doctor_appointments_today(hospital.id, doctor_id)
+    return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+
+
 class DoctorCsvRow(BaseModel):
     department_name: str = ""
     name: str = ""
@@ -885,12 +961,29 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
 # --- Human handoff queue (Section 14.5 follow-up) ---
 
 @router.get("/api/portal/handoffs")
-async def portal_get_handoffs(status: str = "open", authorization: str | None = Header(default=None)):
+async def portal_get_handoffs(
+    status: str = "open", date: str | None = None, authorization: str | None = Header(default=None)
+):
+    """Item 6 (Spec.md Section 0): date ("YYYY-MM-DD"), when given, scopes
+    to requests created that one calendar day -- status filtering
+    (open/resolved/all) already existed."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     status_filter = None if status == "all" else status
-    return JSONResponse({"handoffs": db.get_handoff_requests(hospital.id, status=status_filter)})
+    return JSONResponse({"handoffs": db.get_handoff_requests(hospital.id, status=status_filter, date_str=date)})
+
+
+@router.post("/api/portal/handoffs/{handoff_id}/delete")
+async def portal_delete_handoff(handoff_id: int, authorization: str | None = Header(default=None)):
+    """Item 3: soft-delete only, same convention as bookings above."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    ok = db.soft_delete_handoff(hospital.id, handoff_id)
+    if not ok:
+        return JSONResponse({"error": "No such handoff request."}, status_code=404)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/api/portal/handoffs/{handoff_id}/resolve")

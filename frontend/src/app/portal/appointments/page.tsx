@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
-import { CalendarClock, Plus, Send, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarClock, Plus, Search, Send, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -21,6 +21,7 @@ type Appointment = {
   scheduled_at: string;
   status: string;
   source: string;
+  reference_id: string | null;
 };
 
 type Department = { id: string; name: string };
@@ -68,6 +69,15 @@ export default function PortalAppointmentsPage() {
   const [rDate, setRDate] = useState("");
   const [rSlotId, setRSlotId] = useState("");
   const [markingAttendanceId, setMarkingAttendanceId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Item 2 (Spec.md Section 0): search (patient phone / doctor / department
+  // name) + status filter -- computed client-side, same reasoning the
+  // doctors page below uses (this list is already bounded to 500 rows by
+  // the backend, small enough that a server round-trip per keystroke isn't
+  // needed).
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
   // real status" gap -- a still-'booked' appointment whose scheduled time
@@ -84,6 +94,33 @@ export default function PortalAppointmentsPage() {
     setMarkingAttendanceId(null);
     if (result.ok) load();
   }
+
+  // Item 3 (Spec.md Section 0): soft-delete only, per this project's
+  // never-hard-delete convention -- restricted server-side to non-'booked'
+  // rows (cancel it first), same guard reflected here by only offering the
+  // button once status !== "booked".
+  async function handleDelete(id: number) {
+    if (!window.confirm("Delete this appointment record? This can't be undone from the portal.")) return;
+    setDeletingId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/delete`, { method: "POST" });
+    setDeletingId(null);
+    if (result.ok) load();
+  }
+
+  const filteredAppointments = useMemo(() => {
+    if (!appointments) return appointments;
+    const q = searchQuery.trim().toLowerCase();
+    return appointments.filter((a) => {
+      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        a.phone.toLowerCase().includes(q) ||
+        a.doctor_name.toLowerCase().includes(q) ||
+        a.department_name.toLowerCase().includes(q) ||
+        (a.reference_id || "").toLowerCase().includes(q)
+      );
+    });
+  }, [appointments, searchQuery, statusFilter]);
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/bookings");
@@ -185,17 +222,43 @@ export default function PortalAppointmentsPage() {
 
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
+        <div className="mb-space-4 flex flex-wrap items-center gap-space-3">
+          <div className="relative min-w-[220px] flex-1">
+            <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+            <input
+              type="text"
+              placeholder="Search phone, doctor, department, or reference…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-10 rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+          >
+            <option value="all">All statuses</option>
+            {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+
         <Card className="p-space-4">
           {!appointments ? (
             <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
           ) : appointments.length === 0 ? (
             <p className="py-space-4 text-center text-[13px] text-ink-400">No appointments yet.</p>
+          ) : filteredAppointments && filteredAppointments.length === 0 ? (
+            <p className="py-space-4 text-center text-[13px] text-ink-400">No appointments match your search/filter.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
                     <th className="pb-space-2 font-semibold">Time</th>
+                    <th className="pb-space-2 font-semibold">Reference</th>
                     <th className="pb-space-2 font-semibold">Patient</th>
                     <th className="pb-space-2 font-semibold">Doctor</th>
                     <th className="pb-space-2 font-semibold">Department</th>
@@ -205,10 +268,11 @@ export default function PortalAppointmentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {appointments.map((a) => (
+                  {(filteredAppointments || []).map((a) => (
                     <Fragment key={a.id}>
                       <tr className={cn("border-b border-line last:border-0", (cancelPanelId === a.id || reschedulePanelId === a.id) && "border-b-0")}>
                         <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatTime(a.scheduled_at)}</td>
+                        <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">{a.reference_id || "—"}</td>
                         <td className="py-space-2 text-ink-900">{a.phone}</td>
                         <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
                         <td className="py-space-2 text-ink-600">{a.department_name}</td>
@@ -244,8 +308,8 @@ export default function PortalAppointmentsPage() {
                                 No-show
                               </button>
                             </span>
-                          ) : (
-                            a.status === "booked" && cancelPanelId !== a.id && reschedulePanelId !== a.id && (
+                          ) : a.status === "booked" ? (
+                            cancelPanelId !== a.id && reschedulePanelId !== a.id && (
                               <span className="inline-flex gap-space-3">
                                 <button
                                   type="button"
@@ -263,12 +327,24 @@ export default function PortalAppointmentsPage() {
                                 </button>
                               </span>
                             )
+                          ) : (
+                            // Item 3: delete only ever offered for a resolved
+                            // (non-'booked') appointment -- matches the
+                            // backend's own guard.
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(a.id)}
+                              disabled={deletingId === a.id}
+                              className="inline-flex items-center gap-space-1 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
+                            >
+                              <Trash2 size={12} /> {deletingId === a.id ? "Deleting…" : "Delete"}
+                            </button>
                           )}
                         </td>
                       </tr>
                       {reschedulePanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={7} className="pb-space-3">
+                          <td colSpan={8} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 sm:grid-cols-2">
                                 <div>
@@ -385,7 +461,7 @@ export default function PortalAppointmentsPage() {
                       )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={7} className="pb-space-3">
+                          <td colSpan={8} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
                                 Message to send {a.phone} on WhatsApp

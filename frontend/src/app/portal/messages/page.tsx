@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, MessageCircle, Send, UserRound } from "lucide-react";
+import { AlertTriangle, Check, MessageCircle, Send, Trash2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -52,9 +52,15 @@ export default function PortalMessagesPage() {
   const [sending, setSending] = useState(false);
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [resolvingId, setResolvingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  // Item 6 (Spec.md Section 0): status filtering already existed (the
+  // Open/Resolved/All tabs above) -- this adds a date filter alongside it.
+  const [dateFilter, setDateFilter] = useState("");
 
   const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/handoffs?status=${filter}`);
+    const qs = new URLSearchParams({ status: filter });
+    if (dateFilter) qs.set("date", dateFilter);
+    const result = await portalFetch(`/api/portal/handoffs?${qs.toString()}`);
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
       else setError(result.error);
@@ -62,7 +68,7 @@ export default function PortalMessagesPage() {
     }
     const data = result.data as { handoffs: Handoff[] };
     setHandoffs(data.handoffs);
-  }, [router, filter]);
+  }, [router, filter, dateFilter]);
 
   useEffect(() => {
     if (!ready) return;
@@ -101,12 +107,25 @@ export default function PortalMessagesPage() {
     if (result.ok) load();
   }
 
+  // Item 3: soft-delete only (no restriction on status, unlike appointments
+  // -- see db.soft_delete_handoff()'s own reasoning).
+  async function handleDelete(id: number) {
+    if (!window.confirm("Delete this message record? This can't be undone from the portal.")) return;
+    setDeletingId(id);
+    const result = await portalFetch(`/api/portal/handoffs/${id}/delete`, { method: "POST" });
+    setDeletingId(null);
+    if (result.ok) {
+      setSelectedId(null);
+      load();
+    }
+  }
+
   return (
     <PortalShell hospital={hospital} active="messages">
         <h1 className="text-display mb-space-5">Messages</h1>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
-        <div className="mb-space-4 flex gap-space-2">
+        <div className="mb-space-4 flex flex-wrap items-center gap-space-2">
           {FILTERS.map((f) => (
             <button
               key={f.key}
@@ -120,6 +139,21 @@ export default function PortalMessagesPage() {
               {f.label}
             </button>
           ))}
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="h-10 rounded-md border border-line bg-card px-space-3 text-[12.5px] text-ink-900"
+          />
+          {dateFilter && (
+            <button
+              type="button"
+              onClick={() => setDateFilter("")}
+              className="text-[12px] font-semibold text-ink-400 hover:text-ink-700"
+            >
+              Clear date
+            </button>
+          )}
         </div>
 
         {!handoffs ? (
@@ -185,18 +219,28 @@ export default function PortalMessagesPage() {
                         <span className="text-[12px] text-ink-400">{formatTime(selected.created_at)}</span>
                       </div>
                     </div>
-                    {selected.status === "open" ? (
-                      <Button
-                        variant="secondary"
-                        size="md"
-                        onClick={() => handleResolve(selected.id)}
-                        disabled={resolvingId === selected.id}
+                    <div className="flex items-center gap-space-2">
+                      {selected.status === "open" ? (
+                        <Button
+                          variant="secondary"
+                          size="md"
+                          onClick={() => handleResolve(selected.id)}
+                          disabled={resolvingId === selected.id}
+                        >
+                          <Check size={14} /> Mark resolved
+                        </Button>
+                      ) : (
+                        <Badge tone="success">Resolved {selected.resolved_at ? formatTime(selected.resolved_at) : ""}</Badge>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(selected.id)}
+                        disabled={deletingId === selected.id}
+                        className="inline-flex items-center gap-space-1 rounded-md px-space-2 py-space-2 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
                       >
-                        <Check size={14} /> Mark resolved
-                      </Button>
-                    ) : (
-                      <Badge tone="success">Resolved {selected.resolved_at ? formatTime(selected.resolved_at) : ""}</Badge>
-                    )}
+                        <Trash2 size={14} /> {deletingId === selected.id ? "Deleting…" : "Delete"}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mb-space-4 rounded-lg bg-paper p-space-4 text-[13.5px] text-ink-900">

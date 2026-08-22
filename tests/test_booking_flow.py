@@ -332,7 +332,8 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert "booked successfully" in kwargs["body_text"].lower()
-    assert "Reference ID: *apt_" in kwargs["body_text"]
+    # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMMYY>-<NNN>.
+    assert "Reference ID: *APT-" in kwargs["body_text"]
     button_ids = {b["id"] for b in kwargs["buttons"]}
     assert GOTO_MAIN_MENU in button_ids
     assert any(bid.startswith(MANAGE_CANCEL_PREFIX) for bid in button_ids)
@@ -347,7 +348,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert appt.department_id == "cardiology"
     assert appt.doctor_id == doctor_id
     assert appt.scheduled_at.isoformat() == f"{slot['date']}T{slot['time']}:00"
-    assert appt.reference_id is not None and appt.reference_id.startswith("apt_")
+    assert appt.reference_id is not None and appt.reference_id.startswith("APT-")
     assert f"Reference ID: *{appt.reference_id}*" in kwargs["body_text"]
 
     # ...and saved the patient's name/age (Section 12.11's other half).

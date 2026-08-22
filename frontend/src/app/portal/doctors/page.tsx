@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Upload } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, Plus, Search, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +11,8 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { DoctorScheduleForm, DoctorScheduleFormState, emptyDoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
 import { DoctorLeaveManager } from "@/components/portal/DoctorLeaveManager";
+import { DoctorSlotManager } from "@/components/portal/DoctorSlotManager";
+import { DoctorTodayAppointments } from "@/components/portal/DoctorTodayAppointments";
 import { DoctorCsvImport } from "@/components/portal/DoctorCsvImport";
 import { portalFetch } from "@/lib/portalAuth";
 
@@ -41,6 +43,12 @@ export default function PortalDoctorsPage() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Item 2 (Spec.md Section 0): search (name/specialization) + active/
+  // inactive filter, computed client-side (a hospital's own doctor list is
+  // small -- no need for a server round trip per keystroke).
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/doctors");
@@ -131,6 +139,16 @@ export default function PortalDoctorsPage() {
     if (result.ok) load();
   }
 
+  const filteredDoctors = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return doctors.filter((d) => {
+      if (activeFilter === "active" && !d.is_active) return false;
+      if (activeFilter === "inactive" && d.is_active) return false;
+      if (!q) return true;
+      return d.name.toLowerCase().includes(q) || (d.specialization || "").toLowerCase().includes(q);
+    });
+  }, [doctors, searchQuery, activeFilter]);
+
   return (
     <PortalShell hospital={hospital} active="doctors">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
@@ -190,11 +208,36 @@ export default function PortalDoctorsPage() {
 
               <Card className="p-space-4">
                 <h3 className="text-label mb-space-3 font-bold text-ink-900">Doctors</h3>
+                {doctors.length > 0 && (
+                  <div className="mb-space-3 flex flex-wrap gap-space-2">
+                    <div className="relative min-w-[200px] flex-1">
+                      <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+                      <input
+                        type="text"
+                        placeholder="Search name or specialization…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                      />
+                    </div>
+                    <select
+                      value={activeFilter}
+                      onChange={(e) => setActiveFilter(e.target.value)}
+                      className="h-10 rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+                    >
+                      <option value="all">All doctors</option>
+                      <option value="active">Available only</option>
+                      <option value="inactive">Unavailable only</option>
+                    </select>
+                  </div>
+                )}
                 {doctors.length === 0 ? (
                   <p className="py-space-4 text-center text-[13px] text-ink-400">No doctors yet.</p>
+                ) : filteredDoctors.length === 0 ? (
+                  <p className="py-space-4 text-center text-[13px] text-ink-400">No doctors match your search/filter.</p>
                 ) : (
                   <ul className="divide-y divide-line">
-                    {doctors.map((doc) => {
+                    {filteredDoctors.map((doc) => {
                       const expanded = expandedId === doc.id;
                       return (
                         <li key={doc.id} className="py-space-3">
@@ -241,7 +284,9 @@ export default function PortalDoctorsPage() {
                             </div>
                           </div>
                           {expanded && (
-                            <div className="mt-space-3">
+                            <div className="mt-space-3 space-y-space-3">
+                              <DoctorTodayAppointments doctorId={doc.id} />
+                              <DoctorSlotManager doctorId={doc.id} />
                               <DoctorLeaveManager doctorId={doc.id} />
                             </div>
                           )}

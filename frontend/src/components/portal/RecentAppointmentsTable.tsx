@@ -11,19 +11,29 @@ type Appointment = {
   scheduled_at: string;
   status: string;
   source: string;
+  reference_id: string | null;
 };
 
+// Item 9 (Spec.md Section 0): kept identical to the full Appointments
+// page's own STATUS_STYLES/LABELS -- both were drifting out of sync
+// (missing attended/no_show here) before this alignment pass.
 const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
   cancelled: "bg-error-tint text-error",
   rescheduled: "bg-clay-100 text-clay-700",
+  attended: "bg-success-tint text-success",
+  no_show: "bg-error-tint text-error",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   booked: "Confirmed",
   cancelled: "Cancelled",
   rescheduled: "Rescheduled",
+  attended: "Attended",
+  no_show: "No-show",
 };
+
+const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, {
@@ -51,9 +61,11 @@ export function RecentAppointmentsTable({ appointments }: { appointments: Appoin
             <thead>
               <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
                 <th className="pb-space-2 font-semibold">Time</th>
+                <th className="pb-space-2 font-semibold">Reference</th>
                 <th className="pb-space-2 font-semibold">Patient</th>
                 <th className="pb-space-2 font-semibold">Doctor</th>
                 <th className="pb-space-2 font-semibold">Department</th>
+                <th className="pb-space-2 font-semibold">Source</th>
                 <th className="pb-space-2 font-semibold">Status</th>
               </tr>
             </thead>
@@ -63,12 +75,16 @@ export function RecentAppointmentsTable({ appointments }: { appointments: Appoin
                   <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">
                     {formatTime(a.scheduled_at)}
                   </td>
+                  <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">
+                    {a.reference_id || "—"}
+                  </td>
                   <td className="py-space-2 text-ink-900">
                     <span className="font-semibold">{a.patient_name || a.phone}</span>
                     {a.patient_name && <span className="ml-space-2 text-[12px] text-ink-400">{a.phone}</span>}
                   </td>
                   <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
                   <td className="py-space-2 text-ink-600">{a.department_name}</td>
+                  <td className="py-space-2 text-ink-600">{SOURCE_LABELS[a.source] || a.source}</td>
                   <td className="py-space-2">
                     <span
                       className={cn(

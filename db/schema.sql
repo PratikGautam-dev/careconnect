@@ -255,6 +255,14 @@ CREATE TABLE IF NOT EXISTS doctor_slots (
     created_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(doctor_id, scheduled_at)
 );
+-- Item 1 (Spec.md Section 0): a manual per-slot override on top of the
+-- normal generated availability -- distinct from doctor_leave (blocks a
+-- whole day) and doctors.is_active (blocks the whole doctor). db.get_slots()
+-- (the one function both the WhatsApp bot and staff new-booking read
+-- through) excludes any blocked=TRUE row, same enforcement-at-one-point
+-- pattern is_active already established.
+ALTER TABLE doctor_slots ADD COLUMN IF NOT EXISTS blocked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE doctor_slots ADD COLUMN IF NOT EXISTS block_reason TEXT;
 
 -- No "patients" table (Section 4 has one, but nothing in this build normalizes
 -- patients out of appointments.phone yet). Available slots ARE now persisted
@@ -376,6 +384,15 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reference_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patients(id);
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_name TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_phone TEXT;
+-- Item 3 (Spec.md Section 0, this session's 2nd follow-up): soft-delete only
+-- -- this project's standing convention is every appointment status change
+-- (cancel/reschedule/attendance) status-flags, never physically removes the
+-- row, and "delete" here preserves that: hidden from normal reads (baked
+-- into _APPOINTMENT_SELECT's own WHERE clause, db/repository.py) but never
+-- actually removed. Restricted to non-'booked' rows only (db.soft_delete_
+-- appointment()'s own guard) -- deleting a still-active appointment without
+-- cancelling it first isn't offered.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
@@ -384,6 +401,21 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_phone TEXT;
 ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_status_check;
 ALTER TABLE appointments ADD CONSTRAINT appointments_status_check
     CHECK (status IN ('booked', 'cancelled', 'rescheduled', 'attended', 'no_show'));
+
+-- Item 8 (Spec.md Section 0): backs the new structured reference_id format
+-- (APT-<DDMMMYY>-<NNN>, sequence resets per day PER HOSPITAL -- the PRIMARY
+-- KEY is (hospital_id, day), not day alone, exactly because it must not be
+-- globally sequential across tenants). One row per hospital per calendar day
+-- that's had at least one booking; INSERT ... ON CONFLICT DO UPDATE SET
+-- counter = counter + 1 RETURNING counter (db/repository.py's
+-- _next_daily_reference_sequence()) is what makes incrementing it atomic
+-- under real concurrent bookings, not a read-then-write race.
+CREATE TABLE IF NOT EXISTS reference_id_counters (
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    day TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (hospital_id, day)
+);
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already
@@ -479,6 +511,8 @@ CREATE TABLE IF NOT EXISTS handoff_requests (
     resolved_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_handoff_requests_hospital_status ON handoff_requests(hospital_id, status);
+-- Item 3: same soft-delete convention as appointments above.
+ALTER TABLE handoff_requests ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 
 -- Section 12.10: patient records, first version -- visit history (existing
 -- `appointments` rows already give this, nothing new needed there), free-text
