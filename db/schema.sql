@@ -514,6 +514,29 @@ CREATE INDEX IF NOT EXISTS idx_handoff_requests_hospital_status ON handoff_reque
 -- Item 3: same soft-delete convention as appointments above.
 ALTER TABLE handoff_requests ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 
+-- Real two-way conversation threading for an active handoff (Spec.md
+-- Section 0 follow-up) -- handoff_requests.message_text alone only ever
+-- captured the ONE trigger message, and the reply endpoint persisted
+-- nothing at all, so staff had no way to see a patient's follow-up
+-- messages sent after triggering a handoff, or a record of what was
+-- already replied. Every message in a handoff's thread (the original
+-- trigger included, backfilled below for rows that predate this table)
+-- lives here now -- single source of truth for the portal's chat-thread UI,
+-- not a mix of this table plus handoff_requests.message_text.
+CREATE TABLE IF NOT EXISTS handoff_messages (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    handoff_request_id INTEGER NOT NULL REFERENCES handoff_requests(id),
+    -- 'inbound' = patient -> staff (captured while the handoff is open,
+    -- flows.py's has_open_handoff() gate routes here instead of the bot);
+    -- 'outbound' = staff -> patient (portal_reply_handoff(), after the real
+    -- WhatsApp send succeeds).
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    message_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (now()::text)
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_messages_request ON handoff_messages(handoff_request_id, created_at);
+
 -- Section 12.10: patient records, first version -- visit history (existing
 -- `appointments` rows already give this, nothing new needed there), free-text
 -- notes, and document upload/WhatsApp-send. Deliberately NOT full clinical

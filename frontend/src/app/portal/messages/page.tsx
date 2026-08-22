@@ -21,6 +21,16 @@ type Handoff = {
   resolved_at: string | null;
 };
 
+// Two-way threading follow-up (Spec.md Section 0): a handoff's full
+// conversation, not just its trigger message -- direction distinguishes a
+// patient's own message (inbound) from a staff reply (outbound).
+type HandoffMessage = {
+  id: number;
+  direction: "inbound" | "outbound";
+  message_text: string;
+  created_at: string;
+};
+
 const FILTERS = [
   { key: "open", label: "Open" },
   { key: "resolved", label: "Resolved" },
@@ -50,7 +60,8 @@ export default function PortalMessagesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
-  const [sentIds, setSentIds] = useState<Set<number>>(new Set());
+  const [thread, setThread] = useState<HandoffMessage[] | null>(null);
+  const [threadError, setThreadError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   // Item 6 (Spec.md Section 0): status filtering already existed (the
@@ -85,6 +96,32 @@ export default function PortalMessagesPage() {
 
   const selected = handoffs?.find((h) => h.id === selectedId) || null;
 
+  const loadThread = useCallback(async (id: number) => {
+    const result = await portalFetch(`/api/portal/handoffs/${id}/messages`);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setThreadError(result.error);
+      return;
+    }
+    setThreadError(null);
+    setThread((result.data as { messages: HandoffMessage[] }).messages);
+  }, [router]);
+
+  // Two-way threading follow-up: while a conversation is open, poll its
+  // thread too (same reasoning POLL_INTERVAL_MS already documents for the
+  // list itself) -- a patient's follow-up messages must show up without a
+  // manual refresh, same as new handoffs appearing in the left list do.
+  useEffect(() => {
+    if (selectedId === null) {
+      setThread(null);
+      return;
+    }
+    setThread(null);
+    loadThread(selectedId);
+    const interval = setInterval(() => loadThread(selectedId), POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [selectedId, loadThread]);
+
   async function handleSend() {
     if (!selected || !replyText.trim()) return;
     setSending(true);
@@ -96,7 +133,7 @@ export default function PortalMessagesPage() {
     setSending(false);
     if (result.ok) {
       setReplyText("");
-      setSentIds((prev) => new Set(prev).add(selected.id));
+      loadThread(selected.id);
     }
   }
 
@@ -243,16 +280,31 @@ export default function PortalMessagesPage() {
                     </div>
                   </div>
 
-                  <div className="mb-space-4 rounded-lg bg-paper p-space-4 text-[13.5px] text-ink-900">
-                    {selected.message_text ||
-                      (selected.reason === "patient_requested"
-                        ? "Patient tapped “Talk to Reception” from the main menu."
-                        : "The bot hit an unexpected error while handling this patient's message.")}
-                  </div>
+                  {threadError && <p className="mb-space-3 text-[12.5px] text-error">{threadError}</p>}
 
-                  {sentIds.has(selected.id) && (
-                    <p className="mb-space-3 text-[12px] font-semibold text-success">Reply sent on WhatsApp.</p>
-                  )}
+                  <div className="mb-space-4 flex-1 space-y-space-3 overflow-y-auto">
+                    {thread === null ? (
+                      <p className="py-space-4 text-center text-[13px] text-ink-400">Loading conversation…</p>
+                    ) : thread.length === 0 ? (
+                      <p className="py-space-4 text-center text-[13px] text-ink-400">No messages yet.</p>
+                    ) : (
+                      thread.map((m) => (
+                        <div key={m.id} className={cn("flex", m.direction === "outbound" ? "justify-end" : "justify-start")}>
+                          <div
+                            className={cn(
+                              "max-w-[75%] rounded-lg px-space-3 py-space-2 text-[13.5px]",
+                              m.direction === "outbound" ? "bg-brand-600 text-white" : "bg-paper text-ink-900",
+                            )}
+                          >
+                            <p className="whitespace-pre-wrap">{m.message_text}</p>
+                            <p className={cn("mt-space-1 text-[10.5px]", m.direction === "outbound" ? "text-white/70" : "text-ink-400")}>
+                              {formatTime(m.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
 
                   <div className="mt-auto flex items-end gap-space-2 border-t border-line pt-space-4">
                     <textarea

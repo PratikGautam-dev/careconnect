@@ -77,6 +77,24 @@ def _backfill_appointment_patient_denorm(conn) -> None:
     conn.commit()
 
 
+def _backfill_handoff_messages(conn) -> None:
+    """Handoff two-way threading follow-up (Spec.md Section 0): every
+    pre-existing handoff_requests row's own message_text becomes that
+    thread's first inbound handoff_messages row, so get_handoff_messages()
+    (the portal's single source of truth for the chat thread) isn't empty
+    for a handoff that predates this table. Only ever touches a
+    handoff_requests row with zero handoff_messages rows yet, so this is a
+    safe no-op to re-run on every startup once caught up."""
+    conn.execute(
+        "INSERT INTO handoff_messages (hospital_id, handoff_request_id, direction, message_text, created_at) "
+        "SELECT hr.hospital_id, hr.id, 'inbound', hr.message_text, hr.created_at "
+        "FROM handoff_requests hr "
+        "WHERE hr.message_text IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM handoff_messages hm WHERE hm.handoff_request_id = hr.id)"
+    )
+    conn.commit()
+
+
 def init_db_on_connection(conn) -> int:
     """Apply schema + seed data to an already-open connection. Used directly by
     tests (against an in-memory DB) and internally by init_db() below."""
@@ -97,6 +115,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_enabled_features(conn)
     _backfill_patients(conn)
     _backfill_appointment_patient_denorm(conn)
+    _backfill_handoff_messages(conn)
     return hospital_id
 
 

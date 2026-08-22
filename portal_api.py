@@ -1001,7 +1001,12 @@ async def portal_resolve_handoff(handoff_id: int, authorization: str | None = He
 async def portal_reply_handoff(handoff_id: int, payload: dict, authorization: str | None = Header(default=None)):
     """Sends a real WhatsApp message back to the patient (does NOT itself
     resolve the handoff -- a staff member may reply more than once before
-    marking it done, e.g. asking a clarifying question first)."""
+    marking it done, e.g. asking a clarifying question first).
+
+    Two-way threading follow-up (Spec.md Section 0): now also records the
+    reply as an outbound handoff_messages row -- ONLY after the WhatsApp
+    send actually succeeds, so the thread never shows a reply that wasn't
+    really delivered."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -1017,4 +1022,18 @@ async def portal_reply_handoff(handoff_id: int, payload: dict, authorization: st
 
     wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
     await wa.send_text(phone, text)
-    return JSONResponse({"ok": True})
+    message = db.add_handoff_message(hospital.id, handoff_id, "outbound", text)
+    return JSONResponse({"ok": True, "message": message})
+
+
+@router.get("/api/portal/handoffs/{handoff_id}/messages")
+async def portal_get_handoff_messages(handoff_id: int, authorization: str | None = Header(default=None)):
+    """Two-way threading follow-up: the full ordered thread for one handoff
+    -- single source of truth for the portal's chat-thread UI."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    matches = [h for h in db.get_handoff_requests(hospital.id, status=None) if h["id"] == handoff_id]
+    if not matches:
+        return JSONResponse({"error": "No such handoff request."}, status_code=404)
+    return JSONResponse({"messages": db.get_handoff_messages(hospital.id, handoff_id)})

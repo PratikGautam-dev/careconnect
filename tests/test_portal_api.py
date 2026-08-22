@@ -621,6 +621,61 @@ def test_handoff_reply_requires_nonempty_text(two_hospitals, fake_whatsapp_send)
     assert fake_whatsapp_send == []
 
 
+# --- Two-way handoff message threading ---
+
+
+def test_handoff_thread_includes_trigger_and_replies_in_order(two_hospitals, fake_whatsapp_send):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(
+        a["id"], "919876543210", reason="patient_requested", message_text="Patient tapped Talk to Reception.",
+    )
+    db.add_handoff_message(a["id"], handoff["id"], "inbound", "Are you there?")
+
+    client.post(
+        f"/api/portal/handoffs/{handoff['id']}/reply", json={"text": "Yes, how can we help?"},
+        headers=_auth(a["token"]),
+    )
+
+    resp = client.get(f"/api/portal/handoffs/{handoff['id']}/messages", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    thread = resp.json()["messages"]
+    assert [(m["direction"], m["message_text"]) for m in thread] == [
+        ("inbound", "Patient tapped Talk to Reception."),
+        ("inbound", "Are you there?"),
+        ("outbound", "Yes, how can we help?"),
+    ]
+
+
+def test_handoff_reply_only_recorded_after_send_succeeds(two_hospitals, monkeypatch):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876543210", reason="patient_requested")
+
+    async def failing_send_text(self, to, text):
+        raise RuntimeError("simulated WhatsApp failure")
+
+    monkeypatch.setattr(portal_api.WhatsAppClient, "send_text", failing_send_text)
+
+    # Unhandled -- the send failure genuinely propagates (this endpoint has
+    # no try/except around it, unlike portal_cancel_booking's optional
+    # notification message), so TestClient re-raises it rather than
+    # returning a 500 response.
+    with pytest.raises(RuntimeError, match="simulated WhatsApp failure"):
+        client.post(
+            f"/api/portal/handoffs/{handoff['id']}/reply", json={"text": "this should not be recorded"},
+            headers=_auth(a["token"]),
+        )
+    thread = db.get_handoff_messages(a["id"], handoff["id"])
+    assert thread == []
+
+
+def test_handoff_messages_endpoint_cannot_target_other_hospitals_handoff(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    handoff_b = db.create_handoff_request(b["id"], "919876500003", reason="patient_requested")
+
+    resp = client.get(f"/api/portal/handoffs/{handoff_b['id']}/messages", headers=_auth(a["token"]))
+    assert resp.status_code == 404
+
+
 # --- Cancel-with-message ---
 
 

@@ -360,6 +360,96 @@ async def test_bot_goes_silent_while_a_handoff_is_open(hospital_id):
 
 
 @pytest.mark.asyncio
+async def test_messages_during_active_handoff_are_recorded_in_the_thread(hospital_id):
+    """Real bug fix, follow-up to test_bot_goes_silent_while_a_handoff_is_open
+    above: a patient's messages sent AFTER triggering a handoff (but before
+    it's resolved) were previously just dropped -- silenced correctly, but
+    never actually captured anywhere staff could see. Now recorded as real
+    inbound handoff_messages rows against the open handoff, in order,
+    alongside the original trigger message."""
+    import db.repository as db
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_reception"),
+        connector=FakeConnector(), enabled_features=["reception_handoff"],
+    )
+    handoff = db.get_handoff_requests(hospital_id, status="open")[0]
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi, is anyone there?"),
+        connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("I need to speak to someone urgently"),
+        connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
+    )
+
+    thread = db.get_handoff_messages(hospital_id, handoff["id"])
+    texts = [m["message_text"] for m in thread]
+    assert texts == [
+        "Patient tapped \"Talk to Reception\" from the main menu.",
+        "hi, is anyone there?",
+        "I need to speak to someone urgently",
+    ]
+    assert all(m["direction"] == "inbound" for m in thread)
+
+
+@pytest.mark.asyncio
+async def test_bot_resumes_normal_flow_after_handoff_resolved(hospital_id):
+    """Item 2 of this follow-up (Spec.md Section 0): explicitly proves what
+    was previously only true "by construction" -- resolve_handoff_request()
+    flips status to 'resolved', and has_open_handoff()/get_open_handoff()
+    both filter on status='open', so the very next message should reach
+    normal bot logic again, not silence or another handoff-routed message."""
+    import db.repository as db
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_reception"),
+        connector=FakeConnector(), enabled_features=["reception_handoff"],
+    )
+    handoff = db.get_handoff_requests(hospital_id, status="open")[0]
+
+    # Silent while open (already covered above) -- confirm once more here too.
+    sent_before = len(wa.sent)
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hello?"),
+        connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
+    )
+    assert len(wa.sent) == sent_before
+
+    resolved = db.resolve_handoff_request(hospital_id, handoff["id"])
+    assert resolved is True
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"),
+        connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
+    )
+
+    # A real bot response this time -- the reset keyword "hi" reached normal
+    # routing and showed the unified menu, not silence.
+    assert len(wa.sent) == sent_before + 1
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert "menu_reception" in row_ids
+    assert "menu_book" in row_ids
+
+    # And the resolved handoff's thread is untouched by this -- "hi" after
+    # resolution is a normal bot message, not another inbound handoff entry.
+    thread = db.get_handoff_messages(hospital_id, handoff["id"])
+    assert [m["message_text"] for m in thread] == [
+        "Patient tapped \"Talk to Reception\" from the main menu.",
+        "hello?",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_change_language_menu_option_switches_mid_session(hospital_id):
     """Item 4 (Spec.md Section 0): "Change Language" is always offered on the
     main menu itself (not gated by enabled_features), and tapping it re-shows

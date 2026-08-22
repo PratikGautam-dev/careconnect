@@ -385,9 +385,20 @@ async def handle_incoming(
     # is exactly what a patient typing "hi" mid-handoff was tripping) until
     # staff resolve it. Checked before anything else touches session state,
     # so a stale/expired session can't accidentally re-engage the bot either.
-    if db.has_open_handoff(hospital_id, phone):
+    #
+    # Two-way threading follow-up: previously this just silenced the bot and
+    # dropped the message -- it was written into core/history.py's generic,
+    # hospital-agnostic HISTORY buffer (core/main.py's own doing, before this
+    # function is even called) but nothing ever read that buffer, so a
+    # patient's follow-up messages during an active handoff were effectively
+    # lost to staff. Now recorded as a real inbound handoff_messages row
+    # against the open handoff, so it shows up in the portal's thread.
+    open_handoff = db.get_open_handoff(hospital_id, phone)
+    if open_handoff is not None:
+        message_text = reply.get("text") or reply.get("title") or f"[{reply.get('type')}]"
+        db.add_handoff_message(hospital_id, open_handoff["id"], "inbound", message_text)
         logger.info(
-            "Handoff active for hospital=%s phone=%s -- routing to the handoff queue, not the bot",
+            "Handoff active for hospital=%s phone=%s -- recorded in the thread, not routed to the bot",
             hospital_id, phone,
         )
         return

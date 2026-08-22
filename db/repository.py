@@ -2097,6 +2097,10 @@ def create_faq_topic(
 # on handoff_requests for why these two unrelated triggers share one table). ---
 
 def create_handoff_request(hospital_id: int, phone: str, reason: str, message_text: str | None = None) -> dict:
+    """Two-way threading follow-up (Spec.md Section 0): the trigger message
+    is now ALSO inserted as the thread's first inbound handoff_messages row
+    -- get_handoff_messages() is the single source of truth for the portal's
+    chat thread, not a mix of this row's own message_text plus the table."""
     conn = get_connection()
     cur = conn.execute(
         "INSERT INTO handoff_requests (hospital_id, phone, reason, message_text) "
@@ -2104,6 +2108,12 @@ def create_handoff_request(hospital_id: int, phone: str, reason: str, message_te
         (hospital_id, phone, reason, message_text),
     )
     row = cur.fetchone()
+    if message_text:
+        conn.execute(
+            "INSERT INTO handoff_messages (hospital_id, handoff_request_id, direction, message_text) "
+            "VALUES (?, ?, 'inbound', ?)",
+            (hospital_id, row["id"], message_text),
+        )
     conn.commit()
     return {
         "id": row["id"], "hospital_id": hospital_id, "phone": phone, "reason": reason,
@@ -2151,12 +2161,52 @@ def has_open_handoff(hospital_id: int, phone: str) -> bool:
     router, before any bot logic (including the reset-keyword escape hatch)
     runs -- once a patient is in an active handoff, the bot must go
     completely silent for that phone, not just skip its own menu."""
+    return get_open_handoff(hospital_id, phone) is not None
+
+
+def get_open_handoff(hospital_id: int, phone: str) -> dict | None:
+    """Two-way threading follow-up: like has_open_handoff() above, but
+    returns the row (specifically its id) so flows.py can actually record
+    the patient's message against it, not just know one exists."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT 1 FROM handoff_requests WHERE hospital_id = ? AND phone = ? AND status = 'open' AND deleted_at IS NULL LIMIT 1",
+        "SELECT id, phone, reason, status, created_at FROM handoff_requests "
+        "WHERE hospital_id = ? AND phone = ? AND status = 'open' AND deleted_at IS NULL LIMIT 1",
         (hospital_id, phone),
     ).fetchone()
-    return row is not None
+    return dict(row) if row else None
+
+
+def add_handoff_message(hospital_id: int, handoff_request_id: int, direction: str, message_text: str) -> dict:
+    """direction: 'inbound' (patient -> staff, recorded by flows.py while a
+    handoff is open) or 'outbound' (staff -> patient, recorded by
+    portal_reply_handoff() after the real WhatsApp send succeeds)."""
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO handoff_messages (hospital_id, handoff_request_id, direction, message_text) "
+        "VALUES (?, ?, ?, ?) RETURNING id, created_at",
+        (hospital_id, handoff_request_id, direction, message_text),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    return {
+        "id": row["id"], "handoff_request_id": handoff_request_id, "direction": direction,
+        "message_text": message_text, "created_at": row["created_at"],
+    }
+
+
+def get_handoff_messages(hospital_id: int, handoff_request_id: int) -> list[dict]:
+    """The full thread for one handoff, oldest first -- single source of
+    truth for the portal's chat-thread UI (create_handoff_request() inserts
+    the trigger message here too, so callers never need to separately show
+    handoff_requests.message_text)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, direction, message_text, created_at FROM handoff_messages "
+        "WHERE hospital_id = ? AND handoff_request_id = ? ORDER BY created_at ASC, id ASC",
+        (hospital_id, handoff_request_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:
