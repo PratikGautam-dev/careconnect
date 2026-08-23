@@ -78,12 +78,18 @@ async def test_department_menu_isolated_between_hospitals(hospital_id, second_ho
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
+    # Patient identity/UX follow-up (Spec.md Section 0): name/age is asked
+    # first now -- drive through it to reach the department list.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
     hospital_a_depts = _row_ids(wa.sent[-1][1])
 
     wa2 = FakeWhatsAppClient()
     sessions2 = InMemorySessionStore()
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, tap("menu_book"))
+    await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, text_reply("Ravi Kumar"))
+    await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, text_reply("34"))
     hospital_b_depts = _row_ids(wa2.sent[-1][1])
 
     # "Go back" navigation appends a BACK_ID row to every department menu.
@@ -175,16 +181,18 @@ async def test_same_phone_has_independent_conversation_state_per_hospital():
 
     wa_a = FakeWhatsAppClient()
     await handle_incoming(wa_a, sessions, PHONE, 1, tap("menu_book"))
-    assert sessions.get(1, PHONE)["state"] == "AWAITING_DEPARTMENT"
+    # Patient identity/UX follow-up (Spec.md Section 0): name/age is asked
+    # first now, before department selection.
+    assert sessions.get(1, PHONE)["state"] == "AWAITING_PATIENT_NAME"
 
     # Hospital 2's conversation for the same phone starts completely fresh.
     wa_b = FakeWhatsAppClient()
     await handle_incoming(wa_b, sessions, PHONE, 2, text_reply("hi"))
     assert sessions.get(2, PHONE)["state"] == "IDLE"
-    assert wa_b.sent[-1][0] == "list"  # got the main menu, not treated as an AWAITING_DEPARTMENT reply
+    assert wa_b.sent[-1][0] == "list"  # got the main menu, not treated as an AWAITING_PATIENT_NAME reply
 
     # And hospital 1's state is untouched by hospital 2's conversation.
-    assert sessions.get(1, PHONE)["state"] == "AWAITING_DEPARTMENT"
+    assert sessions.get(1, PHONE)["state"] == "AWAITING_PATIENT_NAME"
 
 
 # --- Unrecognized phone_number_id ---

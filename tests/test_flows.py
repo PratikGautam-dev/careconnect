@@ -65,15 +65,22 @@ class FakeConnector:
     """Minimal stand-in for connectors.Connector -- only the methods the
     router's one-shot features (booking department listing, view_appointments)
     actually call."""
-    def __init__(self, departments=None, appointments=None):
+    def __init__(self, departments=None, appointments=None, patient_info=None):
         self._departments = departments or []
         self._appointments = appointments or []
+        # Patient identity/UX follow-up (Spec.md Section 0): _start_booking_flow
+        # calls this before showing anything -- None (the default) means a
+        # first-time patient, asked for name/age before department selection.
+        self._patient_info = patient_info
 
     def get_departments(self, hospital_id):
         return self._departments
 
     def get_upcoming_appointments(self, hospital_id, phone=None, offset_hours=None, now=None):
         return self._appointments
+
+    def get_patient_info(self, hospital_id, phone):
+        return self._patient_info
 
 
 def text_reply(text):
@@ -164,8 +171,12 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     connector = FakeConnector(departments=departments)
     enabled = ["booking", "faq"]
 
-    # Tap "Book Appointment" -> enters booking_flow's own state machine.
+    # Tap "Book Appointment" -> enters booking_flow's own state machine --
+    # name/age first (Spec.md Section 0's reorder), then the department list.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=enabled)
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=enabled)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     # "Go back" navigation appends a BACK_ID row to the department menu.
@@ -541,8 +552,11 @@ async def test_change_language_row_absent_when_picker_disabled(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
 
+    # The top-level unified menu (not booking_flow's own department list,
+    # which never carried this row at all) is where "Change Language" would
+    # appear if the picker were enabled.
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_book"),
+        wa, sessions, PHONE, hospital_id, text_reply("hi"),
         connector=FakeConnector(), enabled_features=["booking"], language_prompt_enabled=False,
     )
     kind, kwargs = wa.sent[0]
@@ -647,11 +661,11 @@ async def test_invalid_tap_at_language_picker_reprompts_the_picker(hospital_id):
 @pytest.mark.asyncio
 async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id):
     """Section 12.11's central persistence guarantee: once chosen, Hindi
-    stays in effect through every booking_flow.py state -- department,
-    doctor, date, time, name+age collection, confirmation -- not just the
-    top-level menu flows.py itself renders. Section 12.12 restructured the
-    slot step into date+time (age was briefly dropped, then restored by a
-    Section 12.13 follow-up); this test follows the current sequence."""
+    stays in effect through every booking_flow.py state -- name+age
+    collection, department, doctor, date, time, confirmation -- not just the
+    top-level menu flows.py itself renders. Patient identity/UX follow-up
+    (Spec.md Section 0), confirmed with the user: name/age is now collected
+    FIRST, before department -- this test follows the current sequence."""
     department = db.get_departments(hospital_id)[0]
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
@@ -660,6 +674,17 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    kind, kwargs = wa.sent[-1]
+    assert kwargs["text"] == translate("ask_patient_name", "hi")
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
+    kind, kwargs = wa.sent[-1]
+    assert kwargs["text"] == translate("ask_patient_age", "hi", patient_name="Ravi Kumar")
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kind, kwargs = wa.sent[-1]
     assert kwargs["body_text"] == translate("select_department", "hi")
 
@@ -682,18 +707,10 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     kind, kwargs = wa.sent[-1]
     assert kwargs["body_text"] == translate("select_time_slot", "hi")
 
+    # Picking a time now goes straight to confirmation -- name/age were
+    # already collected up front.
     slot = [s for s in all_slots if s["date"] == date_str][0]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
-    kind, kwargs = wa.sent[-1]
-    assert kwargs["text"] == translate("ask_patient_name", "hi")
-
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=["booking"])
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
-    kind, kwargs = wa.sent[-1]
-    assert kwargs["text"] == translate("ask_patient_age", "hi", patient_name="Ravi Kumar")
-
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_CONFIRMATION"
     assert session["language"] == "hi"
@@ -733,9 +750,11 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 @pytest.mark.asyncio
 async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id):
     """A patient who's already booked once (name on file) is never re-asked
-    on a later booking -- the bot should "remember" them."""
+    on a later booking -- the bot should "remember" them. Patient
+    identity/UX follow-up (Spec.md Section 0), confirmed with the user:
+    tapping "Book Appointment" now skips straight to department selection,
+    since name/age is asked first, not after time-slot selection."""
     department = db.get_departments(hospital_id)[0]
-    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
     connector = flows._DEFAULT_CONNECTOR
     import db.connection as db_connection
     from db.repository import _upsert_patient
@@ -744,21 +763,16 @@ async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    sessions.set(hospital_id, PHONE, "AWAITING_TIME_SLOT", {
-        "department_id": department["id"], "department_name": department["name"],
-        "doctor_id": doctor_id, "doctor_name": "Dr. X",
-        "date": slot["date"], "date_label": "Sat, Aug 8",
-    }, language="en")
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"  # not AWAITING_PATIENT_NAME
+    assert session["state"] == "AWAITING_DEPARTMENT"  # not AWAITING_PATIENT_NAME
     assert session["context"]["patient_name"] == "Priya Shah"
+    assert session["context"]["patient_age"] == 29
     kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
+    assert kind == "list"
+    assert {d["id"] for d in [department]} <= {row["id"] for row in kwargs["sections"][0]["rows"]}
 
 
 @pytest.mark.asyncio
@@ -776,10 +790,15 @@ async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospita
     connector = flows._DEFAULT_CONNECTOR
 
     # Session #1: a full booking from scratch, collecting name/age for the
-    # first time.
+    # first time -- now asked right after "Book Appointment", before
+    # department selection (Spec.md Section 0's reorder).
     wa1 = FakeWhatsAppClient()
     sessions1 = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
+    assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     slots = db.get_slots(hospital_id, doctor_id)
@@ -787,9 +806,6 @@ async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospita
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
     slot = [s for s in slots if s["date"] == date_str][0]
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
-    assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
-    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
     assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
     assert wa1.sent[-1][0] == "buttons"  # booking success
@@ -797,10 +813,16 @@ async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospita
     # Session #2: an entirely new session store (nothing shared with
     # sessions1's in-memory state -- the only thing carrying over is the DB
     # row _upsert_patient() wrote during session #1's booking), same phone,
-    # a fresh booking for a DIFFERENT slot.
+    # a fresh booking for a DIFFERENT slot -- skips straight to department
+    # selection with name/age already on file.
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    session2 = sessions2.get(hospital_id, PHONE)
+    assert session2["state"] == "AWAITING_DEPARTMENT"  # NOT AWAITING_PATIENT_NAME
+    assert session2["context"]["patient_name"] == "Priya Shah"
+    assert session2["context"]["patient_age"] == 29
+
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     slots2 = db.get_slots(hospital_id, doctor_id)  # first slot is now booked, list has moved on
@@ -810,7 +832,7 @@ async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospita
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(slot2["id"]), connector=connector, enabled_features=["booking"])
 
     session2 = sessions2.get(hospital_id, PHONE)
-    assert session2["state"] == "AWAITING_CONFIRMATION"  # NOT AWAITING_PATIENT_NAME
+    assert session2["state"] == "AWAITING_CONFIRMATION"
     assert session2["context"]["patient_name"] == "Priya Shah"
     assert session2["context"]["patient_age"] == 29
     kind, kwargs = wa2.sent[-1]
@@ -835,6 +857,8 @@ async def test_language_resets_to_picker_after_a_completed_booking(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     slots = db.get_slots(hospital_id, doctor_id)
@@ -842,8 +866,6 @@ async def test_language_resets_to_picker_after_a_completed_booking(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
     slot = [s for s in slots if s["date"] == date_str][0]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
     assert wa.sent[-1][0] == "buttons"  # booking success
 
@@ -875,6 +897,8 @@ async def test_language_preserved_across_non_booking_resets(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     slots = db.get_slots(hospital_id, doctor_id)
@@ -882,8 +906,6 @@ async def test_language_preserved_across_non_booking_resets(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
     slot = [s for s in slots if s["date"] == date_str][0]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
     # Decline instead of confirming -- NOT a completed booking.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("cancel"), connector=connector, enabled_features=["booking"])
 
@@ -918,10 +940,10 @@ async def test_patient_name_matching_a_reset_keyword_accepted_via_the_router(hos
     calls, which has its own separate reset-keyword short-circuit."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {
-        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao",
-        "date_label": "Sat, Aug 8", "slot_date": "2026-08-08", "slot_time": "10:00",
-    }, language="en")
+    # Patient identity/UX follow-up (Spec.md Section 0): AWAITING_PATIENT_NAME
+    # is now the very first interactive state (before department), so its
+    # context is empty at this point in real usage.
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {}, language="en")
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hello"),

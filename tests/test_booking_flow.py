@@ -62,12 +62,23 @@ async def test_idle_any_message_sends_welcome_and_main_menu(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_idle_book_tap_advances_to_awaiting_department(hospital_id):
+async def test_idle_book_tap_advances_to_awaiting_patient_name(hospital_id):
+    """Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
+    user: a first-time patient (no name/age on file) is now asked for their
+    name FIRST, before department selection."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
 
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "full name" in kwargs["text"].lower()
+
+    # Name -> age -> NOW department selection.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
@@ -306,17 +317,38 @@ async def test_free_text_in_awaiting_time_slot_resends_the_real_time_list(hospit
 
 @pytest.mark.asyncio
 async def test_full_happy_path_through_confirmation(hospital_id):
-    """Section 12.12's exact reference-screenshot sequence: department ->
-    doctor (inline "You have selected Dr. X" + date list) -> date -> time ->
-    patient name -> patient age (both restored by a Section 12.13 follow-up
-    after briefly being name-only) -> structured confirmation card -> success
-    message with a generated reference_id."""
+    """Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
+    user: name/age is now asked FIRST -- "Book Appointment" tap -> patient
+    name -> patient age -> department -> doctor (inline "You have selected
+    Dr. X" + date list) -> date -> time -> structured confirmation card ->
+    success message with a generated reference_id."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
-    # Main menu -> Book
+    # Main menu -> Book -- a first-time patient (no name/age on file) is
+    # asked for a name before anything else now.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_PATIENT_NAME"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "full name" in kwargs["text"].lower()
+
+    # Give a name -> asked for age
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_PATIENT_AGE"
+    assert session["context"]["patient_name"] == "Ravi Kumar"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "age" in kwargs["text"].lower()
+
+    # Give an age -> NOW department selection starts.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_DEPARTMENT"
+    assert session["context"]["patient_name"] == "Ravi Kumar"
+    assert session["context"]["patient_age"] == 34
 
     # Pick a department
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
@@ -346,31 +378,13 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert kind == "list"
     assert kwargs["body_text"] == "Please select a preferred consulting time slot:"
 
-    # Pick a time -- a first-time patient (no name/age on file) is asked for
-    # a name first.
+    # Pick a time -- name/age were already collected up front, so this goes
+    # straight to the structured confirmation card.
     slot = [s for s in all_slots if s["date"] == date_str][0]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_PATIENT_NAME"
-    assert session["context"]["slot_id"] == slot["id"]
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "full name" in kwargs["text"].lower()
-
-    # Give a name -> asked for age
-    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
-    session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_PATIENT_AGE"
-    assert session["context"]["patient_name"] == "Ravi Kumar"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "age" in kwargs["text"].lower()
-
-    # Give an age -> structured confirmation card
-    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
-    session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_CONFIRMATION"
-    assert session["context"]["patient_age"] == 34
+    assert session["context"]["slot_id"] == slot["id"]
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {"confirm", "cancel", BACK_ID}
@@ -412,10 +426,12 @@ async def test_full_happy_path_through_confirmation(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_returning_patient_with_name_on_file_skips_straight_to_confirmation(hospital_id):
-    """A patient who's already booked once (name on file) is never re-asked
-    on a later booking -- their existing name is still shown on the
-    confirmation card, even though they weren't asked for it this time."""
+async def test_returning_patient_with_name_on_file_skips_straight_to_department(hospital_id):
+    """Patient identity/UX follow-up (Spec.md Section 0): a patient who's
+    already booked once (name+age on file) is never re-asked on a later
+    booking -- tapping "Book Appointment" now skips straight to department
+    selection, with their existing name/age already in context, ready to
+    show unchanged on the eventual confirmation card."""
     import db.connection as db_connection
     from db.repository import _upsert_patient
     _upsert_patient(db_connection.get_connection(), hospital_id, PHONE, "Priya Shah", 29)
@@ -423,23 +439,38 @@ async def test_returning_patient_with_name_on_file_skips_straight_to_confirmatio
 
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    department = db.get_departments(hospital_id)[0]
-    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    sessions.set(hospital_id, PHONE, "AWAITING_TIME_SLOT", {
-        "department_id": department["id"], "department_name": department["name"],
-        "doctor_id": doctor_id, "doctor_name": "Dr. X",
-        "date": slot["date"], "date_label": "Sat, Aug 8",
-    })
 
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"  # not AWAITING_PATIENT_NAME
+    assert session["state"] == "AWAITING_DEPARTMENT"  # not AWAITING_PATIENT_NAME
+    assert session["context"]["patient_name"] == "Priya Shah"
+    assert session["context"]["patient_age"] == 29
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+
+
+@pytest.mark.asyncio
+async def test_returning_patient_with_name_but_no_age_is_asked_age_only(hospital_id):
+    """Per-field skip logic (Section 12.11/12.13, unchanged by the reorder):
+    a patient with a name but no age on file (e.g. booked once back before
+    age was collected) is asked for age only, not name."""
+    import db.connection as db_connection
+    from db.repository import _upsert_patient
+    _upsert_patient(db_connection.get_connection(), hospital_id, PHONE, "Priya Shah", None)
+    db_connection.get_connection().commit()
+
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_PATIENT_AGE"
     assert session["context"]["patient_name"] == "Priya Shah"
     kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
+    assert kind == "text"
+    assert "age" in kwargs["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -453,10 +484,11 @@ async def test_patient_name_matching_a_reset_keyword_is_accepted_as_the_name(hos
     of accepting the name and proceeding to the next step."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {
-        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao",
-        "date_label": "Sat, Aug 8", "slot_date": "2026-08-08", "slot_time": "10:00",
-    })
+    # Patient identity/UX follow-up (Spec.md Section 0): AWAITING_PATIENT_NAME
+    # is now the very first interactive state (before department), so its
+    # context is empty at this point in real usage -- no doctor/slot fields
+    # to carry.
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"))
 
@@ -472,9 +504,7 @@ async def test_reset_keyword_shaped_age_input_fails_validation_instead_of_resett
     not get intercepted as a reset keyword first."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_AGE", {
-        "department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao", "patient_name": "Test Patient",
-    })
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_AGE", {"patient_name": "Test Patient"})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"))
 
@@ -487,7 +517,7 @@ async def test_reset_keyword_shaped_age_input_fails_validation_instead_of_resett
 async def test_patient_name_and_age_free_text_validation(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {"slot_id": "x"})
+    sessions.set(hospital_id, PHONE, "AWAITING_PATIENT_NAME", {})
 
     # Empty/whitespace-only text re-prompts instead of accepting a blank name.
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("   "))
@@ -508,10 +538,11 @@ async def test_patient_name_and_age_free_text_validation(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("200"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
 
-    # A valid age proceeds to confirmation.
+    # A valid age proceeds to department selection (Spec.md Section 0's
+    # reorder -- name/age now come before department, not confirmation).
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("41"))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_CONFIRMATION"
+    assert session["state"] == "AWAITING_DEPARTMENT"
     assert session["context"]["patient_age"] == 41
 
 

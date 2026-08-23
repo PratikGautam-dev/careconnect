@@ -69,6 +69,14 @@ _DEFAULT_CONNECTOR = Tier1Connector()
 # Section 0) later gave it the same date+time split as booking above, via
 # its own STATE_AWAITING_RESCHEDULE_DATE + a repurposed
 # STATE_AWAITING_RESCHEDULE_SLOT (now meaning "pick a time").
+#
+# Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
+# user: name/age moved to the FRONT of this sequence -- "Book Appointment"
+# tap -> patient name -> patient age -> department -> doctor -> date -> time
+# -> confirmation. STATE_AWAITING_PATIENT_NAME/AGE below are unchanged
+# states, just entered first now (via _start_booking_flow) instead of last
+# (via the old post-time-slot check, now removed from
+# _handle_awaiting_time_slot -- see that function's own comment).
 STATE_IDLE = "IDLE"
 STATE_AWAITING_DEPARTMENT = "AWAITING_DEPARTMENT"
 STATE_AWAITING_DOCTOR = "AWAITING_DOCTOR"
@@ -305,6 +313,47 @@ async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int
         button_text=t("view_departments_button", language),
         sections=[{"title": t("departments_section_title", language), "rows": rows}],
     )
+
+
+async def _start_booking_flow(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+) -> None:
+    """Patient identity/UX follow-up (Spec.md Section 0): name/age collection
+    moved to the FRONT of the booking flow -- asked immediately after "Book
+    Appointment" is tapped, before department selection -- instead of the
+    back (after date/time selection, Section 12.11's original placement,
+    kept unchanged through Sections 12.12/12.13). Confirmed with the user
+    directly (not assumed) before making this change.
+
+    Same per-field skip logic Section 12.11 already established, just moved
+    earlier: a returning patient with BOTH a name and age already on file
+    skips straight to department selection; one with a name but no age is
+    asked for age only; a genuinely first-time patient is asked for both.
+    Once collected, patient_name/patient_age live in context from the very
+    start of the flow, so every later step (department onward) already has
+    them -- see _handle_awaiting_time_slot's own comment for why that
+    handler no longer needs to ask.
+
+    Shared by flows.py's real dispatch (_start_feature) AND this module's
+    own standalone _handle_idle() below (superseded for real traffic, but
+    still exercised directly by tests/test_booking_flow.py as a standalone
+    unit of the state machine -- see this module's docstring) so both entry
+    points stay behaviorally identical rather than drifting apart."""
+    patient_info = connector.get_patient_info(hospital_id, phone)
+    has_name = bool(patient_info and patient_info.get("name"))
+    has_age = bool(patient_info and patient_info.get("age") is not None)
+    if has_name and has_age:
+        context = {"patient_name": patient_info["name"], "patient_age": patient_info["age"]}
+        sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
+        await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+        return
+    if has_name:
+        context = {"patient_name": patient_info["name"]}
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
+        await wa.send_text(phone, t("ask_patient_age", language, patient_name=patient_info["name"]))
+        return
+    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {})
+    await wa.send_text(phone, t("ask_patient_name", language))
 
 
 async def _send_doctor_menu(
@@ -687,8 +736,7 @@ async def _handle_idle(
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
         if rid == MAIN_MENU_BOOK:
-            sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, {})
-            await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+            await _start_booking_flow(wa, sessions, phone, hospital_id, connector, language=language)
             return
         if rid == MAIN_MENU_RESCHEDULE:
             await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language)
@@ -827,41 +875,15 @@ async def _handle_awaiting_time_slot(
                 "slot_time": slot["time"],
                 _HISTORY_KEY: _push_history(context, STATE_AWAITING_TIME_SLOT),
             }
-            # Re-picking a slot after a double-booking race (_handle_slot_taken
-            # re-enters this exact state, context unchanged): this session
-            # already collected name/age earlier THIS booking attempt, but
-            # create_appointment()'s failed transaction never reached
-            # _upsert_patient() (it runs after the INSERT that raised the
-            # race error, and the whole transaction rolled back) -- so the DB
-            # genuinely doesn't have it yet even though context does. Trust
-            # context over a DB re-query here, or the patient gets asked for
-            # name/age a second time for no reason.
-            if context.get("patient_name") and context.get("patient_age") is not None:
-                sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-                await _send_confirmation(wa, phone, new_context, language=language)
-                return
-            # Section 12.11 (patient-info skip), age restored by a Section
-            # 12.13 follow-up: a patient with BOTH a name and an age already
-            # on file skips straight to confirmation; one with a name but no
-            # age (e.g. booked once back when this flow only collected a
-            # name) skips just the name question and is asked for age only;
-            # a genuinely first-time patient is asked for both.
-            patient_info = connector.get_patient_info(hospital_id, phone)
-            has_name = bool(patient_info and patient_info.get("name"))
-            has_age = bool(patient_info and patient_info.get("age") is not None)
-            if has_name and has_age:
-                new_context["patient_name"] = patient_info["name"]
-                new_context["patient_age"] = patient_info["age"]
-                sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-                await _send_confirmation(wa, phone, new_context, language=language)
-                return
-            if has_name:
-                new_context["patient_name"] = patient_info["name"]
-                sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context)
-                await wa.send_text(phone, t("ask_patient_age", language, patient_name=patient_info["name"]))
-                return
-            sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, new_context)
-            await wa.send_text(phone, t("ask_patient_name", language))
+            # Patient identity/UX follow-up (Spec.md Section 0): name/age is
+            # now collected BEFORE department selection (_start_booking_flow),
+            # so context always already has both by the time a slot is
+            # picked -- including on a double-booking-race re-entry into this
+            # exact state (_handle_slot_taken re-sets STATE_AWAITING_TIME_SLOT
+            # with context unchanged) -- straight to confirmation, no mid-flow
+            # name/age ask needed anymore.
+            sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
+            await _send_confirmation(wa, phone, new_context, language=language)
             return
     # Times are dynamic for the same reason dates are above -- recheck this
     # exact date's availability rather than blindly re-sending a stale list.
@@ -904,12 +926,17 @@ async def _handle_awaiting_patient_age(
     whole number in [MIN_PATIENT_AGE, MAX_PATIENT_AGE] (_parse_patient_age)
     -- non-numeric or out-of-range input re-prompts with a specific error,
     same pattern as every other validation failure in this codebase (e.g.
-    db.is_valid_phone() at the staff new-booking form)."""
+    db.is_valid_phone() at the staff new-booking form).
+
+    Patient identity/UX follow-up (Spec.md Section 0): this is now the LAST
+    step before department selection (name/age moved to the front of the
+    flow, _start_booking_flow), not the last step before confirmation --
+    a valid age advances to STATE_AWAITING_DEPARTMENT instead."""
     age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
     if age is not None:
         new_context = {**context, "patient_age": age}
-        sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-        await _send_confirmation(wa, phone, new_context, language=language)
+        sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, new_context)
+        await _send_department_menu(wa, phone, hospital_id, connector, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
     await wa.send_text(phone, t("invalid_patient_age", language))

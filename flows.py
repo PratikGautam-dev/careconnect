@@ -59,7 +59,7 @@ from core.booking_flow import (
     _manage_reschedule_id,
     _parse_appointment_row_id,
     _parse_manage_id,
-    _send_department_menu,
+    _start_booking_flow,
     _start_cancel_flow,
     _start_cancel_flow_for_appointment,
     _start_reschedule_flow,
@@ -68,7 +68,6 @@ from core.booking_flow import (
     GOTO_MAIN_MENU,
     MANAGE_CANCEL_PREFIX,
     MANAGE_RESCHEDULE_PREFIX,
-    STATE_AWAITING_DEPARTMENT,
     STATE_IDLE,
 )
 from core.flow_common import cap_rows, is_reset_keyword
@@ -421,8 +420,12 @@ async def _start_feature(
     faq -> faq_flow.py's FAQ_ACTIVE loop) or are simple one-shot replies that
     immediately return to IDLE (view_appointments, hospital_info)."""
     if key == "booking":
-        sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, {})
-        await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+        # Patient identity/UX follow-up (Spec.md Section 0), confirmed with
+        # the user: name/age is now asked FIRST (before department
+        # selection) -- _start_booking_flow handles the existing per-field
+        # skip logic (name+age on file -> straight to department; name
+        # only -> age only; neither -> both).
+        await _start_booking_flow(wa, sessions, phone, hospital_id, connector, language=language)
         return
     if key == "reschedule":
         await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language)

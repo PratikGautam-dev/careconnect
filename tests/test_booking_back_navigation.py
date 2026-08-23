@@ -45,10 +45,21 @@ def _row_ids(kwargs):
     return {row["id"] for section in kwargs["sections"] for row in section["rows"]}
 
 
-async def _book_to_time_slot(wa, sessions, hospital_id):
-    """Drives a fresh session up through department -> doctor -> date,
-    landing on AWAITING_TIME_SLOT. Returns (doctor_id, date_str)."""
+async def _start_booking(wa, sessions, hospital_id, name="Ravi Kumar", age="34"):
+    """Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
+    user: name/age is now collected FIRST, right after "Book Appointment" is
+    tapped -- before department selection. Drives through both, landing on
+    AWAITING_DEPARTMENT."""
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(name))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(age))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
+
+
+async def _book_to_time_slot(wa, sessions, hospital_id):
+    """Drives a fresh session through name/age -> department -> doctor ->
+    date, landing on AWAITING_TIME_SLOT. Returns (doctor_id, date_str)."""
+    await _start_booking(wa, sessions, hospital_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
@@ -59,11 +70,11 @@ async def _book_to_time_slot(wa, sessions, hospital_id):
 
 
 async def _book_to_confirmation(wa, sessions, hospital_id):
+    """Name/age were already collected up front by _book_to_time_slot ->
+    picking a slot now goes straight to AWAITING_CONFIRMATION."""
     doctor_id, date_str = await _book_to_time_slot(wa, sessions, hospital_id)
     slot_id = [s for s in db.get_slots(hospital_id, doctor_id) if s["date"] == date_str][0]["id"]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot_id))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
     return doctor_id, date_str, slot_id
 
@@ -71,7 +82,7 @@ async def _book_to_confirmation(wa, sessions, hospital_id):
 async def test_back_from_doctor_returns_to_department_list(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await _start_booking(wa, sessions, hospital_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DOCTOR"
 
@@ -86,7 +97,7 @@ async def test_back_from_doctor_returns_to_department_list(hospital_id):
 async def test_back_from_date_returns_to_doctor_list_same_department(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await _start_booking(wa, sessions, hospital_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
@@ -166,7 +177,7 @@ async def test_back_then_forward_again_is_consistent(hospital_id):
     back on a working date list, not a broken/duplicated state."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await _start_booking(wa, sessions, hospital_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
@@ -203,7 +214,7 @@ async def test_back_does_not_leak_stale_slots_when_picking_a_different_doctor(ho
     )
     second_doctor_id = second_doctor["id"]
 
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await _start_booking(wa, sessions, hospital_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(first_doctor_id))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
@@ -228,8 +239,7 @@ async def test_back_at_department_with_no_history_falls_back_to_main_menu(hospit
     erroring or looping."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
+    await _start_booking(wa, sessions, hospital_id)
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
     session = sessions.get(hospital_id, PHONE)
