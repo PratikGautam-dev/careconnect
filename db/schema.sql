@@ -412,7 +412,8 @@ ALTER TABLE appointments ADD CONSTRAINT appointments_status_check
     CHECK (status IN ('booked', 'cancelled', 'rescheduled', 'attended', 'no_show'));
 
 -- Item 8 (Spec.md Section 0): backs the new structured reference_id format
--- (APT-<DDMMMYY>-<NNN>, sequence resets per day PER HOSPITAL -- the PRIMARY
+-- (APT-<DDMMYY>-<NNN>, numeric date part per the later Item 2 follow-up;
+-- sequence resets per day PER HOSPITAL -- the PRIMARY
 -- KEY is (hospital_id, day), not day alone, exactly because it must not be
 -- globally sequential across tenants). One row per hospital per calendar day
 -- that's had at least one booking; INSERT ... ON CONFLICT DO UPDATE SET

@@ -63,10 +63,12 @@ _DEFAULT_CONNECTOR = Tier1Connector()
 # the reference screenshot exactly (it had no age field) -- a Section 12.13
 # follow-up restored it (confirmed wanted after all) with age now also shown
 # on the confirmation card, which the original reference screenshot didn't
-# have either but was explicitly requested this time. Reschedule keeps its
-# own separate, unchanged single combined slot-list step
-# (_send_slot_menu/STATE_AWAITING_RESCHEDULE_SLOT) -- none of this ever
-# applied to it.
+# have either but was explicitly requested this time. Reschedule originally
+# kept its own separate single combined slot-list step
+# (_send_slot_menu/STATE_AWAITING_RESCHEDULE_SLOT) -- Item 3 (Spec.md
+# Section 0) later gave it the same date+time split as booking above, via
+# its own STATE_AWAITING_RESCHEDULE_DATE + a repurposed
+# STATE_AWAITING_RESCHEDULE_SLOT (now meaning "pick a time").
 STATE_IDLE = "IDLE"
 STATE_AWAITING_DEPARTMENT = "AWAITING_DEPARTMENT"
 STATE_AWAITING_DOCTOR = "AWAITING_DOCTOR"
@@ -133,9 +135,17 @@ STATE_AWAITING_CANCEL_SELECTION = "AWAITING_CANCEL_SELECTION"
 STATE_AWAITING_CANCEL_CONFIRM = "AWAITING_CANCEL_CONFIRM"
 
 # Reschedule flow (SPEC Section 3.3/5) — selection reuses the same
-# "pick which appointment" pattern as cancel; slot/confirm reuse the booking
-# flow's slot menu, scoped to the appointment's existing doctor.
+# "pick which appointment" pattern as cancel; date/slot/confirm reuse the
+# booking flow's own date+time-split menus (_send_date_menu/_send_time_menu,
+# Section 12.12), scoped to the appointment's existing doctor. Item 3
+# (Spec.md Section 0): reschedule used to jump straight to a single combined
+# date+time list capped at 10 rows across the doctor's WHOLE availability
+# window, silently hiding later dates for a doctor with many slots/day --
+# STATE_AWAITING_RESCHEDULE_SLOT now means "pick a TIME for context['date']",
+# matching STATE_AWAITING_TIME_SLOT's own meaning in the booking flow, with
+# STATE_AWAITING_RESCHEDULE_DATE as the new date-picking step ahead of it.
 STATE_AWAITING_RESCHEDULE_SELECTION = "AWAITING_RESCHEDULE_SELECTION"
+STATE_AWAITING_RESCHEDULE_DATE = "AWAITING_RESCHEDULE_DATE"
 STATE_AWAITING_RESCHEDULE_SLOT = "AWAITING_RESCHEDULE_SLOT"
 STATE_AWAITING_RESCHEDULE_CONFIRM = "AWAITING_RESCHEDULE_CONFIRM"
 
@@ -160,10 +170,12 @@ def _cap_rows_with_back(rows: list[dict], context: str, language: str = "en") ->
     """Same row-count enforcement as _cap_rows(), except it reserves one row
     for the "<- Back" option appended after -- capping real options to
     MAX_LIST_ROWS - 1 (not MAX_LIST_ROWS) so the total never exceeds Meta's
-    10-row list limit once Back is added. Used by the 4 booking-flow list
-    menus that got a Back option (department/doctor/date/time); reschedule's
-    own _send_slot_menu is untouched -- Back is scoped to exactly the states
-    requested, not every list menu in this file."""
+    10-row list limit once Back is added. Used by the booking flow's
+    department/doctor/date/time menus, and by reschedule's own date/time
+    menus since Item 3 (Spec.md Section 0) gave it the same
+    _send_date_menu/_send_time_menu split -- reschedule handles its Back row
+    with a single linear step back rather than the booking flow's full
+    history stack, since it never had one."""
     max_real = MAX_LIST_ROWS - 1
     if len(rows) > max_real:
         logger.warning(
@@ -413,11 +425,11 @@ async def _handle_slot_taken(
     that emptied the doctor's availability out entirely, the same "no slots
     available" fallback used elsewhere.
 
-    Section 12.12: target_state tells this which flow is recovering --
-    STATE_AWAITING_TIME_SLOT (booking, date/time-split) re-shows just that
-    date's times via _send_time_menu; anything else (reschedule's
-    STATE_AWAITING_RESCHEDULE_SLOT) re-shows the older combined _send_slot_menu,
-    unchanged from before this section."""
+    Section 12.12, extended by Item 3 (Spec.md Section 0): target_state tells
+    this which flow is recovering -- STATE_AWAITING_TIME_SLOT (booking) and
+    STATE_AWAITING_RESCHEDULE_SLOT (reschedule, since its own date/time split)
+    both now mean "pick a time for context['date']", so both re-show just
+    that date's times via _send_time_menu."""
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
     logger.info("Double-booking race: hospital=%s doctor=%s slot=%s already taken", hospital_id, doctor_id, context.get("slot_id"))
@@ -431,7 +443,7 @@ async def _handle_slot_taken(
         return
     sessions.set(hospital_id, phone, target_state, context)
     await wa.send_text(phone, t("slot_taken_choose_another", language))
-    if target_state == STATE_AWAITING_TIME_SLOT:
+    if target_state in (STATE_AWAITING_TIME_SLOT, STATE_AWAITING_RESCHEDULE_SLOT):
         date_str = context.get("date") or context.get("slot_date")
         await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
         return
@@ -582,8 +594,9 @@ async def _start_reschedule_flow_for_appointment(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt, connector: Connector, language: str = "en",
 ) -> None:
     """Same as _start_cancel_flow_for_appointment above, for reschedule --
-    jumps straight to this appointment's doctor's slot list, scoped to the
-    appointment's existing doctor (no re-picking department/doctor)."""
+    jumps straight to this appointment's doctor's date list (Item 3, Spec.md
+    Section 0), scoped to the appointment's existing doctor (no re-picking
+    department/doctor)."""
     if not connector.get_available_slots(hospital_id, appt.doctor_id):
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, appt.doctor_name, language=language)
         return
@@ -594,8 +607,8 @@ async def _start_reschedule_flow_for_appointment(
         "doctor_id": appt.doctor_id,
         "doctor_name": appt.doctor_name,
     }
-    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, new_context)
-    await _send_slot_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector, language=language)
+    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, new_context)
+    await _send_date_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector, language=language)
 
 
 async def _send_appointment_selection_menu(
@@ -1098,10 +1111,10 @@ async def _handle_awaiting_cancel_confirm(
 
 
 # --- Reschedule flow (SPEC Section 3.3/5) ---
-# Selection reuses the cancel flow's "pick which appointment" pattern; the new
-# slot step reuses _send_slot_menu/the connector's slot lookup from the
-# booking flow, scoped to the appointment's existing doctor (no re-picking
-# department/doctor).
+# Selection reuses the cancel flow's "pick which appointment" pattern; the
+# date/slot(time) steps reuse the booking flow's own _send_date_menu/
+# _send_time_menu (Item 3, Spec.md Section 0), scoped to the appointment's
+# existing doctor (no re-picking department/doctor).
 
 async def _start_reschedule_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
@@ -1138,10 +1151,18 @@ async def _handle_awaiting_reschedule_selection(
     await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
 
 
-async def _handle_awaiting_reschedule_slot(
+async def _handle_awaiting_reschedule_date(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
+    """Item 3 (Spec.md Section 0), reschedule's own date-picking step, mirrors
+    the booking flow's _handle_awaiting_date -- no name/age involved here, so
+    it's simpler: a picked date just moves on to that date's time list.
+    Reschedule doesn't use the booking flow's full history-stack Back
+    mechanism (it never had one), but reusing _send_date_menu means a Back
+    row is now shown here too (_cap_rows_with_back always appends one) -- a
+    single linear step back to appointment selection is enough to make that
+    row do something rather than silently no-op."""
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
     if not doctor_id or context.get("reschedule_appointment_id") is None:
@@ -1150,8 +1171,45 @@ async def _handle_awaiting_reschedule_slot(
         return
 
     if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language)
+            return
+        available_dates = {s["date"] for s in connector.get_available_slots(hospital_id, doctor_id)}
+        if reply["id"] in available_dates:
+            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"])}
+            sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, new_context)
+            await _send_time_menu(wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language)
+            return
+    if not connector.get_available_slots(hospital_id, doctor_id):
+        await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
+        return
+    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, context)
+    await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
+
+
+async def _handle_awaiting_reschedule_slot(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    """Item 3 (Spec.md Section 0): now the TIME step for context['date'],
+    mirroring the booking flow's _handle_awaiting_time_slot -- no name/age
+    involved here either, so a picked time goes straight to reschedule
+    confirm."""
+    doctor_id = context.get("doctor_id")
+    doctor_name = context.get("doctor_name", "")
+    date_str = context.get("date")
+    if not doctor_id or not date_str or context.get("reschedule_appointment_id") is None:
+        sessions.reset(hospital_id, phone)
+        await _send_main_menu(wa, phone, "the hospital", language=language)
+        return
+
+    if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, context)
+            await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
+            return
         slot = _find_by_id(connector.get_available_slots(hospital_id, doctor_id), reply["id"])
-        if slot:
+        if slot and slot["date"] == date_str:
             new_context = {
                 **context,
                 "slot_id": slot["id"],
@@ -1162,11 +1220,15 @@ async def _handle_awaiting_reschedule_slot(
             sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_CONFIRM, new_context)
             await _send_reschedule_confirm(wa, phone, new_context, language=language)
             return
-    if not connector.get_available_slots(hospital_id, doctor_id):
-        await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
+    if not any(s["date"] == date_str for s in connector.get_available_slots(hospital_id, doctor_id)):
+        # This date specifically emptied out (not necessarily the whole
+        # doctor) -- step back to date selection, same as the booking flow's
+        # own _handle_awaiting_time_slot.
+        sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, context)
+        await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, context)
-    await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
+    await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
 
 
 async def _handle_awaiting_reschedule_confirm(
@@ -1219,6 +1281,7 @@ _HANDLERS = {
     STATE_AWAITING_CANCEL_SELECTION: _handle_awaiting_cancel_selection,
     STATE_AWAITING_CANCEL_CONFIRM: _handle_awaiting_cancel_confirm,
     STATE_AWAITING_RESCHEDULE_SELECTION: _handle_awaiting_reschedule_selection,
+    STATE_AWAITING_RESCHEDULE_DATE: _handle_awaiting_reschedule_date,
     STATE_AWAITING_RESCHEDULE_SLOT: _handle_awaiting_reschedule_slot,
     STATE_AWAITING_RESCHEDULE_CONFIRM: _handle_awaiting_reschedule_confirm,
 }

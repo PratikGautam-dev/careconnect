@@ -103,18 +103,21 @@ def _next_daily_reference_sequence(conn, hospital_id: int, day: str) -> int:
 
 def _generate_reference_id(conn, hospital_id: int, now: datetime | None = None) -> str:
     """Item 8 (Spec.md Section 0): structured, human-readable format --
-    APT-<DDMMMYY>-<NNN>, e.g. APT-13AUG26-001 -- replacing the old
-    apt_<millisecond-epoch> format (Section 12.12). Sequence is PER HOSPITAL
-    PER DAY (reference_id_counters' composite PK), not globally sequential
-    across tenants, and resets to 001 each new calendar day. Based on the
-    booking's CREATION time (when create_appointment() runs), not the
-    appointment's scheduled visit date -- same convention a receipt/invoice
-    number uses (the transaction date), and matches the OLD format's own
-    basis (time.time() at creation, not scheduled_at)."""
+    APT-<DDMMYY>-<NNN>, e.g. APT-130826-001 -- replacing the old
+    apt_<millisecond-epoch> format (Section 12.12). A later Item 2 follow-up
+    (Spec.md Section 0) switched the date part from a month-ABBREVIATION
+    (DDMMMYY, e.g. 13AUG26) to fully numeric DDMMYY (e.g. 130826), confirmed
+    with the user directly rather than assumed. Sequence is PER HOSPITAL PER
+    DAY (reference_id_counters' composite PK), not globally sequential across
+    tenants, and resets to 001 each new calendar day. Based on the booking's
+    CREATION time (when create_appointment() runs), not the appointment's
+    scheduled visit date -- same convention a receipt/invoice number uses
+    (the transaction date), and matches the OLD format's own basis
+    (time.time() at creation, not scheduled_at)."""
     now = now or datetime.now()
     day_key = now.strftime("%Y-%m-%d")
     seq = _next_daily_reference_sequence(conn, hospital_id, day_key)
-    date_part = now.strftime("%d%b%y").upper()
+    date_part = now.strftime("%d%m%y")
     return f"APT-{date_part}-{seq:03d}"
 
 
@@ -1604,6 +1607,24 @@ def create_appointment(
     if doctor_row:
         source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
 
+    # Name/age-asked-again regression fix (Spec.md Section 0): _upsert_patient()
+    # used to run INSIDE the transaction below, right before the appointments
+    # INSERT -- meaning a QuotaExceededError/DuplicateBookingError raised
+    # earlier in that SAME transaction rolled the upsert back too (the whole
+    # transaction is one atomic unit), so a patient whose very FIRST booking
+    # attempt happened to hit either of those checks never got saved to
+    # `patients` at all, and was incorrectly asked for name/age again on
+    # their next (otherwise-successful) attempt. Running it here instead --
+    # BEFORE "BEGIN", on the still-autocommitting connection -- makes it its
+    # own independent, immediately-durable statement: the patient's name/age
+    # are saved regardless of whether THIS booking attempt goes on to
+    # succeed or fail. `patient["name"]`/`patient["age"]` are the resolved
+    # COALESCE result (this attempt's value if given, otherwise whatever was
+    # already on file) -- used directly below as this attempt's effective
+    # name/age, replacing the old separate "read the pre-attempt profile"
+    # query that used to run inside the transaction for the same purpose.
+    patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+
     conn.execute("BEGIN")
     try:
         conn.execute(
@@ -1663,19 +1684,11 @@ def create_appointment(
         # profile field -- so a genuinely different family member (different
         # name, different age, or both) is correctly allowed through, while
         # the same patient re-booking the same doctor is still blocked.
-        # "Effective" name/age (falling back to the current patients profile
-        # when this attempt doesn't pass one -- e.g. a returning patient
-        # whose name/age come from context, not fresh input) uses the
-        # PRE-this-attempt profile, read before _upsert_patient below can
-        # overwrite it.
-        existing_patient_row = conn.execute(
-            "SELECT name, age FROM patients WHERE hospital_id = ? AND phone = ?",
-            (hospital_id, phone),
-        ).fetchone()
-        profile_name = existing_patient_row["name"] if existing_patient_row else None
-        profile_age = existing_patient_row["age"] if existing_patient_row else None
-        effective_name = (patient_name.strip() if patient_name else None) or profile_name
-        effective_age = patient_age if patient_age is not None else profile_age
+        # "Effective" name/age is just the resolved `patient` upsert result
+        # from above (this attempt's value if given, otherwise whatever was
+        # already on file) -- no separate profile lookup needed here anymore.
+        effective_name = patient["name"]
+        effective_age = patient["age"]
         if effective_name is not None and effective_age is not None:
             existing_appointments = conn.execute(
                 "SELECT id, patient_name, patient_age FROM appointments WHERE hospital_id = ? AND phone = ? "
@@ -1703,10 +1716,9 @@ def create_appointment(
         # `except IntegrityError:` handling. Let it propagate straight to the
         # `except BaseException` below instead, which ROLLBACKs correctly and
         # re-raises the SAME, correctly-typed exception.
-        # Item 8: upsert BEFORE the insert (moved up from after) so the
-        # resolved patient id/name (the COALESCE result, not just whatever
-        # this call passed in) can be denormalized onto the new row.
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+        # Item 8: `patient` (id/name/age) was already resolved by the
+        # _upsert_patient() call before "BEGIN" above -- reused here to
+        # denormalize onto the new row, not re-upserted a second time.
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age) "

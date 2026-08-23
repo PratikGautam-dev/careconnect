@@ -386,7 +386,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert "booked successfully" in kwargs["body_text"].lower()
-    # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMMYY>-<NNN>.
+    # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMYY>-<NNN>.
     assert "Reference ID: *APT-" in kwargs["body_text"]
     button_ids = {b["id"] for b in kwargs["buttons"]}
     assert GOTO_MAIN_MENU in button_ids
@@ -698,6 +698,11 @@ async def test_cancel_selection_free_text_reprompts_same_state(hospital_id):
 
 @pytest.mark.asyncio
 async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_id):
+    """Item 3 (Spec.md Section 0): reschedule now goes through a genuine
+    date-then-time picker, same as booking's own AWAITING_DATE ->
+    AWAITING_TIME_SLOT split, instead of a single combined list capped to
+    10 rows across the doctor's WHOLE availability window (which silently
+    hid later dates for a doctor with many slots/day)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     appt = _seed_appointment(hospital_id)
@@ -709,23 +714,41 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
     assert _row_ids(kwargs) == {f"appt_{appt.id}"}
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_SELECTION"
 
-    # Pick it -> goes straight to slot menu (no department/doctor re-pick)
+    # Pick it -> goes straight to a DATE list (no department/doctor re-pick)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    # Capped to Meta's 10-row WhatsApp list limit (core/booking_flow.py's
-    # _cap_rows()) -- the soonest 10 of this doctor's available slots, not
-    # necessarily all of them.
-    slot_ids = _row_ids(kwargs)
-    all_slot_ids = [s["id"] for s in db.get_slots(hospital_id, appt.doctor_id)]
-    assert slot_ids == set(all_slot_ids[:10])
+    all_slots = db.get_slots(hospital_id, appt.doctor_id)
+    dates_seen = []
+    for s in all_slots:
+        if s["date"] not in dates_seen:
+            dates_seen.append(s["date"])
+    # A doctor generates up to 14 days ahead -- capped to Meta's 10-row
+    # list limit (minus one row reserved for Back), so this can legitimately
+    # be fewer distinct dates than the doctor actually has, but every date
+    # shown is a REAL date, not an arbitrary slice of the combined list.
+    date_row_ids = _row_ids(kwargs) - {BACK_ID}
+    assert date_row_ids == set(dates_seen[:_MAX_LIST_ROWS - 1])
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_RESCHEDULE_SLOT"
+    assert session["state"] == "AWAITING_RESCHEDULE_DATE"
     assert session["context"]["doctor_id"] == appt.doctor_id
     assert session["context"]["reschedule_appointment_id"] == appt.id
 
-    # Pick a new slot -> confirm buttons
-    new_slot_id = db.get_slots(hospital_id, appt.doctor_id)[1]["id"]  # a different slot than any default
+    # Pick a date -> a TIME list scoped to just that date
+    date_str = dates_seen[0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    time_ids = _row_ids(kwargs) - {BACK_ID}
+    assert time_ids == {s["id"] for s in all_slots if s["date"] == date_str}
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_RESCHEDULE_SLOT"
+    assert session["context"]["date"] == date_str
+
+    # Pick a new slot (on the SAME date just picked, since the time list is
+    # now scoped to it) -> confirm buttons
+    same_date_slots = [s for s in all_slots if s["date"] == date_str]
+    new_slot_id = same_date_slots[0]["id"]
     new_slot = db.find_slot(hospital_id, appt.doctor_id, new_slot_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(new_slot_id))
     kind, kwargs = wa.sent[-1]
@@ -748,6 +771,69 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
     assert new_appt.doctor_id == appt.doctor_id
     assert new_appt.department_id == appt.department_id
     assert new_appt.scheduled_at.isoformat() == f"{new_slot['date']}T{new_slot['time']}:00"
+
+
+@pytest.mark.asyncio
+async def test_reschedule_can_reach_a_date_the_old_combined_list_would_have_hidden(hospital_id):
+    """Item 3's actual reported bug, reproduced directly (Spec.md Section 0):
+    doc_card_1 has 2 slots/day (db/seed.py's _DEFAULT_WORKING_HOURS) across
+    14 days. The OLD combined _send_slot_menu capped at 10 rows TOTAL, so
+    only the first 5 days' slots were ever reachable -- day 6 onward was
+    completely hidden, with no way to pick them at all. The new date-first
+    picker offers dates independently of how many times each one has, so a
+    date the old list could never have shown (the 8th distinct date, index 7)
+    is reachable and its own times are all correctly offered."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    appt = _seed_appointment(hospital_id)
+
+    all_slots = db.get_slots(hospital_id, appt.doctor_id)
+    dates_seen = []
+    for s in all_slots:
+        if s["date"] not in dates_seen:
+            dates_seen.append(s["date"])
+    assert len(dates_seen) >= 8  # otherwise this doctor's seed no longer proves the point
+    far_date = dates_seen[7]
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
+    kind, kwargs = wa.sent[-1]
+    assert far_date in _row_ids(kwargs)  # reachable on the very first date page
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(far_date))
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    time_ids = _row_ids(kwargs) - {BACK_ID}
+    assert time_ids == {s["id"] for s in all_slots if s["date"] == far_date}
+    assert sessions.get(hospital_id, PHONE)["context"]["date"] == far_date
+
+
+@pytest.mark.asyncio
+async def test_reschedule_back_from_time_list_returns_to_date_list(hospital_id):
+    """The date/time menus reschedule now reuses (_send_date_menu/
+    _send_time_menu) always append a Back row (_cap_rows_with_back) --
+    confirms it's wired up to something rather than silently no-oping,
+    since reschedule doesn't use the booking flow's full history stack."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    appt = _seed_appointment(hospital_id)
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
+    date_str = db.get_slots(hospital_id, appt.doctor_id)[0]["date"]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_SLOT"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_DATE"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert _row_ids(kwargs) == {f"appt_{appt.id}"}
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_SELECTION"
 
 
 @pytest.mark.asyncio

@@ -7,12 +7,12 @@ Items 5 and 8 (Spec.md Section 0):
   - item 8: appointments.patient_id/patient_name/patient_phone are
     populated correctly by create_appointment() itself.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
 import db.repository as db
-from db.repository import DuplicateBookingError
+from db.repository import DuplicateBookingError, QuotaExceededError
 
 PHONE = "5491112345678"
 
@@ -149,6 +149,44 @@ def test_appointment_stores_its_own_patient_age_denormalized(hospital_id):
     assert row["patient_age"] == 34
 
 
+def test_name_age_saved_even_when_the_first_booking_attempt_fails(hospital_id):
+    """Regression fix (Spec.md Section 0): _upsert_patient() used to run
+    INSIDE create_appointment()'s explicit transaction, right before the
+    INSERT -- so a QuotaExceededError/DuplicateBookingError raised earlier
+    in that SAME transaction rolled the upsert back too, leaving a
+    first-time patient's name/age never saved if their very first attempt
+    happened to fail. Now upserted BEFORE the transaction even opens, as
+    its own independent, immediately-durable statement -- this proves it
+    survives a failed first attempt, using daily_booking_limit=0 to
+    guarantee QuotaExceededError on a genuinely first-ever booking (nothing
+    else could have failed it -- there's no prior appointment to duplicate
+    against)."""
+    department_id = db.get_departments(hospital_id)[0]["id"]
+    doctor = db.create_doctor(
+        hospital_id, department_id, "Dr. Zero Quota",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-10:00"], slot_duration_minutes=60, daily_booking_limit=0,
+    )
+    scheduled_at = datetime.now() + timedelta(days=1)
+
+    with pytest.raises(QuotaExceededError):
+        db.create_appointment(
+            hospital_id, PHONE, department_id, doctor["id"], scheduled_at,
+            patient_name="Ravi Kumar", patient_age=34,
+        )
+
+    # The booking itself failed and rolled back -- no appointment exists.
+    assert db.get_upcoming_appointments_for_phone(hospital_id, PHONE) == []
+
+    # But the patient's name/age were saved anyway -- a later successful
+    # attempt (or booking_flow.py's own get_patient_info() lookup) will
+    # correctly find them and skip re-asking.
+    patient = db.get_patient_by_phone(hospital_id, PHONE)
+    assert patient is not None
+    assert patient["name"] == "Ravi Kumar"
+    assert patient["age"] == 34
+
+
 def test_cancelling_the_first_appointment_allows_a_new_one(hospital_id):
     """Only an ACTIVE (status='booked') appointment blocks a duplicate --
     cancelling it clears the way."""
@@ -168,6 +206,39 @@ def test_cancelling_the_first_appointment_allows_a_new_one(hospital_id):
         patient_age=34,
     )
     assert second.id != first.id
+
+
+def test_cancelling_the_exact_same_slot_makes_it_immediately_rebookable(hospital_id):
+    """Confirmed working, not a bug (Spec.md Section 0): reported as
+    "cancel a slot, it shows as available, but re-selecting it fails with
+    'slot was just taken'." Investigation found `get_slots()`, the
+    booking_ordinal free-slot query, and the partial UNIQUE index
+    (`ux_appointments_doctor_slot_ordinal_booked ... WHERE status='booked'`)
+    all consistently gate on the SAME status='booked' condition -- no
+    mismatch anywhere. This proves it directly: cancel a slot, then
+    re-book the EXACT SAME (doctor, scheduled_at) -- not just the same
+    doctor on a different slot, which the test above already covers --
+    and confirm it succeeds cleanly, no IntegrityError."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    scheduled_at = datetime.fromisoformat(f"{slot['date']}T{slot['time']}")
+
+    first = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id, scheduled_at,
+        patient_name="Ravi Kumar", patient_age=34,
+    )
+    # Freshly cancelled -> immediately re-appears as available.
+    db.cancel_appointment(hospital_id, first.id)
+    assert slot["id"] in {s["id"] for s in db.get_slots(hospital_id, doctor_id)}
+
+    # Re-booking the EXACT SAME slot (same doctor, same scheduled_at) for a
+    # DIFFERENT patient succeeds -- not rejected as "just taken".
+    second = db.create_appointment(
+        hospital_id, "5490009999", "cardiology", doctor_id, scheduled_at,
+        patient_name="Someone Else", patient_age=50,
+    )
+    assert second.id != first.id
+    assert second.doctor_id == doctor_id
 
 
 def test_appointment_gets_denormalized_patient_columns(hospital_id):

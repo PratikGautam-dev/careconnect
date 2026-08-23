@@ -713,7 +713,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     # Item 3 (Spec.md Section 0): success message is now buttons, not text.
     assert kind == "buttons"
     assert "सफलतापूर्वक" in kwargs["body_text"]
-    # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMMYY>-<NNN>.
+    # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMYY>-<NNN>.
     assert "APT-" in kwargs["body_text"]
     # Booked with the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)

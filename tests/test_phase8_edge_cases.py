@@ -17,7 +17,7 @@ import pytest
 
 import db.connection as db_connection
 import db.repository as db
-from core.booking_flow import handle_incoming
+from core.booking_flow import BACK_ID, handle_incoming
 from core.history import InMemorySessionStore
 
 
@@ -137,6 +137,19 @@ async def test_reschedule_race_leaves_original_appointment_intact(hospital_id):
     # since the replacement booking never actually succeeded.
     assert db.get_appointment(hospital_id, original.id).status == db.STATUS_BOOKED
     assert db.get_upcoming_appointments_for_phone(hospital_id, PHONE) == [db.get_appointment(hospital_id, original.id)]
+    # Item 3 (Spec.md Section 0): recovery re-shows a date-scoped TIME list
+    # (_send_time_menu), not the old combined date+time list -- the taken
+    # slot's own date, since context here only carries "slot_date" (this
+    # session was seeded directly into AWAITING_RESCHEDULE_CONFIRM, skipping
+    # the date-picking step, so there's no "date" key to fall back from).
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_RESCHEDULE_SLOT"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert contested_slot["id"] not in _row_ids(kwargs)
+    assert _row_ids(kwargs) - {BACK_ID} == {
+        s["id"] for s in db.get_slots(hospital_id, doctor_id) if s["date"] == contested_slot["date"]
+    }
 
 
 @pytest.mark.asyncio

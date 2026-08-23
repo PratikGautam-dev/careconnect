@@ -7,8 +7,9 @@ Second follow-up batch (Spec.md Section 0), DB-level coverage:
     and handoff_requests (no such guard), excluded from normal reads.
   - item 7: platform-wide lifetime total-bookings count, unaffected by
     status changes or soft-deletion.
-  - item 8: reference_id format (APT-<DDMMMYY>-<NNN>) and per-hospital-
-    per-day sequencing (not globally sequential across tenants).
+  - item 8: reference_id format (APT-<DDMMYY>-<NNN>, numeric date part per
+    the later Item 2 follow-up) and per-hospital-per-day sequencing (not
+    globally sequential across tenants).
 """
 from datetime import datetime
 
@@ -172,7 +173,10 @@ def test_reference_id_format_and_per_hospital_daily_sequence(hospital_id, second
         hospital_id, "5490009999", "cardiology", doctor_id, datetime.fromisoformat(slots[1]["id"]),
         patient_name="Someone Else", patient_age=50,
     )
-    assert re.fullmatch(r"APT-\d{2}[A-Z]{3}\d{2}-\d{3}", first.reference_id)
+    # Item 2 follow-up (Spec.md Section 0): date part switched from a
+    # month-abbreviation (DDMMMYY) to fully numeric DDMMYY, confirmed with
+    # the user directly.
+    assert re.fullmatch(r"APT-\d{6}-\d{3}", first.reference_id)
     first_seq = int(first.reference_id.rsplit("-", 1)[1])
     second_seq = int(second.reference_id.rsplit("-", 1)[1])
     assert second_seq == first_seq + 1
