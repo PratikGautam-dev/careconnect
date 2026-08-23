@@ -129,6 +129,10 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
                 # widget was merged into this table -- patient name now shown
                 # inline instead of a second, patient-centric list.
                 "patient_name": (db.get_patient_by_phone(hospital.id, a.phone) or {}).get("name"),
+                # Patient identity system (Spec.md Section 0): already on the
+                # Appointment object itself (via _APPOINTMENT_SELECT's join),
+                # no extra query needed the way patient_name above still does.
+                "patient_display_id": a.patient_display_id,
                 "department_name": a.department_name,
                 "doctor_name": a.doctor_name,
                 "scheduled_at": a.scheduled_at.isoformat(),
@@ -167,6 +171,11 @@ async def portal_patients(search: str = "", authorization: str | None = Header(d
 def _patient_json(p: dict) -> dict:
     return {
         "id": p["id"], "phone": p["phone"], "name": p["name"],
+        # Patient identity system (Spec.md Section 0): the permanent,
+        # human-readable id (PAT-<hospital short code>-<seq>) -- None only
+        # for a patient predating the backfill, which db/init_db.py's
+        # _backfill_patient_display_ids() catches up on every startup.
+        "patient_display_id": p.get("patient_display_id"),
         "date_of_birth": p.get("date_of_birth"), "gender": p.get("gender"), "address": p.get("address"),
         "created_at": p["created_at"],
     }
@@ -336,6 +345,15 @@ def _appointment_json(a) -> dict:
         # generated and stored since Section 12.12 but never actually
         # returned by this JSON shape.
         "reference_id": a.reference_id,
+        # Patient identity system (Spec.md Section 0): the owning patient's
+        # PERMANENT Patient ID (patients.patient_display_id, via
+        # appointments.patient_id) -- was denormalized onto `appointments`
+        # itself back in Item 8 (patient_id/patient_name/patient_phone) but
+        # never actually surfaced anywhere, frontend included, until now.
+        # Deliberately the same id shown on /portal/patients, not a
+        # different one -- both read through Appointment.patient_display_id/
+        # patients.patient_display_id, never a second identifier.
+        "patient_display_id": a.patient_display_id,
     }
 
 

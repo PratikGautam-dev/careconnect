@@ -28,6 +28,7 @@ type DashboardData = {
     id: number;
     phone: string;
     patient_name: string | null;
+    patient_display_id: string | null;
     department_name: string;
     doctor_name: string;
     scheduled_at: string;

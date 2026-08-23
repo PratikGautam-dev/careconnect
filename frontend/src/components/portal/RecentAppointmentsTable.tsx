@@ -6,6 +6,7 @@ type Appointment = {
   id: number;
   phone: string;
   patient_name: string | null;
+  patient_display_id: string | null;
   department_name: string;
   doctor_name: string;
   scheduled_at: string;
@@ -79,8 +80,13 @@ export function RecentAppointmentsTable({ appointments }: { appointments: Appoin
                     {a.reference_id || "—"}
                   </td>
                   <td className="py-space-2 text-ink-900">
-                    <span className="font-semibold">{a.patient_name || a.phone}</span>
-                    {a.patient_name && <span className="ml-space-2 text-[12px] text-ink-400">{a.phone}</span>}
+                    <div>
+                      <span className="font-semibold">{a.patient_name || a.phone}</span>
+                      {a.patient_name && <span className="ml-space-2 text-[12px] text-ink-400">{a.phone}</span>}
+                    </div>
+                    {a.patient_display_id && (
+                      <div className="font-mono text-[11px] text-ink-400">{a.patient_display_id}</div>
+                    )}
                   </td>
                   <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
                   <td className="py-space-2 text-ink-600">{a.department_name}</td>

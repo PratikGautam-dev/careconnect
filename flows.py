@@ -72,6 +72,7 @@ from core.booking_flow import (
     STATE_IDLE,
 )
 from core.flow_common import cap_rows, is_reset_keyword
+from core.storage import get_storage
 from core.translations import SUPPORTED_LANGUAGES, t
 from core.whatsapp import WhatsAppClient
 from connectors import Connector, Tier1Connector
@@ -95,6 +96,7 @@ _FEATURE_MENU = {
     "reschedule": ("menu_reschedule", "feature_reschedule"),
     "cancel": ("menu_cancel", "feature_cancel"),
     "view_appointments": ("menu_view_appointments", "feature_view_appointments"),
+    "my_details": ("menu_my_details", "feature_my_details"),
     "hospital_info": ("menu_hospital_info", "feature_hospital_info"),
     "reception_handoff": ("menu_reception", "feature_reception_handoff"),
     "faq": ("menu_faq_bot", "feature_faq"),
@@ -102,7 +104,13 @@ _FEATURE_MENU = {
 _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title_key) in _FEATURE_MENU.items()}
 
 # Every selectable feature is real and working -- no placeholder tier.
-REAL_FEATURES = {"booking", "reschedule", "cancel", "faq", "view_appointments", "hospital_info", "reception_handoff"}
+# Patient identity system (Spec.md Section 0): "my_details" added alongside
+# view_appointments -- that one shows upcoming bookings with cancel/
+# reschedule actions; this one is the patient's own self-service "fetch my
+# record" (id/name/age/summary + any documents on file).
+REAL_FEATURES = {
+    "booking", "reschedule", "cancel", "faq", "view_appointments", "my_details", "hospital_info", "reception_handoff",
+}
 ALL_FEATURES = REAL_FEATURES
 
 # Item 4 (Spec.md Section 0): deliberately NOT a member of _FEATURE_MENU/
@@ -289,6 +297,113 @@ async def _handle_awaiting_view_appointment_action(
     )
 
 
+STATE_AWAITING_MY_DETAILS_DOCUMENT = "AWAITING_MY_DETAILS_DOCUMENT"
+
+_MY_DETAILS_STATUS_KEYS = {
+    db.STATUS_BOOKED: "status_booked",
+    db.STATUS_CANCELLED: "status_cancelled",
+    db.STATUS_RESCHEDULED: "status_rescheduled",
+    db.STATUS_ATTENDED: "status_attended",
+    db.STATUS_NO_SHOW: "status_no_show",
+}
+
+_MY_DETAILS_DOC_PREFIX = "mydoc_"
+
+
+def _my_details_document_row_id(document_id: int) -> str:
+    return f"{_MY_DETAILS_DOC_PREFIX}{document_id}"
+
+
+def _parse_my_details_document_row_id(row_id: str) -> int | None:
+    if not row_id.startswith(_MY_DETAILS_DOC_PREFIX):
+        return None
+    try:
+        return int(row_id[len(_MY_DETAILS_DOC_PREFIX):])
+    except ValueError:
+        return None
+
+
+async def _send_my_details(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, language: str = "en",
+) -> None:
+    """Patient identity system (Spec.md Section 0): a self-service "fetch my
+    own record" reply -- Patient ID, name, age, and a short summary (total
+    appointment count + most recent appointment's status), followed by an
+    interactive list of any documents on file (Section 12.10's
+    patient_documents, reused as-is) when there are any. Deliberately calls
+    db.repository directly rather than through connectors.py -- patient
+    records/documents are a Tier-1-only concept never abstracted through the
+    Connector interface, same precedent portal_api.py's own send-to-WhatsApp
+    endpoint already established for this exact data (its own docstring
+    explains why: sending/reading a document isn't a booking-data operation
+    that varies by data tier)."""
+    patient = db.get_patient_by_phone(hospital_id, phone)
+    if patient is None:
+        sessions.reset(hospital_id, phone)
+        await wa.send_text(phone, t("my_details_not_found", language))
+        return
+
+    visits = db.get_patient_visit_history(hospital_id, patient["id"])
+    if visits:
+        most_recent = visits[0]
+        status_key = _MY_DETAILS_STATUS_KEYS.get(most_recent.status, most_recent.status)
+        most_recent_line = (
+            f"{t(status_key, language)} — {most_recent.doctor_name}, {most_recent.scheduled_at.strftime('%d %b %Y')}"
+        )
+    else:
+        most_recent_line = t("my_details_no_appointments_yet", language)
+
+    age_display = str(patient["age"]) if patient.get("age") is not None else t("my_details_not_provided", language)
+    name_display = patient["name"] or t("my_details_not_provided", language)
+    summary_lines = "\n".join([
+        f"*{t('my_details_field_patient_id', language)}:* {patient['patient_display_id'] or '—'}",
+        f"*{t('my_details_field_name', language)}:* {name_display}",
+        f"*{t('my_details_field_age', language)}:* {age_display}",
+        f"*{t('my_details_field_total_appointments', language)}:* {len(visits)}",
+        f"*{t('my_details_field_most_recent', language)}:* {most_recent_line}",
+    ])
+    await wa.send_text(phone, t("my_details_summary", language, summary_lines=summary_lines))
+
+    documents = db.get_patient_documents(hospital_id, patient["id"])
+    if not documents:
+        sessions.reset(hospital_id, phone)
+        return
+
+    rows = [{"id": _my_details_document_row_id(d["id"]), "title": d["file_name"]} for d in documents]
+    rows = cap_rows(rows, f"my details documents for patient {patient['id']}")
+    sessions.set(hospital_id, phone, STATE_AWAITING_MY_DETAILS_DOCUMENT, {"patient_id": patient["id"]})
+    await wa.send_list(
+        to=phone,
+        body_text=t("my_details_documents_header", language),
+        button_text=t("view_documents_button", language),
+        sections=[{"title": t("documents_section_title", language), "rows": rows}],
+    )
+
+
+async def _handle_awaiting_my_details_document(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, language: str = "en",
+) -> None:
+    patient_id = context.get("patient_id")
+    document_id = _parse_my_details_document_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
+    document = db.get_patient_document(hospital_id, document_id) if document_id is not None else None
+    if patient_id is None or document is None or document["patient_id"] != patient_id:
+        # Stale/unrecognized tap, or the list went stale between send and
+        # reply -- re-fetch and re-show fresh rather than acting on a stale
+        # id (Phase 8's established "recheck dynamic data" discipline).
+        await _send_my_details(wa, sessions, phone, hospital_id, language=language)
+        return
+
+    storage = get_storage()
+    document_url = storage.get_signed_url(document["file_url"], expires_in=3600)
+    sent = await wa.send_document(phone, document_url, document["file_name"])
+    sessions.reset(hospital_id, phone)
+    if not sent:
+        await wa.send_text(phone, t("my_details_document_send_failed", language))
+        return
+    db.mark_document_sent_to_whatsapp(hospital_id, document_id)
+    await wa.send_text(phone, t("my_details_document_sent", language))
+
+
 async def _start_feature(
     key: str,
     wa: WhatsAppClient,
@@ -321,6 +436,9 @@ async def _start_feature(
         return
     if key == "view_appointments":
         await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language)
+        return
+    if key == "my_details":
+        await _send_my_details(wa, sessions, phone, hospital_id, language=language)
         return
     if key == "hospital_info":
         sessions.reset(hospital_id, phone)
@@ -475,6 +593,12 @@ async def handle_incoming(
     if state == STATE_AWAITING_VIEW_APPOINTMENT_ACTION:
         await _handle_awaiting_view_appointment_action(
             wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language or "en",
+        )
+        return
+
+    if state == STATE_AWAITING_MY_DETAILS_DOCUMENT:
+        await _handle_awaiting_my_details_document(
+            wa, sessions, phone, hospital_id, reply, context, language=language or "en",
         )
         return
 

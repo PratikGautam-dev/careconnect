@@ -18,6 +18,7 @@ type Patient = {
   id: number;
   phone: string;
   name: string | null;
+  patient_display_id: string | null;
   date_of_birth: string | null;
   gender: string | null;
   address: string | null;
@@ -213,7 +214,14 @@ export default function PatientDetailPage() {
           </div>
           <div>
             <h1 className="text-display !text-[24px]">{patient.name || patient.phone}</h1>
-            <p className="text-[13px] text-ink-600">{patient.phone}</p>
+            <div className="flex items-center gap-space-2 text-[13px] text-ink-600">
+              <span>{patient.phone}</span>
+              {patient.patient_display_id && (
+                <span className="rounded-full bg-brand-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-brand-700">
+                  {patient.patient_display_id}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

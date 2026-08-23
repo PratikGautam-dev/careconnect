@@ -1097,6 +1097,61 @@ def test_list_patients_search_filters_by_name_or_phone(two_hospitals):
     assert no_match.json()["patients"] == []
 
 
+# --- Patient identity system (Spec.md Section 0): patient_display_id ---
+
+
+def test_patient_list_and_detail_surface_the_same_patient_display_id(two_hospitals):
+    a = two_hospitals["a"]
+    appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5491112223333", patient_name="Rahul Sharma")
+
+    list_resp = client.get("/api/portal/patients", headers=_auth(a["token"]))
+    listed = next(p for p in list_resp.json()["patients"] if p["phone"] == "5491112223333")
+    assert listed["patient_display_id"] is not None
+    assert listed["patient_display_id"].startswith("PAT-")
+
+    detail_resp = client.get(f"/api/portal/patients/{listed['id']}", headers=_auth(a["token"]))
+    assert detail_resp.json()["patient"]["patient_display_id"] == listed["patient_display_id"]
+
+
+def test_bookings_list_shows_the_same_patient_display_id_as_the_patient_record(two_hospitals):
+    """Item 3 (composition check): the appointments table must show the SAME
+    Patient ID a patient's own record has, not a separate/different
+    identifier -- both read through the same patients.patient_display_id."""
+    a = two_hospitals["a"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5491112223333", patient_name="Rahul Sharma")
+    patient = db.get_patient_by_phone(a["id"], "5491112223333")
+
+    bookings_resp = client.get("/api/portal/bookings", headers=_auth(a["token"]))
+    booking = next(b for b in bookings_resp.json()["appointments"] if b["phone"] == "5491112223333")
+    assert booking["patient_display_id"] == patient["patient_display_id"]
+
+
+def test_patient_display_id_never_regenerates_on_a_second_booking_via_the_portal(two_hospitals):
+    a = two_hospitals["a"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5491112223333", patient_name="Rahul Sharma")
+    first_id = db.get_patient_by_phone(a["id"], "5491112223333")["patient_display_id"]
+
+    slot2 = db.get_slots(a["id"], a["doctor_id"])[1]
+    db.create_appointment(a["id"], "5491112223333", a["department_id"], a["doctor_id"], datetime.fromisoformat(slot2["id"]), patient_age=8)
+    second_id = db.get_patient_by_phone(a["id"], "5491112223333")["patient_display_id"]
+
+    assert second_id == first_id
+
+
+def test_patient_display_id_sequences_are_isolated_per_hospital(two_hospitals):
+    """Two DIFFERENT hospitals' own first-ever patient both get sequence
+    0001 -- cross-tenant isolation of the counter itself, not just of reads."""
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5491110000001", patient_name="Patient A")
+    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5491110000001", patient_name="Patient B")
+
+    id_a = db.get_patient_by_phone(a["id"], "5491110000001")["patient_display_id"]
+    id_b = db.get_patient_by_phone(b["id"], "5491110000001")["patient_display_id"]
+    assert id_a.endswith("-0001")
+    assert id_b.endswith("-0001")
+    assert id_a != id_b  # different hospital short codes
+
+
 def test_recent_patients_on_dashboard_reflects_last_visit(two_hospitals):
     a = two_hospitals["a"]
     _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111", patient_name="Patient One")

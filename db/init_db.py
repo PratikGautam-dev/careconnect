@@ -15,6 +15,7 @@ from pathlib import Path
 
 from db import seed
 from db.connection import get_connection, get_database_url
+from db.repository import _generate_patient_display_id
 
 _SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 
@@ -94,6 +95,38 @@ def _backfill_appointment_patient_age(conn) -> None:
     conn.commit()
 
 
+def _backfill_patient_display_ids(conn) -> None:
+    """Patient identity system (Spec.md Section 0): every patient created
+    before this feature existed has patient_display_id still NULL --
+    assigned here, in CREATION ORDER per hospital (created_at, then id as a
+    tiebreak for same-instant rows), via the exact same
+    _generate_patient_display_id() (short-code derivation + the
+    patient_id_counters atomic sequence) that create_appointment()'s
+    _upsert_patient() uses for every NEW patient going forward -- so the
+    counter this backfill leaves behind is exactly where the next real
+    patient's id continues from, no gap or collision. Only ever touches
+    patient_display_id IS NULL rows, so re-running this on every startup is
+    a safe no-op once every hospital is caught up (each hospital's counter
+    only advances while there's still a NULL row left for it)."""
+    hospital_ids = [
+        row["hospital_id"] for row in conn.execute(
+            "SELECT DISTINCT hospital_id FROM patients WHERE patient_display_id IS NULL ORDER BY hospital_id"
+        ).fetchall()
+    ]
+    for hospital_id in hospital_ids:
+        patient_ids = [
+            row["id"] for row in conn.execute(
+                "SELECT id FROM patients WHERE hospital_id = ? AND patient_display_id IS NULL "
+                "ORDER BY created_at, id",
+                (hospital_id,),
+            ).fetchall()
+        ]
+        for patient_id in patient_ids:
+            display_id = _generate_patient_display_id(conn, hospital_id)
+            conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, patient_id))
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -133,6 +166,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_patients(conn)
     _backfill_appointment_patient_denorm(conn)
     _backfill_appointment_patient_age(conn)
+    _backfill_patient_display_ids(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

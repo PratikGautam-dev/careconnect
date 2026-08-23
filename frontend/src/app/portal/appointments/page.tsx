@@ -22,6 +22,7 @@ type Appointment = {
   status: string;
   source: string;
   reference_id: string | null;
+  patient_display_id: string | null;
 };
 
 type Department = { id: string; name: string };
@@ -117,7 +118,8 @@ export default function PortalAppointmentsPage() {
         a.phone.toLowerCase().includes(q) ||
         a.doctor_name.toLowerCase().includes(q) ||
         a.department_name.toLowerCase().includes(q) ||
-        (a.reference_id || "").toLowerCase().includes(q)
+        (a.reference_id || "").toLowerCase().includes(q) ||
+        (a.patient_display_id || "").toLowerCase().includes(q)
       );
     });
   }, [appointments, searchQuery, statusFilter]);
@@ -274,7 +276,12 @@ export default function PortalAppointmentsPage() {
                       <tr className={cn("border-b border-line last:border-0", (cancelPanelId === a.id || reschedulePanelId === a.id) && "border-b-0")}>
                         <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatTime(a.scheduled_at)}</td>
                         <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">{a.reference_id || "—"}</td>
-                        <td className="py-space-2 text-ink-900">{a.phone}</td>
+                        <td className="py-space-2 text-ink-900">
+                          <div>{a.phone}</div>
+                          {a.patient_display_id && (
+                            <div className="font-mono text-[11px] text-ink-400">{a.patient_display_id}</div>
+                          )}
+                        </td>
                         <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
                         <td className="py-space-2 text-ink-600">{a.department_name}</td>
                         <td className="py-space-2 text-ink-600">{SOURCE_LABELS[a.source] || a.source}</td>

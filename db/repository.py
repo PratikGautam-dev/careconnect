@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json as json_lib
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -72,10 +73,12 @@ _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
-           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id
+           a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
+           p.patient_display_id
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
+    LEFT JOIN patients p ON p.id = a.patient_id
     WHERE a.deleted_at IS NULL
 """
 # Item 3 (Spec.md Section 0): every normal read of an appointment excludes a
@@ -121,6 +124,63 @@ def _generate_reference_id(conn, hospital_id: int, now: datetime | None = None) 
     return f"APT-{date_part}-{seq:03d}"
 
 
+def _derive_hospital_short_code(name: str) -> str:
+    """Patient identity system (Spec.md Section 0), confirmed with the user:
+    auto-derived from the hospital's own `name`, not a new onboarding field.
+    Two rules, chosen for a short, deterministic, always->=3-character code:
+    - 3+ words: first letter of each of the first 4 words, uppercased (e.g.
+      "Metro Lifeline Hospital" -> "MLH").
+    - 1-2 words: first 3 letters of the name with spaces removed, uppercased
+      (e.g. "Default Hospital" -> "DEF", "DaaPrime" -> "DAA") -- initials
+      alone would be only 1-2 characters here, too short to be useful.
+    Deliberately NOT enforced globally unique across hospitals (confirmed
+    with the user) -- see db/schema.sql's patient_id_prefix column comment."""
+    words = re.findall(r"[A-Za-z0-9]+", name)
+    if not words:
+        return "HSP"
+    if len(words) >= 3:
+        return "".join(w[0] for w in words[:4]).upper()
+    return "".join(words).upper()[:3]
+
+
+def _get_or_create_hospital_short_code(conn, hospital_id: int) -> str:
+    """Computed once, the first time a hospital's first patient is ever
+    created, and stored permanently -- never recomputed even if the hospital
+    is later renamed, so existing patients' ids stay stable."""
+    row = conn.execute(
+        "SELECT patient_id_prefix, name FROM hospitals WHERE id = ?", (hospital_id,),
+    ).fetchone()
+    if row["patient_id_prefix"]:
+        return row["patient_id_prefix"]
+    code = _derive_hospital_short_code(row["name"])
+    conn.execute("UPDATE hospitals SET patient_id_prefix = ? WHERE id = ?", (code, hospital_id))
+    return code
+
+
+def _next_patient_display_sequence(conn, hospital_id: int) -> int:
+    """Same atomic INSERT ... ON CONFLICT DO UPDATE pattern as
+    _next_daily_reference_sequence above, one row per hospital (no `day`
+    dimension -- a lifetime count, not a daily-resetting one)."""
+    row = conn.execute(
+        "INSERT INTO patient_id_counters (hospital_id, counter) VALUES (?, 1) "
+        "ON CONFLICT (hospital_id) DO UPDATE SET counter = patient_id_counters.counter + 1 "
+        "RETURNING counter",
+        (hospital_id,),
+    ).fetchone()
+    return row["counter"]
+
+
+def _generate_patient_display_id(conn, hospital_id: int) -> str:
+    """PAT-<hospital short code>-<sequential number>, e.g. PAT-MLH-0001 --
+    zero-padded to 4 digits, sequential PER HOSPITAL (patient_id_counters),
+    not global. Called exactly once per patient, by _upsert_patient() below
+    the moment a `patients` row is first created, and by db/init_db.py's
+    one-time backfill for patients created before this feature existed."""
+    code = _get_or_create_hospital_short_code(conn, hospital_id)
+    seq = _next_patient_display_sequence(conn, hospital_id)
+    return f"PAT-{code}-{seq:04d}"
+
+
 @dataclass
 class Appointment:
     id: int
@@ -140,6 +200,12 @@ class Appointment:
     # confirmation message. None only for rows booked before this column
     # existed (never backfilled -- see db/schema.sql's column comment).
     reference_id: str | None = None
+    # Patient identity system (Spec.md Section 0): the owning patient's
+    # PERMANENT display id (patients.patient_display_id, via a.patient_id --
+    # not appointments.reference_id, which is per-booking). None for a row
+    # whose patient_id FK is unset (predates Item 8's denormalization and
+    # hasn't been backfilled) or whose patient hasn't been backfilled yet.
+    patient_display_id: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -155,6 +221,7 @@ def _row_to_appointment(row) -> Appointment:
         status=row["status"],
         source=row["source"],
         reference_id=row["reference_id"],
+        patient_display_id=row["patient_display_id"],
     )
 
 
@@ -1302,10 +1369,11 @@ def _patients_with_visit_stats_sql(where_extra: str = "") -> str:
     get_all_appointments_for_hospital()), visit_count counts every
     appointment row ever created for that phone, not just kept ones."""
     return (
-        "SELECT p.id, p.phone, p.name, MAX(a.scheduled_at) AS last_visit, COUNT(a.id) AS visit_count "
+        "SELECT p.id, p.phone, p.name, p.patient_display_id, MAX(a.scheduled_at) AS last_visit, "
+        "COUNT(a.id) AS visit_count "
         "FROM patients p LEFT JOIN appointments a ON a.hospital_id = p.hospital_id AND a.phone = p.phone "
         f"WHERE p.hospital_id = ? {where_extra} "
-        "GROUP BY p.id, p.phone, p.name "
+        "GROUP BY p.id, p.phone, p.name, p.patient_display_id "
         "ORDER BY last_visit DESC NULLS LAST, p.name NULLS LAST, p.phone "
     )
 
@@ -1327,7 +1395,10 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
     else:
         rows = conn.execute(_patients_with_visit_stats_sql() + "LIMIT ?", (hospital_id, limit)).fetchall()
     return [
-        {"id": r["id"], "phone": r["phone"], "name": r["name"], "last_visit": r["last_visit"], "visit_count": r["visit_count"]}
+        {
+            "id": r["id"], "phone": r["phone"], "name": r["name"], "patient_display_id": r["patient_display_id"],
+            "last_visit": r["last_visit"], "visit_count": r["visit_count"],
+        }
         for r in rows
     ]
 
@@ -1349,7 +1420,7 @@ def get_patient(hospital_id: int, patient_id: int) -> dict | None:
     get_doctor_full())."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, created_at "
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, created_at "
         "FROM patients WHERE hospital_id = ? AND id = ?",
         (hospital_id, patient_id),
     ).fetchone()
@@ -1364,7 +1435,7 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
     staff-typed search box."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, created_at "
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, created_at "
         "FROM patients WHERE hospital_id = ? AND phone = ?",
         (hospital_id, phone),
     ).fetchone()
@@ -1514,15 +1585,29 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
     the appointments INSERT (moved up from after, same transaction either
     way) so create_appointment() can denormalize the RESOLVED id/name (the
     COALESCE result, not just whatever was passed in this call) onto the new
-    appointments row."""
+    appointments row.
+
+    Patient identity system (Spec.md Section 0): also generates and returns
+    patient_display_id, but ONLY the first time a `patients` row is created
+    for this (hospital_id, phone) -- detected via Postgres's `xmax = 0`
+    (true only for a fresh INSERT, false when ON CONFLICT DO UPDATE fired
+    instead), on the SAME statement this function already runs, so no
+    separate "does this patient already exist" query is needed and there's
+    no race window between checking and inserting. The UPDATE branch's SET
+    list deliberately never mentions patient_display_id, so a returning
+    patient's id is never touched by a later booking."""
     row = conn.execute(
         "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) "
         "ON CONFLICT (hospital_id, phone) DO UPDATE SET "
         "name = COALESCE(EXCLUDED.name, patients.name), age = COALESCE(EXCLUDED.age, patients.age) "
-        "RETURNING id, name, age",
+        "RETURNING id, name, age, patient_display_id, (xmax = 0) AS inserted",
         (hospital_id, phone, name, age),
     ).fetchone()
-    return {"id": row["id"], "name": row["name"], "age": row["age"]}
+    display_id = row["patient_display_id"]
+    if row["inserted"] and display_id is None:
+        display_id = _generate_patient_display_id(conn, hospital_id)
+        conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, row["id"]))
+    return {"id": row["id"], "name": row["name"], "age": row["age"], "patient_display_id": display_id}
 
 
 def create_appointment(

@@ -10,7 +10,14 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { portalFetch } from "@/lib/portalAuth";
 
-type Patient = { id: number; phone: string; name: string | null; last_visit: string | null; visit_count: number };
+type Patient = {
+  id: number;
+  phone: string;
+  name: string | null;
+  patient_display_id: string | null;
+  last_visit: string | null;
+  visit_count: number;
+};
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -96,7 +103,9 @@ export default function PortalPatientsPage() {
                       onClick={() => router.push(`/portal/patients/${p.id}`)}
                       className="cursor-pointer border-b border-line last:border-0 hover:bg-black/[0.02]"
                     >
-                      <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">#{p.id}</td>
+                      <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-600">
+                        {p.patient_display_id || `#${p.id}`}
+                      </td>
                       <td className="py-space-2 font-semibold text-ink-900">
                         <Link href={`/portal/patients/${p.id}`} className="hover:underline">
                           {p.name || "—"}
