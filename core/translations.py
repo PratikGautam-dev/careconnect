@@ -151,6 +151,13 @@ STRINGS: dict[str, dict[Language, str]] = {
     # 3rd button on the confirmation card (Meta's 3-button max) -- short
     # enough to clear both the 20-char button limit and 24-char row limit.
     "back_option": {"en": "◀ Back", "hi": "◀ पीछे"},
+    # UX follow-up (Spec.md Section 0): Back moved OUT of the list itself
+    # into its own follow-up buttons message -- this is that message's body
+    # text (the button re-uses back_option above for its own label).
+    "back_button_prompt": {
+        "en": "Want to go back a step?",
+        "hi": "क्या आप एक कदम पीछे जाना चाहते हैं?",
+    },
 
     # --- Booking: department/doctor/date/time menus ---
     "select_department": {"en": "Please select a medical department:", "hi": "कृपया एक चिकित्सा विभाग चुनें:"},

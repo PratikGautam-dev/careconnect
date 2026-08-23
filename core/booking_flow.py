@@ -174,24 +174,22 @@ _cap_rows = cap_rows
 _RESET_KEYWORDS = RESET_KEYWORDS
 
 
-def _cap_rows_with_back(rows: list[dict], context: str, language: str = "en") -> list[dict]:
-    """Same row-count enforcement as _cap_rows(), except it reserves one row
-    for the "<- Back" option appended after -- capping real options to
-    MAX_LIST_ROWS - 1 (not MAX_LIST_ROWS) so the total never exceeds Meta's
-    10-row list limit once Back is added. Used by the booking flow's
-    department/doctor/date/time menus, and by reschedule's own date/time
-    menus since Item 3 (Spec.md Section 0) gave it the same
-    _send_date_menu/_send_time_menu split -- reschedule handles its Back row
-    with a single linear step back rather than the booking flow's full
-    history stack, since it never had one."""
-    max_real = MAX_LIST_ROWS - 1
-    if len(rows) > max_real:
-        logger.warning(
-            "%s: %d rows exceeds WhatsApp's %d-row list limit once the Back option is reserved -- truncating to %d",
-            context, len(rows), MAX_LIST_ROWS, max_real,
-        )
-        rows = rows[:max_real]
-    return rows + [{"id": BACK_ID, "title": t("back_option", language)}]
+async def _send_back_button(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
+    """UX follow-up (Spec.md Section 0), confirmed with the user: "Back" used
+    to be the last ROW inside the department/doctor/date/time list itself
+    (_cap_rows_with_back, now removed) -- WhatsApp's `list` message type has
+    no way to attach a separate button to the SAME message, so showing Back
+    visually apart from the real options means sending it as its own
+    follow-up buttons message immediately after the list, not folding it
+    into one. Same BACK_ID either way -- every handler's `if reply["id"] ==
+    BACK_ID` check is unchanged, since core/whatsapp.py's parser normalizes
+    a tapped list row and a tapped button to the exact same
+    {"type": "interactive_reply", "id": ...} shape regardless of which
+    message it came from."""
+    await wa.send_buttons(
+        to=phone, body_text=t("back_button_prompt", language),
+        buttons=[{"id": BACK_ID, "title": t("back_option", language)}],
+    )
 
 
 def _push_history(context: dict, state: str) -> list[dict]:
@@ -306,13 +304,14 @@ async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, la
 
 async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_departments(hospital_id)]
-    rows = _cap_rows_with_back(rows, "department menu", language=language)
+    rows = _cap_rows(rows, "department menu")
     await wa.send_list(
         to=phone,
         body_text=t("select_department", language),
         button_text=t("view_departments_button", language),
         sections=[{"title": t("departments_section_title", language), "rows": rows}],
     )
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _start_booking_flow(
@@ -361,13 +360,14 @@ async def _send_doctor_menu(
     language: str = "en",
 ) -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_doctors(hospital_id, department_id)]
-    rows = _cap_rows_with_back(rows, "doctor menu", language=language)
+    rows = _cap_rows(rows, "doctor menu")
     await wa.send_list(
         to=phone,
         body_text=t("select_doctor", language, department_name=department_name),
         button_text=t("view_doctors_button", language),
         sections=[{"title": department_name, "rows": rows}],
     )
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_slot_menu(
@@ -406,13 +406,14 @@ async def _send_date_menu(
         if s["date"] not in dates_seen:
             dates_seen.append(s["date"])
     rows = [{"id": d, "title": _date_label(d)} for d in dates_seen]
-    rows = _cap_rows_with_back(rows, f"date menu for doctor {doctor_id}", language=language)
+    rows = _cap_rows(rows, f"date menu for doctor {doctor_id}")
     await wa.send_list(
         to=phone,
         body_text=t("doctor_selected_ask_date", language, doctor_name=doctor_name),
         button_text=t("view_dates_button", language),
         sections=[{"title": t("available_dates_section_title", language), "rows": rows}],
     )
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_time_menu(
@@ -430,13 +431,14 @@ async def _send_time_menu(
         for s in connector.get_available_slots(hospital_id, doctor_id)
         if s["date"] == date_str
     ]
-    rows = _cap_rows_with_back(rows, f"time menu for doctor {doctor_id} on {date_str}", language=language)
+    rows = _cap_rows(rows, f"time menu for doctor {doctor_id} on {date_str}")
     await wa.send_list(
         to=phone,
         body_text=t("select_time_slot", language),
         button_text=t("view_times_button", language),
         sections=[{"title": t("available_times_section_title", language), "rows": rows}],
     )
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _notify_no_doctors_available(
@@ -1187,9 +1189,10 @@ async def _handle_awaiting_reschedule_date(
     it's simpler: a picked date just moves on to that date's time list.
     Reschedule doesn't use the booking flow's full history-stack Back
     mechanism (it never had one), but reusing _send_date_menu means a Back
-    row is now shown here too (_cap_rows_with_back always appends one) -- a
-    single linear step back to appointment selection is enough to make that
-    row do something rather than silently no-op."""
+    button is now shown here too (_send_back_button, sent as a follow-up
+    message after the list) -- a single linear step back to appointment
+    selection is enough to make that button do something rather than
+    silently no-op."""
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
     if not doctor_id or context.get("reschedule_appointment_id") is None:

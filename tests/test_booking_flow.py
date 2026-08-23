@@ -45,6 +45,18 @@ def _row_ids(kind_kwargs):
     return {row["id"] for section in kind_kwargs["sections"] for row in section["rows"]}
 
 
+def _last_list(wa):
+    """UX follow-up (Spec.md Section 0): "Back" moved out of the list itself
+    into its own follow-up buttons message sent right after -- so the most
+    recently sent message for a Back-eligible menu is now that buttons
+    message, not the list. This finds the list itself regardless of a
+    trailing Back-button message."""
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "list":
+            return kwargs
+    raise AssertionError("no list message was sent")
+
+
 @pytest.mark.asyncio
 async def test_idle_any_message_sends_welcome_and_main_menu(hospital_id):
     wa = FakeWhatsAppClient()
@@ -80,12 +92,14 @@ async def test_idle_book_tap_advances_to_awaiting_patient_name(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
-    # "Go back" navigation appends a BACK_ID row to this list alongside the
-    # real department rows.
-    assert row_ids == {d["id"] for d in db.get_departments(hospital_id)} | {BACK_ID}
+    assert row_ids == {d["id"] for d in db.get_departments(hospital_id)}
+    # "Go back" navigation now sends its own follow-up buttons message,
+    # separate from the list (Spec.md Section 0's UX follow-up).
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {BACK_ID}
 
 
 @pytest.mark.asyncio
@@ -169,21 +183,27 @@ async def test_date_and_time_menus_capped_to_whatsapp_list_limit(hospital_id):
     sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": department["id"], "department_name": department["name"]})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor["id"]))
 
-    # Date list: capped to the soonest 9 distinct dates + 1 reserved BACK_ID
-    # row (Section 3.3 follow-up's "Go back" navigation), 10 total.
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    date_rows = kwargs["sections"][0]["rows"]
+    # Date list: capped to the soonest _MAX_LIST_ROWS distinct dates -- "Go
+    # back" (Section 3.3 follow-up) no longer occupies a row of its own
+    # (UX follow-up, Spec.md Section 0: it's now a separate follow-up
+    # buttons message instead), so the list itself uses the full cap.
+    date_kwargs = _last_list(wa)
+    date_rows = date_kwargs["sections"][0]["rows"]
     assert len(date_rows) == _MAX_LIST_ROWS
-    assert {r["id"] for r in date_rows} == set(distinct_dates[:_MAX_LIST_ROWS - 1]) | {BACK_ID}
+    assert {r["id"] for r in date_rows} == set(distinct_dates[:_MAX_LIST_ROWS])
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {BACK_ID}
 
     # Time list for the soonest date: independently capped the same way.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(distinct_dates[0]))
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    time_rows = kwargs["sections"][0]["rows"]
+    time_kwargs = _last_list(wa)
+    time_rows = time_kwargs["sections"][0]["rows"]
     assert len(time_rows) == _MAX_LIST_ROWS
-    assert {r["id"] for r in time_rows} == {s["id"] for s in first_date_slots[:_MAX_LIST_ROWS - 1]} | {BACK_ID}
+    assert {r["id"] for r in time_rows} == {s["id"] for s in first_date_slots[:_MAX_LIST_ROWS]}
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {BACK_ID}
 
 
 @pytest.mark.asyncio
@@ -278,9 +298,12 @@ async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_i
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("whatever"))
 
-    assert len(wa.sent) == 1
+    # The list itself, plus its own follow-up Back-button message (Spec.md
+    # Section 0's UX follow-up).
+    assert len(wa.sent) == 2
     assert wa.sent[0][0] == "list"
     assert "Dr. Anjali Rao" in wa.sent[0][1]["body_text"]
+    assert wa.sent[1][0] == "buttons"
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
 
 
@@ -302,8 +325,10 @@ async def test_free_text_in_awaiting_time_slot_resends_the_real_time_list(hospit
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("umm what times"))
 
-    assert len(wa.sent) == 1
+    # The list itself, plus its own follow-up Back-button message.
+    assert len(wa.sent) == 2
     assert wa.sent[0][0] == "list"
+    assert wa.sent[1][0] == "buttons"
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_TIME_SLOT"
 
     # Reset keywords must still escape from here, unaffected by the above.
@@ -362,10 +387,11 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     assert kwargs["body_text"].startswith("You have selected Dr. ")
     assert "consulting date" in kwargs["body_text"]
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"  # the follow-up Back button (Spec.md Section 0)
     all_slots = db.get_slots(hospital_id, doctor_id)
     date_str = all_slots[0]["date"]
 
@@ -374,8 +400,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_TIME_SLOT"
     assert session["context"]["date"] == date_str
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     assert kwargs["body_text"] == "Please select a preferred consulting time slot:"
 
     # Pick a time -- name/age were already collected up front, so this goes
@@ -446,8 +471,8 @@ async def test_returning_patient_with_name_on_file_skips_straight_to_department(
     assert session["state"] == "AWAITING_DEPARTMENT"  # not AWAITING_PATIENT_NAME
     assert session["context"]["patient_name"] == "Priya Shah"
     assert session["context"]["patient_age"] == 29
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    _last_list(wa)  # confirms a list was actually sent
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
 
 
 @pytest.mark.asyncio
@@ -572,8 +597,9 @@ async def test_free_text_in_awaiting_department_reprompts_same_state(hospital_id
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Cardiology please"))
 
-    assert len(wa.sent) == 1
+    assert len(wa.sent) == 2  # the list, plus its own follow-up Back button
     assert wa.sent[0][0] == "list"
+    assert wa.sent[1][0] == "buttons"
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
 
 
@@ -587,8 +613,9 @@ async def test_unrecognized_tap_id_in_awaiting_doctor_reprompts_same_state(hospi
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("not_a_real_doctor_id"))
 
-    assert len(wa.sent) == 1
+    assert len(wa.sent) == 2  # the list, plus its own follow-up Back button
     assert wa.sent[0][0] == "list"
+    assert wa.sent[1][0] == "buttons"
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DOCTOR"
     assert session["context"]["department_id"] == "cardiology"
@@ -747,19 +774,21 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
 
     # Pick it -> goes straight to a DATE list (no department/doctor re-pick)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     all_slots = db.get_slots(hospital_id, appt.doctor_id)
     dates_seen = []
     for s in all_slots:
         if s["date"] not in dates_seen:
             dates_seen.append(s["date"])
-    # A doctor generates up to 14 days ahead -- capped to Meta's 10-row
-    # list limit (minus one row reserved for Back), so this can legitimately
-    # be fewer distinct dates than the doctor actually has, but every date
-    # shown is a REAL date, not an arbitrary slice of the combined list.
-    date_row_ids = _row_ids(kwargs) - {BACK_ID}
-    assert date_row_ids == set(dates_seen[:_MAX_LIST_ROWS - 1])
+    # A doctor generates up to 14 days ahead -- capped to Meta's 10-row list
+    # limit (Back is its own follow-up buttons message now, Spec.md Section
+    # 0's UX follow-up, so it no longer reserves a row here), so this can
+    # legitimately be fewer distinct dates than the doctor actually has, but
+    # every date shown is a REAL date, not an arbitrary slice of the
+    # combined list.
+    date_row_ids = _row_ids(kwargs)
+    assert date_row_ids == set(dates_seen[:_MAX_LIST_ROWS])
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_RESCHEDULE_DATE"
     assert session["context"]["doctor_id"] == appt.doctor_id
@@ -768,9 +797,8 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
     # Pick a date -> a TIME list scoped to just that date
     date_str = dates_seen[0]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    time_ids = _row_ids(kwargs) - {BACK_ID}
+    kwargs = _last_list(wa)
+    time_ids = _row_ids(kwargs)
     assert time_ids == {s["id"] for s in all_slots if s["date"] == date_str}
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_RESCHEDULE_SLOT"
@@ -828,13 +856,12 @@ async def test_reschedule_can_reach_a_date_the_old_combined_list_would_have_hidd
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{appt.id}"))
-    kind, kwargs = wa.sent[-1]
+    kwargs = _last_list(wa)
     assert far_date in _row_ids(kwargs)  # reachable on the very first date page
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(far_date))
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    time_ids = _row_ids(kwargs) - {BACK_ID}
+    kwargs = _last_list(wa)
+    time_ids = _row_ids(kwargs)
     assert time_ids == {s["id"] for s in all_slots if s["date"] == far_date}
     assert sessions.get(hospital_id, PHONE)["context"]["date"] == far_date
 
@@ -842,9 +869,10 @@ async def test_reschedule_can_reach_a_date_the_old_combined_list_would_have_hidd
 @pytest.mark.asyncio
 async def test_reschedule_back_from_time_list_returns_to_date_list(hospital_id):
     """The date/time menus reschedule now reuses (_send_date_menu/
-    _send_time_menu) always append a Back row (_cap_rows_with_back) --
-    confirms it's wired up to something rather than silently no-oping,
-    since reschedule doesn't use the booking flow's full history stack."""
+    _send_time_menu) always send their own follow-up Back-button message
+    (_send_back_button, Spec.md Section 0's UX follow-up) -- confirms it's
+    wired up to something rather than silently no-oping, since reschedule
+    doesn't use the booking flow's full history stack."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     appt = _seed_appointment(hospital_id)
@@ -856,8 +884,8 @@ async def test_reschedule_back_from_time_list_returns_to_date_list(hospital_id):
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_SLOT"
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    _last_list(wa)  # confirms a list was actually sent
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_DATE"
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))

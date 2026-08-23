@@ -45,6 +45,16 @@ def _row_ids(kwargs):
     return {row["id"] for section in kwargs["sections"] for row in section["rows"]}
 
 
+def _last_list(wa):
+    """UX follow-up (Spec.md Section 0): "Back" moved out of the list itself
+    into its own follow-up buttons message sent right after -- this finds
+    the list itself regardless of a trailing Back-button message."""
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "list":
+            return kwargs
+    raise AssertionError("no list message was sent")
+
+
 async def _start_booking(wa, sessions, hospital_id, name="Ravi Kumar", age="34"):
     """Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
     user: name/age is now collected FIRST, right after "Book Appointment" is
@@ -89,9 +99,9 @@ async def test_back_from_doctor_returns_to_department_list(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DEPARTMENT"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    assert _row_ids(kwargs) == {d["id"] for d in db.get_departments(hospital_id)} | {BACK_ID}
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == {d["id"] for d in db.get_departments(hospital_id)}
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
 
 
 async def test_back_from_date_returns_to_doctor_list_same_department(hospital_id):
@@ -107,9 +117,9 @@ async def test_back_from_date_returns_to_doctor_list_same_department(hospital_id
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DOCTOR"
     assert session["context"]["department_id"] == "cardiology"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    assert _row_ids(kwargs) == {d["id"] for d in db.get_doctors(hospital_id, "cardiology")} | {BACK_ID}
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == {d["id"] for d in db.get_doctors(hospital_id, "cardiology")}
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
 
 
 async def test_back_from_time_slot_returns_to_date_list_same_doctor(hospital_id):
@@ -122,8 +132,8 @@ async def test_back_from_time_slot_returns_to_date_list_same_doctor(hospital_id)
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
     assert "date" not in session["context"]
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    _last_list(wa)  # confirms a list was actually sent
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
 
 
 async def test_back_from_confirmation_offers_change_submenu(hospital_id):
@@ -167,9 +177,9 @@ async def test_change_department_from_submenu_returns_to_department_list_preserv
     assert session["state"] == "AWAITING_DEPARTMENT"
     assert session["context"]["patient_name"] == "Ravi Kumar"
     assert session["context"]["patient_age"] == 34
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    assert _row_ids(kwargs) == {d["id"] for d in db.get_departments(hospital_id)} | {BACK_ID}
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == {d["id"] for d in db.get_departments(hospital_id)}
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
 
 
 async def test_back_then_forward_again_is_consistent(hospital_id):
@@ -189,8 +199,7 @@ async def test_back_then_forward_again_is_consistent(hospital_id):
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     date_str = db.get_slots(hospital_id, doctor_id)[0]["date"]
     assert date_str in _row_ids(kwargs)
 
@@ -227,10 +236,9 @@ async def test_back_does_not_leak_stale_slots_when_picking_a_different_doctor(ho
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == second_doctor_id
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     expected_dates = {s["date"] for s in db.get_slots(hospital_id, second_doctor_id)}
-    assert _row_ids(kwargs) <= expected_dates | {BACK_ID}
+    assert _row_ids(kwargs) <= expected_dates
 
 
 async def test_back_at_department_with_no_history_falls_back_to_main_menu(hospital_id):
@@ -271,8 +279,10 @@ async def test_reset_keyword_still_works_after_back_navigation(hospital_id):
 async def test_free_text_resend_includes_back_option_after_back_navigation(hospital_id):
     """Composability with the free-text-resends-current-message behavior
     (prior round's item 8): an unrecognized tap/text at a Back-reachable
-    state re-sends THAT state's own menu, Back option included -- not a
-    separate generic scolding message."""
+    state re-sends THAT state's own menu -- the Back option is now its own
+    follow-up buttons message (Spec.md Section 0's UX follow-up), not a row
+    inside the list, but it's still re-sent every time, not a separate
+    generic scolding message."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     await _book_to_time_slot(wa, sessions, hospital_id)
@@ -282,6 +292,7 @@ async def test_free_text_resend_includes_back_option_after_back_navigation(hospi
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("blah"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DATE"
+    _last_list(wa)  # confirms a list was actually sent
     kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    assert BACK_ID in _row_ids(kwargs)
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {BACK_ID}
