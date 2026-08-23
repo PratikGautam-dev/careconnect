@@ -1166,6 +1166,41 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
     assert data["session_timeout_minutes"] == 45
 
 
+def test_settings_get_no_store_cache_header(two_hospitals):
+    """Settings-not-updating bug follow-up (Spec.md Section 0): defensive
+    Cache-Control header, ruling out browser/CDN caching of this
+    authenticated GET as a possible contributing cause."""
+    a = two_hospitals["a"]
+    resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
+    assert resp.headers.get("cache-control") == "no-store"
+
+
+def test_settings_post_silently_normalizes_invalid_reminder_offsets(two_hospitals):
+    """Settings-not-updating bug follow-up (Spec.md Section 0): this IS the
+    actual root cause found while investigating the report -- an
+    empty/unparseable "Reminder offsets" field is silently coerced to the
+    default [24] by _parse_offsets(), not stored as empty/rejected. A
+    frontend that trusts its own just-submitted (pre-coercion) local state
+    instead of re-fetching after save would keep showing the ORIGINAL typed
+    value forever, even though a different value is what's actually
+    persisted -- exactly the "settings page not updating" symptom. The fix
+    was making the settings page re-fetch after every successful save
+    (frontend/src/app/portal/settings/page.tsx); this test documents and
+    proves the backend-side coercion the fix protects against."""
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"welcome_message_text": "", "reminder_offsets_hours": "not,a,number", "reminder_template_name": ""},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+
+    get_resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
+    # Silently coerced to the default -- NOT stored as "not,a,number" and
+    # NOT rejected with a 400.
+    assert get_resp.json()["reminder_offsets_hours"] == "24"
+
+
 def test_settings_post_rejects_invalid_default_language(two_hospitals):
     a = two_hospitals["a"]
     resp = client.post(

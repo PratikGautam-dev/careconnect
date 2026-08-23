@@ -9,8 +9,38 @@ const FEATURES = [
   { title: "Transparent pricing", desc: "Meta messaging charges may apply", Icon: Tag },
 ];
 
+function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
+  const mark = size === "sm" ? "h-8 w-8 text-lg" : "h-11 w-11 text-2xl";
+  const name = size === "sm" ? "text-[19px]" : "text-[34px]";
+  return (
+    <div className="flex items-end gap-space-3">
+      <div className={`flex ${mark} shrink-0 items-center justify-center rounded-md bg-brand-600 font-display font-extrabold text-white`}>
+        H
+      </div>
+      <div>
+        {size === "md" && <span className="block text-eyebrow">DAAP</span>}
+        <span className={`font-display ${name} leading-tight font-extrabold text-ink-900`}>
+          Care<span className="text-brand-600">Connect</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   return (
+    <>
+    {/* Top nav: brand mark left, hospital login as a real button top-right
+        -- previously just a small text link buried under the hero CTAs. */}
+    <header className="mx-auto flex max-w-[1440px] items-center justify-between px-space-4 py-space-4 md:px-space-7 lg:px-space-9">
+      <a href="/" aria-label="CareConnect home">
+        <BrandMark size="sm" />
+      </a>
+      <Button href="/portal/login" variant="secondary" size="md">
+        Hospital login
+      </Button>
+    </header>
+
     <main className="relative isolate overflow-hidden">
       <Image
         src="/homepage-bg.png"
@@ -28,22 +58,9 @@ export default function LandingPage() {
         className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-br from-paper via-paper/75 to-paper/10 sm:from-paper/95 sm:via-paper/55 sm:to-transparent"
       />
 
-      <div className="mx-auto max-w-[1440px] px-space-4 pt-space-5 pb-space-8 sm:pt-space-6 md:px-space-7 lg:px-space-9 lg:pt-space-7 lg:pb-space-9">
+      <div className="mx-auto max-w-[1440px] px-space-4 pt-space-2 pb-space-8 sm:pt-space-4 md:px-space-7 lg:px-space-9 lg:pt-space-5 lg:pb-space-9">
         <div className="grid grid-cols-1 items-center gap-space-7 lg:grid-cols-[1.15fr_0.85fr] lg:gap-space-9">
           <div>
-            {/* Logo */}
-            <div className="mb-space-4 flex items-end gap-space-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-2xl font-extrabold text-white">
-                H
-              </div>
-              <div>
-                <span className="block text-eyebrow">DAAP</span>
-                <span className="font-display text-[34px] leading-tight font-extrabold text-ink-900">
-                  Care<span className="text-brand-600">Connect</span>
-                </span>
-              </div>
-            </div>
-
             {/* Tagline */}
             <p className="mb-space-3 text-[14.5px] text-ink-600">
               WhatsApp Appointment Booking &amp; Reminder Platform for Hospitals
@@ -76,8 +93,9 @@ export default function LandingPage() {
               ))}
             </div>
 
-            {/* CTAs */}
-            <div className="mb-space-3 flex flex-wrap gap-space-3">
+            {/* CTAs -- Hospital login moved to the header button above,
+                no longer duplicated here as a text link. */}
+            <div className="flex flex-wrap gap-space-3">
               <Button href="/auth" variant="primary" size="lg">
                 Set up your hospital
               </Button>
@@ -89,12 +107,6 @@ export default function LandingPage() {
                 Request a product demo
               </Button>
             </div>
-            <a
-              href="/portal/login"
-              className="inline-flex items-center gap-space-1 text-[14px] font-semibold text-brand-600 transition-colors hover:text-brand-700 hover:underline"
-            >
-              Hospital login →
-            </a>
           </div>
 
           <div className="flex items-center justify-center">
@@ -103,5 +115,61 @@ export default function LandingPage() {
         </div>
       </div>
     </main>
+
+    <footer className="border-t border-line bg-paper">
+      <div className="mx-auto max-w-[1440px] px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
+        <div className="flex flex-col gap-space-6 sm:flex-row sm:justify-between">
+          <div className="max-w-[320px]">
+            <BrandMark size="sm" />
+            <p className="mt-space-3 text-[13px] text-ink-600">
+              WhatsApp appointment booking &amp; reminders for hospitals — no app for patients, managed from one
+              dashboard.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-space-6 sm:flex sm:gap-space-9">
+            <div>
+              <p className="text-eyebrow mb-space-2">Product</p>
+              <ul className="space-y-space-2 text-[13.5px] text-ink-600">
+                <li>
+                  <a href="/auth" className="hover:text-brand-600 hover:underline">
+                    Set up your hospital
+                  </a>
+                </li>
+                <li>
+                  <a href="/portal/login" className="hover:text-brand-600 hover:underline">
+                    Hospital login
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
+                    className="hover:text-brand-600 hover:underline"
+                  >
+                    Request a demo
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-eyebrow mb-space-2">Contact</p>
+              <ul className="space-y-space-2 text-[13.5px] text-ink-600">
+                <li>
+                  <a href="mailto:info@daaprimeprojects.com" className="hover:text-brand-600 hover:underline">
+                    info@daaprimeprojects.com
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-space-6 border-t border-line pt-space-4 text-[12.5px] text-ink-400">
+          © {new Date().getFullYear()} DAAP CareConnect. All rights reserved.
+        </div>
+      </div>
+    </footer>
+    </>
   );
 }

@@ -922,24 +922,32 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    return JSONResponse({
-        "name": hospital.name,
-        "welcome_message_text": hospital.welcome_message_text or "",
-        "reminder_offsets_hours": ",".join(str(h) for h in hospital.reminder_offsets_hours),
-        "reminder_template_name": hospital.reminder_template_name or "",
-        # Section 12.13: self-serve bot customization.
-        "enabled_features": hospital.enabled_features,
-        "feature_labels": hospital.feature_labels,
-        # Fixed default label per real feature, in English, so the frontend
-        # can show it as this field's placeholder ("leave blank to use ...")
-        # rather than duplicating core/translations.py's copy itself.
-        "feature_default_labels": {key: t(f"feature_{key}", "en") for key in REAL_FEATURES},
-        "closing_message_text": hospital.closing_message_text or "",
-        "business_hours_text": hospital.business_hours_text or "",
-        "default_language": hospital.default_language,
-        "language_prompt_enabled": hospital.language_prompt_enabled,
-        "session_timeout_minutes": hospital.session_timeout_minutes or 30,
-    })
+    return JSONResponse(
+        {
+            "name": hospital.name,
+            "welcome_message_text": hospital.welcome_message_text or "",
+            "reminder_offsets_hours": ",".join(str(h) for h in hospital.reminder_offsets_hours),
+            "reminder_template_name": hospital.reminder_template_name or "",
+            # Section 12.13: self-serve bot customization.
+            "enabled_features": hospital.enabled_features,
+            "feature_labels": hospital.feature_labels,
+            # Fixed default label per real feature, in English, so the frontend
+            # can show it as this field's placeholder ("leave blank to use ...")
+            # rather than duplicating core/translations.py's copy itself.
+            "feature_default_labels": {key: t(f"feature_{key}", "en") for key in REAL_FEATURES},
+            "closing_message_text": hospital.closing_message_text or "",
+            "business_hours_text": hospital.business_hours_text or "",
+            "default_language": hospital.default_language,
+            "language_prompt_enabled": hospital.language_prompt_enabled,
+            "session_timeout_minutes": hospital.session_timeout_minutes or 30,
+        },
+        # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
+        # -- rules out any browser/CDN-level HTTP caching of this
+        # authenticated GET as a contributing cause, even though the
+        # in-process reproduction found the real bug was the frontend
+        # trusting its own stale optimistic state after a save, not caching.
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/api/portal/settings")

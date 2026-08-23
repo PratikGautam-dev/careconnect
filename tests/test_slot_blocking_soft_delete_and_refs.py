@@ -84,6 +84,50 @@ def test_soft_delete_handoff_excludes_from_listings_and_open_check(hospital_id):
     assert db.soft_delete_handoff(hospital_id, handoff["id"]) is False
 
 
+def test_stale_open_handoff_no_longer_silences_the_bot(hospital_id):
+    """"Bot stuck on Talk to Reception" follow-up (Spec.md Section 0): an
+    open handoff older than _HANDOFF_STALE_MINUTES no longer counts as
+    "open" for has_open_handoff()/get_open_handoff()'s purpose -- the bot
+    resumes normal service for that phone -- but its real DB status is left
+    completely untouched (still 'open'), so staff still see and can resolve
+    it whenever they actually get to it."""
+    from datetime import datetime, timedelta
+
+    handoff = db.create_handoff_request(hospital_id, PHONE, reason="patient_requested")
+    assert db.has_open_handoff(hospital_id, PHONE) is True
+
+    # Backdate it well past the staleness window, directly -- same pattern
+    # test_needs_attendance_review_lists_only_past_still_booked_appointments
+    # (tests/test_portal_api.py) already uses for a similar "simulate an old
+    # row" need.
+    conn = db.get_connection()
+    stale_at = datetime.now() - timedelta(minutes=90)
+    conn.execute(
+        "UPDATE handoff_requests SET created_at = ? WHERE id = ?",
+        (stale_at.strftime("%Y-%m-%d %H:%M:%S"), handoff["id"]),
+    )
+    conn.commit()
+
+    assert db.has_open_handoff(hospital_id, PHONE) is False
+    assert db.get_open_handoff(hospital_id, PHONE) is None
+
+    # The row itself is untouched -- still genuinely 'open' in the DB, still
+    # visible to staff in the portal queue.
+    still_open = [h for h in db.get_handoff_requests(hospital_id, status="open") if h["id"] == handoff["id"]]
+    assert len(still_open) == 1
+    assert still_open[0]["status"] == "open"
+
+
+def test_recently_open_handoff_still_silences_the_bot(hospital_id):
+    """The other half: a handoff well within the staleness window still
+    behaves exactly as before -- this fix only affects genuinely
+    forgotten/old requests, not normal, actively-pending ones."""
+    handoff = db.create_handoff_request(hospital_id, PHONE, reason="patient_requested")
+    assert db.has_open_handoff(hospital_id, PHONE) is True
+    got = db.get_open_handoff(hospital_id, PHONE)
+    assert got is not None and got["id"] == handoff["id"]
+
+
 def test_total_bookings_count_unaffected_by_status_or_soft_delete(hospital_id, second_hospital_id):
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slots = db.get_slots(hospital_id, doctor_id)

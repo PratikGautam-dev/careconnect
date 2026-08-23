@@ -450,6 +450,51 @@ async def test_bot_resumes_normal_flow_after_handoff_resolved(hospital_id):
 
 
 @pytest.mark.asyncio
+async def test_bot_resumes_for_a_stale_never_resolved_handoff(hospital_id):
+    """"Bot stuck on Talk to Reception" follow-up (Spec.md Section 0): the
+    real gap behind the reported bug -- an open handoff previously
+    silenced the bot for that phone FOREVER if staff never got to it, with
+    no escape (not even the reset-keyword hatch). Now, past
+    db.repository._HANDOFF_STALE_MINUTES, the bot resumes on its own --
+    covers the case staff genuinely forgot/never resolved it, not just the
+    already-covered "staff resolved it" case above."""
+    import db.repository as db
+    from datetime import datetime, timedelta
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_english_chosen(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_reception"),
+        connector=FakeConnector(), enabled_features=["reception_handoff"],
+    )
+    handoff = db.get_handoff_requests(hospital_id, status="open")[0]
+
+    # Never resolved by staff -- just goes stale with time.
+    conn = db.get_connection()
+    stale_at = datetime.now() - timedelta(minutes=90)
+    conn.execute(
+        "UPDATE handoff_requests SET created_at = ? WHERE id = ?",
+        (stale_at.strftime("%Y-%m-%d %H:%M:%S"), handoff["id"]),
+    )
+    conn.commit()
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"),
+        connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
+    )
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert "menu_book" in row_ids
+
+    # Still genuinely 'open' in the DB -- staff can still resolve it later,
+    # this only stopped it from silencing the bot.
+    assert db.get_handoff_requests(hospital_id, status="open")[0]["id"] == handoff["id"]
+
+
+@pytest.mark.asyncio
 async def test_change_language_menu_option_switches_mid_session(hospital_id):
     """Item 4 (Spec.md Section 0): "Change Language" is always offered on the
     main menu itself (not gated by enabled_features), and tapping it re-shows
@@ -674,10 +719,15 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
     assert patient["age"] == 34
-    # Reset to IDLE, language preserved (not re-asked next message).
+    # Reset to IDLE. Language-reset follow-up (Spec.md Section 0): a FULLY
+    # COMPLETED booking now clears the chosen language too (was preserved
+    # before this fix) -- the next fresh conversation shows the picker
+    # again instead of assuming Hindi forever. See
+    # test_language_resets_to_picker_after_a_completed_booking for the
+    # dedicated test of this behavior itself.
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
-    assert session["language"] == "hi"
+    assert "language" not in session
 
 
 @pytest.mark.asyncio

@@ -70,12 +70,23 @@ export default function PortalSettingsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
-    setSaving(false);
     if (!result.ok) {
+      setSaving(false);
       if (result.unauthorized) router.push("/portal/login");
       else setError(result.error);
       return;
     }
+    // Settings-not-updating bug fix (Spec.md Section 0): the form used to
+    // just flip a "Saved." flag and trust its own local (optimistic) state
+    // as still-accurate -- but the backend can NORMALIZE a submitted value
+    // (e.g. an emptied/garbled "Reminder offsets" field is coerced to a
+    // default of "24", not stored as empty) without the page ever finding
+    // out, so what was displayed after a save could silently diverge from
+    // what was actually persisted. Re-fetching here (instead of trusting
+    // the just-submitted `settings` object) makes the displayed values
+    // always match the real stored ones.
+    await load();
+    setSaving(false);
     setSaved(true);
   }
 

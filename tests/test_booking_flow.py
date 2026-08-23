@@ -199,6 +199,60 @@ async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
 
 
 @pytest.mark.asyncio
+async def test_cancel_free_text_is_a_recognized_reset_keyword(hospital_id):
+    """Reset-keyword follow-up (Spec.md Section 0): "cancel" (free text) now
+    escapes a stuck mid-flow state the same way "hi"/"menu" already did --
+    it was reported missing and confirmed genuinely absent from
+    RESET_KEYWORDS before this fix."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_DATE", {
+        "department_id": "cardiology", "department_name": "Cardiology",
+        "doctor_id": "doc_card_1", "doctor_name": "Dr. Anjali Rao",
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("cancel"), hospital_name="City Hospital")
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}
+    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
+async def test_cancel_button_at_confirmation_still_declines_not_resets_to_menu(hospital_id):
+    """Composability check (Spec.md Section 0): the explicit button-based
+    cancel at booking confirmation (CONFIRM_NO, interactive_reply id
+    "cancel") is a DECLINE of this specific booking, not the free-text
+    reset-keyword escape hatch -- is_reset_keyword() only ever matches
+    reply["type"] == "text", so an interactive_reply tap can never collide
+    with the "cancel" keyword just added to RESET_KEYWORDS."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    department = db.get_departments(hospital_id)[0]
+    doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    sessions.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", {
+        "department_id": department["id"], "department_name": department["name"],
+        "doctor_id": doctor_id, "doctor_name": "Dr. X",
+        "date_label": "Sat, Aug 8", "slot_date": slot["date"], "slot_time": slot["time"],
+        "patient_name": "Ravi Kumar", "patient_age": 34,
+    })
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cancel"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "cancelled this booking" in kwargs["text"].lower()
+    # Resets to IDLE (booking declined), same end state a free-text "cancel"
+    # keyword would reach too -- but via the decline path, not the
+    # reset-keyword short-circuit (which never even runs for an
+    # interactive_reply).
+    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+
+
+@pytest.mark.asyncio
 async def test_non_reset_text_mid_flow_still_reprompts_the_same_state(hospital_id):
     """Only the recognized reset keywords escape a mid-flow state -- ordinary
     free text (not a valid list tap) re-prompts the same state. Item 8: this

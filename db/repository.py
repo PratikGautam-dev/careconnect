@@ -2247,6 +2247,21 @@ def get_handoff_requests(
     return [dict(r) for r in rows]
 
 
+# "Bot stuck on Talk to Reception" follow-up (Spec.md Section 0): an open
+# handoff previously silenced the bot for that phone INDEFINITELY -- no
+# staleness bound at all, so a request staff forgot to resolve (or took
+# hours to get to) left the patient with no way back into the bot, not even
+# the reset-keyword escape hatch (deliberately suppressed for a genuinely
+# ACTIVE handoff, per the earlier explicit request). Deliberately a fixed,
+# generous window independent of the hospital's own (often much shorter,
+# e.g. 2-5 minute) session_timeout_minutes -- that setting governs ordinary
+# bot-conversation inactivity, not how long a real human is reasonably given
+# to answer an escalation; conflating the two would make a 2-minute bot
+# timeout also cut off a legitimate reception request after 2 minutes of
+# silence, which is a completely different (unwanted) behavior.
+_HANDOFF_STALE_MINUTES = 60
+
+
 def has_open_handoff(hospital_id: int, phone: str) -> bool:
     """Item 7 (Spec.md Section 0): checked at the very top of flows.py's
     router, before any bot logic (including the reset-keyword escape hatch)
@@ -2255,15 +2270,29 @@ def has_open_handoff(hospital_id: int, phone: str) -> bool:
     return get_open_handoff(hospital_id, phone) is not None
 
 
-def get_open_handoff(hospital_id: int, phone: str) -> dict | None:
+def get_open_handoff(hospital_id: int, phone: str, now: datetime | None = None) -> dict | None:
     """Two-way threading follow-up: like has_open_handoff() above, but
     returns the row (specifically its id) so flows.py can actually record
-    the patient's message against it, not just know one exists."""
+    the patient's message against it, not just know one exists.
+
+    "Bot stuck on Talk to Reception" follow-up: a row older than
+    _HANDOFF_STALE_MINUTES is treated as if it weren't open anymore FOR
+    THIS PURPOSE -- the bot resumes normal service -- but its `status` in
+    the DB is left completely untouched (still 'open'), so staff still see
+    it in the portal queue and can resolve it whenever they actually get to
+    it; this only stops it from silencing the bot forever."""
     conn = get_connection()
+    now = now or datetime.now()
+    # created_at is stamped by Postgres's own `now()::text` default (space-
+    # separated -- see get_handoff_requests()'s own date-filter fix for the
+    # same format mismatch this mirrors), so the threshold must match that
+    # shape, not the "T"-separated isoformat() used elsewhere in this file.
+    threshold = (now - timedelta(minutes=_HANDOFF_STALE_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
     row = conn.execute(
         "SELECT id, phone, reason, status, created_at FROM handoff_requests "
-        "WHERE hospital_id = ? AND phone = ? AND status = 'open' AND deleted_at IS NULL LIMIT 1",
-        (hospital_id, phone),
+        "WHERE hospital_id = ? AND phone = ? AND status = 'open' AND deleted_at IS NULL "
+        "AND created_at >= ? LIMIT 1",
+        (hospital_id, phone, threshold),
     ).fetchone()
     return dict(row) if row else None
 
