@@ -17,7 +17,7 @@ import pytest
 
 import db.connection as db_connection
 import db.repository as db
-from core.booking_flow import BACK_ID, handle_incoming
+from core.booking_flow import handle_incoming
 from core.history import InMemorySessionStore
 
 
@@ -144,12 +144,12 @@ async def test_reschedule_race_leaves_original_appointment_intact(hospital_id):
     # the date-picking step, so there's no "date" key to fall back from).
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_RESCHEDULE_SLOT"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _list_sends(wa)[-1]
     assert contested_slot["id"] not in _row_ids(kwargs)
-    assert _row_ids(kwargs) - {BACK_ID} == {
+    assert _row_ids(kwargs) == {
         s["id"] for s in db.get_slots(hospital_id, doctor_id) if s["date"] == contested_slot["date"]
     }
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button (Spec.md Section 0)
 
 
 @pytest.mark.asyncio

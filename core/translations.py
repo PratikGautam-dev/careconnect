@@ -146,18 +146,15 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "क्षमा करें, हम अभी वह दस्तावेज़ नहीं भेज सके। कृपया बाद में पुनः प्रयास करें या अस्पताल से संपर्क करें।",
     },
 
-    # "Go back" navigation (Spec.md Section 0 follow-up): one shared row/button
-    # label, appended to the department/doctor/date/time list menus and as a
-    # 3rd button on the confirmation card (Meta's 3-button max) -- short
-    # enough to clear both the 20-char button limit and 24-char row limit.
-    "back_option": {"en": "◀ Back", "hi": "◀ पीछे"},
-    # UX follow-up (Spec.md Section 0): Back moved OUT of the list itself
-    # into its own follow-up buttons message -- this is that message's body
-    # text (the button re-uses back_option above for its own label).
-    "back_button_prompt": {
-        "en": "Want to go back a step?",
-        "hi": "क्या आप एक कदम पीछे जाना चाहते हैं?",
-    },
+    # "Go back" navigation (Spec.md Section 0 follow-up): one shared button
+    # label -- the 3rd button on the confirmation card (Meta's 3-button max),
+    # and (a later UX follow-up, Spec.md Section 0) the department/doctor/
+    # date/time menus' own follow-up Back-button message (_send_back_button),
+    # sent as its own message right after the list rather than a row inside
+    # it. Reused as that message's body text too -- no separate prompt line,
+    # no "◀" arrow, both dropped per the user's own request.
+    # Reused as both this message's body text AND its one button's label.
+    "back_option": {"en": "Back", "hi": "पीछे"},
 
     # --- Booking: department/doctor/date/time menus ---
     "select_department": {"en": "Please select a medical department:", "hi": "कृपया एक चिकित्सा विभाग चुनें:"},
@@ -227,9 +224,13 @@ STRINGS: dict[str, dict[Language, str]] = {
     # in Spec.md as a decision worth confirming -- confirmed the user did
     # want it, so it's restored here, now also shown on the confirmation card
     # per that follow-up's own explicit choice).
+    # Patient identity/UX follow-up (Spec.md Section 0): "Almost done!" was
+    # accurate when this was the LAST step before confirmation -- now that
+    # name/age is asked FIRST (before department selection), that framing
+    # was actively misleading, caught live and dropped.
     "ask_patient_name": {
-        "en": "Almost done! Please type the patient's full name in the chat box below and send it:",
-        "hi": "लगभग हो गया! कृपया चैट बॉक्स में मरीज़ का पूरा नाम टाइप करें और भेजें:",
+        "en": "Please type the patient's full name in the chat box below and send it:",
+        "hi": "कृपया चैट बॉक्स में मरीज़ का पूरा नाम टाइप करें और भेजें:",
     },
     "invalid_patient_name": {
         "en": "Please enter a valid name.",

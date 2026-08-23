@@ -185,11 +185,11 @@ async def _send_back_button(wa: WhatsAppClient, phone: str, language: str = "en"
     BACK_ID` check is unchanged, since core/whatsapp.py's parser normalizes
     a tapped list row and a tapped button to the exact same
     {"type": "interactive_reply", "id": ...} shape regardless of which
-    message it came from."""
-    await wa.send_buttons(
-        to=phone, body_text=t("back_button_prompt", language),
-        buttons=[{"id": BACK_ID, "title": t("back_option", language)}],
-    )
+    message it came from. Confirmed with the user: no separate prompt
+    line and no "◀" arrow -- just "Back", reused as both this message's
+    body and its one button's label."""
+    back_text = t("back_option", language)
+    await wa.send_buttons(to=phone, body_text=back_text, buttons=[{"id": BACK_ID, "title": back_text}])
 
 
 def _push_history(context: dict, state: str) -> list[dict]:

@@ -67,6 +67,16 @@ def _row_ids(kind_kwargs):
     return {row["id"] for section in kind_kwargs["sections"] for row in section["rows"]}
 
 
+def _last_list(wa):
+    """UX follow-up (Spec.md Section 0): "Back" moved out of the list itself
+    into its own follow-up buttons message sent right after -- this finds
+    the list itself regardless of a trailing Back-button message."""
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "list":
+            return kwargs
+    raise AssertionError("no list message was sent")
+
+
 def _sign(body: bytes) -> str:
     return "sha256=" + hmac.new(b"appsecret", body, hashlib.sha256).hexdigest()
 
@@ -83,19 +93,18 @@ async def test_department_menu_isolated_between_hospitals(hospital_id, second_ho
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
-    hospital_a_depts = _row_ids(wa.sent[-1][1])
+    hospital_a_depts = _row_ids(_last_list(wa))
 
     wa2 = FakeWhatsAppClient()
     sessions2 = InMemorySessionStore()
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, tap("menu_book"))
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, text_reply("Ravi Kumar"))
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, text_reply("34"))
-    hospital_b_depts = _row_ids(wa2.sent[-1][1])
+    hospital_b_depts = _row_ids(_last_list(wa2))
 
-    # "Go back" navigation appends a BACK_ID row to every department menu.
-    assert hospital_a_depts == {"cardiology", "orthopedics", "general_medicine", "pediatrics", "nav_back"}
-    assert hospital_b_depts == {"t2_neurology", "t2_dermatology", "nav_back"}
-    assert (hospital_a_depts - {"nav_back"}).isdisjoint(hospital_b_depts - {"nav_back"})
+    assert hospital_a_depts == {"cardiology", "orthopedics", "general_medicine", "pediatrics"}
+    assert hospital_b_depts == {"t2_neurology", "t2_dermatology"}
+    assert hospital_a_depts.isdisjoint(hospital_b_depts)
 
 
 @pytest.mark.asyncio

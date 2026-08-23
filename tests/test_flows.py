@@ -95,6 +95,16 @@ def _row_ids(kind_kwargs):
     return [row["id"] for section in kind_kwargs["sections"] for row in section["rows"]]
 
 
+def _last_list(wa):
+    """UX follow-up (Spec.md Section 0): "Back" moved out of the list itself
+    into its own follow-up buttons message sent right after -- this finds
+    the list itself regardless of a trailing Back-button message."""
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "list":
+            return kwargs
+    raise AssertionError("no list message was sent")
+
+
 def _sessions_with_english_chosen(hospital_id, phone=PHONE):
     """Section 12.11: a genuinely fresh session now sees the language picker
     before anything else (covered separately below) -- every test in this
@@ -177,10 +187,13 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=enabled)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=enabled)
+    kwargs = _last_list(wa)
+    assert {d["id"] for d in departments} == set(_row_ids(kwargs))
+    # "Go back" navigation is its own follow-up buttons message now (Spec.md
+    # Section 0's UX follow-up), not a row inside the department list.
     kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    # "Go back" navigation appends a BACK_ID row to the department menu.
-    assert {d["id"] for d in departments} | {"nav_back"} == set(_row_ids(kwargs))
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"nav_back"}
     assert sessions.get(hospital_id, PHONE)["state"] != "IDLE"
 
     # A reset keyword mid-booking returns to the TOP-level unified menu (not
@@ -685,17 +698,17 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
-    kind, kwargs = wa.sent[-1]
+    kwargs = _last_list(wa)
     assert kwargs["body_text"] == translate("select_department", "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    kind, kwargs = wa.sent[-1]
+    kwargs = _last_list(wa)
     assert kwargs["body_text"] == translate("select_doctor", "hi", department_name=department["name"])
 
     doctor = db.get_doctors(hospital_id, department["id"])[0]
     doctor_id = doctor["id"]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
-    kind, kwargs = wa.sent[-1]
+    kwargs = _last_list(wa)
     # doctor_name is hospital-entered content, never translated (already
     # includes "Dr." in English regardless of session language) -- only the
     # surrounding prompt text is Hindi.
@@ -704,7 +717,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     date_str = all_slots[0]["date"]
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
-    kind, kwargs = wa.sent[-1]
+    kwargs = _last_list(wa)
     assert kwargs["body_text"] == translate("select_time_slot", "hi")
 
     # Picking a time now goes straight to confirmation -- name/age were
@@ -770,9 +783,9 @@ async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id
     assert session["state"] == "AWAITING_DEPARTMENT"  # not AWAITING_PATIENT_NAME
     assert session["context"]["patient_name"] == "Priya Shah"
     assert session["context"]["patient_age"] == 29
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     assert {d["id"] for d in [department]} <= {row["id"] for row in kwargs["sections"][0]["rows"]}
+    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
 
 
 @pytest.mark.asyncio
