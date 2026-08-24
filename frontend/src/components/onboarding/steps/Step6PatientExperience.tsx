@@ -7,6 +7,7 @@ import {
   Info,
   ListChecks,
   UserRound,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { FEATURE_LABELS, FeatureKey, WizardState } from "../types";
@@ -18,6 +19,7 @@ const FEATURE_ICONS: Record<FeatureKey, typeof Calendar> = {
   cancel: CalendarX,
   view_appointments: ListChecks,
   my_details: IdCard,
+  manage_patients: Users,
   hospital_info: Info,
   reception_handoff: UserRound,
   faq: HelpCircle,
@@ -29,6 +31,7 @@ const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
   cancel: "Cancel an existing booking.",
   view_appointments: "See a list of upcoming bookings.",
   my_details: "Patients fetch their own Patient ID, details, and any documents on file.",
+  manage_patients: "One phone can link up to 5 family members, each with their own profile.",
   hospital_info: "Hours, location, and general info.",
   reception_handoff: "Hand off to a human -- queues into the staff portal's Messages inbox.",
   faq: "Patients pick a topic (hours, pricing...) and get an instant configured answer.",

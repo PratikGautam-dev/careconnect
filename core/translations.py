@@ -367,6 +367,66 @@ STRINGS: dict[str, dict[Language, str]] = {
     "view_appointments_button": {"en": "View Appointments", "hi": "अपॉइंटमेंट देखें"},
     "your_appointments_section_title": {"en": "Your Appointments", "hi": "आपकी अपॉइंटमेंट"},
 
+    # --- Patient identity SEPARATION (Spec.md Section 0): the shared "who is
+    # this for" selector, shown whenever a phone has >1 active linked
+    # patient, ahead of booking/cancel/reschedule/view_appointments. One
+    # prompt per next_action -- the body text differs slightly by what's
+    # about to happen, but the list itself (rows + button + section title)
+    # is otherwise identical across all four. ---
+    "patient_selector_prompt_booking": {
+        "en": "Who is this appointment for?",
+        "hi": "यह अपॉइंटमेंट किसके लिए है?",
+    },
+    "patient_selector_prompt_cancel": {
+        "en": "Whose appointment would you like to cancel?",
+        "hi": "आप किसकी अपॉइंटमेंट रद्द करना चाहते हैं?",
+    },
+    "patient_selector_prompt_reschedule": {
+        "en": "Whose appointment would you like to reschedule?",
+        "hi": "आप किसकी अपॉइंटमेंट का समय बदलना चाहते हैं?",
+    },
+    "patient_selector_prompt_view_appointments": {
+        "en": "Whose appointments would you like to see?",
+        "hi": "आप किसकी अपॉइंटमेंट देखना चाहते हैं?",
+    },
+    "patient_selector_button": {"en": "Select Patient", "hi": "मरीज़ चुनें"},
+    "patient_selector_section_title": {"en": "Patients", "hi": "मरीज़"},
+    "add_patient_option": {"en": "+ Add Patient", "hi": "+ मरीज़ जोड़ें"},
+    "all_patients_option": {"en": "All Patients", "hi": "सभी मरीज़"},
+    "too_many_linked_patients": {
+        "en": "This phone number already has 5 linked patients — the maximum allowed. "
+              "Unlink someone first if you'd like to add another.",
+        "hi": "इस फोन नंबर पर पहले से ही 5 मरीज़ जुड़े हुए हैं — यह अधिकतम सीमा है। "
+              "किसी और को जोड़ने के लिए पहले किसी एक को अनलिंक करें।",
+    },
+
+    # --- Manage Patients (Spec.md Section 0): view/add/unlink the patients
+    # linked to this phone. Add reuses ask_patient_name/ask_patient_age
+    # above (patient_flow_next="manage_patients"); unlink reuses
+    # confirm_button/cancel_button as its Yes/No labels, same convention the
+    # cancel/reschedule confirmation cards already use. ---
+    "feature_manage_patients": {"en": "Manage Patients", "hi": "मरीज़ प्रबंधित करें"},
+    "manage_patients_header": {
+        "en": "Patients linked to this number. Tap one to unlink, or add another:",
+        "hi": "इस नंबर से जुड़े मरीज़। अनलिंक करने के लिए एक पर टैप करें, या दूसरा जोड़ें:",
+    },
+    "manage_patients_button": {"en": "Patients", "hi": "मरीज़"},
+    "manage_patients_section_title": {"en": "Linked Patients", "hi": "जुड़े हुए मरीज़"},
+    "patient_added": {
+        "en": "{patient_name} has been added.",
+        "hi": "{patient_name} को जोड़ दिया गया है।",
+    },
+    "unlink_patient_confirm": {
+        "en": "Unlink {patient_name} from this number? Their appointment history and Patient ID are not affected "
+              "— you can add them again anytime.",
+        "hi": "इस नंबर से {patient_name} को अनलिंक करें? उनका अपॉइंटमेंट इतिहास और पेशेंट आईडी प्रभावित नहीं होंगे "
+              "— आप उन्हें कभी भी दोबारा जोड़ सकते हैं।",
+    },
+    "patient_unlinked": {
+        "en": "{patient_name} has been unlinked from this number.",
+        "hi": "{patient_name} को इस नंबर से अनलिंक कर दिया गया है।",
+    },
+
     # --- Shared fallback ---
     "please_choose": {
         "en": "Please choose an option from the list above",

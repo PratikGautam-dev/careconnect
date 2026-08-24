@@ -40,6 +40,12 @@ STATUS_NO_SHOW = "no_show"
 SOURCE_WHATSAPP = "whatsapp"
 SOURCE_STAFF = "staff"
 
+# Patient identity SEPARATION (Spec.md Section 0): max ACTIVE (not unlinked)
+# patient_links rows one WhatsApp phone number may have per hospital at once --
+# confirmed with the user before building. Enforced in create_patient_profile(),
+# not a DB constraint (a COUNT-based cap can't be expressed as a plain CHECK).
+MAX_ACTIVE_PATIENT_LINKS = 5
+
 
 class QuotaExceededError(IntegrityError):
     """Section 12.9: raised by create_appointment() specifically when a
@@ -67,6 +73,16 @@ class DuplicateBookingError(IntegrityError):
         self.existing_appointment_id = existing_appointment_id
 
 
+class TooManyLinkedPatientsError(Exception):
+    """Patient identity SEPARATION (Spec.md Section 0): raised by
+    create_patient_profile() when a phone number already has
+    MAX_ACTIVE_PATIENT_LINKS active (not unlinked) patient_links rows for
+    this hospital. Deliberately NOT an IntegrityError subclass -- this isn't
+    a booking race to recover from, it's a validation rule flows.py's own
+    "Add Patient" handler catches specifically to show a clear message
+    ("unlink someone first")."""
+
+
 _SLOT_DAYS_AHEAD = 14
 
 _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -74,7 +90,7 @@ _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
-           p.patient_display_id
+           a.patient_id, p.patient_display_id
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -206,6 +222,11 @@ class Appointment:
     # whose patient_id FK is unset (predates Item 8's denormalization and
     # hasn't been backfilled) or whose patient hasn't been backfilled yet.
     patient_display_id: str | None = None
+    # Patient identity SEPARATION (Spec.md Section 0): appointments.patient_id
+    # itself (was denormalized since Item 8 but never read back onto this
+    # dataclass) -- needed to filter "my appointments" down to one linked
+    # patient, and to carry the SAME patient through a reschedule.
+    patient_id: int | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -222,6 +243,7 @@ def _row_to_appointment(row) -> Appointment:
         source=row["source"],
         reference_id=row["reference_id"],
         patient_display_id=row["patient_display_id"],
+        patient_id=row["patient_id"],
     )
 
 
@@ -1432,7 +1454,15 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
     before" check -- unlike get_patient() (looked up by the portal's own
     numeric id), the bot only ever knows a phone number. Exact match, not
     search_patients()'s partial ILIKE -- this is an identity lookup, not a
-    staff-typed search box."""
+    staff-typed search box.
+
+    Patient identity SEPARATION (Spec.md Section 0): kept as-is for callers
+    that still want "the one patient this phone has" (e.g. "My Details",
+    which predates multi-patient linking and is out of scope for this
+    round) -- returns the FIRST matching row if a phone somehow has more
+    than one `patients` row, not an error, but is no longer the right
+    lookup for anything booking-related. Use get_active_patients_for_phone()
+    for that."""
     conn = get_connection()
     row = conn.execute(
         "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, created_at "
@@ -1440,6 +1470,128 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
         (hospital_id, phone),
     ).fetchone()
     return dict(row) if row else None
+
+
+# --- Patient identity SEPARATION (Spec.md Section 0): one WhatsApp phone can
+# link up to MAX_ACTIVE_PATIENT_LINKS patient profiles (a shared family phone).
+# patient_links is the source of truth for phone<->patient associations;
+# `patients` itself no longer implies "one row per phone" (db/schema.sql's own
+# comment on the dropped UNIQUE(hospital_id, phone) constraint explains why). ---
+
+def get_active_patients_for_phone(hospital_id: int, phone: str) -> list[dict]:
+    """The real "which patients does this phone see" lookup, replacing
+    get_patient_by_phone() for every WhatsApp-facing use -- returns every
+    ACTIVE (unlinked_at IS NULL) linked patient, soonest-linked first (so the
+    original/"Self" profile from before this feature existed, or the first
+    family member added, is always first -- the natural single-result case
+    for a still-single-patient phone stays first without any extra logic)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT p.id, p.name, p.age, p.patient_display_id, pl.relationship_label, pl.id AS link_id "
+        "FROM patient_links pl JOIN patients p ON p.id = pl.patient_id "
+        "WHERE pl.hospital_id = ? AND pl.whatsapp_phone = ? AND pl.unlinked_at IS NULL "
+        "ORDER BY pl.linked_at, pl.id",
+        (hospital_id, phone),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_active_links_for_phone(hospital_id: int, phone: str) -> int:
+    conn = get_connection()
+    return conn.execute(
+        "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
+        (hospital_id, phone),
+    ).fetchone()["c"]
+
+
+def create_patient_profile(
+    hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
+) -> dict:
+    """Creates a brand-new `patients` row (NEVER an upsert-by-phone -- multiple
+    profiles are the whole point now) and links it to `phone` via a new
+    patient_links row. Raises TooManyLinkedPatientsError if this phone already
+    has MAX_ACTIVE_PATIENT_LINKS active links.
+
+    Wrapped in a real BEGIN/COMMIT/ROLLBACK block with a
+    pg_advisory_xact_lock scoped to (hospital_id, phone) -- the exact same
+    pattern create_appointment() already uses for quota enforcement -- so the
+    count-then-insert sequence is atomic against genuine concurrent "add a
+    patient" taps from the same phone, not just correct when called one at a
+    time. Confirmed with the user before building: an app-level check under
+    this lock, not a DB trigger (this project has none anywhere else)."""
+    conn = get_connection()
+    conn.execute("BEGIN")
+    try:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"patient_links|{hospital_id}|{phone}",))
+        active_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
+            (hospital_id, phone),
+        ).fetchone()["c"]
+        if active_count >= MAX_ACTIVE_PATIENT_LINKS:
+            raise TooManyLinkedPatientsError(
+                f"This phone number already has {MAX_ACTIVE_PATIENT_LINKS} linked patients -- unlink one first."
+            )
+
+        patient_row = conn.execute(
+            "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, name, age),
+        ).fetchone()
+        patient_id = patient_row["id"]
+        display_id = _generate_patient_display_id(conn, hospital_id)
+        conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, patient_id))
+
+        conn.execute(
+            "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label) "
+            "VALUES (?, ?, ?, ?)",
+            (hospital_id, phone, patient_id, relationship_label),
+        )
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    return {
+        "id": patient_id, "name": name, "age": age, "patient_display_id": display_id,
+        "relationship_label": relationship_label,
+    }
+
+
+def unlink_patient(hospital_id: int, phone: str, patient_id: int) -> bool:
+    """Soft-unlink only -- sets unlinked_at on the matching ACTIVE link row.
+    Never touches `patients` or `appointments`: a soft-unlink is purely a
+    patient_links row update, so this patient's appointment history and
+    Patient ID are completely unaffected (confirmed by design, not just by
+    accident of implementation -- there is no code path here that could
+    touch either table). Returns False if no such active link exists (stale
+    tap, already unlinked, or a patient_id belonging to a different phone)."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patient_links SET unlinked_at = ? "
+        "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
+        (datetime.now().isoformat(), hospital_id, phone, patient_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.commit()
+    return True
+
+
+def update_patient_profile(hospital_id: int, patient_id: int, name: str, age: int | None) -> dict | None:
+    """Not exposed in the v1 WhatsApp flow (which only ever creates new
+    profiles, never edits one) -- kept available for a future "edit a linked
+    patient" step without needing a second migration. Returns None if
+    patient_id doesn't belong to this hospital."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patients SET name = ?, age = ? WHERE hospital_id = ? AND id = ?",
+        (name, age, hospital_id, patient_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    conn.commit()
+    return get_patient(hospital_id, patient_id)
 
 
 def update_patient_demographics(
@@ -1589,25 +1741,53 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
 
     Patient identity system (Spec.md Section 0): also generates and returns
     patient_display_id, but ONLY the first time a `patients` row is created
-    for this (hospital_id, phone) -- detected via Postgres's `xmax = 0`
-    (true only for a fresh INSERT, false when ON CONFLICT DO UPDATE fired
-    instead), on the SAME statement this function already runs, so no
-    separate "does this patient already exist" query is needed and there's
-    no race window between checking and inserting. The UPDATE branch's SET
-    list deliberately never mentions patient_display_id, so a returning
-    patient's id is never touched by a later booking."""
-    row = conn.execute(
-        "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT (hospital_id, phone) DO UPDATE SET "
-        "name = COALESCE(EXCLUDED.name, patients.name), age = COALESCE(EXCLUDED.age, patients.age) "
-        "RETURNING id, name, age, patient_display_id, (xmax = 0) AS inserted",
-        (hospital_id, phone, name, age),
-    ).fetchone()
-    display_id = row["patient_display_id"]
-    if row["inserted"] and display_id is None:
+    for this (hospital_id, phone).
+
+    Patient identity SEPARATION (Spec.md Section 0) dropped patients'
+    UNIQUE(hospital_id, phone) constraint (multiple profiles per phone are
+    now allowed via patient_links), so the ON CONFLICT (hospital_id, phone)
+    this used to use no longer has a matching unique index to target --
+    replaced with an explicit lookup-then-update-or-insert, guarded by a
+    Postgres SESSION-level advisory lock (not _xact_lock -- this function
+    runs on the still-autocommitting connection, before create_appointment()
+    opens its own explicit transaction, so there's no transaction for a
+    _xact_lock to scope to; released explicitly in the finally block) scoped
+    to (hospital_id, phone) so two concurrent bookings for a brand-new phone
+    can't both see "no existing row" and insert two. When more than one
+    `patients` row already exists for this phone (a multi-profile phone that
+    still has a caller going through the phone-only path -- the staff
+    portal, out of scope for patient_id this round), the OLDEST one (lowest
+    id -- the original single-profile-per-phone row every such phone
+    started with) is the one updated, preserving this function's original
+    "one implicit profile per phone" behavior for every caller that doesn't
+    pass patient_id."""
+    conn.execute("SELECT pg_advisory_lock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
+    try:
+        existing = conn.execute(
+            "SELECT id, name, age, patient_display_id FROM patients "
+            "WHERE hospital_id = ? AND phone = ? ORDER BY id LIMIT 1",
+            (hospital_id, phone),
+        ).fetchone()
+        if existing is not None:
+            resolved_name = name if name is not None else existing["name"]
+            resolved_age = age if age is not None else existing["age"]
+            conn.execute(
+                "UPDATE patients SET name = ?, age = ? WHERE id = ?",
+                (resolved_name, resolved_age, existing["id"]),
+            )
+            return {
+                "id": existing["id"], "name": resolved_name, "age": resolved_age,
+                "patient_display_id": existing["patient_display_id"],
+            }
+        row = conn.execute(
+            "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id, name, age",
+            (hospital_id, phone, name, age),
+        ).fetchone()
         display_id = _generate_patient_display_id(conn, hospital_id)
         conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, row["id"]))
-    return {"id": row["id"], "name": row["name"], "age": row["age"], "patient_display_id": display_id}
+        return {"id": row["id"], "name": row["name"], "age": row["age"], "patient_display_id": display_id}
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
 
 
 def create_appointment(
@@ -1619,6 +1799,8 @@ def create_appointment(
     source: str = SOURCE_WHATSAPP,
     patient_name: str | None = None,
     patient_age: int | None = None,
+    patient_id: int | None = None,
+    exclude_appointment_id: int | None = None,
 ) -> Appointment:
     """Raises db.connection.IntegrityError if this doctor's max_bookings_per_slot
     (default 1) worth of *booked* appointments already exist at this exact
@@ -1634,10 +1816,30 @@ def create_appointment(
     a staff-created walk-in/phone booking ("staff", portal.py's
     /portal/new-booking) -- purely descriptive, never branched on for booking
     LOGIC beyond which quota column it counts against. `patient_name`/
-    `patient_age` are supplied by the staff path OR, as of Section 12.11, by
-    core/booking_flow.py's own AWAITING_PATIENT_NAME/AGE states the first
-    time a WhatsApp patient books (None on every later booking, once
-    they're on file -- see _upsert_patient()'s COALESCE for why that's safe).
+    `patient_age` are supplied by the staff path (phone-upsert semantics,
+    unchanged).
+
+    Patient identity SEPARATION (Spec.md Section 0): `patient_id`, when given
+    (the WhatsApp path, post-separation -- an ALREADY-selected/created
+    `patients` row via `active_patient_id`), takes over identity resolution
+    entirely -- `_upsert_patient()` is skipped, name/age are read directly off
+    that row, and the duplicate-booking check below compares `patient_id`
+    directly instead of the old name+age heuristic. `patient_id=None` (the
+    staff portal, and any legacy caller) falls through to the exact original
+    `_upsert_patient()`-by-phone behavior, byte-for-byte -- this parameter is
+    purely additive.
+
+    `exclude_appointment_id`, when given, is left out of BOTH duplicate-check
+    branches below -- needed by reschedule (Tier1Connector.reschedule_booking()
+    passes the OLD appointment's id here): that function books the NEW slot
+    via this same create_appointment() BEFORE marking the old appointment
+    rescheduled (so a losing race on the new slot leaves the patient's
+    original appointment intact, see reschedule_booking()'s own docstring) --
+    meaning the old appointment is still status='booked', for the same
+    doctor, same patient_id, at the moment this duplicate check runs. Without
+    excluding it, every reschedule would incorrectly self-block as "you
+    already have an appointment with this doctor" against the very
+    appointment being replaced.
 
     Concurrency (Section 12.9): daily_booking_limit/online_quota/walkin_quota
     are per-DOCTOR-configured values, not fixed schema constants, so unlike
@@ -1708,7 +1910,21 @@ def create_appointment(
     # already on file) -- used directly below as this attempt's effective
     # name/age, replacing the old separate "read the pre-attempt profile"
     # query that used to run inside the transaction for the same purpose.
-    patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+    #
+    # Patient identity SEPARATION (Spec.md Section 0): when patient_id is
+    # given, identity is already fully resolved (a specific linked patient
+    # profile) -- read that row directly instead of upserting by phone (which
+    # would be wrong now that multiple profiles can share one phone).
+    if patient_id is not None:
+        patient_row = conn.execute(
+            "SELECT id, name, age FROM patients WHERE hospital_id = ? AND id = ?",
+            (hospital_id, patient_id),
+        ).fetchone()
+        if patient_row is None:
+            raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
+        patient = {"id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"]}
+    else:
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
 
     conn.execute("BEGIN")
     try:
@@ -1756,29 +1972,44 @@ def create_appointment(
             raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
 
         # Item 5 (Spec.md Section 0), extended by the family/multi-person-
-        # booking follow-up to also compare NAME: booking is free (no
+        # booking follow-up to also compare NAME, then simplified again by
+        # the patient identity SEPARATION follow-up: booking is free (no
         # payment friction), so nothing else stops an accidental/duplicate
-        # re-booking with the same doctor. Originally compared only against
-        # the single mutable `patients.age` value -- `patients` is one
-        # profile per (hospital_id, phone), so that alone couldn't tell two
-        # different family members on one phone apart once a 2nd booking's
-        # age overwrote the first's. Now compares this attempt's effective
-        # name+age against EACH of this phone's own existing active
-        # appointments' OWN denormalized patient_name/patient_age (Item 8 +
-        # this follow-up) -- a real per-booking record, not a single mutable
-        # profile field -- so a genuinely different family member (different
-        # name, different age, or both) is correctly allowed through, while
-        # the same patient re-booking the same doctor is still blocked.
-        # "Effective" name/age is just the resolved `patient` upsert result
-        # from above (this attempt's value if given, otherwise whatever was
-        # already on file) -- no separate profile lookup needed here anymore.
+        # re-booking with the same doctor.
+        #
+        # Patient identity SEPARATION: when patient_id is given, this is now
+        # a direct, exact check -- does THIS patient_id already have an
+        # active appointment with this doctor? -- rather than the older
+        # name+age heuristic, which existed only because `patients` used to
+        # be one mutable profile per phone with no way to directly identify
+        # "this specific family member." More correct by construction now
+        # that a real per-profile identity exists.
         effective_name = patient["name"]
         effective_age = patient["age"]
-        if effective_name is not None and effective_age is not None:
+        if patient_id is not None:
+            existing_by_patient = conn.execute(
+                "SELECT id FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+                "AND patient_id = ? AND status = ? AND id IS DISTINCT FROM ? ORDER BY scheduled_at",
+                (hospital_id, doctor_id, patient_id, STATUS_BOOKED, exclude_appointment_id),
+            ).fetchall()
+            if existing_by_patient:
+                raise DuplicateBookingError(
+                    "An active appointment with this doctor already exists for this patient.",
+                    existing_by_patient[0]["id"],
+                )
+        elif effective_name is not None and effective_age is not None:
+            # Legacy path (no patient_id -- the staff portal): compares this
+            # attempt's effective name+age against EACH of this phone's own
+            # existing active appointments' OWN denormalized patient_name/
+            # patient_age (Item 8 + the family-booking follow-up) -- a real
+            # per-booking record, not a single mutable profile field -- so a
+            # genuinely different family member (different name, different
+            # age, or both) is correctly allowed through, while the same
+            # patient re-booking the same doctor is still blocked.
             existing_appointments = conn.execute(
                 "SELECT id, patient_name, patient_age FROM appointments WHERE hospital_id = ? AND phone = ? "
-                "AND doctor_id = ? AND status = ? ORDER BY scheduled_at",
-                (hospital_id, phone, doctor_id, STATUS_BOOKED),
+                "AND doctor_id = ? AND status = ? AND id IS DISTINCT FROM ? ORDER BY scheduled_at",
+                (hospital_id, phone, doctor_id, STATUS_BOOKED, exclude_appointment_id),
             ).fetchall()
             for existing_appt in existing_appointments:
                 same_name = (existing_appt["patient_name"] or "").strip().lower() == effective_name.strip().lower()

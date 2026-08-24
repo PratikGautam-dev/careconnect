@@ -53,6 +53,9 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         # menus' own follow-up Back-button message, Spec.md Section 0's UX
         # follow-up) -- never a list-row title anymore.
         "back_option", "view_change_options_button",
+        # Patient identity SEPARATION (Spec.md Section 0): list "button_text"
+        # labels share the same 20-char limit as interactive buttons.
+        "patient_selector_button", "manage_patients_button",
     ]
     for key in button_keys:
         for lang in SUPPORTED_LANGUAGES:
@@ -65,6 +68,8 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         "book_appointment_short", "reschedule_short", "cancel_short", "faq_short",
         "change_department_option", "change_doctor_option",
         "change_date_option", "change_time_option", "feature_change_language",
+        # Patient identity SEPARATION (Spec.md Section 0).
+        "feature_manage_patients", "add_patient_option", "all_patients_option",
     ]
     for key in row_title_keys:
         for lang in SUPPORTED_LANGUAGES:

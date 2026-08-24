@@ -54,16 +54,16 @@ import logging
 import db.repository as db
 from core.booking_flow import (
     _HANDLERS as _BOOKING_STATE_HANDLERS,
-    _appointment_row_id,
     _manage_cancel_id,
     _manage_reschedule_id,
-    _parse_appointment_row_id,
     _parse_manage_id,
     _start_booking_flow,
     _start_cancel_flow,
     _start_cancel_flow_for_appointment,
+    _start_manage_patients_flow,
     _start_reschedule_flow,
     _start_reschedule_flow_for_appointment,
+    _start_view_appointments_flow,
     FREE_TEXT_INPUT_STATES,
     GOTO_MAIN_MENU,
     MANAGE_CANCEL_PREFIX,
@@ -96,6 +96,7 @@ _FEATURE_MENU = {
     "cancel": ("menu_cancel", "feature_cancel"),
     "view_appointments": ("menu_view_appointments", "feature_view_appointments"),
     "my_details": ("menu_my_details", "feature_my_details"),
+    "manage_patients": ("menu_manage_patients", "feature_manage_patients"),
     "hospital_info": ("menu_hospital_info", "feature_hospital_info"),
     "reception_handoff": ("menu_reception", "feature_reception_handoff"),
     "faq": ("menu_faq_bot", "feature_faq"),
@@ -108,7 +109,8 @@ _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title_key) in _FEATURE_MENU
 # reschedule actions; this one is the patient's own self-service "fetch my
 # record" (id/name/age/summary + any documents on file).
 REAL_FEATURES = {
-    "booking", "reschedule", "cancel", "faq", "view_appointments", "my_details", "hospital_info", "reception_handoff",
+    "booking", "reschedule", "cancel", "faq", "view_appointments", "my_details", "manage_patients",
+    "hospital_info", "reception_handoff",
 }
 ALL_FEATURES = REAL_FEATURES
 
@@ -156,17 +158,15 @@ async def _send_dynamic_menu(
         # A hospital with nothing enabled (mid-onboarding data issue, or a
         # brand-new row before enabled_features was ever set) -- graceful
         # patient-facing message, never an empty WhatsApp list send
-        # (Phase 8 / Section 12.7's established discipline). Checked BEFORE
-        # "Change Language" is appended below -- that row alone doesn't count
-        # as "something enabled."
+        # (Phase 8 / Section 12.7's established discipline).
         await wa.send_text(phone, t("feature_menu_unavailable", language, hospital_name=hospital_name))
         return
-    # Item 4: a hospital that disabled the language picker (language_prompt_
-    # enabled=False, Section 12.13) only ever wants one language -- "Change
-    # Language" would offer a picker that contradicts that setting, so it's
-    # left off the menu entirely in that case, same as the picker itself.
-    if language_prompt_enabled:
-        rows.append({"id": CHANGE_LANGUAGE_ROW, "title": t("feature_change_language", language)})
+    # UX follow-up (Spec.md Section 0), per the user's explicit request:
+    # "Change Language" removed from the main menu entirely -- no longer
+    # appended here regardless of language_prompt_enabled. The row id/
+    # handler (CHANGE_LANGUAGE_ROW, below) are left in place rather than
+    # deleted -- harmless, unreachable dead code from a fresh menu, but
+    # still correctly handled if an old cached menu ever replays a tap.
     rows = cap_rows(rows, f"main menu for {hospital_name}")
     await wa.send_list(
         to=phone,
@@ -227,72 +227,6 @@ async def _handle_awaiting_language(
     await _send_dynamic_menu(
         wa, phone, hospital_name, enabled_features, language=chosen, feature_labels=feature_labels,
         language_prompt_enabled=True,
-    )
-
-
-STATE_AWAITING_VIEW_APPOINTMENT_ACTION = "AWAITING_VIEW_APPOINTMENT_ACTION"
-
-
-async def _send_view_appointments(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
-) -> None:
-    """Item 6 (Spec.md Section 0): each listed appointment is now a tappable
-    row (not just a plain-text summary) -- picking one shows THAT
-    appointment's own Cancel/Reschedule quick actions directly, matching the
-    "list -> tap -> action buttons" pattern (no separate re-identification
-    step needed, per the user's own choice of that shape over a generic
-    manage-flow)."""
-    appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
-    if not appointments:
-        sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("view_appointments_list", language))
-        return
-    rows = [
-        {
-            "id": _appointment_row_id(a.id),
-            "title": a.doctor_name,
-            "description": f"{a.department_name} — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}",
-        }
-        for a in appointments
-    ]
-    rows = cap_rows(rows, "view appointments menu")
-    sessions.set(hospital_id, phone, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, {})
-    await wa.send_list(
-        to=phone,
-        body_text=t("view_appointments_header", language),
-        button_text=t("view_appointments_button", language),
-        sections=[{"title": t("your_appointments_section_title", language), "rows": rows}],
-    )
-
-
-async def _handle_awaiting_view_appointment_action(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
-    connector: Connector, language: str = "en",
-) -> None:
-    appt_id = _parse_appointment_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
-    appt = None
-    if appt_id is not None:
-        appt = next(
-            (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone) if a.id == appt_id), None,
-        )
-    if appt is None:
-        # Stale/unrecognized tap, or the list went stale between send and
-        # reply -- re-show the current list rather than a dead end.
-        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language)
-        return
-    sessions.reset(hospital_id, phone)
-    # Same 3-button quick-action pattern item 3's booking-success message
-    # uses -- these ids are recognized from ANY session state going forward
-    # (flows.py's own top-of-handle_incoming check), so it doesn't matter
-    # that this session is now reset to IDLE.
-    await wa.send_buttons(
-        to=phone,
-        body_text=t("manage_appointment_prompt", language, doctor_name=appt.doctor_name),
-        buttons=[
-            {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
-            {"id": _manage_cancel_id(appt.id), "title": t("cancel_button", language)},
-            {"id": _manage_reschedule_id(appt.id), "title": t("reschedule_short", language)},
-        ],
     )
 
 
@@ -438,10 +372,13 @@ async def _start_feature(
         await faq_flow.send_topic_menu(wa, phone, hospital_id, hospital_name, language=language)
         return
     if key == "view_appointments":
-        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language)
+        await _start_view_appointments_flow(wa, sessions, phone, hospital_id, connector, language=language)
         return
     if key == "my_details":
         await _send_my_details(wa, sessions, phone, hospital_id, language=language)
+        return
+    if key == "manage_patients":
+        await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
         return
     if key == "hospital_info":
         sessions.reset(hospital_id, phone)
@@ -590,12 +527,6 @@ async def handle_incoming(
         await _handle_awaiting_language(
             wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features,
             feature_labels=feature_labels, default_language=default_language,
-        )
-        return
-
-    if state == STATE_AWAITING_VIEW_APPOINTMENT_ACTION:
-        await _handle_awaiting_view_appointment_action(
-            wa, sessions, phone, hospital_id, reply, hospital_name, connector, language=language or "en",
         )
         return
 

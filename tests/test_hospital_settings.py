@@ -85,7 +85,7 @@ async def test_no_custom_label_falls_back_to_default(hospital_id):
     )
 
     kind, kwargs = wa.sent[-1]
-    assert _row_titles(kwargs) == ["Book Appointment", "Change Language"]
+    assert _row_titles(kwargs) == ["Book Appointment"]
 
 
 # --- Closing message ---

@@ -52,14 +52,22 @@ def _backfill_patients(conn) -> None:
     (hospital_id, phone) pair already sitting in appointments gets a row here
     (name NULL -- WhatsApp bookings never collected one) so existing patients
     are searchable by phone immediately, without waiting for their next
-    booking to (re-)upsert them. ON CONFLICT DO NOTHING makes this a safe
-    no-op to re-run on every startup -- it only ever ADDS a missing row, never
+    booking to (re-)upsert them.
+
+    Patient identity SEPARATION (Spec.md Section 0) dropped patients'
+    UNIQUE(hospital_id, phone) constraint (multiple profiles per phone are
+    now allowed), so the ON CONFLICT (hospital_id, phone) DO NOTHING this
+    used to rely on no longer has a matching unique index to target --
+    switched to the same WHERE NOT EXISTS idiom every other backfill in this
+    file already uses. Behaviorally identical: still only ever ADDS a row
+    for a (hospital_id, phone) with zero existing patients rows, never
     touches one that already exists (so it can never clobber a name staff
-    already filled in)."""
+    already filled in, and never creates a 2nd row for a phone this backfill
+    already covered on an earlier startup)."""
     conn.execute(
         "INSERT INTO patients (hospital_id, phone) "
-        "SELECT DISTINCT hospital_id, phone FROM appointments "
-        "ON CONFLICT (hospital_id, phone) DO NOTHING"
+        "SELECT DISTINCT a.hospital_id, a.phone FROM appointments a "
+        "WHERE NOT EXISTS (SELECT 1 FROM patients p WHERE p.hospital_id = a.hospital_id AND p.phone = a.phone)"
     )
     conn.commit()
 
@@ -127,6 +135,34 @@ def _backfill_patient_display_ids(conn) -> None:
     conn.commit()
 
 
+def _backfill_patient_links(conn) -> None:
+    """Patient identity SEPARATION (Spec.md Section 0): every `patients` row
+    that predates this feature (i.e. every one that currently exists, since
+    this migration ships alongside the feature itself) gets exactly one
+    patient_links row, relationship_label='Self' -- the implicit "this is the
+    phone's own profile" link every pre-existing patient already had, just
+    never modeled explicitly. `linked_at` is backdated to the patient's own
+    `created_at` rather than "now" -- preserves the real historical ordering
+    get_active_patients_for_phone() sorts by, in case a phone somehow already
+    had more than one `patients` row before this ran (shouldn't happen given
+    the old UNIQUE(hospital_id, phone) constraint, but this keeps the
+    backfill correct even in that edge case rather than assuming it away).
+
+    Gated on NOT EXISTS (one link per patient, not per phone -- a patient
+    with two links from a bad prior run would break this gate, but nothing
+    in this codebase ever creates more than one link per patient), so
+    re-running this on every startup is a safe no-op once every existing
+    patient is linked. Does not touch `patients` or `appointments` at all --
+    purely additive rows in the new table, zero risk to existing booking
+    history or Patient IDs."""
+    conn.execute(
+        "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label, linked_at) "
+        "SELECT p.hospital_id, p.phone, p.id, 'Self', p.created_at FROM patients p "
+        "WHERE NOT EXISTS (SELECT 1 FROM patient_links pl WHERE pl.patient_id = p.id)"
+    )
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -167,6 +203,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_appointment_patient_denorm(conn)
     _backfill_appointment_patient_age(conn)
     _backfill_patient_display_ids(conn)
+    _backfill_patient_links(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

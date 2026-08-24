@@ -451,12 +451,13 @@ async def test_full_happy_path_through_confirmation(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_returning_patient_with_name_on_file_skips_straight_to_department(hospital_id):
-    """Patient identity/UX follow-up (Spec.md Section 0): a patient who's
-    already booked once (name+age on file) is never re-asked on a later
-    booking -- tapping "Book Appointment" now skips straight to department
-    selection, with their existing name/age already in context, ready to
-    show unchanged on the eventual confirmation card."""
+async def test_returning_patient_is_still_asked_name_and_age_every_time(hospital_id):
+    """UX follow-up (Spec.md Section 0), per the user's own explicit request
+    ("I want it to take name every time"): the earlier "skip a returning
+    patient" behavior (Section 12.11's original design, still correct for
+    this exact scenario one round ago) is now deliberately gone for THIS
+    step -- even a patient with both a name AND an age already on file is
+    asked again, every single booking."""
     import db.connection as db_connection
     from db.repository import _upsert_patient
     _upsert_patient(db_connection.get_connection(), hospital_id, PHONE, "Priya Shah", 29)
@@ -468,34 +469,10 @@ async def test_returning_patient_with_name_on_file_skips_straight_to_department(
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_DEPARTMENT"  # not AWAITING_PATIENT_NAME
-    assert session["context"]["patient_name"] == "Priya Shah"
-    assert session["context"]["patient_age"] == 29
-    _last_list(wa)  # confirms a list was actually sent
-    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
-
-
-@pytest.mark.asyncio
-async def test_returning_patient_with_name_but_no_age_is_asked_age_only(hospital_id):
-    """Per-field skip logic (Section 12.11/12.13, unchanged by the reorder):
-    a patient with a name but no age on file (e.g. booked once back before
-    age was collected) is asked for age only, not name."""
-    import db.connection as db_connection
-    from db.repository import _upsert_patient
-    _upsert_patient(db_connection.get_connection(), hospital_id, PHONE, "Priya Shah", None)
-    db_connection.get_connection().commit()
-
-    wa = FakeWhatsAppClient()
-    sessions = InMemorySessionStore()
-
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
-
-    session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_PATIENT_AGE"
-    assert session["context"]["patient_name"] == "Priya Shah"
+    assert session["state"] == "AWAITING_PATIENT_NAME"
     kind, kwargs = wa.sent[-1]
     assert kind == "text"
-    assert "age" in kwargs["text"].lower()
+    assert "full name" in kwargs["text"].lower()
 
 
 @pytest.mark.asyncio

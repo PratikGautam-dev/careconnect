@@ -44,7 +44,9 @@ after all) -- see the state constants' own comment for the full history.
 import logging
 from datetime import datetime
 
-from connectors import Connector, DuplicateBookingError, Tier1Connector
+from connectors import (
+    Connector, DuplicateBookingError, MAX_ACTIVE_PATIENT_LINKS, Tier1Connector, TooManyLinkedPatientsError,
+)
 from core.flow_common import MAX_LIST_ROWS, RESET_KEYWORDS, cap_rows, is_reset_keyword
 from core.translations import t
 from core.whatsapp import WhatsAppClient
@@ -157,6 +159,32 @@ STATE_AWAITING_RESCHEDULE_DATE = "AWAITING_RESCHEDULE_DATE"
 STATE_AWAITING_RESCHEDULE_SLOT = "AWAITING_RESCHEDULE_SLOT"
 STATE_AWAITING_RESCHEDULE_CONFIRM = "AWAITING_RESCHEDULE_CONFIRM"
 
+# Patient identity SEPARATION (Spec.md Section 0, plan reviewed with the user
+# before this touched production data): one WhatsApp phone can link up to 5
+# patient profiles -- STATE_AWAITING_PATIENT_SELECTION is the shared "who is
+# this for" step, reused by booking, cancel, reschedule, and (via flows.py's
+# import) view_appointments, parameterized by context["patient_flow_next"].
+# Only ever shown when >1 active patient is linked -- a single-patient phone
+# (every phone that existed before this section, via the migration backfill,
+# plus every genuinely new phone's first patient) sees ZERO added friction,
+# auto-selected exactly like before this section.
+#
+# STATE_AWAITING_PATIENT_NAME/AGE (already existed, Section 12.11) are REUSED
+# for "add a patient" rather than duplicated -- collecting a name then an age
+# is the exact same two-step ask either way; what changes is what happens on
+# completion (create_patient_profile() + route via patient_flow_next, not the
+# old "stash in context, ask again next booking" behavior this section
+# replaces entirely, confirmed with the user).
+STATE_AWAITING_PATIENT_SELECTION = "AWAITING_PATIENT_SELECTION"
+STATE_AWAITING_MANAGE_PATIENTS_ACTION = "AWAITING_MANAGE_PATIENTS_ACTION"
+STATE_AWAITING_UNLINK_CONFIRM = "AWAITING_UNLINK_CONFIRM"
+
+ADD_PATIENT_ROW_ID = "add_patient"
+ALL_PATIENTS_ROW_ID = "all_patients"
+MANAGE_PATIENTS_ADD_ROW_ID = "manage_add_patient"
+_PATIENT_ROW_PREFIX = "patient_"
+_UNLINK_ROW_PREFIX = "unlink_"
+
 MAIN_MENU_BOOK = "menu_book"
 MAIN_MENU_RESCHEDULE = "menu_reschedule"
 MAIN_MENU_CANCEL = "menu_cancel"
@@ -185,11 +213,14 @@ async def _send_back_button(wa: WhatsAppClient, phone: str, language: str = "en"
     BACK_ID` check is unchanged, since core/whatsapp.py's parser normalizes
     a tapped list row and a tapped button to the exact same
     {"type": "interactive_reply", "id": ...} shape regardless of which
-    message it came from. Confirmed with the user: no separate prompt
-    line and no "◀" arrow -- just "Back", reused as both this message's
-    body and its one button's label."""
-    back_text = t("back_option", language)
-    await wa.send_buttons(to=phone, body_text=back_text, buttons=[{"id": BACK_ID, "title": back_text}])
+    message it came from. Confirmed with the user: no "◀" arrow, and the
+    body text showing "Back" a second time (right above a button ALSO
+    labeled "Back") read as visibly duplicated -- Meta's button-message
+    type requires a non-empty body (a true empty string isn't accepted), so
+    a zero-width space is used instead of reusing the word "Back" -- renders
+    as a blank line, satisfies the API, and leaves only the button itself
+    visibly saying "Back"."""
+    await wa.send_buttons(to=phone, body_text="​", buttons=[{"id": BACK_ID, "title": t("back_option", language)}])
 
 
 def _push_history(context: dict, state: str) -> list[dict]:
@@ -324,35 +355,130 @@ async def _start_booking_flow(
     kept unchanged through Sections 12.12/12.13). Confirmed with the user
     directly (not assumed) before making this change.
 
-    Same per-field skip logic Section 12.11 already established, just moved
-    earlier: a returning patient with BOTH a name and age already on file
-    skips straight to department selection; one with a name but no age is
-    asked for age only; a genuinely first-time patient is asked for both.
-    Once collected, patient_name/patient_age live in context from the very
-    start of the flow, so every later step (department onward) already has
-    them -- see _handle_awaiting_time_slot's own comment for why that
-    handler no longer needs to ask.
+    Patient identity SEPARATION (Spec.md Section 0), superseding the
+    immediately-prior "ask name every time" behavior (confirmed with the
+    user this was a workaround for having no real profile concept yet, now
+    replaced): a phone with ZERO linked patients is asked for a name (the
+    implicit first/"Self" profile, mirroring the migration backfill's own
+    convention); a phone with exactly ONE linked patient auto-selects it and
+    proceeds straight to department selection, zero added friction -- the
+    same single-patient UX this app has always had; a phone with MORE THAN
+    ONE linked patient sees STATE_AWAITING_PATIENT_SELECTION first. Name/age
+    is never re-asked for an already-linked patient -- it's captured once,
+    at profile creation, then just selected.
 
     Shared by flows.py's real dispatch (_start_feature) AND this module's
     own standalone _handle_idle() below (superseded for real traffic, but
     still exercised directly by tests/test_booking_flow.py as a standalone
     unit of the state machine -- see this module's docstring) so both entry
     points stay behaviorally identical rather than drifting apart."""
-    patient_info = connector.get_patient_info(hospital_id, phone)
-    has_name = bool(patient_info and patient_info.get("name"))
-    has_age = bool(patient_info and patient_info.get("age") is not None)
-    if has_name and has_age:
-        context = {"patient_name": patient_info["name"], "patient_age": patient_info["age"]}
+    patients = connector.list_active_patients(hospital_id, phone)
+    if not patients:
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": "booking"})
+        await wa.send_text(phone, t("ask_patient_name", language))
+        return
+    if len(patients) == 1:
+        await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patients[0], "booking", language=language)
+        return
+    await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "booking", language=language)
+
+
+async def _select_patient_and_continue(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, patient: dict,
+    next_action: str, language: str = "en",
+) -> None:
+    """The shared "a patient is now active, what happens next" router --
+    reached either via auto-select (exactly one linked patient, zero added
+    friction) or an explicit tap in _handle_awaiting_patient_selection."""
+    if next_action == "booking":
+        context = {
+            "active_patient_id": patient["id"], "patient_name": patient["name"], "patient_age": patient["age"],
+        }
         sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
         await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+    elif next_action == "cancel":
+        await _start_cancel_flow_for_patient(wa, sessions, phone, hospital_id, connector, patient["id"], language=language)
+    elif next_action == "reschedule":
+        await _start_reschedule_flow_for_patient(wa, sessions, phone, hospital_id, connector, patient["id"], language=language)
+    elif next_action == "view_appointments":
+        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=patient["id"])
+    elif next_action == "manage_patients":
+        await wa.send_text(phone, t("patient_added", language, patient_name=patient["name"]))
+        await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+    else:
+        logger.warning("No _select_patient_and_continue branch for next_action %r -- falling back to main menu", next_action)
+        sessions.reset(hospital_id, phone)
+        await _send_main_menu(wa, phone, "the hospital", language=language)
+
+
+async def _send_patient_selector(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, next_action: str,
+    language: str = "en",
+) -> None:
+    """The shared "who is this for" list -- department/doctor/cancel/
+    reschedule/view_appointments all reach this the same way, only ever when
+    this phone has MORE THAN ONE active linked patient. `next_action` decides
+    what happens once a patient is picked (_select_patient_and_continue) and
+    whether an "All" row (view_appointments/cancel/reschedule -- there's no
+    "book for everyone" equivalent, so booking never offers it) and/or an
+    "+ Add Patient" row (booking only, per the user's own spec) are shown."""
+    patients = connector.list_active_patients(hospital_id, phone)
+    rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
+    if next_action != "booking":
+        rows.append({"id": ALL_PATIENTS_ROW_ID, "title": t("all_patients_option", language)})
+    if next_action == "booking" and len(patients) < MAX_ACTIVE_PATIENT_LINKS:
+        rows.append({"id": ADD_PATIENT_ROW_ID, "title": t("add_patient_option", language)})
+    rows = _cap_rows(rows, "patient selector")
+    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_SELECTION, {"patient_flow_next": next_action})
+    await wa.send_list(
+        to=phone,
+        body_text=t(f"patient_selector_prompt_{next_action}", language),
+        button_text=t("patient_selector_button", language),
+        sections=[{"title": t("patient_selector_section_title", language), "rows": rows}],
+    )
+
+
+async def _handle_awaiting_patient_selection(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    next_action = context.get("patient_flow_next", "booking")
+    if reply["type"] == "interactive_reply":
+        rid = reply["id"]
+        if rid == ADD_PATIENT_ROW_ID and next_action == "booking":
+            sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": next_action})
+            await wa.send_text(phone, t("ask_patient_name", language))
+            return
+        if rid == ALL_PATIENTS_ROW_ID and next_action != "booking":
+            await _select_patient_and_continue(
+                wa, sessions, phone, hospital_id, connector, {"id": None, "name": None, "age": None},
+                next_action, language=language,
+            )
+            return
+        patient_id = _parse_patient_row_id(rid)
+        if patient_id is not None:
+            patients = connector.list_active_patients(hospital_id, phone)
+            match = next((p for p in patients if p["id"] == patient_id), None)
+            if match:
+                await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, match, next_action, language=language)
+                return
+    # Stale/unrecognized tap, or the list went stale between send and reply
+    # (a patient was unlinked meanwhile) -- re-fetch and re-show fresh rather
+    # than acting on a stale id (Phase 8's established "recheck dynamic
+    # data" discipline).
+    patients = connector.list_active_patients(hospital_id, phone)
+    if len(patients) <= 1 and next_action != "booking":
+        # Down to (at most) one patient since this selector was sent --
+        # nothing left to disambiguate, just proceed.
+        if patients:
+            await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patients[0], next_action, language=language)
+        else:
+            await _select_patient_and_continue(
+                wa, sessions, phone, hospital_id, connector, {"id": None, "name": None, "age": None},
+                next_action, language=language,
+            )
         return
-    if has_name:
-        context = {"patient_name": patient_info["name"]}
-        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
-        await wa.send_text(phone, t("ask_patient_age", language, patient_name=patient_info["name"]))
-        return
-    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {})
-    await wa.send_text(phone, t("ask_patient_name", language))
+    await _send_patient_selector(wa, sessions, phone, hospital_id, connector, next_action, language=language)
 
 
 async def _send_doctor_menu(
@@ -599,6 +725,37 @@ def _parse_appointment_row_id(row_id: str) -> int | None:
         return None
 
 
+def _patient_row_id(patient_id: int) -> str:
+    return f"{_PATIENT_ROW_PREFIX}{patient_id}"
+
+
+def _parse_patient_row_id(row_id: str) -> int | None:
+    if not row_id.startswith(_PATIENT_ROW_PREFIX):
+        return None
+    try:
+        return int(row_id[len(_PATIENT_ROW_PREFIX):])
+    except ValueError:
+        return None
+
+
+def _unlink_row_id(patient_id: int) -> str:
+    return f"{_UNLINK_ROW_PREFIX}{patient_id}"
+
+
+def _parse_unlink_row_id(row_id: str) -> int | None:
+    if not row_id.startswith(_UNLINK_ROW_PREFIX):
+        return None
+    try:
+        return int(row_id[len(_UNLINK_ROW_PREFIX):])
+    except ValueError:
+        return None
+
+
+def _patient_row_title(patient: dict) -> str:
+    label = patient.get("relationship_label")
+    return f"{patient['name']} ({label})" if label else patient["name"]
+
+
 # Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a SPECIFIC
 # appointment id, attached to the booking-success message, the
 # duplicate-booking block message, and My Appointments' per-appointment
@@ -657,6 +814,11 @@ async def _start_reschedule_flow_for_appointment(
         "department_name": appt.department_name,
         "doctor_id": appt.doctor_id,
         "doctor_name": appt.doctor_name,
+        # Patient identity SEPARATION (Spec.md Section 0): carries the
+        # ORIGINAL appointment's own patient through the reschedule -- without
+        # this, a multi-patient phone rescheduling would have no way to know
+        # which linked family member's appointment is being moved.
+        "active_patient_id": appt.patient_id,
     }
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, new_context)
     await _send_date_menu(wa, phone, hospital_id, appt.doctor_id, appt.doctor_name, connector, language=language)
@@ -664,15 +826,23 @@ async def _start_reschedule_flow_for_appointment(
 
 async def _send_appointment_selection_menu(
     wa: WhatsAppClient, phone: str, appointments: list, body_key: str, language: str = "en",
+    patient_names: dict[int, str] | None = None,
 ) -> None:
-    rows = [
-        {
+    """Patient identity SEPARATION (Spec.md Section 0): `patient_names`, when
+    given (a multi-patient phone viewing an unfiltered "All" list), prefixes
+    each row with that appointment's own patient name so it's unambiguous
+    whose appointment is whose -- omitted entirely for the common
+    single-patient case, unchanged from before this section."""
+    rows = []
+    for a in appointments:
+        title = a.doctor_name
+        if patient_names and a.patient_id in patient_names:
+            title = f"{patient_names[a.patient_id]} — {a.doctor_name}"
+        rows.append({
             "id": _appointment_row_id(a.id),
-            "title": a.doctor_name,
+            "title": title,
             "description": a.scheduled_at.strftime("%a %d %b %Y, %H:%M"),
-        }
-        for a in appointments
-    ]
+        })
     rows = _cap_rows(rows, "appointment selection menu")
     await wa.send_list(
         to=phone,
@@ -930,19 +1100,33 @@ async def _handle_awaiting_patient_age(
     same pattern as every other validation failure in this codebase (e.g.
     db.is_valid_phone() at the staff new-booking form).
 
-    Patient identity/UX follow-up (Spec.md Section 0): this is now the LAST
-    step before department selection (name/age moved to the front of the
-    flow, _start_booking_flow), not the last step before confirmation --
-    a valid age advances to STATE_AWAITING_DEPARTMENT instead."""
+    Patient identity SEPARATION (Spec.md Section 0): a valid age now creates
+    a real `patients` row + `patient_links` link (connector.create_patient_profile)
+    instead of just stashing name/age in context -- this is the ONE place a
+    new patient profile is ever created from the WhatsApp chat itself (both
+    the implicit-first-profile path and "+ Add Patient" from the selector
+    funnel through here, distinguished only by `patient_flow_next`). Routes
+    onward via _select_patient_and_continue using whatever next_action was
+    stashed when this state was entered, so "Add Patient" tapped mid-cancel/
+    reschedule/view_appointments returns to that flow, not always booking."""
     age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
-    if age is not None:
-        new_context = {**context, "patient_age": age}
-        sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, new_context)
-        await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+    if age is None:
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
+        await wa.send_text(phone, t("invalid_patient_age", language))
+        await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("patient_name", "")))
         return
-    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
-    await wa.send_text(phone, t("invalid_patient_age", language))
-    await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("patient_name", "")))
+    next_action = context.get("patient_flow_next", "booking")
+    try:
+        patient = connector.create_patient_profile(hospital_id, phone, context["patient_name"], age)
+    except TooManyLinkedPatientsError:
+        await wa.send_text(phone, t("too_many_linked_patients", language))
+        if next_action == "manage_patients":
+            await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+        else:
+            sessions.reset(hospital_id, phone)
+            await _send_main_menu(wa, phone, "the hospital", language=language)
+        return
+    await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patient, next_action, language=language)
 
 
 async def _handle_awaiting_confirmation(
@@ -961,6 +1145,7 @@ async def _handle_awaiting_confirmation(
                     scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
                     patient_name=context.get("patient_name"),
                     patient_age=context.get("patient_age"),
+                    patient_id=context.get("active_patient_id"),
                 )
             except DuplicateBookingError as exc:
                 # Item 5: must be checked BEFORE the generic IntegrityError
@@ -1073,15 +1258,45 @@ async def _handle_awaiting_change_selection(
 async def _start_cancel_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
 ) -> None:
+    """Patient identity SEPARATION (Spec.md Section 0): a "whose
+    appointments" pre-step, only shown when this phone has more than one
+    active linked patient -- the single-patient case (every phone before
+    this section, and any phone with just one linked patient) goes straight
+    to _start_cancel_flow_for_patient() below, zero added friction."""
+    patients = connector.list_active_patients(hospital_id, phone)
+    if len(patients) > 1:
+        await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "cancel", language=language)
+        return
+    await _start_cancel_flow_for_patient(wa, sessions, phone, hospital_id, connector, None, language=language)
+
+
+async def _start_cancel_flow_for_patient(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector,
+    active_patient_id: int | None, language: str = "en",
+) -> None:
+    """The actual "which appointment" list, scoped to `active_patient_id`
+    when given -- None means "show everyone linked to this phone" (the
+    natural single-patient case, or the explicit "All" choice from the
+    patient selector), with each row prefixed by its own patient's name
+    whenever more than one patient could plausibly be shown."""
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
+    patient_names = None
+    if active_patient_id is not None:
+        appointments = [a for a in appointments if a.patient_id == active_patient_id]
+    else:
+        patients = connector.list_active_patients(hospital_id, phone)
+        if len(patients) > 1:
+            patient_names = {p["id"]: p["name"] for p in patients}
     if not appointments:
         # Item 9: nothing to cancel is a dead end without a menu offered.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("no_upcoming_to_cancel", language))
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
-    sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, {})
-    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_cancel", language=language)
+    sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, {"active_patient_id": active_patient_id})
+    await _send_appointment_selection_menu(
+        wa, phone, appointments, "which_appointment_cancel", language=language, patient_names=patient_names,
+    )
 
 
 async def _handle_awaiting_cancel_selection(
@@ -1092,17 +1307,11 @@ async def _handle_awaiting_cancel_selection(
     if appt:
         await _start_cancel_flow_for_appointment(wa, sessions, phone, hospital_id, appt, language=language)
         return
-
-    appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
-    if not appointments:
-        # Went stale between menu-send and reply (e.g. the appointment's time
-        # passed) -- item 9: dead end, offer the main menu.
-        sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("no_upcoming_to_cancel", language))
-        await _send_main_menu(wa, phone, "the hospital", language=language)
-        return
-    sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, context)
-    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_cancel", language=language)
+    # Went stale between menu-send and reply, or an unrecognized tap --
+    # re-show the same (patient-scoped) list rather than a dead end.
+    await _start_cancel_flow_for_patient(
+        wa, sessions, phone, hospital_id, connector, context.get("active_patient_id"), language=language,
+    )
 
 
 async def _handle_awaiting_cancel_confirm(
@@ -1148,15 +1357,38 @@ async def _handle_awaiting_cancel_confirm(
 async def _start_reschedule_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
 ) -> None:
+    """Patient identity SEPARATION (Spec.md Section 0): same "whose
+    appointments" pre-step as cancel above, only shown when >1 active
+    patient is linked."""
+    patients = connector.list_active_patients(hospital_id, phone)
+    if len(patients) > 1:
+        await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "reschedule", language=language)
+        return
+    await _start_reschedule_flow_for_patient(wa, sessions, phone, hospital_id, connector, None, language=language)
+
+
+async def _start_reschedule_flow_for_patient(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector,
+    active_patient_id: int | None, language: str = "en",
+) -> None:
     appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
+    patient_names = None
+    if active_patient_id is not None:
+        appointments = [a for a in appointments if a.patient_id == active_patient_id]
+    else:
+        patients = connector.list_active_patients(hospital_id, phone)
+        if len(patients) > 1:
+            patient_names = {p["id"]: p["name"] for p in patients}
     if not appointments:
         # Item 9: nothing to reschedule is a dead end without a menu offered.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
-    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, {})
-    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
+    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, {"active_patient_id": active_patient_id})
+    await _send_appointment_selection_menu(
+        wa, phone, appointments, "which_appointment_reschedule", language=language, patient_names=patient_names,
+    )
 
 
 async def _handle_awaiting_reschedule_selection(
@@ -1167,17 +1399,11 @@ async def _handle_awaiting_reschedule_selection(
     if appt:
         await _start_reschedule_flow_for_appointment(wa, sessions, phone, hospital_id, appt, connector, language=language)
         return
-
-    appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
-    if not appointments:
-        # Went stale between menu-send and reply -- item 9: dead end, offer
-        # the main menu.
-        sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
-        await _send_main_menu(wa, phone, "the hospital", language=language)
-        return
-    sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, context)
-    await _send_appointment_selection_menu(wa, phone, appointments, "which_appointment_reschedule", language=language)
+    # Went stale between menu-send and reply, or an unrecognized tap --
+    # re-show the same (patient-scoped) list rather than a dead end.
+    await _start_reschedule_flow_for_patient(
+        wa, sessions, phone, hospital_id, connector, context.get("active_patient_id"), language=language,
+    )
 
 
 async def _handle_awaiting_reschedule_date(
@@ -1276,6 +1502,7 @@ async def _handle_awaiting_reschedule_confirm(
                     department_id=context.get("department_id"),
                     doctor_id=context.get("doctor_id"),
                     scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
+                    patient_id=context.get("active_patient_id"),
                 )
             except IntegrityError:
                 # Someone else grabbed this exact doctor+slot first -- the connector's
@@ -1299,6 +1526,192 @@ async def _handle_awaiting_reschedule_confirm(
     await _send_reschedule_confirm(wa, phone, context, language=language)
 
 
+STATE_AWAITING_VIEW_APPOINTMENT_ACTION = "AWAITING_VIEW_APPOINTMENT_ACTION"
+
+
+async def _start_view_appointments_flow(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+) -> None:
+    """Patient identity SEPARATION (Spec.md Section 0): same "whose
+    appointments" pre-step as cancel/reschedule above, only shown when >1
+    active patient is linked. Relocated here from flows.py (was
+    _send_view_appointments, called directly) so the shared patient
+    selector can reach it without a circular import -- this module never
+    imports flows.py, but the selector needs to route booking, cancel,
+    reschedule, AND view_appointments, so all four now live here."""
+    patients = connector.list_active_patients(hospital_id, phone)
+    if len(patients) > 1:
+        await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "view_appointments", language=language)
+        return
+    await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language)
+
+
+async def _send_view_appointments(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    active_patient_id: int | None = None,
+) -> None:
+    """Item 6 (Spec.md Section 0): each listed appointment is now a tappable
+    row (not just a plain-text summary) -- picking one shows THAT
+    appointment's own Cancel/Reschedule quick actions directly. Patient
+    identity SEPARATION: scoped to `active_patient_id` when given (a
+    specific family member was selected); None means "show everyone linked
+    to this phone" (the natural single-patient case, or the explicit "All"
+    choice from the patient selector), with each row prefixed by its own
+    patient's name whenever more than one patient could plausibly be
+    shown."""
+    appointments = connector.get_upcoming_appointments(hospital_id, phone=phone)
+    patient_names = None
+    if active_patient_id is not None:
+        appointments = [a for a in appointments if a.patient_id == active_patient_id]
+    else:
+        patients = connector.list_active_patients(hospital_id, phone)
+        if len(patients) > 1:
+            patient_names = {p["id"]: p["name"] for p in patients}
+    if not appointments:
+        sessions.reset(hospital_id, phone)
+        await wa.send_text(phone, t("view_appointments_list", language))
+        return
+    rows = []
+    for a in appointments:
+        title = a.doctor_name
+        if patient_names and a.patient_id in patient_names:
+            title = f"{patient_names[a.patient_id]} — {a.doctor_name}"
+        rows.append({
+            "id": _appointment_row_id(a.id),
+            "title": title,
+            "description": f"{a.department_name} — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}",
+        })
+    rows = _cap_rows(rows, "view appointments menu")
+    sessions.set(hospital_id, phone, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, {"active_patient_id": active_patient_id})
+    await wa.send_list(
+        to=phone,
+        body_text=t("view_appointments_header", language),
+        button_text=t("view_appointments_button", language),
+        sections=[{"title": t("your_appointments_section_title", language), "rows": rows}],
+    )
+
+
+async def _handle_awaiting_view_appointment_action(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    appt_id = _parse_appointment_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
+    appt = None
+    if appt_id is not None:
+        appt = next(
+            (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone) if a.id == appt_id), None,
+        )
+    if appt is None:
+        # Stale/unrecognized tap, or the list went stale between send and
+        # reply -- re-show the current (patient-scoped) list rather than a
+        # dead end.
+        await _send_view_appointments(
+            wa, sessions, phone, hospital_id, connector, language=language,
+            active_patient_id=context.get("active_patient_id"),
+        )
+        return
+    sessions.reset(hospital_id, phone)
+    await wa.send_buttons(
+        to=phone,
+        body_text=t("manage_appointment_prompt", language, doctor_name=appt.doctor_name),
+        buttons=[
+            {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
+            {"id": _manage_cancel_id(appt.id), "title": t("cancel_button", language)},
+            {"id": _manage_reschedule_id(appt.id), "title": t("reschedule_short", language)},
+        ],
+    )
+
+
+# --- Manage Patients (Spec.md Section 0) ---
+# View/add/unlink the patients linked to this phone. Add reuses
+# STATE_AWAITING_PATIENT_NAME/AGE (patient_flow_next="manage_patients"),
+# same as booking's implicit-first-profile and selector "+ Add Patient"
+# paths -- see _handle_awaiting_patient_age.
+
+async def _start_manage_patients_flow(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+) -> None:
+    patients = connector.list_active_patients(hospital_id, phone)
+    rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
+    if len(patients) < MAX_ACTIVE_PATIENT_LINKS:
+        rows.append({"id": MANAGE_PATIENTS_ADD_ROW_ID, "title": t("add_patient_option", language)})
+    rows = _cap_rows(rows, "manage patients list")
+    sessions.set(hospital_id, phone, STATE_AWAITING_MANAGE_PATIENTS_ACTION, {})
+    await wa.send_list(
+        to=phone,
+        body_text=t("manage_patients_header", language),
+        button_text=t("manage_patients_button", language),
+        sections=[{"title": t("manage_patients_section_title", language), "rows": rows}],
+    )
+
+
+async def _handle_awaiting_manage_patients_action(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    if reply["type"] == "interactive_reply":
+        rid = reply["id"]
+        if rid == MANAGE_PATIENTS_ADD_ROW_ID:
+            patients = connector.list_active_patients(hospital_id, phone)
+            if len(patients) >= MAX_ACTIVE_PATIENT_LINKS:
+                await wa.send_text(phone, t("too_many_linked_patients", language))
+                await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+                return
+            sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": "manage_patients"})
+            await wa.send_text(phone, t("ask_patient_name", language))
+            return
+        patient_id = _parse_patient_row_id(rid)
+        if patient_id is not None:
+            patients = connector.list_active_patients(hospital_id, phone)
+            match = next((p for p in patients if p["id"] == patient_id), None)
+            if match:
+                sessions.set(
+                    hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM,
+                    {"unlink_patient_id": patient_id, "unlink_patient_name": match["name"]},
+                )
+                await wa.send_buttons(
+                    to=phone,
+                    body_text=t("unlink_patient_confirm", language, patient_name=match["name"]),
+                    buttons=[
+                        {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+                        {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+                    ],
+                )
+                return
+    # Stale/unrecognized tap, or the list went stale between send and reply
+    # -- re-fetch and re-show fresh rather than acting on a stale id.
+    await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+
+
+async def _handle_awaiting_unlink_confirm(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    patient_id = context.get("unlink_patient_id")
+    patient_name = context.get("unlink_patient_name", "")
+    if reply["type"] == "interactive_reply" and patient_id is not None:
+        if reply["id"] == CONFIRM_YES:
+            # Soft-unlink only -- unlink_patient() sets patient_links.unlinked_at
+            # and never touches `patients`/`appointments`, so this patient's
+            # booking history and Patient ID are completely unaffected.
+            connector.unlink_patient(hospital_id, phone, patient_id)
+            await wa.send_text(phone, t("patient_unlinked", language, patient_name=patient_name))
+            await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+            return
+        if reply["id"] == CONFIRM_NO:
+            await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+            return
+    sessions.set(hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM, context)
+    await wa.send_buttons(
+        to=phone,
+        body_text=t("unlink_patient_confirm", language, patient_name=patient_name),
+        buttons=[
+            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+        ],
+    )
+
+
 _HANDLERS = {
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
@@ -1314,6 +1727,10 @@ _HANDLERS = {
     STATE_AWAITING_RESCHEDULE_DATE: _handle_awaiting_reschedule_date,
     STATE_AWAITING_RESCHEDULE_SLOT: _handle_awaiting_reschedule_slot,
     STATE_AWAITING_RESCHEDULE_CONFIRM: _handle_awaiting_reschedule_confirm,
+    STATE_AWAITING_VIEW_APPOINTMENT_ACTION: _handle_awaiting_view_appointment_action,
+    STATE_AWAITING_PATIENT_SELECTION: _handle_awaiting_patient_selection,
+    STATE_AWAITING_MANAGE_PATIENTS_ACTION: _handle_awaiting_manage_patients_action,
+    STATE_AWAITING_UNLINK_CONFIRM: _handle_awaiting_unlink_confirm,
 }
 
 

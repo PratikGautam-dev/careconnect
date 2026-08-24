@@ -35,7 +35,9 @@ import abc
 from datetime import datetime
 
 import db.repository as repo
-from db.repository import Appointment, DuplicateBookingError, Hospital  # noqa: F401 -- DuplicateBookingError
+from db.repository import (  # noqa: F401 -- DuplicateBookingError/TooManyLinkedPatientsError/MAX_ACTIVE_PATIENT_LINKS
+    Appointment, DuplicateBookingError, Hospital, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError,
+)
 # re-exported so core/booking_flow.py can catch it specifically (item 5,
 # Spec.md Section 0) without importing db/repository.py directly, same
 # "no direct db import" rule the module docstring already states for that
@@ -65,10 +67,22 @@ class Connector(abc.ABC):
     def create_booking(
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str, scheduled_at: datetime,
         source: str = "whatsapp", patient_name: str | None = None, patient_age: int | None = None,
+        patient_id: int | None = None,
     ) -> Appointment: ...
 
     @abc.abstractmethod
     def get_patient_info(self, hospital_id: int, phone: str) -> dict | None: ...
+
+    @abc.abstractmethod
+    def list_active_patients(self, hospital_id: int, phone: str) -> list[dict]: ...
+
+    @abc.abstractmethod
+    def create_patient_profile(
+        self, hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
+    ) -> dict: ...
+
+    @abc.abstractmethod
+    def unlink_patient(self, hospital_id: int, phone: str, patient_id: int) -> bool: ...
 
     @abc.abstractmethod
     def cancel_booking(self, hospital_id: int, appointment_id: int) -> None: ...
@@ -82,6 +96,7 @@ class Connector(abc.ABC):
         department_id: str,
         doctor_id: str,
         scheduled_at: datetime,
+        patient_id: int | None = None,
     ) -> Appointment: ...
 
     @abc.abstractmethod
@@ -110,26 +125,45 @@ class Tier1Connector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         return repo.get_slots(hospital_id, doctor_id)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
-            source=source, patient_name=patient_name, patient_age=patient_age,
+            source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
         )
 
     def get_patient_info(self, hospital_id, phone):
         return repo.get_patient_by_phone(hospital_id, phone)
 
+    def list_active_patients(self, hospital_id, phone):
+        return repo.get_active_patients_for_phone(hospital_id, phone)
+
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
+        return repo.create_patient_profile(hospital_id, phone, name, age, relationship_label=relationship_label)
+
+    def unlink_patient(self, hospital_id, phone, patient_id):
+        return repo.unlink_patient(hospital_id, phone, patient_id)
+
     def cancel_booking(self, hospital_id, appointment_id):
         repo.cancel_appointment(hospital_id, appointment_id)
 
-    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at):
+    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
         """Books the new slot BEFORE marking the old appointment rescheduled:
         if someone else grabbed this exact doctor+slot first (IntegrityError,
         left to propagate uncaught to the caller — same as create_booking),
         the patient keeps their original appointment rather than being left
         with neither. This ordering is a deliberate Phase 8 fix, now living
-        here instead of split across two separate core/booking_flow.py calls."""
-        new_appointment = repo.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at)
+        here instead of split across two separate core/booking_flow.py calls.
+
+        Patient identity SEPARATION (Spec.md Section 0): patient_id, when
+        given, is threaded straight through to create_appointment() so the
+        rebooked slot stays tied to the SAME linked patient the original
+        appointment belonged to -- without it, a multi-patient phone
+        rescheduling would have no way to know which family member's
+        appointment this actually is."""
+        new_appointment = repo.create_appointment(
+            hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
+            exclude_appointment_id=old_appointment_id,
+        )
         repo.mark_rescheduled(hospital_id, old_appointment_id)
         return new_appointment
 
@@ -170,16 +204,25 @@ class _UnimplementedTierConnector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         self._not_implemented("get_available_slots")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None):
         self._not_implemented("create_booking")
 
     def get_patient_info(self, hospital_id, phone):
         self._not_implemented("get_patient_info")
 
+    def list_active_patients(self, hospital_id, phone):
+        self._not_implemented("list_active_patients")
+
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
+        self._not_implemented("create_patient_profile")
+
+    def unlink_patient(self, hospital_id, phone, patient_id):
+        self._not_implemented("unlink_patient")
+
     def cancel_booking(self, hospital_id, appointment_id):
         self._not_implemented("cancel_booking")
 
-    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at):
+    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
         self._not_implemented("reschedule_booking")
 
     def get_upcoming_appointments(self, hospital_id, phone=None, offset_hours=None, now=None):

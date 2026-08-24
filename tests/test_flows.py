@@ -65,13 +65,19 @@ class FakeConnector:
     """Minimal stand-in for connectors.Connector -- only the methods the
     router's one-shot features (booking department listing, view_appointments)
     actually call."""
-    def __init__(self, departments=None, appointments=None, patient_info=None):
+    def __init__(self, departments=None, appointments=None, patient_info=None, patients=None):
         self._departments = departments or []
         self._appointments = appointments or []
         # Patient identity/UX follow-up (Spec.md Section 0): _start_booking_flow
         # calls this before showing anything -- None (the default) means a
         # first-time patient, asked for name/age before department selection.
         self._patient_info = patient_info
+        # Patient identity SEPARATION (Spec.md Section 0): list_active_patients
+        # is what _start_booking_flow/_start_cancel_flow/_start_reschedule_flow/
+        # _start_view_appointments_flow actually check now -- an empty list
+        # (the default) means "no linked patients yet", matching the old
+        # patient_info=None default's "first-time patient" behavior.
+        self._patients = patients or []
 
     def get_departments(self, hospital_id):
         return self._departments
@@ -81,6 +87,19 @@ class FakeConnector:
 
     def get_patient_info(self, hospital_id, phone):
         return self._patient_info
+
+    def list_active_patients(self, hospital_id, phone):
+        return self._patients
+
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
+        patient = {"id": len(self._patients) + 1, "name": name, "age": age, "relationship_label": relationship_label}
+        self._patients.append(patient)
+        return patient
+
+    def unlink_patient(self, hospital_id, phone, patient_id):
+        before = len(self._patients)
+        self._patients = [p for p in self._patients if p["id"] != patient_id]
+        return len(self._patients) < before
 
 
 def text_reply(text):
@@ -132,7 +151,7 @@ async def test_menu_only_shows_enabled_features(hospital_id):
     assert len(wa.sent) == 1
     kind, kwargs = wa.sent[0]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_change_language"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
 
 
 @pytest.mark.asyncio
@@ -150,7 +169,7 @@ async def test_unselected_features_dont_appear_in_menu(hospital_id):
     assert "menu_faq_bot" not in ids
     assert "menu_reschedule" not in ids
     assert "menu_cancel" not in ids
-    assert ids == ["menu_book", "menu_change_language"]
+    assert ids == ["menu_book"]
 
 
 @pytest.mark.asyncio
@@ -201,7 +220,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # 14.5 behavior.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_change_language"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
 
     # Now tap "FAQ / Information" -> enters faq_flow's topic loop.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_faq_bot"), connector=connector, enabled_features=enabled)
@@ -215,7 +234,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # just faq_flow's own topic list.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("restart"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_change_language"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
 
 
 @pytest.mark.asyncio
@@ -233,7 +252,7 @@ async def test_tap_for_disabled_feature_falls_back_to_menu(hospital_id):
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book", "menu_change_language"]
+    assert _row_ids(kwargs) == ["menu_book"]
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
@@ -519,62 +538,33 @@ async def test_bot_resumes_for_a_stale_never_resolved_handoff(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_change_language_menu_option_switches_mid_session(hospital_id):
-    """Item 4 (Spec.md Section 0): "Change Language" is always offered on the
-    main menu itself (not gated by enabled_features), and tapping it re-shows
-    the picker without needing a full session reset -- picking Hindi there
-    switches the very next menu to Hindi."""
+async def test_change_language_is_never_shown_on_the_main_menu(hospital_id):
+    """UX follow-up (Spec.md Section 0), per the user's explicit request:
+    "Change Language" removed from the main menu entirely -- CHANGE_LANGUAGE_ROW
+    is never appended anymore, regardless of language_prompt_enabled. The row
+    id/handler are left in the code (harmless, unreachable from a fresh
+    menu) but this proves the row itself is gone, in both the
+    picker-enabled (the old default) and picker-disabled cases."""
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
 
-    # Any unrecognized message at IDLE shows the top-level unified menu.
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hello there"),
         connector=FakeConnector(), enabled_features=["booking"],
     )
     kind, kwargs = wa.sent[0]
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
-    assert flows.CHANGE_LANGUAGE_ROW in row_ids
+    assert flows.CHANGE_LANGUAGE_ROW not in row_ids
 
-    # Tap "Change Language" instead of a feature.
+    wa2 = FakeWhatsAppClient()
+    sessions2 = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(flows.CHANGE_LANGUAGE_ROW),
-        connector=FakeConnector(), enabled_features=["booking"],
-    )
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_LANGUAGE"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-
-    # Pick Hindi -> menu re-shown in Hindi, session language actually changed.
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("lang_hi"),
-        connector=FakeConnector(), enabled_features=["booking"],
-    )
-    assert sessions.get(hospital_id, PHONE)["language"] == "hi"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    assert kwargs["body_text"] == translate("welcome_menu", "hi", hospital_name="the hospital")
-
-
-@pytest.mark.asyncio
-async def test_change_language_row_absent_when_picker_disabled(hospital_id):
-    """A hospital that disabled the language picker entirely
-    (language_prompt_enabled=False, Section 12.13) never sees "Change
-    Language" either -- offering it would contradict the hospital's own
-    single-language setting."""
-    wa = FakeWhatsAppClient()
-    sessions = _sessions_with_english_chosen(hospital_id)
-
-    # The top-level unified menu (not booking_flow's own department list,
-    # which never carried this row at all) is where "Change Language" would
-    # appear if the picker were enabled.
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"),
+        wa2, sessions2, PHONE, hospital_id, text_reply("hi"),
         connector=FakeConnector(), enabled_features=["booking"], language_prompt_enabled=False,
     )
-    kind, kwargs = wa.sent[0]
-    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
-    assert flows.CHANGE_LANGUAGE_ROW not in row_ids
+    kind, kwargs = wa2.sent[0]
+    row_ids2 = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert flows.CHANGE_LANGUAGE_ROW not in row_ids2
 
 
 def test_real_features_are_all_features():
@@ -761,13 +751,17 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 
 
 @pytest.mark.asyncio
-async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id):
-    """A patient who's already booked once (name on file) is never re-asked
-    on a later booking -- the bot should "remember" them. Patient
-    identity/UX follow-up (Spec.md Section 0), confirmed with the user:
-    tapping "Book Appointment" now skips straight to department selection,
-    since name/age is asked first, not after time-slot selection."""
-    department = db.get_departments(hospital_id)[0]
+async def test_a_patients_row_without_a_linked_patient_still_asks_for_name(hospital_id):
+    """Patient identity SEPARATION (Spec.md Section 0), superseding the
+    earlier "ask name every time" round: _start_booking_flow now checks
+    connector.list_active_patients() (patient_links), not a bare `patients`
+    row -- a phone with a `patients` row created via the legacy
+    _upsert_patient() path (the staff portal's own upsert-by-phone
+    semantics, never creates a patient_links row) still has ZERO active
+    linked patients, so it's asked for a name exactly like a genuinely
+    first-time phone. This is the correct behavior, not a regression: a
+    staff-created record isn't automatically "this WhatsApp number's own
+    profile" without an explicit link."""
     connector = flows._DEFAULT_CONNECTOR
     import db.connection as db_connection
     from db.repository import _upsert_patient
@@ -780,31 +774,27 @@ async def test_returning_patient_with_name_on_file_skips_name_prompt(hospital_id
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_DEPARTMENT"  # not AWAITING_PATIENT_NAME
-    assert session["context"]["patient_name"] == "Priya Shah"
-    assert session["context"]["patient_age"] == 29
-    kwargs = _last_list(wa)
-    assert {d["id"] for d in [department]} <= {row["id"] for row in kwargs["sections"][0]["rows"]}
-    assert wa.sent[-1][0] == "buttons"  # the follow-up Back button
+    assert session["state"] == "AWAITING_PATIENT_NAME"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "full name" in kwargs["text"].lower()
 
 
 @pytest.mark.asyncio
-async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospital_id):
-    """Item 10 (Spec.md Section 0): audits that the name/age skip isn't just
-    a within-one-session-object convenience (Section 12.12's race-loser
-    test covers THAT scenario separately) -- a completed booking in one
-    InMemorySessionStore(), then a brand new InMemorySessionStore() instance
-    (a genuinely new day/new session, same phone) must still skip straight
-    to confirmation. connector.get_patient_info() is a pure DB lookup keyed
-    on (hospital_id, phone), independent of session state, so this is
-    expected to already work -- this test proves it rather than assuming it."""
+async def test_a_linked_patient_is_remembered_across_a_genuinely_new_session_object(hospital_id):
+    """Patient identity SEPARATION (Spec.md Section 0): "once per profile,
+    then just select" -- superseding the earlier "ask name every time"
+    round, confirmed with the user as the intended behavior now that real
+    patient_links profiles exist. A phone with exactly one active linked
+    patient auto-selects it with zero added friction, even across a brand
+    new InMemorySessionStore() instance (a genuinely new day/new session,
+    same phone) -- not just a within-one-session-object quirk."""
     department = db.get_departments(hospital_id)[0]
     doctor_id = db.get_doctors(hospital_id, department["id"])[0]["id"]
     connector = flows._DEFAULT_CONNECTOR
 
-    # Session #1: a full booking from scratch, collecting name/age for the
-    # first time -- now asked right after "Book Appointment", before
-    # department selection (Spec.md Section 0's reorder).
+    # Session #1: a full booking from scratch, collecting name/age (creates
+    # the patient's one profile via create_patient_profile()).
     wa1 = FakeWhatsAppClient()
     sessions1 = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
@@ -824,34 +814,18 @@ async def test_name_age_skip_works_across_a_genuinely_new_session_object(hospita
     assert wa1.sent[-1][0] == "buttons"  # booking success
 
     # Session #2: an entirely new session store (nothing shared with
-    # sessions1's in-memory state -- the only thing carrying over is the DB
-    # row _upsert_patient() wrote during session #1's booking), same phone,
-    # a fresh booking for a DIFFERENT slot -- skips straight to department
-    # selection with name/age already on file.
+    # sessions1's in-memory state), same phone -- the one linked patient
+    # from session #1 is auto-selected, straight to department selection,
+    # no name/age re-asked.
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     session2 = sessions2.get(hospital_id, PHONE)
-    assert session2["state"] == "AWAITING_DEPARTMENT"  # NOT AWAITING_PATIENT_NAME
-    assert session2["context"]["patient_name"] == "Priya Shah"
-    assert session2["context"]["patient_age"] == 29
-
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
-    slots2 = db.get_slots(hospital_id, doctor_id)  # first slot is now booked, list has moved on
-    date_str2 = slots2[0]["date"]
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(date_str2), connector=connector, enabled_features=["booking"])
-    slot2 = [s for s in slots2 if s["date"] == date_str2][0]
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(slot2["id"]), connector=connector, enabled_features=["booking"])
-
-    session2 = sessions2.get(hospital_id, PHONE)
-    assert session2["state"] == "AWAITING_CONFIRMATION"
+    assert session2["state"] == "AWAITING_DEPARTMENT"
     assert session2["context"]["patient_name"] == "Priya Shah"
     assert session2["context"]["patient_age"] == 29
     kind, kwargs = wa2.sent[-1]
-    assert kind == "buttons"
-    assert "👤 *Patient:* Priya Shah" in kwargs["body_text"]
-    assert "🎂 *Age:* 29" in kwargs["body_text"]
+    assert kind == "buttons"  # the department list's own follow-up Back button
 
 
 @pytest.mark.asyncio
@@ -1005,7 +979,7 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     sent_body = json.loads(requests[0].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info", "menu_change_language"]
+    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info"]
 
 
 def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_mock):
@@ -1039,7 +1013,7 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
     assert first_resp.status_code == 200
     first_sent = json.loads(httpx_mock.get_requests()[-1].content)
     menu_row_ids = [row["id"] for section in first_sent["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert menu_row_ids == ["menu_faq_bot", "menu_change_language"]
+    assert menu_row_ids == ["menu_faq_bot"]
 
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",

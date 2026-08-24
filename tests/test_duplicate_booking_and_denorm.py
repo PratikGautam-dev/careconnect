@@ -132,6 +132,56 @@ def test_second_booking_same_name_and_age_same_doctor_is_still_blocked(hospital_
     assert exc_info.value.existing_appointment_id == first.id
 
 
+def test_patient_id_duplicate_check_blocks_same_linked_patient_same_doctor(hospital_id):
+    """Patient identity SEPARATION (Spec.md Section 0): when `patient_id` is
+    given (the post-separation WhatsApp path), the duplicate check compares
+    `patient_id` directly instead of the name+age heuristic above -- the
+    same linked patient booking the same doctor twice is still blocked."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot_a, slot_b = _first_two_slots(hospital_id, doctor_id)
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+
+    first = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
+        patient_id=patient["id"],
+    )
+    with pytest.raises(DuplicateBookingError) as exc_info:
+        db.create_appointment(
+            hospital_id, PHONE, "cardiology", doctor_id,
+            datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
+            patient_id=patient["id"],
+        )
+    assert exc_info.value.existing_appointment_id == first.id
+
+
+def test_patient_id_duplicate_check_allows_two_different_linked_patients_same_doctor(hospital_id):
+    """The composability the plan flagged as worth confirming, not assuming:
+    two DIFFERENT patients linked to the same phone (e.g. a parent and a
+    child) booking the SAME doctor must both go through -- the check is
+    keyed on patient_id, not phone, so this is naturally correct once
+    identity is resolved via active_patient_id rather than re-derived from
+    the phone number."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot_a, slot_b = _first_two_slots(hospital_id, doctor_id)
+    parent = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    child = db.create_patient_profile(hospital_id, PHONE, "Priya Kumar", 8)
+
+    first = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
+        patient_id=parent["id"],
+    )
+    second = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
+        patient_id=child["id"],
+    )
+    assert second.id != first.id
+    assert first.patient_id == parent["id"]
+    assert second.patient_id == child["id"]
+
+
 def test_appointment_stores_its_own_patient_age_denormalized(hospital_id):
     """The other half of this follow-up: appointments.patient_age is now
     populated directly, the same way patient_id/patient_name/patient_phone

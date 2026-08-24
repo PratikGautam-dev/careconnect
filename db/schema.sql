@@ -342,6 +342,21 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_display_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_display_id
     ON patients(hospital_id, patient_display_id) WHERE patient_display_id IS NOT NULL;
 
+-- Patient identity SEPARATION (Spec.md Section 0, confirmed with the user via a
+-- reviewed plan before this touched production data): one WhatsApp number can
+-- now link up to 5 patient profiles (a shared family phone), so `patients` is no
+-- longer "one row per (hospital_id, phone)" -- the UNIQUE constraint above that
+-- enforced that is dropped. `phone` stays as a column (still populated at
+-- profile-creation time) but is now INFORMATIONAL ONLY, not authoritative --
+-- "the phone this profile was originally created under." patient_links below is
+-- the real source of truth for phone<->patient associations going forward; every
+-- WhatsApp-facing lookup goes through it (db.get_active_patients_for_phone()),
+-- not patients.phone directly. Existing single-profile-per-phone reads (portal
+-- search, visit-history joins) are left as-is -- still correct for any phone that
+-- only ever has one linked profile, which is every phone that predates this
+-- section (see the patient_links backfill below).
+ALTER TABLE patients DROP CONSTRAINT IF EXISTS patients_hospital_id_phone_key;
+
 -- No reminder_sent_at column (an earlier version had one) — reminder status is
 -- now tracked per-offset in appointment_reminders below, not as a single flag
 -- here. Note CREATE TABLE IF NOT EXISTS won't retroactively drop that column
@@ -470,6 +485,37 @@ CREATE TABLE IF NOT EXISTS patient_id_counters (
     hospital_id INTEGER PRIMARY KEY REFERENCES hospitals(id),
     counter INTEGER NOT NULL DEFAULT 0
 );
+
+-- Patient identity SEPARATION (Spec.md Section 0): links a WhatsApp phone number
+-- to 1-5 patient profiles (a shared family phone booking for a spouse/kids, each
+-- with their own real `patients` row/Patient ID) -- the source of truth for
+-- phone<->patient associations, since `patients.phone` above is now informational
+-- only. Soft-unlink only (unlinked_at set, row never deleted) -- matches this
+-- project's standing no-hard-delete convention (cancel_appointment()'s own
+-- docstring, appointments/handoff_requests' own deleted_at columns) -- unlinking
+-- a patient never touches `patients` or `appointments`, only this row, so
+-- appointment history and the Patient ID are completely unaffected. The 5-active-
+-- link cap is enforced at the application level (db.create_patient_profile(),
+-- pg_advisory_xact_lock-scoped to (hospital_id, whatsapp_phone), the same pattern
+-- create_appointment() already uses for quota enforcement) rather than a DB
+-- trigger -- this project has none anywhere else, confirmed with the user before
+-- choosing this over introducing one.
+CREATE TABLE IF NOT EXISTS patient_links (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    whatsapp_phone TEXT NOT NULL,
+    patient_id INTEGER NOT NULL REFERENCES patients(id),
+    relationship_label TEXT,
+    linked_at TEXT NOT NULL DEFAULT (now()::text),
+    unlinked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_patient_links_active_phone
+    ON patient_links(hospital_id, whatsapp_phone) WHERE unlinked_at IS NULL;
+-- A given patient can't be double-linked to the same phone while both links are
+-- active (defensive -- application code never attempts this, but worth the DB
+-- itself refusing it outright).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_patient_links_active_pair
+    ON patient_links(hospital_id, whatsapp_phone, patient_id) WHERE unlinked_at IS NULL;
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already
