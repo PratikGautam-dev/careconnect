@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AdminSecretGate } from "@/components/admin/AdminSecretGate";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { CheckboxRow } from "@/components/ui/Checkbox";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { adminFetch } from "@/lib/adminAuth";
@@ -23,6 +24,8 @@ type TenantDetail = {
   external_api_key: string;
   has_portal_password: boolean;
   is_active: boolean;
+  enabled_features: string[];
+  feature_default_labels: Record<string, string>;
 };
 
 type FormState = {
@@ -37,6 +40,7 @@ type FormState = {
   data_tier: string;
   api_base_url: string;
   api_key: string;
+  enabled_features: string[];
 };
 
 function EditTenantForm({ tenantId }: { tenantId: number }) {
@@ -67,8 +71,19 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
       data_tier: t.data_tier,
       api_base_url: t.external_api_base_url,
       api_key: t.external_api_key,
+      enabled_features: t.enabled_features,
     });
   }, [tenantId]);
+
+  function toggleFeature(key: string, checked: boolean) {
+    if (!form) return;
+    setForm({
+      ...form,
+      enabled_features: checked
+        ? [...form.enabled_features, key]
+        : form.enabled_features.filter((k) => k !== key),
+    });
+  }
 
   useEffect(() => {
     load();
@@ -182,6 +197,24 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 <option value="tier2">Tier 2 — external API</option>
                 <option value="tier3">Tier 3 — direct database</option>
               </select>
+            </Field>
+
+            <Field
+              label="Enabled WhatsApp features"
+              htmlFor="enabled_features"
+              hint="Only set once, at onboarding -- this is the one place to change it afterward. A hospital's own /portal/settings can rename a label for an already-enabled feature, but can't turn one on or off."
+            >
+              <div id="enabled_features" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
+                {Object.entries(tenant.feature_default_labels).map(([key, label]) => (
+                  <CheckboxRow
+                    key={key}
+                    checked={form.enabled_features.includes(key)}
+                    onChange={(checked) => toggleFeature(key, checked)}
+                  >
+                    {label}
+                  </CheckboxRow>
+                ))}
+              </div>
             </Field>
 
             {form.data_tier === "tier2" && (

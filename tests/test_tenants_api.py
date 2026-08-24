@@ -81,6 +81,63 @@ def test_update_changes_the_correct_fields_and_keeps_blank_secret_unchanged(hosp
     assert sorted(updated.reminder_offsets_hours) == [2, 48]
 
 
+def test_update_can_enable_a_new_feature_for_an_existing_tenant(hospital_id):
+    """Feature-toggle follow-up (Spec.md Section 0): enabled_features was
+    previously only ever set once, at onboarding, with no way anywhere in
+    this app to turn a feature on for an already-onboarded tenant -- this
+    is the fix, an operator can now toggle any REAL_FEATURES key here."""
+    before = db.get_hospital(hospital_id)
+    assert "manage_patients" not in before.enabled_features
+
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+        "name": before.name,
+        "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
+        "data_tier": "tier1",
+        "enabled_features": [*before.enabled_features, "manage_patients"],
+    })
+    assert resp.status_code == 200, resp.text
+    updated = db.get_hospital(hospital_id)
+    assert "manage_patients" in updated.enabled_features
+    for key in before.enabled_features:
+        assert key in updated.enabled_features
+
+
+def test_update_omitting_enabled_features_keeps_the_current_value(hospital_id):
+    """Same "blank/omitted means keep current" rule every other field on
+    this endpoint already follows (blank token/secret/password) -- a
+    request that doesn't mention enabled_features at all (any caller
+    predating this field) must not silently wipe it to empty."""
+    before = db.get_hospital(hospital_id)
+    assert before.enabled_features  # the seeded hospital has some enabled
+
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+        "name": before.name,
+        "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
+        "data_tier": "tier1",
+    })
+    assert resp.status_code == 200, resp.text
+    updated = db.get_hospital(hospital_id)
+    assert sorted(updated.enabled_features) == sorted(before.enabled_features)
+
+
+def test_update_with_explicit_empty_enabled_features_disables_everything(hospital_id):
+    """The other half of the same distinction: an explicit [] (every
+    checkbox unticked in the UI) IS a deliberate "disable everything" and
+    must be honored, not treated the same as "field not sent.\""""
+    before = db.get_hospital(hospital_id)
+    assert before.enabled_features
+
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+        "name": before.name,
+        "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
+        "data_tier": "tier1",
+        "enabled_features": [],
+    })
+    assert resp.status_code == 200, resp.text
+    updated = db.get_hospital(hospital_id)
+    assert updated.enabled_features == []
+
+
 def test_update_uniqueness_constraint_enforced_on_phone_number_id_change(hospital_id, second_hospital_id):
     hosp1_before = db.get_hospital(hospital_id)
     resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={

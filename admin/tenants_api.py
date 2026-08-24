@@ -27,7 +27,9 @@ from pydantic import BaseModel
 import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _VALID_TIERS, _mask_secret, _parse_offsets
+from core.translations import t
 from db.connection import IntegrityError
+from flows import _FEATURE_MENU, REAL_FEATURES
 
 router = APIRouter()
 
@@ -80,6 +82,17 @@ def _tenant_detail(h) -> dict:
         # existed (hospital #1, DaaPrime), which still fall back to
         # portal_password_hash login until an owner is assigned below.
         "owners": [{"id": u.id, "email": u.email, "name": u.name} for u in db.get_owners_for_hospital(h.id)],
+        # Feature-toggle follow-up (Spec.md Section 0): enabled_features was
+        # only ever SET once, at onboarding -- confirmed there was no way
+        # anywhere in this app to turn a feature on/off for an
+        # already-onboarded tenant afterward (portal_api.py's own settings
+        # endpoint deliberately never touches it, grouping it with
+        # credentials as operator-only). This is the fix -- an operator can
+        # now toggle any REAL_FEATURES key here. feature_default_labels
+        # mirrors portal_api.py's own settings endpoint, for a readable
+        # checklist label per key.
+        "enabled_features": h.enabled_features,
+        "feature_default_labels": {key: t(f"feature_{key}", "en") for key in REAL_FEATURES},
     }
 
 
@@ -152,6 +165,7 @@ class TenantUpdatePayload(BaseModel):
     data_tier: str = "tier1"
     api_base_url: str = ""
     api_key: str = ""
+    enabled_features: list[str] = []
 
 
 @router.post("/api/admin/tenants/{tenant_id}")
@@ -179,6 +193,25 @@ async def update_tenant(
 
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
+
+    # "Omitted from the request body" (any caller that predates this field,
+    # or a partial direct API call) keeps the CURRENT value unchanged --
+    # same "don't silently clobber a field this request didn't mean to
+    # touch" rule every other field on this endpoint already follows
+    # (blank token/secret/password = keep current). Checked via
+    # model_fields_set, not `payload.enabled_features` being falsy, since an
+    # explicit [] (every checkbox unticked) is a real, deliberate "disable
+    # everything" and must NOT be treated the same as "field not sent."
+    # Whichever value is used, filtered/reordered against _FEATURE_MENU's
+    # own fixed display order (a plain set has none) and REAL_FEATURES (the
+    # same "silently drop a stray/typo'd key" rule portal_api.py's own
+    # feature_labels validation already uses) so re-saving never scrambles
+    # the order the WhatsApp menu actually renders features in.
+    if "enabled_features" in payload.model_fields_set:
+        submitted = set(payload.enabled_features)
+    else:
+        submitted = set(hospital.enabled_features)
+    enabled_features = [key for key in _FEATURE_MENU if key in submitted and key in REAL_FEATURES]
 
     offsets = _parse_offsets(payload.reminder_offsets_hours)
     stored_api_base_url = payload.api_base_url.strip() or None if payload.data_tier == "tier2" else None
@@ -212,7 +245,7 @@ async def update_tenant(
             external_api_base_url=stored_api_base_url,
             external_api_key=stored_api_key,
             portal_password_hash=new_portal_password_hash,
-            enabled_features=hospital.enabled_features,
+            enabled_features=enabled_features,
             feature_labels=hospital.feature_labels,
             closing_message_text=hospital.closing_message_text,
             business_hours_text=hospital.business_hours_text,

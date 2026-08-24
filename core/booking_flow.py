@@ -124,7 +124,7 @@ _HISTORY_KEY = "_history"
 # frame is being restored -- once collected, the patient's own name/age
 # doesn't depend on which department/doctor/date/time they end up with, and
 # older frames (captured before name/age were ever asked) never have them.
-_PRESERVE_ACROSS_BACK = ("patient_name", "patient_age")
+_PRESERVE_ACROSS_BACK = ("patient_name", "patient_age", "active_patient_id")
 
 MIN_PATIENT_AGE = 0
 MAX_PATIENT_AGE = 120
