@@ -178,6 +178,10 @@ def _patient_json(p: dict) -> dict:
         "patient_display_id": p.get("patient_display_id"),
         "date_of_birth": p.get("date_of_birth"), "gender": p.get("gender"), "address": p.get("address"),
         "created_at": p["created_at"],
+        # CareConnect architecture doc alignment (Spec.md Section 0), Section
+        # 18's Patient Master state model -- "active" for every patient that
+        # predates this column too (db/schema.sql's own default).
+        "status": p.get("status", "active"),
     }
 
 
@@ -213,6 +217,24 @@ async def portal_update_patient(patient_id: int, payload: dict, authorization: s
         gender=(payload or {}).get("gender") or None,
         address=(payload or {}).get("address") or None,
     )
+    if updated is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    return JSONResponse({"patient": _patient_json(updated)})
+
+
+@router.post("/api/portal/patients/{patient_id}/status")
+async def portal_set_patient_status(patient_id: int, payload: dict, authorization: str | None = Header(default=None)):
+    """CareConnect architecture doc alignment (Spec.md Section 0), Section
+    18: staff-side way to block/reactivate a patient record -- a hospital-
+    level fact about the PATIENT, independent of any phone's own link to
+    them (db.set_patient_status()'s own docstring). "active" un-blocks."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    status = (payload or {}).get("status")
+    if status not in db.PATIENT_STATUSES:
+        return JSONResponse({"error": f"status must be one of {db.PATIENT_STATUSES}."}, status_code=400)
+    updated = db.set_patient_status(hospital.id, patient_id, status)
     if updated is None:
         return JSONResponse({"error": "No such patient."}, status_code=404)
     return JSONResponse({"patient": _patient_json(updated)})
@@ -958,6 +980,12 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             "default_language": hospital.default_language,
             "language_prompt_enabled": hospital.language_prompt_enabled,
             "session_timeout_minutes": hospital.session_timeout_minutes or 30,
+            # CareConnect architecture doc alignment (Spec.md Section 0):
+            # unlike enabled_features (operator-only, /admin/edit-tenant),
+            # these two ARE genuine self-serve bot customization -- same
+            # category as closing_message_text/business_hours_text above.
+            "require_patient_confirmation": hospital.require_patient_confirmation,
+            "privacy_notice_text": hospital.privacy_notice_text or "",
         },
         # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
         # -- rules out any browser/CDN-level HTTP caching of this
@@ -1030,6 +1058,8 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         default_language=default_language,
         language_prompt_enabled=bool(payload.get("language_prompt_enabled", True)),
         session_timeout_minutes=session_timeout_minutes,
+        require_patient_confirmation=bool(payload.get("require_patient_confirmation", False)),
+        privacy_notice_text=(payload.get("privacy_notice_text") or "").strip() or None,
     )
     return JSONResponse({"ok": True})
 

@@ -37,8 +37,9 @@ export type FeatureKey =
   | "reschedule"
   | "cancel"
   | "view_appointments"
-  | "my_details"
+  | "reports_prescriptions"
   | "manage_patients"
+  | "consent_privacy"
   | "hospital_info"
   | "reception_handoff"
   | "faq";
@@ -131,8 +132,9 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   reschedule: "Reschedule Appointment",
   cancel: "Cancel Appointment",
   view_appointments: "View My Appointments",
-  my_details: "My Details",
+  reports_prescriptions: "Reports & Prescriptions",
   manage_patients: "Manage Patients",
+  consent_privacy: "Consent & Privacy",
   hospital_info: "Hospital Information",
   reception_handoff: "Talk to Reception",
   faq: "FAQ / Information Bot",

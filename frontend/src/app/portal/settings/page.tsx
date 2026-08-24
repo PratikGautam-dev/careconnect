@@ -25,6 +25,9 @@ type Settings = {
   default_language: "en" | "hi";
   language_prompt_enabled: boolean;
   session_timeout_minutes: number;
+  // CareConnect architecture doc alignment (Spec.md Section 0).
+  require_patient_confirmation: boolean;
+  privacy_notice_text: string;
 };
 
 const FEATURE_DISPLAY_NAMES: Record<string, string> = {
@@ -32,6 +35,9 @@ const FEATURE_DISPLAY_NAMES: Record<string, string> = {
   reschedule: "Reschedule Appointment",
   cancel: "Cancel Appointment",
   view_appointments: "My Appointments",
+  reports_prescriptions: "Reports & Prescriptions",
+  manage_patients: "Manage Patients",
+  consent_privacy: "Consent & Privacy",
   hospital_info: "Hospital Information",
   reception_handoff: "Talk to Reception",
   faq: "FAQ / Information",
@@ -232,6 +238,35 @@ export default function PortalSettingsPage() {
                   max={120}
                   value={settings.session_timeout_minutes}
                   onChange={(e) => setSettings({ ...settings, session_timeout_minutes: Number(e.target.value) })}
+                />
+              </Field>
+            </Card>
+
+            <Card className="p-space-5">
+              <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Patient confirmation</h2>
+              <p className="mb-space-3 text-[12.5px] text-ink-400">
+                By default, a phone with exactly one linked patient skips straight to the menu -- zero extra taps. Turn this on to
+                require an explicit &quot;Continue?&quot; confirmation even then.
+              </p>
+              <CheckboxRow
+                checked={settings.require_patient_confirmation}
+                onChange={(checked) => setSettings({ ...settings, require_patient_confirmation: checked })}
+              >
+                Require explicit confirmation before entering the menu, even for a single linked patient
+              </CheckboxRow>
+            </Card>
+
+            <Card className="p-space-5">
+              <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Privacy notice</h2>
+              <p className="mb-space-3 text-[12.5px] text-ink-400">
+                Shown on the &quot;Consent &amp; Privacy&quot; menu item, when enabled. Leave blank to show a generic default notice.
+              </p>
+              <Field label="Privacy notice text" htmlFor="privacy_notice_text">
+                <Textarea
+                  id="privacy_notice_text"
+                  rows={4}
+                  value={settings.privacy_notice_text}
+                  onChange={(e) => setSettings({ ...settings, privacy_notice_text: e.target.value })}
                 />
               </Field>
             </Card>

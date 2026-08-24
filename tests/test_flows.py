@@ -27,6 +27,7 @@ import pytest
 
 import db.repository as db
 import flows
+import core.patient_identity as patient_identity
 from core.history import InMemorySessionStore
 from core.translations import t as translate
 
@@ -61,10 +62,28 @@ class FakeWhatsAppClient:
         self.sent.append(("buttons", {"to": to, "body_text": body_text, "buttons": buttons}))
 
 
+_DEFAULT_FAKE_PATIENT = {
+    "id": 1, "name": "Test Patient", "age": 30, "patient_display_id": "PAT-TEST-0001",
+    "relationship_label": "Self",
+}
+
+
 class FakeConnector:
     """Minimal stand-in for connectors.Connector -- only the methods the
     router's one-shot features (booking department listing, view_appointments)
-    actually call."""
+    actually call.
+
+    CareConnect architecture doc alignment (Spec.md Section 0): patients
+    defaults to ONE already-linked patient (not empty) -- since patient
+    identity is now resolved BEFORE the main menu for every conversation,
+    an empty default would mean every single test in this file (most of
+    which are about menu/feature-dispatch behavior, not patient identity
+    itself) would first hit the registration flow instead of the menu.
+    Zero-friction single-patient auto-continue (Section 11's default, no
+    confirmation) means a session starts fully resolved with no extra
+    round-trip either way -- pass patients=[] explicitly for a test that
+    genuinely wants the 0-linked-patients registration path, or a custom
+    list for multi-patient scenarios."""
     def __init__(self, departments=None, appointments=None, patient_info=None, patients=None):
         self._departments = departments or []
         self._appointments = appointments or []
@@ -72,12 +91,8 @@ class FakeConnector:
         # calls this before showing anything -- None (the default) means a
         # first-time patient, asked for name/age before department selection.
         self._patient_info = patient_info
-        # Patient identity SEPARATION (Spec.md Section 0): list_active_patients
-        # is what _start_booking_flow/_start_cancel_flow/_start_reschedule_flow/
-        # _start_view_appointments_flow actually check now -- an empty list
-        # (the default) means "no linked patients yet", matching the old
-        # patient_info=None default's "first-time patient" behavior.
-        self._patients = patients or []
+        self._patients = [dict(_DEFAULT_FAKE_PATIENT)] if patients is None else patients
+        self._consent = {}
 
     def get_departments(self, hospital_id):
         return self._departments
@@ -92,7 +107,19 @@ class FakeConnector:
         return self._patients
 
     def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
-        patient = {"id": len(self._patients) + 1, "name": name, "age": age, "relationship_label": relationship_label}
+        next_id = (max((p["id"] for p in self._patients), default=0)) + 1
+        patient = {
+            "id": next_id, "name": name, "age": age, "relationship_label": relationship_label,
+            "patient_display_id": f"PAT-TEST-{next_id:04d}",
+        }
+        self._patients.append(patient)
+        return patient
+
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
+        return None
+
+    def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
+        patient = {"id": patient_id, "name": "Linked Patient", "age": None, "patient_display_id": f"PAT-TEST-{patient_id:04d}", "relationship_label": relationship_label}
         self._patients.append(patient)
         return patient
 
@@ -100,6 +127,21 @@ class FakeConnector:
         before = len(self._patients)
         self._patients = [p for p in self._patients if p["id"] != patient_id]
         return len(self._patients) < before
+
+    def validate_active_patient_link(self, hospital_id, phone, patient_id):
+        return any(p["id"] == patient_id for p in self._patients)
+
+    def get_patient_link_consent(self, hospital_id, phone, patient_id):
+        if not any(p["id"] == patient_id for p in self._patients):
+            return None
+        return self._consent.get(patient_id, {"service_consent": True, "marketing_consent": False})
+
+    def set_marketing_consent(self, hospital_id, phone, patient_id, consented):
+        if not any(p["id"] == patient_id for p in self._patients):
+            return False
+        current = self._consent.get(patient_id, {"service_consent": True, "marketing_consent": False})
+        self._consent[patient_id] = {**current, "marketing_consent": consented}
+        return True
 
 
 def text_reply(text):
@@ -200,12 +242,19 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     connector = FakeConnector(departments=departments)
     enabled = ["booking", "faq"]
 
+    # CareConnect architecture doc alignment (Spec.md Section 0): patient
+    # identity is now resolved before the FIRST menu is ever shown, not
+    # lazily when "Book Appointment" is tapped -- FakeConnector's single
+    # default linked patient auto-continues with zero friction, so the
+    # very first message already lands on the resolved menu.
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=enabled)
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+
     # Tap "Book Appointment" -> enters booking_flow's own state machine --
-    # name/age first (Spec.md Section 0's reorder), then the department list.
+    # straight to department selection, since name/age/relationship are
+    # already resolved.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=enabled)
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=enabled)
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=enabled)
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kwargs = _last_list(wa)
     assert {d["id"] for d in departments} == set(_row_ids(kwargs))
     # "Go back" navigation is its own follow-up buttons message now (Spec.md
@@ -612,7 +661,11 @@ async def test_selecting_english_then_shows_menu_in_english(hospital_id):
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     assert "City Clinic" in kwargs["body_text"]
-    assert kwargs["body_text"] == translate("welcome_menu", "en", hospital_name="City Clinic")
+    # CareConnect architecture doc alignment (Spec.md Section 0): the main
+    # menu now leads with a "Patient: X / MRN: Y" header (Section 20) --
+    # endswith() rather than == since this test is about the LANGUAGE the
+    # welcome text renders in, not the header's own content.
+    assert kwargs["body_text"].endswith(translate("welcome_menu", "en", hospital_name="City Clinic"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "en"
@@ -634,7 +687,7 @@ async def test_selecting_hindi_then_shows_menu_in_hindi(hospital_id):
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert kwargs["body_text"] == translate("welcome_menu", "hi", hospital_name="City Clinic")
+    assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="City Clinic"))
     row = kwargs["sections"][0]["rows"][0]
     assert row["title"] == translate("feature_booking", "hi")
     session = sessions.get(hospital_id, PHONE)
@@ -674,19 +727,34 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     sessions = InMemorySessionStore()
     connector = flows._DEFAULT_CONNECTOR
 
+    # CareConnect architecture doc alignment (Spec.md Section 0): a
+    # genuinely fresh phone (0 linked patients) is now resolved BEFORE the
+    # main menu is ever shown -- name/age/relationship registration happens
+    # right after language selection, not after tapping "Book Appointment".
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
     kind, kwargs = wa.sent[-1]
     assert kwargs["text"] == translate("ask_patient_name", "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=["booking"])
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_AGE
     kind, kwargs = wa.sent[-1]
     assert kwargs["text"] == translate("ask_patient_age", "hi", patient_name="Ravi Kumar")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_RELATIONSHIP
+    kwargs = _last_list(wa)
+    assert kwargs["body_text"] == translate("ask_relationship", "hi")
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("idrel_self"), connector=connector, enabled_features=["booking"])
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "IDLE"
+    assert session["language"] == "hi"
+    kwargs = _last_list(wa)
+    assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="the hospital"))
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kwargs = _last_list(wa)
     assert kwargs["body_text"] == translate("select_department", "hi")
@@ -914,7 +982,7 @@ async def test_hindi_reset_keyword_escapes_mid_flow_and_stays_in_hindi(hospital_
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"  # straight back to the Hindi menu, not the language picker again
-    assert kwargs["body_text"] == translate("welcome_menu", "hi", hospital_name="City Clinic")
+    assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="City Clinic"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"
@@ -962,6 +1030,11 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     """hospital_id's seeded row is exactly the flow_type='booking' -> migrated
     case (SPEC Section 14.5) -- proves the live webhook path shows its
     migrated enabled_features menu, not the old hardcoded 4-item one."""
+    # CareConnect architecture doc alignment (Spec.md Section 0): patient
+    # identity is resolved before the main menu -- seed one linked patient
+    # for this phone so first contact lands directly on the menu (the
+    # zero-friction default), matching this test's own actual point.
+    db.create_patient_profile(hospital_id, "5490001234", "Test Patient", 30, relationship_label="Self")
     import core.main as m
     m.SESSIONS.set(hospital_id, "5490001234", "IDLE", {}, language="en")  # language already chosen -- see test_language_picker tests below for that step itself
     httpx_mock.add_response(
@@ -993,6 +1066,9 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
         portal_password_hash=h.portal_password_hash, enabled_features=["faq"],
     )
     db.create_faq_topic(hospital_id, "Hours", "We're open Mon-Sat, 9-6.")
+    # CareConnect architecture doc alignment (Spec.md Section 0): see the
+    # sibling test above for why this is seeded.
+    db.create_patient_profile(hospital_id, "5490001234", "Test Patient", 30, relationship_label="Self")
 
     import core.main as m
     m.SESSIONS.set(hospital_id, "5490001234", "IDLE", {}, language="en")  # language already chosen -- see test_language_picker tests below for that step itself

@@ -19,6 +19,7 @@ import pytest
 
 import db.repository as db
 import flows
+import core.patient_identity as patient_identity
 from core.history import InMemorySessionStore
 
 PHONE = "5491112345678"
@@ -120,18 +121,25 @@ async def test_adding_a_second_through_fifth_patient_works(hospital_id):
             wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"),
             connector=connector, enabled_features=["manage_patients"],
         )
-        assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_MANAGE_PATIENTS_ACTION"
+        assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
         row_ids = _row_ids(_last_list(wa))
-        assert "manage_add_patient" in row_ids
+        assert patient_identity.MANAGE_ADD_ROW_ID in row_ids
         await flows.handle_incoming(
-            wa, sessions, PHONE, hospital_id, tap("manage_add_patient"),
+            wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
             connector=connector, enabled_features=["manage_patients"],
         )
-        assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
+        assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
         await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(name), connector=connector, enabled_features=["manage_patients"])
         await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["manage_patients"])
+        # Structured relationship field (Section 17) -- required before the
+        # profile is actually created.
+        assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_RELATIONSHIP
+        await flows.handle_incoming(
+            wa, sessions, PHONE, hospital_id, tap("idrel_daughter" if age < 18 else "idrel_other"),
+            connector=connector, enabled_features=["manage_patients"],
+        )
         # Lands back on the Manage Patients list, patient added.
-        assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_MANAGE_PATIENTS_ACTION"
+        assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
         linked = connector.list_active_patients(hospital_id, PHONE)
         assert len(linked) == i
         assert any(p["name"] == name for p in linked)
@@ -167,9 +175,9 @@ async def test_manage_patients_add_is_blocked_at_the_cap_with_a_clear_message(ho
         wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"),
         connector=connector, enabled_features=["manage_patients"],
     )
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_MANAGE_PATIENTS_ACTION"
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
     row_ids = _row_ids(_last_list(wa))
-    assert "manage_add_patient" not in row_ids
+    assert patient_identity.MANAGE_ADD_ROW_ID not in row_ids
 
 
 @pytest.mark.asyncio
@@ -276,13 +284,13 @@ async def test_unlinking_a_patient_via_manage_patients_does_not_delete_their_his
         wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"),
         connector=connector, enabled_features=["manage_patients"],
     )
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_MANAGE_PATIENTS_ACTION"
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(f"patient_{patient['id']}"),
+        wa, sessions, PHONE, hospital_id, tap(f"idpat_{patient['id']}"),
         connector=connector, enabled_features=["manage_patients"],
     )
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_UNLINK_CONFIRM"
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_UNLINK_CONFIRM
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap("confirm"),

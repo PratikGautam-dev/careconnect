@@ -163,6 +163,31 @@ def _backfill_patient_links(conn) -> None:
     conn.commit()
 
 
+def _backfill_reports_prescriptions_feature(conn) -> None:
+    """CareConnect architecture doc alignment (Spec.md Section 0): "my_details"
+    renamed to "reports_prescriptions" (Section 20's exact menu item) --
+    the underlying implementation is unchanged, just the feature KEY.
+    Plain string REPLACE on the raw JSON-encoded TEXT columns (both
+    enabled_features, a JSON array member, and feature_labels, a JSON
+    object key) is correct here specifically because "my_details" only
+    ever appears as a full quoted JSON string/key, never as a substring of
+    anything else -- and is naturally idempotent, since the WHERE clause
+    finds nothing left to touch on a second run once every hospital's
+    already been converted."""
+    # %% (not %) -- db/connection.py's execute() always passes a params
+    # tuple to psycopg2, which treats a bare % in the query as the start of
+    # its own substitution syntax even with nothing to substitute.
+    conn.execute(
+        "UPDATE hospitals SET enabled_features = REPLACE(enabled_features, '\"my_details\"', '\"reports_prescriptions\"') "
+        "WHERE enabled_features LIKE '%%my_details%%'"
+    )
+    conn.execute(
+        "UPDATE hospitals SET feature_labels = REPLACE(feature_labels, '\"my_details\"', '\"reports_prescriptions\"') "
+        "WHERE feature_labels LIKE '%%my_details%%'"
+    )
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -204,6 +229,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_appointment_patient_age(conn)
     _backfill_patient_display_ids(conn)
     _backfill_patient_links(conn)
+    _backfill_reports_prescriptions_feature(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

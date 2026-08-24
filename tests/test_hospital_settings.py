@@ -51,12 +51,21 @@ def _english_session(hospital_id, phone=PHONE):
     return sessions
 
 
+def _seed_default_patient(hospital_id, phone=PHONE):
+    """CareConnect architecture doc alignment (Spec.md Section 0): patient
+    identity is now resolved before the main menu -- seed one linked
+    patient so these tests (about menu/settings behavior, not patient
+    identity itself) land directly on the menu with zero friction."""
+    return db.create_patient_profile(hospital_id, phone, "Test Patient", 30, relationship_label="Self")
+
+
 # --- Feature menu labels ---
 
 @pytest.mark.asyncio
 async def test_custom_feature_label_overrides_default_in_menu(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _english_session(hospital_id)
+    _seed_default_patient(hospital_id)
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
@@ -77,6 +86,7 @@ async def test_custom_feature_label_overrides_default_in_menu(hospital_id):
 async def test_no_custom_label_falls_back_to_default(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _english_session(hospital_id)
+    _seed_default_patient(hospital_id)
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
@@ -198,6 +208,7 @@ async def test_no_business_hours_configured_leaves_hospital_info_reply_unchanged
 async def test_language_prompt_disabled_skips_picker_and_uses_default_language(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
+    _seed_default_patient(hospital_id)
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),

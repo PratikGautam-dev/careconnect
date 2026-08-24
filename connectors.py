@@ -35,8 +35,9 @@ import abc
 from datetime import datetime
 
 import db.repository as repo
-from db.repository import (  # noqa: F401 -- DuplicateBookingError/TooManyLinkedPatientsError/MAX_ACTIVE_PATIENT_LINKS
-    Appointment, DuplicateBookingError, Hospital, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError,
+from db.repository import (  # noqa: F401 -- DuplicateBookingError/TooManyLinkedPatientsError/MAX_ACTIVE_PATIENT_LINKS/RELATIONSHIP_OPTIONS
+    Appointment, DuplicateBookingError, Hospital, MAX_ACTIVE_PATIENT_LINKS, RELATIONSHIP_OPTIONS,
+    TooManyLinkedPatientsError,
 )
 # re-exported so core/booking_flow.py can catch it specifically (item 5,
 # Spec.md Section 0) without importing db/repository.py directly, same
@@ -83,6 +84,23 @@ class Connector(abc.ABC):
 
     @abc.abstractmethod
     def unlink_patient(self, hospital_id: int, phone: str, patient_id: int) -> bool: ...
+
+    @abc.abstractmethod
+    def find_potential_duplicate_patient(self, hospital_id: int, phone: str, name: str, age: int | None) -> dict | None: ...
+
+    @abc.abstractmethod
+    def link_existing_patient(
+        self, hospital_id: int, phone: str, patient_id: int, relationship_label: str | None = None,
+    ) -> dict: ...
+
+    @abc.abstractmethod
+    def validate_active_patient_link(self, hospital_id: int, phone: str, patient_id: int) -> bool: ...
+
+    @abc.abstractmethod
+    def get_patient_link_consent(self, hospital_id: int, phone: str, patient_id: int) -> dict | None: ...
+
+    @abc.abstractmethod
+    def set_marketing_consent(self, hospital_id: int, phone: str, patient_id: int, consented: bool) -> bool: ...
 
     @abc.abstractmethod
     def cancel_booking(self, hospital_id: int, appointment_id: int) -> None: ...
@@ -142,6 +160,21 @@ class Tier1Connector(Connector):
 
     def unlink_patient(self, hospital_id, phone, patient_id):
         return repo.unlink_patient(hospital_id, phone, patient_id)
+
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
+        return repo.find_potential_duplicate_patient(hospital_id, phone, name, age)
+
+    def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
+        return repo.link_existing_patient(hospital_id, phone, patient_id, relationship_label=relationship_label)
+
+    def validate_active_patient_link(self, hospital_id, phone, patient_id):
+        return repo.validate_active_patient_link(hospital_id, phone, patient_id)
+
+    def get_patient_link_consent(self, hospital_id, phone, patient_id):
+        return repo.get_patient_link_consent(hospital_id, phone, patient_id)
+
+    def set_marketing_consent(self, hospital_id, phone, patient_id, consented):
+        return repo.set_marketing_consent(hospital_id, phone, patient_id, consented)
 
     def cancel_booking(self, hospital_id, appointment_id):
         repo.cancel_appointment(hospital_id, appointment_id)
@@ -218,6 +251,21 @@ class _UnimplementedTierConnector(Connector):
 
     def unlink_patient(self, hospital_id, phone, patient_id):
         self._not_implemented("unlink_patient")
+
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
+        self._not_implemented("find_potential_duplicate_patient")
+
+    def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
+        self._not_implemented("link_existing_patient")
+
+    def validate_active_patient_link(self, hospital_id, phone, patient_id):
+        self._not_implemented("validate_active_patient_link")
+
+    def get_patient_link_consent(self, hospital_id, phone, patient_id):
+        self._not_implemented("get_patient_link_consent")
+
+    def set_marketing_consent(self, hospital_id, phone, patient_id, consented):
+        self._not_implemented("set_marketing_consent")
 
     def cancel_booking(self, hospital_id, appointment_id):
         self._not_implemented("cancel_booking")

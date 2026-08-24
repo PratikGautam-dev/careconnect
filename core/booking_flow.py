@@ -316,6 +316,42 @@ def _append_closing_message(text: str, closing_message_text: str | None) -> str:
     return f"{text}\n\n{closing_message_text}"
 
 
+async def _reject_if_patient_link_invalid(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, patient_id: int | None, connector: Connector,
+    language: str = "en",
+) -> bool:
+    """CareConnect architecture doc alignment (Spec.md Section 0), Section
+    14's patient-context validation -- re-checked here, right before the
+    actual WRITE, not just at selection time: a link resolved several
+    messages ago in a multi-step flow could have been unlinked (or the
+    patient blocked) in between.
+
+    Deliberately called ONLY at booking confirmation (context["active_patient_id"],
+    always freshly resolved THIS session by core/patient_identity.py) --
+    NOT at cancel/reschedule confirmation, even though those also
+    conceptually touch a patient_id: their context/`appt.patient_id`
+    predates this feature for any appointment created before a hospital's
+    patient-linking migration ran, or created via the staff portal (which
+    never creates a patient_links row at all, only a bare `patients` row via
+    _upsert_patient()) -- re-validating THAT patient_id here would
+    incorrectly block a patient from cancelling/rescheduling their own
+    completely legitimate, pre-existing appointment. Booking confirmation
+    has no such legacy-data ambiguity: active_patient_id there is only ever
+    set by a resolution that just happened in this exact conversation.
+
+    Returns True (and has already reset the session + replied) if the check
+    fails and the caller should stop; False if there's nothing to check
+    (patient_id is None) or the link is still genuinely valid."""
+    if patient_id is None:
+        return False
+    if connector.validate_active_patient_link(hospital_id, phone, patient_id):
+        return False
+    sessions.clear_active_patient(hospital_id, phone)
+    sessions.reset(hospital_id, phone)
+    await wa.send_text(phone, t("patient_context_invalid", language))
+    return True
+
+
 # --- Outgoing menu builders ---
 
 async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, language: str = "en") -> None:
@@ -347,8 +383,20 @@ async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int
 
 async def _start_booking_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    active_patient_id: int | None = None,
 ) -> None:
-    """Patient identity/UX follow-up (Spec.md Section 0): name/age collection
+    """CareConnect architecture doc alignment (Spec.md Section 0): when
+    `active_patient_id` is given (flows.py's real-traffic path, resolved
+    ONCE up front by core/patient_identity.py before the main menu is ever
+    shown -- Section 13's "Active Patient Context"), skip straight to
+    department selection using it, bypassing every branch below entirely --
+    this module no longer owns patient resolution for real traffic. Left
+    None (every existing call site/test), the full 0/1/2+ resolution below
+    runs exactly as before -- see the "known scope decision" in
+    core/patient_identity.py's own module docstring for why this module's
+    own selector logic below is kept rather than deleted.
+
+    Patient identity/UX follow-up (Spec.md Section 0): name/age collection
     moved to the FRONT of the booking flow -- asked immediately after "Book
     Appointment" is tapped, before department selection -- instead of the
     back (after date/time selection, Section 12.11's original placement,
@@ -372,6 +420,15 @@ async def _start_booking_flow(
     still exercised directly by tests/test_booking_flow.py as a standalone
     unit of the state machine -- see this module's docstring) so both entry
     points stay behaviorally identical rather than drifting apart."""
+    if active_patient_id is not None:
+        patients = connector.list_active_patients(hospital_id, phone)
+        match = next((p for p in patients if p["id"] == active_patient_id), None)
+        if match is not None:
+            await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, match, "booking", language=language)
+            return
+        # Defensive only -- shouldn't happen, since flows.py only ever
+        # passes an active_patient_id it just validated. Fall through to
+        # the normal resolution below rather than silently failing.
     patients = connector.list_active_patients(hospital_id, phone)
     if not patients:
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": "booking"})
@@ -1136,6 +1193,10 @@ async def _handle_awaiting_confirmation(
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
         if rid == CONFIRM_YES:
+            if await _reject_if_patient_link_invalid(
+                wa, sessions, phone, hospital_id, context.get("active_patient_id"), connector, language=language,
+            ):
+                return
             try:
                 appointment = connector.create_booking(
                     hospital_id=hospital_id,
@@ -1257,12 +1318,22 @@ async def _handle_awaiting_change_selection(
 
 async def _start_cancel_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    active_patient_id: int | None = None,
 ) -> None:
     """Patient identity SEPARATION (Spec.md Section 0): a "whose
     appointments" pre-step, only shown when this phone has more than one
     active linked patient -- the single-patient case (every phone before
     this section, and any phone with just one linked patient) goes straight
-    to _start_cancel_flow_for_patient() below, zero added friction."""
+    to _start_cancel_flow_for_patient() below, zero added friction.
+
+    CareConnect architecture doc alignment (Spec.md Section 0): when
+    `active_patient_id` is given (flows.py's real-traffic path, already
+    resolved up front), skip this module's own per-feature selector
+    entirely -- see _start_booking_flow()'s own docstring for the full
+    reasoning, identical here."""
+    if active_patient_id is not None:
+        await _start_cancel_flow_for_patient(wa, sessions, phone, hospital_id, connector, active_patient_id, language=language)
+        return
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) > 1:
         await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "cancel", language=language)
@@ -1356,10 +1427,18 @@ async def _handle_awaiting_cancel_confirm(
 
 async def _start_reschedule_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    active_patient_id: int | None = None,
 ) -> None:
     """Patient identity SEPARATION (Spec.md Section 0): same "whose
     appointments" pre-step as cancel above, only shown when >1 active
-    patient is linked."""
+    patient is linked.
+
+    CareConnect architecture doc alignment (Spec.md Section 0): see
+    _start_cancel_flow()'s own docstring -- identical `active_patient_id`
+    short-circuit for flows.py's real-traffic path."""
+    if active_patient_id is not None:
+        await _start_reschedule_flow_for_patient(wa, sessions, phone, hospital_id, connector, active_patient_id, language=language)
+        return
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) > 1:
         await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "reschedule", language=language)
@@ -1531,6 +1610,7 @@ STATE_AWAITING_VIEW_APPOINTMENT_ACTION = "AWAITING_VIEW_APPOINTMENT_ACTION"
 
 async def _start_view_appointments_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    active_patient_id: int | None = None,
 ) -> None:
     """Patient identity SEPARATION (Spec.md Section 0): same "whose
     appointments" pre-step as cancel/reschedule above, only shown when >1
@@ -1538,7 +1618,14 @@ async def _start_view_appointments_flow(
     _send_view_appointments, called directly) so the shared patient
     selector can reach it without a circular import -- this module never
     imports flows.py, but the selector needs to route booking, cancel,
-    reschedule, AND view_appointments, so all four now live here."""
+    reschedule, AND view_appointments, so all four now live here.
+
+    CareConnect architecture doc alignment (Spec.md Section 0): see
+    _start_cancel_flow()'s own docstring -- identical `active_patient_id`
+    short-circuit for flows.py's real-traffic path."""
+    if active_patient_id is not None:
+        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
+        return
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) > 1:
         await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "view_appointments", language=language)

@@ -252,6 +252,8 @@ async def update_tenant(
             default_language=hospital.default_language,
             language_prompt_enabled=hospital.language_prompt_enabled,
             session_timeout_minutes=hospital.session_timeout_minutes,
+            require_patient_confirmation=hospital.require_patient_confirmation,
+            privacy_notice_text=hospital.privacy_notice_text,
         )
     except IntegrityError:
         return JSONResponse({

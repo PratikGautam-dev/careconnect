@@ -66,6 +66,12 @@ STRINGS: dict[str, dict[Language, str]] = {
     "feature_hospital_info": {"en": "Hospital Information", "hi": "अस्पताल की जानकारी"},
     "feature_reception_handoff": {"en": "Talk to Reception", "hi": "रिसेप्शन से बात करें"},
     "feature_faq": {"en": "FAQ / Information", "hi": "सामान्य प्रश्न"},
+    # CareConnect architecture doc alignment (Spec.md Section 0), Section 20's
+    # exact menu list -- "reports_prescriptions" replaces "my_details" (same
+    # underlying feature, renamed+rescoped -- see db/init_db.py's own
+    # migration); "consent_privacy" is new.
+    "feature_reports_prescriptions": {"en": "Reports & Prescriptions", "hi": "रिपोर्ट और पर्चे"},
+    "feature_consent_privacy": {"en": "Consent & Privacy", "hi": "सहमति और गोपनीयता"},
     # Item 4 (Spec.md Section 0): not a hospital-toggleable enabled_features
     # entry like the rows above -- always appended to the main menu itself
     # (when the hospital hasn't disabled the language picker entirely), since
@@ -426,6 +432,84 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "{patient_name} has been unlinked from this number.",
         "hi": "{patient_name} को इस नंबर से अनलिंक कर दिया गया है।",
     },
+
+    # --- CareConnect architecture doc alignment (Spec.md Section 0):
+    # resolution now happens ONCE per conversation, before the main menu --
+    # patient_selector_prompt below replaces the 4 action-specific
+    # patient_selector_prompt_* keys above (still left in place, unreachable
+    # but harmless, same "orphaned key" precedent CHANGE_LANGUAGE_ROW's own
+    # comment already established). ---
+    "patient_header_label": {"en": "Patient:", "hi": "मरीज़:"},
+    "patient_selector_prompt": {
+        "en": "Who are you accessing CareConnect for?",
+        "hi": "आप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
+    },
+    "manage_patients_short": {"en": "Manage Patients", "hi": "मरीज़ प्रबंधित करें"},
+    "back_to_menu_option": {"en": "Back to Menu", "hi": "मेनू पर वापस"},
+    "registration_blocked_contact_hospital": {
+        "en": "This phone number already has the maximum number of linked patients. Please contact the hospital directly.",
+        "hi": "इस फोन नंबर पर पहले से ही अधिकतम मरीज़ जुड़े हुए हैं। कृपया सीधे अस्पताल से संपर्क करें।",
+    },
+    "patient_context_invalid": {
+        "en": "This patient is no longer linked to this number. Please send any message to start over.",
+        "hi": "यह मरीज़ अब इस नंबर से जुड़ा नहीं है। कृपया फिर से शुरू करने के लिए कोई भी संदेश भेजें।",
+    },
+
+    # --- Sections 8-10: duplicate-patient detection before creating a new profile ---
+    "duplicate_patient_found": {
+        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nMRN: {mrn}\n\n"
+              "Would you like to link this profile, or is this a different patient?",
+        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nMRN: {mrn}\n\n"
+              "क्या आप इस प्रोफ़ाइल को लिंक करना चाहेंगे, या यह एक अलग मरीज़ है?",
+    },
+    "duplicate_link_button": {"en": "Link Existing", "hi": "लिंक करें"},
+    "duplicate_different_button": {"en": "Different Patient", "hi": "अलग मरीज़"},
+
+    # --- Section 17: structured relationship field (RELATIONSHIP_OPTIONS in
+    # db/repository.py is the single source of truth these keys mirror) ---
+    "ask_relationship": {
+        "en": "What is this patient's relationship to you?",
+        "hi": "यह मरीज़ आपसे किस रिश्ते में है?",
+    },
+    "ask_relationship_button": {"en": "Select", "hi": "चुनें"},
+    "ask_relationship_section_title": {"en": "Relationship", "hi": "रिश्ता"},
+    "relationship_self": {"en": "Self", "hi": "स्वयं"},
+    "relationship_mother": {"en": "Mother", "hi": "माँ"},
+    "relationship_father": {"en": "Father", "hi": "पिता"},
+    "relationship_son": {"en": "Son", "hi": "बेटा"},
+    "relationship_daughter": {"en": "Daughter", "hi": "बेटी"},
+    "relationship_spouse": {"en": "Spouse", "hi": "जीवनसाथी"},
+    "relationship_guardian": {"en": "Guardian", "hi": "अभिभावक"},
+    "relationship_other": {"en": "Other", "hi": "अन्य"},
+
+    # --- Section 11: optional single-linked-patient confirmation
+    # (hospitals.require_patient_confirmation, default off) ---
+    "single_patient_confirm": {
+        "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nMRN: {mrn}\n\nContinue?",
+        "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nMRN: {mrn}\n\nजारी रखें?",
+    },
+
+    # --- Section 20's "Consent & Privacy" menu item -- kept intentionally
+    # minimal (a real status display + one genuine toggle, not a full
+    # legal consent-management platform). Service consent and marketing
+    # consent are shown/controlled separately, never bundled, per the doc's
+    # own explicit instruction. ---
+    "privacy_notice_default": {
+        "en": "We use WhatsApp to help manage your appointments and hospital communication. "
+              "Your information is used only for the services you request and is not shared with third parties "
+              "without your consent.",
+        "hi": "हम आपकी अपॉइंटमेंट और अस्पताल संचार प्रबंधित करने के लिए व्हाट्सएप का उपयोग करते हैं। "
+              "आपकी जानकारी केवल आपके अनुरोध की गई सेवाओं के लिए उपयोग की जाती है और आपकी सहमति के बिना "
+              "किसी तीसरे पक्ष के साथ साझा नहीं की जाती।",
+    },
+    "consent_privacy_body": {
+        "en": "*Privacy Notice*\n{notice}\n\n*Consent Status*\nMarketing messages: {marketing_status}",
+        "hi": "*गोपनीयता सूचना*\n{notice}\n\n*सहमति की स्थिति*\nमार्केटिंग संदेश: {marketing_status}",
+    },
+    "consent_on": {"en": "Enabled", "hi": "सक्षम"},
+    "consent_off": {"en": "Disabled", "hi": "अक्षम"},
+    "consent_marketing_enable": {"en": "Enable Marketing", "hi": "मार्केटिंग चालू करें"},
+    "consent_marketing_disable": {"en": "Disable Marketing", "hi": "मार्केटिंग बंद करें"},
 
     # --- Shared fallback ---
     "please_choose": {

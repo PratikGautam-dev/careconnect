@@ -23,6 +23,8 @@ type Patient = {
   gender: string | null;
   address: string | null;
   created_at: string;
+  // CareConnect architecture doc alignment (Spec.md Section 0), Section 18.
+  status: "active" | "blocked" | "inactive";
 };
 
 type Visit = {
@@ -91,6 +93,8 @@ export default function PatientDetailPage() {
   const [address, setAddress] = useState("");
   const [savingDemographics, setSavingDemographics] = useState(false);
 
+  const [savingStatus, setSavingStatus] = useState(false);
+
   const [expandedVisit, setExpandedVisit] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
   const [savingNote, setSavingNote] = useState<number | null>(null);
@@ -120,6 +124,18 @@ export default function PatientDetailPage() {
   useEffect(() => {
     if (ready) load();
   }, [ready, load]);
+
+  async function handleSetStatus(status: Patient["status"]) {
+    setSavingStatus(true);
+    const result = await portalFetch(`/api/portal/patients/${patientId}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setSavingStatus(false);
+    if (result.ok) load();
+    else if (!result.unauthorized) setError(result.error);
+  }
 
   async function handleSaveDemographics() {
     setSavingDemographics(true);
@@ -220,6 +236,11 @@ export default function PatientDetailPage() {
                 <span className="rounded-full bg-brand-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-brand-700">
                   {patient.patient_display_id}
                 </span>
+              )}
+              {patient.status !== "active" && (
+                <Badge tone={patient.status === "blocked" ? "clay" : "neutral"}>
+                  {patient.status === "blocked" ? "Blocked" : "Inactive"}
+                </Badge>
               )}
             </div>
           </div>
@@ -375,6 +396,23 @@ export default function PatientDetailPage() {
               )}
             </Card>
           </div>
+
+          <Card className="h-fit p-space-4">
+            <h3 className="text-label mb-space-1 font-bold text-ink-900">Record status</h3>
+            <p className="text-hint mb-space-3">
+              Blocking a patient stops them from being selected/booked against on WhatsApp -- their appointment
+              history and Patient ID are untouched, and any phone still linked to them is unaffected.
+            </p>
+            {patient.status === "active" ? (
+              <Button size="md" variant="secondary" onClick={() => handleSetStatus("blocked")} disabled={savingStatus} className="w-full">
+                {savingStatus ? "Saving…" : "Block this patient"}
+              </Button>
+            ) : (
+              <Button size="md" onClick={() => handleSetStatus("active")} disabled={savingStatus} className="w-full">
+                {savingStatus ? "Saving…" : "Reactivate this patient"}
+              </Button>
+            )}
+          </Card>
 
           <Card className="h-fit p-space-4">
             <h3 className="text-label mb-space-3 font-bold text-ink-900">Demographics</h3>

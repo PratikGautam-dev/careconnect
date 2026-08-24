@@ -9,7 +9,9 @@ the IDLE main menu is inherently a cross-cutting concern once more than one
 feature can be enabled at once -- no single flow module can own it anymore.
 
 How it works:
-- IDLE (or an unrecognized/stale state): shows a WhatsApp list built from
+- IDLE (or an unrecognized/stale state): resolves the active patient first
+  (core/patient_identity.py, CareConnect architecture doc alignment -- see
+  _enter_idle()'s own docstring), then shows a WhatsApp list built from
   whichever of the hospital's enabled_features are real, tapping a row hands
   the conversation to that feature's own entry point.
 - A state that belongs to core/booking_flow.py's own state machine
@@ -22,6 +24,14 @@ How it works:
   anymore -- but they're left as-is (not deleted) since tests/test_booking_flow.py
   still exercises them directly as a standalone unit test of the state
   machine's internals, independent of which menu structure sits in front of it.
+- A state that belongs to core/patient_identity.py's own state machine
+  (registration, duplicate-match decision, relationship picking, patient
+  selection, Manage Patients, unlink confirm): delegated to that module's
+  own _HANDLERS, same generic dispatch shape as booking_flow.py's. If that
+  handler's own action fully resolved the active patient (session state is
+  now IDLE), the main menu is shown immediately afterward -- see
+  handle_incoming()'s own dispatch block for why this check lives here and
+  not in core/patient_identity.py itself (avoiding a circular import).
 - faq_flow.STATE_FAQ_ACTIVE: delegated to faq_flow.handle_incoming(), which
   (as of this section) stays in that state across messages instead of
   resetting to true IDLE, so the topic-tap loop keeps working across multiple
@@ -33,11 +43,10 @@ How it works:
   the full menu of everything this hospital offers, not just FAQ's own topic
   list.
 
-All of REAL_FEATURES ("booking", "reschedule", "cancel", "faq",
-"view_appointments", "hospital_info", "reception_handoff") are real, working
-sub-flows -- there is no placeholder/"coming soon" tier anymore. "payment_link"
-and "reports" were removed (not just hidden) since they were never built and
-no tenant had either enabled; see Spec.md's progress log for the removal.
+REAL_FEATURES/ALL_FEATURES/_FEATURE_MENU/_send_dynamic_menu now live in
+core/patient_identity.py (re-exported here for every existing importer that
+already does `from flows import REAL_FEATURES` etc.) -- see that module's own
+docstring for why.
 
 Section 12.11 (language selection): this module owns the ONE language-
 selection decision point -- STATE_AWAITING_LANGUAGE, entered whenever a
@@ -46,12 +55,14 @@ genuinely expired/new session; core/history.py's session store preserves an
 already-chosen language across an in-conversation reset(), so this does NOT
 re-ask after every completed action, only once per fresh conversation). Once
 chosen, `language` is threaded down into every sub-flow (booking_flow.py,
-faq_flow.py) this router delegates to, so the whole conversation -- not just
-this module's own menu -- responds in the chosen language.
+patient_identity.py, faq_flow.py) this router delegates to, so the whole
+conversation -- not just this module's own menu -- responds in the chosen
+language.
 """
 import logging
 
 import db.repository as db
+import core.patient_identity as patient_identity
 from core.booking_flow import (
     _HANDLERS as _BOOKING_STATE_HANDLERS,
     _manage_cancel_id,
@@ -60,15 +71,22 @@ from core.booking_flow import (
     _start_booking_flow,
     _start_cancel_flow,
     _start_cancel_flow_for_appointment,
-    _start_manage_patients_flow,
     _start_reschedule_flow,
     _start_reschedule_flow_for_appointment,
     _start_view_appointments_flow,
-    FREE_TEXT_INPUT_STATES,
+    FREE_TEXT_INPUT_STATES as _BOOKING_FREE_TEXT_INPUT_STATES,
     GOTO_MAIN_MENU,
     MANAGE_CANCEL_PREFIX,
     MANAGE_RESCHEDULE_PREFIX,
     STATE_IDLE,
+)
+from core.patient_identity import (
+    _FEATURE_MENU,
+    _ROW_ID_TO_FEATURE,
+    _send_dynamic_menu,
+    ALL_FEATURES,
+    CHANGE_LANGUAGE_ROW,
+    REAL_FEATURES,
 )
 from core.flow_common import cap_rows, is_reset_keyword
 from core.storage import get_storage
@@ -81,43 +99,12 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONNECTOR = Tier1Connector()
 
+FREE_TEXT_INPUT_STATES = _BOOKING_FREE_TEXT_INPUT_STATES | patient_identity.FREE_TEXT_INPUT_STATES
+
 STATE_AWAITING_LANGUAGE = "AWAITING_LANGUAGE"
 LANGUAGE_ROW_EN = "lang_en"
 LANGUAGE_ROW_HI = "lang_hi"
 _LANGUAGE_ROW_TO_CODE = {LANGUAGE_ROW_EN: "en", LANGUAGE_ROW_HI: "hi"}
-
-# feature key -> (menu row id, menu row title key into core/translations.py).
-# Order here is the order rows appear in the main menu, matching the
-# onboarding wizard's Patient Experience step (Section 14.6) and the
-# reference design's own toggle-grid ordering.
-_FEATURE_MENU = {
-    "booking": ("menu_book", "feature_booking"),
-    "reschedule": ("menu_reschedule", "feature_reschedule"),
-    "cancel": ("menu_cancel", "feature_cancel"),
-    "view_appointments": ("menu_view_appointments", "feature_view_appointments"),
-    "my_details": ("menu_my_details", "feature_my_details"),
-    "manage_patients": ("menu_manage_patients", "feature_manage_patients"),
-    "hospital_info": ("menu_hospital_info", "feature_hospital_info"),
-    "reception_handoff": ("menu_reception", "feature_reception_handoff"),
-    "faq": ("menu_faq_bot", "feature_faq"),
-}
-_ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title_key) in _FEATURE_MENU.items()}
-
-# Every selectable feature is real and working -- no placeholder tier.
-# Patient identity system (Spec.md Section 0): "my_details" added alongside
-# view_appointments -- that one shows upcoming bookings with cancel/
-# reschedule actions; this one is the patient's own self-service "fetch my
-# record" (id/name/age/summary + any documents on file).
-REAL_FEATURES = {
-    "booking", "reschedule", "cancel", "faq", "view_appointments", "my_details", "manage_patients",
-    "hospital_info", "reception_handoff",
-}
-ALL_FEATURES = REAL_FEATURES
-
-# Item 4 (Spec.md Section 0): deliberately NOT a member of _FEATURE_MENU/
-# enabled_features -- always appended to the main menu (unless the hospital
-# has disabled the language picker outright), not a per-hospital toggle.
-CHANGE_LANGUAGE_ROW = "menu_change_language"
 
 
 async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language: str = "en") -> None:
@@ -138,79 +125,58 @@ async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language
     await wa.send_buttons(to=phone, body_text=t("language_picker_body", None), buttons=buttons)
 
 
-async def _send_dynamic_menu(
-    wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
-    feature_labels: dict[str, str] | None = None, language_prompt_enabled: bool = True,
-) -> None:
-    feature_labels = feature_labels or {}
-    rows = [
-        # Section 12.13: a hospital's own custom label for this feature (set
-        # via /portal/settings) wins over the fixed translations.py default --
-        # custom labels are stored/entered once, in whatever language the
-        # hospital typed them in (not per-session-language, unlike the fixed
-        # defaults), so they're used as-is regardless of the patient's chosen
-        # language.
-        {"id": row_id, "title": feature_labels.get(key) or t(title_key, language)}
-        for key, (row_id, title_key) in _FEATURE_MENU.items()
-        if key in enabled_features
-    ]
-    if not rows:
-        # A hospital with nothing enabled (mid-onboarding data issue, or a
-        # brand-new row before enabled_features was ever set) -- graceful
-        # patient-facing message, never an empty WhatsApp list send
-        # (Phase 8 / Section 12.7's established discipline).
-        await wa.send_text(phone, t("feature_menu_unavailable", language, hospital_name=hospital_name))
-        return
-    # UX follow-up (Spec.md Section 0), per the user's explicit request:
-    # "Change Language" removed from the main menu entirely -- no longer
-    # appended here regardless of language_prompt_enabled. The row id/
-    # handler (CHANGE_LANGUAGE_ROW, below) are left in place rather than
-    # deleted -- harmless, unreachable dead code from a fresh menu, but
-    # still correctly handled if an old cached menu ever replays a tap.
-    rows = cap_rows(rows, f"main menu for {hospital_name}")
-    await wa.send_list(
-        to=phone,
-        body_text=t("welcome_menu", language, hospital_name=hospital_name),
-        button_text=t("main_menu_button", language),
-        sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
-    )
-
-
 async def _enter_idle(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, hospital_name: str,
-    enabled_features: list[str], language: str | None,
+    enabled_features: list[str], language: str | None, connector: Connector,
     feature_labels: dict[str, str] | None = None,
     default_language: str = "en", language_prompt_enabled: bool = True,
+    require_patient_confirmation: bool = False,
 ) -> None:
     """The one place that decides "does this session need the language
     picker, or does it already know what to show." Called everywhere the
     router used to jump straight to _send_dynamic_menu -- first contact, a
-    reset keyword, a stale/unrecognized tap.
+    reset keyword, a stale/unrecognized tap, GOTO_MAIN_MENU.
 
     Section 12.13: language_prompt_enabled=False (a hospital that only ever
     wants one language, set via /portal/settings) skips the picker entirely
-    -- every fresh conversation goes straight to the menu in default_language,
-    the same as if the patient had tapped that language on the picker."""
+    -- every fresh conversation goes straight to patient resolution/the menu
+    in default_language, the same as if the patient had tapped that language
+    on the picker.
+
+    CareConnect architecture doc alignment (Spec.md Section 0), Sections 5/19:
+    once language is settled, patient identity is resolved (or an
+    interstitial registration/confirmation/selection message is sent)
+    BEFORE the main menu is ever shown -- for every hospital, not gated on
+    which features are enabled (confirmed with the user). Only once
+    core/patient_identity.py returns an actual resolved patient (not None --
+    None means it already sent its own message and this call must stop) does
+    the menu itself get shown, now with that patient's "Patient: X / MRN: Y"
+    header (Section 20)."""
     if not language_prompt_enabled:
-        sessions.set(hospital_id, phone, STATE_IDLE, {}, language=default_language)
-        await _send_dynamic_menu(
-            wa, phone, hospital_name, enabled_features, language=default_language, feature_labels=feature_labels,
-            language_prompt_enabled=False,
-        )
-        return
-    if language is None:
+        resolved_language = default_language
+    elif language is None:
         sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
         await _send_language_picker(wa, phone, default_language=default_language)
         return
+    else:
+        resolved_language = language
+
+    active_patient = await patient_identity.get_or_prompt_for_active_patient(
+        wa, sessions, phone, hospital_id, connector, language=resolved_language,
+        require_patient_confirmation=require_patient_confirmation,
+    )
+    if active_patient is None:
+        return
     await _send_dynamic_menu(
-        wa, phone, hospital_name, enabled_features, language=language, feature_labels=feature_labels,
-        language_prompt_enabled=True,
+        wa, phone, hospital_name, enabled_features, language=resolved_language, feature_labels=feature_labels,
+        language_prompt_enabled=language_prompt_enabled, active_patient=active_patient,
     )
 
 
 async def _handle_awaiting_language(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
-    enabled_features: list[str], feature_labels: dict[str, str] | None = None, default_language: str = "en",
+    enabled_features: list[str], connector: Connector, feature_labels: dict[str, str] | None = None,
+    default_language: str = "en", require_patient_confirmation: bool = False,
 ) -> None:
     chosen = _LANGUAGE_ROW_TO_CODE.get(reply["id"]) if reply["type"] == "interactive_reply" else None
     if chosen is None:
@@ -224,15 +190,16 @@ async def _handle_awaiting_language(
     # sets when language_prompt_enabled is True (see its own branch above) --
     # safe and explicit to hardcode True here rather than thread the flag
     # through a 3rd function signature for a value that can't actually vary.
-    await _send_dynamic_menu(
-        wa, phone, hospital_name, enabled_features, language=chosen, feature_labels=feature_labels,
-        language_prompt_enabled=True,
+    await _enter_idle(
+        wa, sessions, phone, hospital_id, hospital_name, enabled_features, chosen, connector,
+        feature_labels=feature_labels, default_language=default_language, language_prompt_enabled=True,
+        require_patient_confirmation=require_patient_confirmation,
     )
 
 
-STATE_AWAITING_MY_DETAILS_DOCUMENT = "AWAITING_MY_DETAILS_DOCUMENT"
+STATE_AWAITING_REPORTS_DOCUMENT = "AWAITING_REPORTS_DOCUMENT"
 
-_MY_DETAILS_STATUS_KEYS = {
+_REPORTS_STATUS_KEYS = {
     db.STATUS_BOOKED: "status_booked",
     db.STATUS_CANCELLED: "status_cancelled",
     db.STATUS_RESCHEDULED: "status_rescheduled",
@@ -240,37 +207,39 @@ _MY_DETAILS_STATUS_KEYS = {
     db.STATUS_NO_SHOW: "status_no_show",
 }
 
-_MY_DETAILS_DOC_PREFIX = "mydoc_"
+_REPORTS_DOC_PREFIX = "reportdoc_"
 
 
-def _my_details_document_row_id(document_id: int) -> str:
-    return f"{_MY_DETAILS_DOC_PREFIX}{document_id}"
+def _reports_document_row_id(document_id: int) -> str:
+    return f"{_REPORTS_DOC_PREFIX}{document_id}"
 
 
-def _parse_my_details_document_row_id(row_id: str) -> int | None:
-    if not row_id.startswith(_MY_DETAILS_DOC_PREFIX):
+def _parse_reports_document_row_id(row_id: str) -> int | None:
+    if not row_id.startswith(_REPORTS_DOC_PREFIX):
         return None
     try:
-        return int(row_id[len(_MY_DETAILS_DOC_PREFIX):])
+        return int(row_id[len(_REPORTS_DOC_PREFIX):])
     except ValueError:
         return None
 
 
-async def _send_my_details(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, language: str = "en",
+async def _send_reports_prescriptions(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, active_patient_id: int, language: str = "en",
 ) -> None:
-    """Patient identity system (Spec.md Section 0): a self-service "fetch my
-    own record" reply -- Patient ID, name, age, and a short summary (total
-    appointment count + most recent appointment's status), followed by an
-    interactive list of any documents on file (Section 12.10's
-    patient_documents, reused as-is) when there are any. Deliberately calls
-    db.repository directly rather than through connectors.py -- patient
-    records/documents are a Tier-1-only concept never abstracted through the
-    Connector interface, same precedent portal_api.py's own send-to-WhatsApp
-    endpoint already established for this exact data (its own docstring
-    explains why: sending/reading a document isn't a booking-data operation
-    that varies by data tier)."""
-    patient = db.get_patient_by_phone(hospital_id, phone)
+    """CareConnect architecture doc alignment (Spec.md Section 0), Section
+    20's "Reports & Prescriptions" menu item -- the same self-service
+    "fetch my own record" reply the earlier "My Details" feature already
+    built (Patient ID/MRN, name, age, a short summary, then any documents on
+    file), just renamed/repositioned to match the doc's exact menu item and
+    now genuinely scoped to the ACTIVE patient (`db.get_patient()`, by id)
+    rather than `get_patient_by_phone()` -- now that multiple patients can
+    share a phone, the old phone-scoped lookup could show the WRONG family
+    member's record. Deliberately calls db.repository directly rather than
+    through connectors.py -- patient records/documents are a Tier-1-only
+    concept never abstracted through the Connector interface, same
+    precedent portal_api.py's own send-to-WhatsApp endpoint already
+    established for this exact data."""
+    patient = db.get_patient(hospital_id, active_patient_id)
     if patient is None:
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t("my_details_not_found", language))
@@ -279,7 +248,7 @@ async def _send_my_details(
     visits = db.get_patient_visit_history(hospital_id, patient["id"])
     if visits:
         most_recent = visits[0]
-        status_key = _MY_DETAILS_STATUS_KEYS.get(most_recent.status, most_recent.status)
+        status_key = _REPORTS_STATUS_KEYS.get(most_recent.status, most_recent.status)
         most_recent_line = (
             f"{t(status_key, language)} — {most_recent.doctor_name}, {most_recent.scheduled_at.strftime('%d %b %Y')}"
         )
@@ -302,9 +271,9 @@ async def _send_my_details(
         sessions.reset(hospital_id, phone)
         return
 
-    rows = [{"id": _my_details_document_row_id(d["id"]), "title": d["file_name"]} for d in documents]
-    rows = cap_rows(rows, f"my details documents for patient {patient['id']}")
-    sessions.set(hospital_id, phone, STATE_AWAITING_MY_DETAILS_DOCUMENT, {"patient_id": patient["id"]})
+    rows = [{"id": _reports_document_row_id(d["id"]), "title": d["file_name"]} for d in documents]
+    rows = cap_rows(rows, f"reports & prescriptions documents for patient {patient['id']}")
+    sessions.set(hospital_id, phone, STATE_AWAITING_REPORTS_DOCUMENT, {"patient_id": patient["id"]})
     await wa.send_list(
         to=phone,
         body_text=t("my_details_documents_header", language),
@@ -313,17 +282,17 @@ async def _send_my_details(
     )
 
 
-async def _handle_awaiting_my_details_document(
+async def _handle_awaiting_reports_document(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, language: str = "en",
 ) -> None:
     patient_id = context.get("patient_id")
-    document_id = _parse_my_details_document_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
+    document_id = _parse_reports_document_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
     document = db.get_patient_document(hospital_id, document_id) if document_id is not None else None
     if patient_id is None or document is None or document["patient_id"] != patient_id:
         # Stale/unrecognized tap, or the list went stale between send and
         # reply -- re-fetch and re-show fresh rather than acting on a stale
         # id (Phase 8's established "recheck dynamic data" discipline).
-        await _send_my_details(wa, sessions, phone, hospital_id, language=language)
+        await _send_reports_prescriptions(wa, sessions, phone, hospital_id, patient_id, language=language)
         return
 
     storage = get_storage()
@@ -345,40 +314,48 @@ async def _start_feature(
     hospital_id: int,
     hospital_name: str,
     connector: Connector,
+    active_patient_id: int | None,
     language: str = "en",
     business_hours_text: str | None = None,
+    privacy_notice_text: str | None = None,
 ) -> None:
     """Hands the conversation off to whichever feature was tapped from the
     unified menu. Real features either transition into an existing sub-flow's
     own state machine (booking/reschedule/cancel -> core/booking_flow.py,
     faq -> faq_flow.py's FAQ_ACTIVE loop) or are simple one-shot replies that
-    immediately return to IDLE (view_appointments, hospital_info)."""
+    immediately return to IDLE (view_appointments, hospital_info).
+
+    CareConnect architecture doc alignment (Spec.md Section 0): every
+    patient-scoped branch now threads `active_patient_id` (resolved once,
+    up front, by _enter_idle() -- Section 13's "Active Patient Context")
+    into the sub-flow instead of letting it re-derive identity itself."""
     if key == "booking":
-        # Patient identity/UX follow-up (Spec.md Section 0), confirmed with
-        # the user: name/age is now asked FIRST (before department
-        # selection) -- _start_booking_flow handles the existing per-field
-        # skip logic (name+age on file -> straight to department; name
-        # only -> age only; neither -> both).
-        await _start_booking_flow(wa, sessions, phone, hospital_id, connector, language=language)
+        await _start_booking_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
         return
     if key == "reschedule":
-        await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language)
+        await _start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
         return
     if key == "cancel":
-        await _start_cancel_flow(wa, sessions, phone, hospital_id, connector, language=language)
+        await _start_cancel_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
         return
     if key == "faq":
         sessions.set(hospital_id, phone, faq_flow.STATE_FAQ_ACTIVE, {})
         await faq_flow.send_topic_menu(wa, phone, hospital_id, hospital_name, language=language)
         return
     if key == "view_appointments":
-        await _start_view_appointments_flow(wa, sessions, phone, hospital_id, connector, language=language)
+        await _start_view_appointments_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
         return
-    if key == "my_details":
-        await _send_my_details(wa, sessions, phone, hospital_id, language=language)
+    if key == "reports_prescriptions":
+        await _send_reports_prescriptions(wa, sessions, phone, hospital_id, active_patient_id, language=language)
         return
     if key == "manage_patients":
-        await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
+        await patient_identity._start_manage_patients(wa, sessions, phone, hospital_id, connector, language=language)
+        return
+    if key == "consent_privacy":
+        await patient_identity.start_consent_privacy(
+            wa, sessions, phone, hospital_id, connector, active_patient_id,
+            privacy_notice_text=privacy_notice_text, language=language,
+        )
         return
     if key == "hospital_info":
         sessions.reset(hospital_id, phone)
@@ -423,6 +400,8 @@ async def handle_incoming(
     default_language: str = "en",
     language_prompt_enabled: bool = True,
     session_timeout_minutes: int | None = None,
+    require_patient_confirmation: bool = False,
+    privacy_notice_text: str | None = None,
 ) -> None:
     """The real conversation entry point (SPEC Section 14.5) -- core/main.py
     calls this directly now, passing the resolved hospital's enabled_features
@@ -436,7 +415,11 @@ async def handle_incoming(
     customization (hospitals.<field>, set via /portal/settings) -- every one
     defaults to "no customization" (None/{}/en/True) so a caller that doesn't
     pass them (including the whole pre-Section-12.13 test suite) gets
-    byte-for-byte the same fixed behavior as before this section."""
+    byte-for-byte the same fixed behavior as before this section.
+
+    require_patient_confirmation/privacy_notice_text (CareConnect
+    architecture doc alignment, Spec.md Section 0): same "self-serve bot
+    customization, defaults to off/unset" treatment."""
     # Item 7 (Spec.md Section 0): a real production bug -- once a patient's
     # "Talk to Reception" request is open, the bot must go completely silent
     # for that phone (including the reset-keyword escape hatch below, which
@@ -473,6 +456,15 @@ async def handle_incoming(
     language = session.get("language")
     if language not in SUPPORTED_LANGUAGES:
         language = None
+    active_patient_id = session.get("active_patient_id")
+
+    async def _enter_idle_here(lang: str | None) -> None:
+        await _enter_idle(
+            wa, sessions, phone, hospital_id, hospital_name, enabled_features, lang, connector,
+            feature_labels=feature_labels, default_language=default_language,
+            language_prompt_enabled=language_prompt_enabled,
+            require_patient_confirmation=require_patient_confirmation,
+        )
 
     # Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a specific
     # appointment id -- attached to the booking-success message, the
@@ -489,11 +481,7 @@ async def handle_incoming(
         rid = reply["id"]
         if rid == GOTO_MAIN_MENU:
             sessions.reset(hospital_id, phone)
-            await _enter_idle(
-                wa, sessions, phone, hospital_id, hospital_name, enabled_features, language,
-                feature_labels=feature_labels, default_language=default_language,
-                language_prompt_enabled=language_prompt_enabled,
-            )
+            await _enter_idle_here(language)
             return
         manage_appt_id = _parse_manage_id(rid, MANAGE_CANCEL_PREFIX)
         if manage_appt_id is not None:
@@ -516,24 +504,44 @@ async def handle_incoming(
 
     if state != STATE_IDLE and state not in FREE_TEXT_INPUT_STATES and is_reset_keyword(reply):
         sessions.reset(hospital_id, phone)
-        await _enter_idle(
-            wa, sessions, phone, hospital_id, hospital_name, enabled_features, language,
-            feature_labels=feature_labels, default_language=default_language,
-            language_prompt_enabled=language_prompt_enabled,
-        )
+        await _enter_idle_here(language)
         return
 
     if state == STATE_AWAITING_LANGUAGE:
         await _handle_awaiting_language(
-            wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features,
+            wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features, connector,
             feature_labels=feature_labels, default_language=default_language,
+            require_patient_confirmation=require_patient_confirmation,
         )
         return
 
-    if state == STATE_AWAITING_MY_DETAILS_DOCUMENT:
-        await _handle_awaiting_my_details_document(
+    if state == STATE_AWAITING_REPORTS_DOCUMENT:
+        await _handle_awaiting_reports_document(
             wa, sessions, phone, hospital_id, reply, context, language=language or "en",
         )
+        return
+
+    if state == patient_identity.STATE_AWAITING_CONSENT_ACTION:
+        await patient_identity.handle_awaiting_consent_action(
+            wa, sessions, phone, hospital_id, reply, context, connector, active_patient_id,
+            privacy_notice_text=privacy_notice_text, language=language or "en",
+        )
+        return
+
+    identity_handler = patient_identity._HANDLERS.get(state)
+    if identity_handler is not None:
+        await identity_handler(
+            wa, sessions, phone, hospital_id, reply, context, connector,
+            language=language or "en", closing_message_text=closing_message_text,
+        )
+        # If that action just fully resolved the active patient (state is
+        # now IDLE), show the main menu immediately -- core/patient_identity.py
+        # itself can't do this (it would need to import _send_dynamic_menu
+        # back from here, a circular import; see that module's own
+        # docstring), so the check lives here instead.
+        after = sessions.get(hospital_id, phone, timeout_seconds=timeout_seconds)
+        if after["state"] == STATE_IDLE:
+            await _enter_idle_here(after.get("language", language))
         return
 
     booking_handler = _BOOKING_STATE_HANDLERS.get(state)
@@ -552,7 +560,8 @@ async def handle_incoming(
     # enabled feature starts that feature; anything else (first contact,
     # free text, a tap for a feature this hospital hasn't enabled, a stale
     # id from before a feature was disabled) shows the unified menu (via
-    # _enter_idle, which gates on language being chosen first).
+    # _enter_idle, which gates on language being chosen first, then patient
+    # identity).
     if reply["type"] == "interactive_reply":
         # Item 4: "Change Language" mid-conversation -- re-shows the same
         # bilingual picker a fresh session sees, without resetting anything
@@ -568,14 +577,10 @@ async def handle_incoming(
         feature_key = _ROW_ID_TO_FEATURE.get(reply["id"])
         if feature_key is not None and feature_key in enabled_features and language is not None:
             await _start_feature(
-                feature_key, wa, sessions, phone, hospital_id, hospital_name, connector,
-                language=language, business_hours_text=business_hours_text,
+                feature_key, wa, sessions, phone, hospital_id, hospital_name, connector, active_patient_id,
+                language=language, business_hours_text=business_hours_text, privacy_notice_text=privacy_notice_text,
             )
             return
 
     sessions.reset(hospital_id, phone)
-    await _enter_idle(
-        wa, sessions, phone, hospital_id, hospital_name, enabled_features, language,
-        feature_labels=feature_labels, default_language=default_language,
-        language_prompt_enabled=language_prompt_enabled,
-    )
+    await _enter_idle_here(language)

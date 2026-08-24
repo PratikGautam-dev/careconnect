@@ -56,6 +56,13 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         # Patient identity SEPARATION (Spec.md Section 0): list "button_text"
         # labels share the same 20-char limit as interactive buttons.
         "patient_selector_button", "manage_patients_button",
+        # CareConnect architecture doc alignment (Spec.md Section 0): row
+        # AND button dual-use keys (manage_patients_short, back_to_menu_option)
+        # checked against the stricter 20-char button limit, which also
+        # satisfies the looser 24-char row limit they're reused for.
+        "duplicate_link_button", "duplicate_different_button", "ask_relationship_button",
+        "manage_patients_short", "back_to_menu_option",
+        "consent_marketing_enable", "consent_marketing_disable",
     ]
     for key in button_keys:
         for lang in SUPPORTED_LANGUAGES:
@@ -70,6 +77,10 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         "change_date_option", "change_time_option", "feature_change_language",
         # Patient identity SEPARATION (Spec.md Section 0).
         "feature_manage_patients", "add_patient_option", "all_patients_option",
+        # CareConnect architecture doc alignment (Spec.md Section 0).
+        "feature_reports_prescriptions", "feature_consent_privacy",
+        "relationship_self", "relationship_mother", "relationship_father", "relationship_son",
+        "relationship_daughter", "relationship_spouse", "relationship_guardian", "relationship_other",
     ]
     for key in row_title_keys:
         for lang in SUPPORTED_LANGUAGES:

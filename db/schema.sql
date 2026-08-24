@@ -131,6 +131,18 @@ ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS session_timeout_minutes INTEGER C
 -- patient to be found. Same accepted-limitation precedent departments.id's
 -- own comment already documents for a similar global-uniqueness gap.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS patient_id_prefix TEXT;
+-- CareConnect architecture doc alignment (Spec.md Section 0): Section 11 --
+-- "depending on the hospital's security requirements" -- a single linked
+-- patient's zero-friction auto-continue is the DEFAULT (matches every
+-- phone's behavior before this column existed), but a hospital can opt
+-- into an explicit "You are accessing services for: {name} -- Continue?"
+-- confirmation even for exactly one linked patient.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS require_patient_confirmation BOOLEAN NOT NULL DEFAULT FALSE;
+-- Section 20 (Consent & Privacy menu item): static, hospital-configurable
+-- privacy notice text shown on that screen. NULL means "not configured yet"
+-- -- the Consent & Privacy screen falls back to a fixed generic notice
+-- rather than showing nothing.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS privacy_notice_text TEXT;
 
 -- Widens the CHECK bound below from 5-120 to 2-120 (a 2-minute idle-timeout
 -- option, for testing/demoing the flow without a real 5+ minute wait) --
@@ -324,6 +336,26 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS date_of_birth TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS age INTEGER;
+-- CareConnect architecture doc alignment (Spec.md Section 0), Section 18's
+-- recommended Patient Master state model: CREATED -> ACTIVE -> {BLOCKED,
+-- INACTIVE}. Collapsed CREATED into ACTIVE deliberately (confirmed with the
+-- user) -- nothing in this system has a distinct "pending hospital
+-- approval" step between creating a patient record and it being usable, so
+-- a literal CREATED dwell-state would never be observably different from
+-- ACTIVE; every new patient starts directly at 'active'. 'blocked'/
+-- 'inactive' are real, staff-settable states (db.set_patient_status(),
+-- the portal's patient detail page) -- a blocked/inactive patient is
+-- excluded from get_active_patients_for_phone() (so they can't be selected
+-- or auto-continued to) without touching patient_links at all, keeping
+-- "this patient can't be used right now" (a hospital-side fact about the
+-- PATIENT) separate from "this phone doesn't have them linked" (a
+-- CHANNEL-side fact about the LINK) -- exactly the distinction Section 18
+-- itself calls out ("A patient can remain ACTIVE in the hospital system
+-- while their WhatsApp link is UNLINKED").
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE patients DROP CONSTRAINT IF EXISTS patients_status_check;
+ALTER TABLE patients ADD CONSTRAINT patients_status_check
+    CHECK (status IN ('active', 'blocked', 'inactive'));
 -- Patient identity system (Spec.md Section 0): a permanent, human-readable
 -- id (PAT-<hospital short code>-<sequential number>, e.g. PAT-MLH-0001) --
 -- distinct from this row's own internal SERIAL `id` (never patient-facing)
@@ -516,6 +548,28 @@ CREATE INDEX IF NOT EXISTS idx_patient_links_active_phone
 -- itself refusing it outright).
 CREATE UNIQUE INDEX IF NOT EXISTS ux_patient_links_active_pair
     ON patient_links(hospital_id, whatsapp_phone, patient_id) WHERE unlinked_at IS NULL;
+-- CareConnect architecture doc alignment (Spec.md Section 0), Section 17's
+-- fixed relationship enum -- stored as this codebase's own Title Case
+-- values (matching the migration backfill's pre-existing 'Self' value
+-- exactly, rather than switching to the doc's literal SELF/MOTHER/...
+-- uppercase strings and needing a data migration for no functional gain)
+-- rather than the doc's literal uppercase strings. RELATIONSHIP_OPTIONS in
+-- db/repository.py is the single source of truth this constraint mirrors.
+ALTER TABLE patient_links DROP CONSTRAINT IF EXISTS patient_links_relationship_label_check;
+ALTER TABLE patient_links ADD CONSTRAINT patient_links_relationship_label_check
+    CHECK (relationship_label IS NULL OR relationship_label IN
+        ('Self', 'Mother', 'Father', 'Son', 'Daughter', 'Spouse', 'Guardian', 'Other'));
+-- Consent & Privacy (Section 20's menu item): service consent is implicit
+-- in having an active link at all (using CareConnect for this patient IS
+-- the service) -- modeled as a plain boolean rather than a second
+-- active/inactive flag redundant with unlinked_at, and "withdrawing" it in
+-- the WhatsApp UI maps to unlinking (Manage Patients), not a separate
+-- toggle. marketing_consent is a GENUINE, independently-togglable opt-in
+-- (defaults FALSE -- opt-in, not opt-out), kept deliberately separate per
+-- the doc's own explicit instruction not to bundle service and marketing
+-- consent together.
+ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS service_consent BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS marketing_consent BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

@@ -300,6 +300,10 @@ class Hospital:
     default_language: str
     language_prompt_enabled: bool
     session_timeout_minutes: int | None
+    # CareConnect architecture doc alignment (Spec.md Section 0): see
+    # db/schema.sql's own column comments for what each controls.
+    require_patient_confirmation: bool
+    privacy_notice_text: str | None
 
 
 def _row_to_hospital(row) -> Hospital:
@@ -348,6 +352,8 @@ def _row_to_hospital(row) -> Hospital:
             True if row["language_prompt_enabled"] is None else bool(row["language_prompt_enabled"])
         ),
         session_timeout_minutes=row["session_timeout_minutes"],
+        require_patient_confirmation=bool(row["require_patient_confirmation"]),
+        privacy_notice_text=row["privacy_notice_text"],
     )
 
 
@@ -424,6 +430,8 @@ def create_hospital(
     default_language: str | None = None,
     language_prompt_enabled: bool = True,
     session_timeout_minutes: int | None = None,
+    require_patient_confirmation: bool = False,
+    privacy_notice_text: str | None = None,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -466,13 +474,14 @@ def create_hospital(
         "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
         "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features, "
         "feature_labels, closing_message_text, business_hours_text, default_language, "
-        "language_prompt_enabled, session_timeout_minutes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "language_prompt_enabled, session_timeout_minutes, require_patient_confirmation, privacy_notice_text) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
          data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
          feature_labels_json, closing_message_text, business_hours_text, default_language,
-         int(language_prompt_enabled), session_timeout_minutes),
+         int(language_prompt_enabled), session_timeout_minutes,
+         bool(require_patient_confirmation), privacy_notice_text),
     )
     new_id = cur.fetchone()["id"]
     conn.commit()
@@ -500,6 +509,8 @@ def update_hospital(
     default_language: str | None = None,
     language_prompt_enabled: bool = True,
     session_timeout_minutes: int | None = None,
+    require_patient_confirmation: bool = False,
+    privacy_notice_text: str | None = None,
 ) -> Hospital:
     """admin/onboarding.py's tenant edit form -- the only way to correct an
     already-onboarded hospital's stored values (there's no way to change
@@ -546,12 +557,13 @@ def update_hospital(
         "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
         "portal_password_hash = ?, enabled_features = ?, feature_labels = ?, closing_message_text = ?, "
         "business_hours_text = ?, default_language = ?, language_prompt_enabled = ?, "
-        "session_timeout_minutes = ? WHERE id = ?",
+        "session_timeout_minutes = ?, require_patient_confirmation = ?, privacy_notice_text = ? WHERE id = ?",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
          data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
          feature_labels_json, closing_message_text, business_hours_text, default_language,
-         int(language_prompt_enabled), session_timeout_minutes, hospital_id),
+         int(language_prompt_enabled), session_timeout_minutes,
+         bool(require_patient_confirmation), privacy_notice_text, hospital_id),
     )
     conn.commit()
     return get_hospital(hospital_id)
@@ -1442,7 +1454,8 @@ def get_patient(hospital_id: int, patient_id: int) -> dict | None:
     get_doctor_full())."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, created_at "
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, "
+        "status, created_at "
         "FROM patients WHERE hospital_id = ? AND id = ?",
         (hospital_id, patient_id),
     ).fetchone()
@@ -1465,7 +1478,8 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
     for that."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, created_at "
+        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, "
+        "status, created_at "
         "FROM patients WHERE hospital_id = ? AND phone = ?",
         (hospital_id, phone),
     ).fetchone()
@@ -1478,22 +1492,68 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
 # `patients` itself no longer implies "one row per phone" (db/schema.sql's own
 # comment on the dropped UNIQUE(hospital_id, phone) constraint explains why). ---
 
+# CareConnect architecture doc alignment (Spec.md Section 0), Section 17's
+# fixed relationship enum -- single source of truth the WhatsApp picker and
+# db/schema.sql's own patient_links_relationship_label_check CHECK
+# constraint both mirror. Stored/displayed as Title Case, matching the
+# migration backfill's own pre-existing 'Self' value -- not the doc's
+# literal uppercase SELF/MOTHER/... strings, which would need a data
+# migration for no functional gain (confirmed with the user).
+RELATIONSHIP_OPTIONS = ("Self", "Mother", "Father", "Son", "Daughter", "Spouse", "Guardian", "Other")
+
+# CareConnect architecture doc alignment, Section 18's Patient Master state
+# model (CREATED collapsed into ACTIVE, confirmed with the user -- see
+# db/schema.sql's own comment on patients.status for why).
+PATIENT_STATUS_ACTIVE = "active"
+PATIENT_STATUS_BLOCKED = "blocked"
+PATIENT_STATUS_INACTIVE = "inactive"
+PATIENT_STATUSES = (PATIENT_STATUS_ACTIVE, PATIENT_STATUS_BLOCKED, PATIENT_STATUS_INACTIVE)
+
+
 def get_active_patients_for_phone(hospital_id: int, phone: str) -> list[dict]:
     """The real "which patients does this phone see" lookup, replacing
     get_patient_by_phone() for every WhatsApp-facing use -- returns every
     ACTIVE (unlinked_at IS NULL) linked patient, soonest-linked first (so the
     original/"Self" profile from before this feature existed, or the first
     family member added, is always first -- the natural single-result case
-    for a still-single-patient phone stays first without any extra logic)."""
+    for a still-single-patient phone stays first without any extra logic).
+
+    CareConnect architecture doc alignment (Spec.md Section 0), Section 18:
+    also filters to patients.status = 'active' -- a hospital-blocked or
+    inactive patient is excluded from selection/auto-continue entirely,
+    without touching their patient_links row at all (their link stays
+    active; they just can't be chosen while the PATIENT record itself is
+    blocked/inactive). This is the one enforcement point every WhatsApp-
+    facing patient list goes through, same "filter at the one real read
+    path" precedent doctors.is_active already established."""
     conn = get_connection()
     rows = conn.execute(
         "SELECT p.id, p.name, p.age, p.patient_display_id, pl.relationship_label, pl.id AS link_id "
         "FROM patient_links pl JOIN patients p ON p.id = pl.patient_id "
         "WHERE pl.hospital_id = ? AND pl.whatsapp_phone = ? AND pl.unlinked_at IS NULL "
+        "AND p.status = 'active' "
         "ORDER BY pl.linked_at, pl.id",
         (hospital_id, phone),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def validate_active_patient_link(hospital_id: int, phone: str, patient_id: int) -> bool:
+    """CareConnect architecture doc alignment (Spec.md Section 0), Section
+    14's patient-context validation: re-checked at the point of an actual
+    patient-specific WRITE (booking/cancel/reschedule confirm), not just at
+    selection time -- a link resolved several messages ago in a multi-step
+    flow (department -> doctor -> date -> time -> confirm) could have been
+    unlinked, or the patient blocked, in between. True only if the link is
+    still active AND the patient itself is still 'active'."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM patient_links pl JOIN patients p ON p.id = pl.patient_id "
+        "WHERE pl.hospital_id = ? AND pl.whatsapp_phone = ? AND pl.patient_id = ? "
+        "AND pl.unlinked_at IS NULL AND p.status = 'active'",
+        (hospital_id, phone, patient_id),
+    ).fetchone()
+    return row is not None
 
 
 def count_active_links_for_phone(hospital_id: int, phone: str) -> int:
@@ -1504,34 +1564,88 @@ def count_active_links_for_phone(hospital_id: int, phone: str) -> int:
     ).fetchone()["c"]
 
 
+def _check_relationship_label(relationship_label: str | None) -> None:
+    if relationship_label is not None and relationship_label not in RELATIONSHIP_OPTIONS:
+        raise ValueError(f"relationship_label must be one of {RELATIONSHIP_OPTIONS} or None, got {relationship_label!r}")
+
+
+def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int, relationship_label: str | None) -> None:
+    """Shared by create_patient_profile()/link_existing_patient(): the
+    advisory-locked "count active links, raise if at cap, else INSERT the
+    link row" sequence -- must run under `conn`'s already-open transaction
+    (both callers wrap this in BEGIN/COMMIT/ROLLBACK) so the count-then-
+    insert is atomic against a genuine concurrent "add/link a patient" tap
+    from the same phone."""
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"patient_links|{hospital_id}|{phone}",))
+    active_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
+        (hospital_id, phone),
+    ).fetchone()["c"]
+    if active_count >= MAX_ACTIVE_PATIENT_LINKS:
+        raise TooManyLinkedPatientsError(
+            f"This phone number already has {MAX_ACTIVE_PATIENT_LINKS} linked patients -- unlink one first."
+        )
+    conn.execute(
+        "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label) "
+        "VALUES (?, ?, ?, ?)",
+        (hospital_id, phone, patient_id, relationship_label),
+    )
+
+
+def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, age: int | None) -> dict | None:
+    """CareConnect architecture doc alignment (Spec.md Section 0), Sections
+    8-10: searched BEFORE create_patient_profile() creates a brand-new
+    `patients` row/MRN, so a family member who already has a hospital
+    record (e.g. from a staff-created booking, or a different WhatsApp
+    number) isn't silently duplicated. Matching criteria confirmed with the
+    user, deliberately simple and conservative -- no fuzzy matching: exact
+    name (case/whitespace-insensitive) AND exact age, among this hospital's
+    ACTIVE patients. Excludes any patient already actively linked to THIS
+    phone -- if they're already linked, they'd show up in the family list
+    directly, not through this duplicate-detection path at all. Returns the
+    first match (deterministic: lowest patient id) or None."""
+    conn = get_connection()
+    if age is None:
+        return None
+    row = conn.execute(
+        "SELECT p.id, p.name, p.age, p.patient_display_id FROM patients p "
+        "WHERE p.hospital_id = ? AND p.status = 'active' "
+        "AND LOWER(TRIM(p.name)) = LOWER(TRIM(?)) AND p.age = ? "
+        "AND NOT EXISTS ("
+        "  SELECT 1 FROM patient_links pl WHERE pl.patient_id = p.id AND pl.hospital_id = ? "
+        "  AND pl.whatsapp_phone = ? AND pl.unlinked_at IS NULL"
+        ") "
+        "ORDER BY p.id LIMIT 1",
+        (hospital_id, name, age, hospital_id, phone),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def create_patient_profile(
     hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
 ) -> dict:
     """Creates a brand-new `patients` row (NEVER an upsert-by-phone -- multiple
     profiles are the whole point now) and links it to `phone` via a new
     patient_links row. Raises TooManyLinkedPatientsError if this phone already
-    has MAX_ACTIVE_PATIENT_LINKS active links.
+    has MAX_ACTIVE_PATIENT_LINKS active links, or ValueError if
+    relationship_label isn't one of RELATIONSHIP_OPTIONS (or None).
 
-    Wrapped in a real BEGIN/COMMIT/ROLLBACK block with a
-    pg_advisory_xact_lock scoped to (hospital_id, phone) -- the exact same
-    pattern create_appointment() already uses for quota enforcement -- so the
-    count-then-insert sequence is atomic against genuine concurrent "add a
-    patient" taps from the same phone, not just correct when called one at a
-    time. Confirmed with the user before building: an app-level check under
-    this lock, not a DB trigger (this project has none anywhere else)."""
+    Callers are expected to have already checked
+    find_potential_duplicate_patient() and confirmed with the patient that
+    this is genuinely a NEW patient, not an existing one to link instead
+    (link_existing_patient(), below) -- this function itself does not
+    re-check for a duplicate, so it can also serve any future caller (e.g.
+    a staff-side "register new patient" form) that has already resolved
+    identity its own way.
+
+    Wrapped in a real BEGIN/COMMIT/ROLLBACK block -- see
+    _link_patient_under_cap()'s own docstring for the advisory-lock
+    reasoning, unchanged from before this was extracted into a shared
+    helper."""
+    _check_relationship_label(relationship_label)
     conn = get_connection()
     conn.execute("BEGIN")
     try:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"patient_links|{hospital_id}|{phone}",))
-        active_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
-            (hospital_id, phone),
-        ).fetchone()["c"]
-        if active_count >= MAX_ACTIVE_PATIENT_LINKS:
-            raise TooManyLinkedPatientsError(
-                f"This phone number already has {MAX_ACTIVE_PATIENT_LINKS} linked patients -- unlink one first."
-            )
-
         patient_row = conn.execute(
             "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, name, age),
@@ -1539,12 +1653,7 @@ def create_patient_profile(
         patient_id = patient_row["id"]
         display_id = _generate_patient_display_id(conn, hospital_id)
         conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, patient_id))
-
-        conn.execute(
-            "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label) "
-            "VALUES (?, ?, ?, ?)",
-            (hospital_id, phone, patient_id, relationship_label),
-        )
+        _link_patient_under_cap(conn, hospital_id, phone, patient_id, relationship_label)
         conn.execute("COMMIT")
     except BaseException:
         try:
@@ -1556,6 +1665,62 @@ def create_patient_profile(
         "id": patient_id, "name": name, "age": age, "patient_display_id": display_id,
         "relationship_label": relationship_label,
     }
+
+
+def link_existing_patient(
+    hospital_id: int, phone: str, patient_id: int, relationship_label: str | None = None,
+) -> dict:
+    """CareConnect architecture doc alignment (Spec.md Section 0), Section
+    9: the "Link Existing Patient" choice after find_potential_duplicate_patient()
+    surfaces a plausible match -- creates a new patient_links row pointing
+    at the EXISTING `patients` row (no new patient/MRN, matching Section 9's
+    explicit "should not create a second MRN merely because..." rule)
+    rather than create_patient_profile()'s "always a fresh row." Subject to
+    the exact same 5-active-link cap as a new profile. Raises ValueError if
+    patient_id doesn't belong to hospital_id, or isn't 'active'."""
+    _check_relationship_label(relationship_label)
+    conn = get_connection()
+    conn.execute("BEGIN")
+    try:
+        patient_row = conn.execute(
+            "SELECT id, name, age, patient_display_id FROM patients WHERE hospital_id = ? AND id = ? AND status = ?",
+            (hospital_id, patient_id, PATIENT_STATUS_ACTIVE),
+        ).fetchone()
+        if patient_row is None:
+            raise ValueError(f"patient_id {patient_id} not found (or not active) for hospital {hospital_id}")
+        _link_patient_under_cap(conn, hospital_id, phone, patient_id, relationship_label)
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    return {
+        "id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"],
+        "patient_display_id": patient_row["patient_display_id"], "relationship_label": relationship_label,
+    }
+
+
+def set_patient_status(hospital_id: int, patient_id: int, status: str) -> dict | None:
+    """Staff-side action (the portal's patient detail page) for Section 18's
+    BLOCKED/INACTIVE states -- a hospital-level fact about the PATIENT
+    record, deliberately independent of patient_links (blocking a patient
+    doesn't touch or require touching any phone's link to them; see
+    get_active_patients_for_phone()'s own docstring). Returns None if
+    patient_id doesn't belong to this hospital, or raises ValueError for an
+    unrecognized status."""
+    if status not in PATIENT_STATUSES:
+        raise ValueError(f"status must be one of {PATIENT_STATUSES}, got {status!r}")
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patients SET status = ? WHERE hospital_id = ? AND id = ?",
+        (status, hospital_id, patient_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    conn.commit()
+    return get_patient(hospital_id, patient_id)
 
 
 def unlink_patient(hospital_id: int, phone: str, patient_id: int) -> bool:
@@ -1571,6 +1736,39 @@ def unlink_patient(hospital_id: int, phone: str, patient_id: int) -> bool:
         "UPDATE patient_links SET unlinked_at = ? "
         "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
         (datetime.now().isoformat(), hospital_id, phone, patient_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.commit()
+    return True
+
+
+def get_patient_link_consent(hospital_id: int, phone: str, patient_id: int) -> dict | None:
+    """CareConnect architecture doc alignment (Spec.md Section 0), Section
+    20's Consent & Privacy menu item -- reads the active link's own
+    service_consent/marketing_consent columns. Returns None if there's no
+    active link for this (hospital_id, phone, patient_id) triple."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT service_consent, marketing_consent FROM patient_links "
+        "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
+        (hospital_id, phone, patient_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consented: bool) -> bool:
+    """The one genuinely user-togglable consent flag (Section 20) --
+    service_consent is implicit in having an active link at all (see
+    db/schema.sql's own comment on why it's not a separate WhatsApp-facing
+    toggle); marketing_consent is independent, opt-in, and freely
+    reversible either direction. Returns False if there's no active link to
+    update."""
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE patient_links SET marketing_consent = ? "
+        "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
+        (consented, hospital_id, phone, patient_id),
     )
     if cur.rowcount == 0:
         return False
