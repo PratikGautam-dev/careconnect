@@ -13,6 +13,7 @@ touches (Dockerfile CMD, railway.toml startCommand).
 import logging
 import os
 
+import uvicorn
 from dotenv import load_dotenv
 
 load_dotenv()  # must run before os.environ[...] reads below, or db.init_db()'s env reads
@@ -92,3 +93,14 @@ app.include_router(portal_api_router)
 app.include_router(user_auth_router)
 app.include_router(webhook_router)
 app.include_router(cron_router)
+
+
+def main():
+    """`uv run main.py` -- local dev only. Production (Dockerfile/railway.toml)
+    invokes `uv run --no-sync uvicorn main:app ...` directly instead, with
+    --proxy-headers and no --reload; reload=True here would be wrong there."""
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+if __name__ == "__main__":
+    main()

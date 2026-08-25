@@ -28,6 +28,9 @@ type Settings = {
   // CareConnect architecture doc alignment (Spec.md Section 0).
   require_patient_confirmation: boolean;
   privacy_notice_text: string;
+  // DPDP Act consent gate: shown right after language selection, before any
+  // patient identity is resolved. Off by default.
+  dpdp_consent_required: boolean;
 };
 
 const FEATURE_DISPLAY_NAMES: Record<string, string> = {
@@ -253,6 +256,22 @@ export default function PortalSettingsPage() {
                 onChange={(checked) => setSettings({ ...settings, require_patient_confirmation: checked })}
               >
                 Require explicit confirmation before entering the menu, even for a single linked patient
+              </CheckboxRow>
+            </Card>
+
+            <Card className="p-space-5">
+              <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">DPDP Act consent</h2>
+              <p className="mb-space-3 text-[12.5px] text-ink-400">
+                When enabled, a fresh conversation must tap &quot;I Agree&quot; on a fixed Digital Personal Data
+                Protection (DPDP) Act notice right after choosing a language, before anything else -- including
+                registration or picking a patient. The decision is remembered per phone number, so a patient who has
+                already agreed is never asked again.
+              </p>
+              <CheckboxRow
+                checked={settings.dpdp_consent_required}
+                onChange={(checked) => setSettings({ ...settings, dpdp_consent_required: checked })}
+              >
+                Require DPDP consent before entering the menu
               </CheckboxRow>
             </Card>
 

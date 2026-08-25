@@ -22,7 +22,7 @@ os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
 # DATABASE_URL is already pointed at the test Postgres instance by
 # tests/conftest.py (loaded before this module).
 
-from backend.main import app  # noqa: E402
+from main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)

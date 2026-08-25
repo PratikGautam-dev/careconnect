@@ -14,14 +14,22 @@
 # runtime image, which is why that one IS multi-stage.
 FROM python:3.12-slim
 
+# uv binary, copied straight from Astral's distroless image rather than
+# pip-installed -- avoids needing pip itself in the final image just to
+# bootstrap uv.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 WORKDIR /app
 
 # System build tools are NOT installed -- every wheel needed is prebuilt for
 # this platform (see above); if a future dependency ever needs to compile
-# from source, pip's error will say so explicitly and gcc/etc. can be added
+# from source, uv's error will say so explicitly and gcc/etc. can be added
 # then, rather than carrying them unconditionally.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml uv.lock ./
+# --locked: fail the build rather than silently drift if uv.lock is ever out
+# of sync with pyproject.toml. --no-dev: pytest/testcontainers etc. never
+# belong in the production image.
+RUN uv sync --locked --no-dev
 
 COPY . .
 
@@ -38,4 +46,4 @@ EXPOSE 8000
 # though the real request was https://, which Google rejects as
 # redirect_uri_mismatch (a real incident on Railway, same underlying
 # cause -- see Spec.md Section 0 and railway.toml's own startCommand).
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
