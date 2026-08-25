@@ -5,7 +5,7 @@
 # Neon database uses.
 #
 # The real, deployed database's connection string lives in .env.production
-# (gitignored, never loaded automatically by core/main.py's load_dotenv())
+# (gitignored, never loaded automatically by app.py's load_dotenv())
 # -- it should only ever be used deliberately (e.g. to run a one-off
 # migration against it), never as a side effect of `uvicorn --reload` or any
 # other routine local dev command.

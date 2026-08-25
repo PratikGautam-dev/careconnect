@@ -23,12 +23,12 @@ live deployment.
 - **Backend (Railway)**: `railway.toml` at the repo root pins
   `builder = "NIXPACKS"` explicitly — Railway builds from source via
   Nixpacks (`pip install -r requirements.txt`, no Dockerfile involved),
-  and runs `uvicorn core.main:app --host 0.0.0.0 --port $PORT` ($PORT is
+  and runs `uvicorn app:app --host 0.0.0.0 --port $PORT` ($PORT is
   Railway's own assigned port, not the `8000` the Docker image hardcodes).
   Health check: `/health`. Env vars are set in Railway's own dashboard
   (Project → Variables) — see the tables further down for the full list;
   they're read identically regardless of which platform runs the process,
-  since they're plain `os.environ` reads in `core/main.py`/etc., nothing
+  since they're plain `os.environ` reads in `app.py`/`webhook/`/etc., nothing
   Railway-specific.
 - **Frontend (Vercel)**: no `vercel.json` — Vercel auto-detects Next.js and
   runs its own build/output pipeline (`npm run build`, its own serverless
@@ -100,10 +100,10 @@ move off Railway/Vercel is decided.
 
 ## Images
 
-- **`Dockerfile`** (repo root) — backend. `python:3.12-slim` (matches
+- **`backend/Dockerfile`** — backend. `python:3.12-slim` (matches
   `.github/workflows/tests.yml`'s pinned CI version), single stage —
   `pip install -r requirements.txt`, copy the app, run
-  `uvicorn core.main:app --host 0.0.0.0 --port 8000` (no `--reload`, that's
+  `uvicorn app:app --host 0.0.0.0 --port 8000` (no `--reload`, that's
   dev-only). No build stage: every dependency this project actually needs
   compiled (`psycopg2-binary`, `cryptography` via Authlib) ships a prebuilt
   wheel for this base image already, so there's nothing a multi-stage build
@@ -210,7 +210,7 @@ the proxy publishing ports 80/443).
 | Variable | Read in | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `db/connection.py` | Postgres connection string. No default — raises on startup if missing. |
-| `WHATSAPP_VERIFY_TOKEN` | `core/main.py` | Meta webhook verification challenge. No default — raises `KeyError` on startup if missing. |
+| `WHATSAPP_VERIFY_TOKEN` | `webhook/routes.py` | Meta webhook verification challenge. No default — raises on startup if missing. |
 
 **Required for real (non-empty) security — each of these defaults to `""`,
 which means "this feature is permanently disabled" rather than "insecure
@@ -222,7 +222,7 @@ as intended:**
 | `ADMIN_SECRET` | `admin/onboarding.py` | Gates creating a new hospital via the onboarding wizard. Empty = onboarding can never succeed (compares `bool(ADMIN_SECRET) and hmac.compare_digest(...)`, so an empty secret never matches anything, including another empty string). |
 | `TENANTS_ADMIN_SECRET` | `admin/tenants_api.py` | Gates `/admin/tenants`, `/admin/edit-tenant` — deliberately a *different* secret from `ADMIN_SECRET`, so a leaked onboarding secret can't also expose every tenant's stored credentials. |
 | `PORTAL_SECRET` | `portal.py`, also `core/storage.py` | Signs the hospital-staff portal's session token (`portal.py`); also doubles as `core/storage.py`'s fallback HMAC secret for locally-stored patient documents when `S3_BUCKET` isn't set. |
-| `AUTH_SECRET` | `user_auth.py`, `core/main.py` | Signs the Google-OAuth user session token (separate from `PORTAL_SECRET` on purpose — see `user_auth.py`'s module docstring); also used as the secret for Starlette's `SessionMiddleware`, which only holds the OAuth handshake's short-lived state/nonce. |
+| `AUTH_SECRET` | `user_auth.py`, `app.py` | Signs the Google-OAuth user session token (separate from `PORTAL_SECRET` on purpose — see `user_auth.py`'s module docstring); also used as the secret for Starlette's `SessionMiddleware`, which only holds the OAuth handshake's short-lived state/nonce. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | `user_auth.py` | Google OAuth app credentials (Section 15). Get these from Google Cloud Console — see below for the exact redirect URIs to register. |
 
 **Optional — real defaults or graceful fallback, but you'll likely want
@@ -230,9 +230,9 @@ these set in production:**
 
 | Variable | Read in | Purpose | Default / fallback |
 |---|---|---|---|
-| `FRONTEND_ORIGIN` | `core/main.py`, `user_auth.py` | Added to the CORS allow-list; also where `/auth/google/callback` redirects the browser back to after sign-in. | `core/main.py` only adds it to CORS if set at all (always includes `localhost:3000`); `user_auth.py` defaults to `http://localhost:3000` if unset. **Set this to your real deployed frontend URL** (e.g. `https://app.yourdomain.com`) or Google sign-in will redirect users back to `localhost`. |
-| `INTERNAL_SECRET` | `core/main.py` | Gates `/internal/send-reminders` and `/internal/top-up-slots` (checked against an `X-Internal-Secret` header) — whatever cron/scheduler calls these needs to send it. | `""` (both routes 403 on every request until set) |
-| `REDIS_URL` | `core/history.py`, `core/main.py`, `core/rate_limit.py`, `modules/booking/calendar.py` | Session store, per-message locking, and rate-limiting backend. | Falls back to in-memory automatically — **fine for a single container, NOT safe if you ever run more than one backend replica** (each process would have its own separate in-memory state). |
+| `FRONTEND_ORIGIN` | `app.py`, `user_auth.py` | Added to the CORS allow-list; also where `/auth/google/callback` redirects the browser back to after sign-in. | `app.py` only adds it to CORS if set at all (always includes `localhost:3000`); `user_auth.py` defaults to `http://localhost:3000` if unset. **Set this to your real deployed frontend URL** (e.g. `https://app.yourdomain.com`) or Google sign-in will redirect users back to `localhost`. |
+| `INTERNAL_SECRET` | `webhook/cron_routes.py` | Gates `/internal/send-reminders` and `/internal/top-up-slots` (checked against an `X-Internal-Secret` header) — whatever cron/scheduler calls these needs to send it. | `""` (both routes 403 on every request until set) |
+| `REDIS_URL` | `core/chat_history.py`, `core/session_store.py`, `webhook/dispatch.py`, `core/rate_limit.py`, `modules/booking/calendar.py` | Session store, per-message locking, and rate-limiting backend. | Falls back to in-memory automatically — **fine for a single container, NOT safe if you ever run more than one backend replica** (each process would have its own separate in-memory state). |
 
 **Optional — patient document storage (`core/storage.py`), only relevant if
 the `booking`/patient-records features are used:**
@@ -256,7 +256,7 @@ through the wizard instead):
 `GOOGLE_CALENDAR_ID` / `GOOGLE_CALENDAR_OWNER_EMAIL` are read by
 `modules/booking/calendar.py`, a legacy module from before this project's
 AI/calendar features were stripped (Spec.md Section 0, Phase 0) — it's not
-imported by `core/main.py` or reachable from the running app at all. Safe
+imported by `app.py` or reachable from the running app at all. Safe
 to leave unset.
 
 ### Frontend (`NEXT_PUBLIC_*`, read via `process.env` — inlined at **build**

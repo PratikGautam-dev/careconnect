@@ -1,0 +1,86 @@
+# connectors/tier1.py
+"""SPEC Section 12.6 Tier 1 — this product's own database. Thin wrapper
+around db/repository.py; the only tier with a real implementation.
+ARCHITECTURE_PLAN.md Phase 2: split out of the former single connectors.py
+module."""
+import db.repository as repo
+
+from connectors.base import Connector
+
+
+class Tier1Connector(Connector):
+    def get_departments(self, hospital_id):
+        return repo.get_departments(hospital_id)
+
+    def get_doctors(self, hospital_id, department_id):
+        return repo.get_doctors(hospital_id, department_id)
+
+    def get_available_slots(self, hospital_id, doctor_id):
+        return repo.get_slots(hospital_id, doctor_id)
+
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None):
+        return repo.create_appointment(
+            hospital_id, phone, department_id, doctor_id, scheduled_at,
+            source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
+        )
+
+    def get_patient_info(self, hospital_id, phone):
+        return repo.get_patient_by_phone(hospital_id, phone)
+
+    def list_active_patients(self, hospital_id, phone):
+        return repo.get_active_patients_for_phone(hospital_id, phone)
+
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
+        return repo.create_patient_profile(hospital_id, phone, name, age, relationship_label=relationship_label)
+
+    def unlink_patient(self, hospital_id, phone, patient_id):
+        return repo.unlink_patient(hospital_id, phone, patient_id)
+
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
+        return repo.find_potential_duplicate_patient(hospital_id, phone, name, age)
+
+    def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
+        return repo.link_existing_patient(hospital_id, phone, patient_id, relationship_label=relationship_label)
+
+    def validate_active_patient_link(self, hospital_id, phone, patient_id):
+        return repo.validate_active_patient_link(hospital_id, phone, patient_id)
+
+    def get_patient_link_consent(self, hospital_id, phone, patient_id):
+        return repo.get_patient_link_consent(hospital_id, phone, patient_id)
+
+    def set_marketing_consent(self, hospital_id, phone, patient_id, consented):
+        return repo.set_marketing_consent(hospital_id, phone, patient_id, consented)
+
+    def cancel_booking(self, hospital_id, appointment_id):
+        repo.cancel_appointment(hospital_id, appointment_id)
+
+    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
+        """Books the new slot BEFORE marking the old appointment rescheduled:
+        if someone else grabbed this exact doctor+slot first (IntegrityError,
+        left to propagate uncaught to the caller — same as create_booking),
+        the patient keeps their original appointment rather than being left
+        with neither. This ordering is a deliberate Phase 8 fix, now living
+        here instead of split across two separate core/booking_flow.py calls.
+
+        Patient identity SEPARATION (Spec.md Section 0): patient_id, when
+        given, is threaded straight through to create_appointment() so the
+        rebooked slot stays tied to the SAME linked patient the original
+        appointment belonged to -- without it, a multi-patient phone
+        rescheduling would have no way to know which family member's
+        appointment this actually is."""
+        new_appointment = repo.create_appointment(
+            hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
+            exclude_appointment_id=old_appointment_id,
+        )
+        repo.mark_rescheduled(hospital_id, old_appointment_id)
+        return new_appointment
+
+    def get_upcoming_appointments(self, hospital_id, phone=None, offset_hours=None, now=None):
+        if phone is not None:
+            return repo.get_upcoming_appointments_for_phone(hospital_id, phone, now=now)
+        if offset_hours is not None:
+            return repo.get_upcoming_appointments(hospital_id, offset_hours, now=now)
+        raise ValueError("get_upcoming_appointments requires either phone= or offset_hours=")
+
+    def mark_reminder_sent(self, hospital_id, appointment_id, offset_hours):
+        repo.mark_reminded(hospital_id, appointment_id, offset_hours)

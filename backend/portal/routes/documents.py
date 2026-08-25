@@ -1,0 +1,101 @@
+from fastapi import APIRouter, File, Header, UploadFile
+from fastapi.responses import JSONResponse, Response
+
+import db.repository as db
+from core.storage import get_storage
+from core.whatsapp import WhatsAppClient
+from portal.deps import _authenticate, _session_id
+
+router = APIRouter()
+
+
+@router.post("/api/portal/patients/{patient_id}/documents")
+async def portal_upload_patient_document(
+    patient_id: int, file: UploadFile = File(...), authorization: str | None = Header(default=None),
+):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_patient(hospital.id, patient_id) is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    if not file.filename:
+        return JSONResponse({"error": "A file is required."}, status_code=400)
+
+    content = await file.read()
+    if not content:
+        return JSONResponse({"error": "The uploaded file is empty."}, status_code=400)
+
+    storage = get_storage()
+    storage_key = storage.upload(
+        hospital.id, patient_id, file.filename, content, file.content_type or "application/octet-stream",
+    )
+    document = db.create_patient_document(
+        hospital.id, patient_id, file.filename, storage_key,
+        uploaded_by_session_id=_session_id(authorization),
+    )
+    return JSONResponse({"document": document})
+
+
+@router.post("/api/portal/patients/{patient_id}/documents/{document_id}/send")
+async def portal_send_patient_document(
+    patient_id: int, document_id: int, authorization: str | None = Header(default=None),
+):
+    """Sends the document directly to the patient's own WhatsApp chat.
+    Deliberately calls WhatsAppClient directly rather than through
+    connectors.py: the Connector interface (connectors.py's module
+    docstring) exists to abstract WHERE booking/appointment/doctor data
+    lives across data tiers (Tier 1 local DB vs Tier 2 external API vs
+    Tier 3 direct DB) -- it has never been the path WhatsApp *sends*
+    themselves go through, on any tier. Every existing send (reminders,
+    the handoff-reply endpoint, the cancel-with-message endpoint) already
+    calls WhatsAppClient directly with the hospital's own credentials,
+    regardless of that hospital's data_tier -- sending a message isn't a
+    booking-data operation, so there's no tier-specific behavior to
+    abstract here. This follows that same established pattern rather than
+    introducing a new, inconsistent one."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    patient = db.get_patient(hospital.id, patient_id)
+    if patient is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    document = db.get_patient_document(hospital.id, document_id)
+    if document is None or document["patient_id"] != patient_id:
+        return JSONResponse({"error": "No such document."}, status_code=404)
+
+    storage = get_storage()
+    document_url = storage.get_signed_url(document["file_url"], expires_in=3600)
+
+    wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+    sent = await wa.send_document(patient["phone"], document_url, document["file_name"])
+    if not sent:
+        return JSONResponse(
+            {"error": "Couldn't send the document on WhatsApp. Please check the connection and try again."},
+            status_code=502,
+        )
+    db.mark_document_sent_to_whatsapp(hospital.id, document_id)
+    return JSONResponse({"ok": True})
+
+
+@router.get("/api/documents/local/{token:path}")
+async def portal_serve_local_document(token: str):
+    """Only reachable/meaningful when core/storage.py fell back to
+    LocalFileStorage (no S3_BUCKET configured) -- S3Storage's signed URLs
+    point directly at S3/R2 and never touch this app at all. No portal
+    Bearer-token auth here: the signed, expiring token IS the capability --
+    the same way an S3 presigned URL needs no separate auth header either."""
+    storage = get_storage()
+    if not hasattr(storage, "verify_token"):
+        return JSONResponse({"error": "Not found."}, status_code=404)
+    storage_key = storage.verify_token(token)
+    if storage_key is None:
+        return JSONResponse({"error": "This link has expired or is invalid."}, status_code=403)
+    content = storage.read(storage_key)
+    if content is None:
+        return JSONResponse({"error": "Not found."}, status_code=404)
+    file_name = storage_key.rsplit("_", 1)[-1]
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
