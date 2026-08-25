@@ -141,5 +141,6 @@ async def _process_message(
         privacy_notice_text=hospital.privacy_notice_text,
         provider_user_id=provider_user_id,
         username=username,
+        dpdp_consent_required=hospital.dpdp_consent_required,
     )
     logger.info("Flow router returned for %s (hospital %s)", phone, hospital.id)

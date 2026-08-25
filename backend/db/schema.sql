@@ -143,6 +143,14 @@ ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS require_patient_confirmation BOOL
 -- -- the Consent & Privacy screen falls back to a fixed generic notice
 -- rather than showing nothing.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS privacy_notice_text TEXT;
+-- DPDP Act consent gate (default off, same "self-serve, opt-in" convention
+-- as require_patient_confirmation above): when TRUE, a fresh conversation
+-- must tap "I Agree" on a fixed DPDP notice (core/translations.py's
+-- dpdp_consent_body) right after language selection, BEFORE any patient
+-- identity is resolved -- see dpdp_consents below for where the decision
+-- is recorded. A hospital that doesn't need this (or handles consent
+-- outside the bot) leaves it off and the flow is unchanged.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS dpdp_consent_required BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Widens the CHECK bound below from 5-120 to 2-120 (a 2-minute idle-timeout
 -- option, for testing/demoing the flow without a real 5+ minute wait) --
@@ -639,6 +647,25 @@ CREATE TABLE IF NOT EXISTS whatsapp_identities (
 -- fully wired up and ready for a future portal/ERP read to use, without
 -- rewriting every existing phone-keyed query in this pass.
 ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER REFERENCES care_connect_accounts(id);
+
+-- DPDP Act consent gate (hospitals.dpdp_consent_required above): recorded
+-- once per (hospital, phone), right after language selection and BEFORE
+-- any patient identity is resolved. Deliberately hospital-scoped (unlike
+-- care_connect_accounts/whatsapp_identities, which are global) -- consent
+-- is inherently about what THIS hospital does with the data, not a fact
+-- about the person's identity overall. Only an AGREED decision is ever
+-- written here -- declining doesn't insert a row at all, so a person who
+-- taps "I Do Not Agree" is simply asked again on their next fresh
+-- conversation (they may have misread the prompt, or changed their mind)
+-- rather than being permanently flagged as refused.
+CREATE TABLE IF NOT EXISTS dpdp_consents (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    whatsapp_phone TEXT NOT NULL,
+    care_connect_account_id INTEGER REFERENCES care_connect_accounts(id),
+    consented_at TEXT NOT NULL DEFAULT (now()::text),
+    UNIQUE(hospital_id, whatsapp_phone)
+);
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

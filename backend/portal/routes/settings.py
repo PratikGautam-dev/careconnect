@@ -46,6 +46,7 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             # category as closing_message_text/business_hours_text above.
             "require_patient_confirmation": hospital.require_patient_confirmation,
             "privacy_notice_text": hospital.privacy_notice_text or "",
+            "dpdp_consent_required": hospital.dpdp_consent_required,
         },
         # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
         # -- rules out any browser/CDN-level HTTP caching of this
@@ -120,5 +121,6 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         session_timeout_minutes=session_timeout_minutes,
         require_patient_confirmation=bool(payload.get("require_patient_confirmation", False)),
         privacy_notice_text=(payload.get("privacy_notice_text") or "").strip() or None,
+        dpdp_consent_required=bool(payload.get("dpdp_consent_required", False)),
     )
     return JSONResponse({"ok": True})

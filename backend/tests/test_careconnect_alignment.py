@@ -393,3 +393,100 @@ async def test_consent_privacy_screen_shows_notice_and_toggles_marketing(hospita
     assert "Enabled" in kwargs["body_text"]
     consent = db.get_patient_link_consent(hospital_id, PHONE, patient["id"])
     assert consent["marketing_consent"] is True
+
+
+# --- 8. DPDP Act consent gate (hospitals.dpdp_consent_required, default off) ---
+
+@pytest.mark.asyncio
+async def test_dpdp_consent_shown_after_language_before_patient_resolution(hospital_id):
+    """When enabled, a fresh conversation must agree to the DPDP notice
+    before patient identity is ever resolved -- even a phone with an
+    existing linked patient stops here first, not at the menu/confirm
+    screen."""
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == flows.STATE_AWAITING_DPDP_CONSENT
+    kwargs = _last_buttons(wa)
+    assert "DPDP" in kwargs["body_text"]
+    ids = {b["id"] for b in kwargs["buttons"]}
+    assert ids == {flows.DPDP_AGREE_ID, flows.DPDP_DECLINE_ID}
+
+
+@pytest.mark.asyncio
+async def test_dpdp_consent_agree_proceeds_and_is_remembered(hospital_id):
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(flows.DPDP_AGREE_ID), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    # Proceeds straight through to the resolved-patient IDLE menu, not stuck
+    # re-showing the consent prompt.
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    assert db.has_agreed_to_dpdp_consent(hospital_id, PHONE) is True
+
+    # A brand new session (e.g. after a real 30-min timeout) must NOT be
+    # asked again -- the decision is remembered in the DB, not the session.
+    wa2 = FakeWhatsAppClient()
+    fresh_sessions = _sessions_en(hospital_id)
+    await flows.handle_incoming(
+        wa2, fresh_sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    assert not any(kind == "buttons" and "DPDP" in kwargs["body_text"] for kind, kwargs in wa2.sent)
+
+
+@pytest.mark.asyncio
+async def test_dpdp_consent_decline_stops_without_recording_anything(hospital_id):
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(flows.DPDP_DECLINE_ID), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    assert db.has_agreed_to_dpdp_consent(hospital_id, PHONE) is False
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+
+    # Messaging again later re-asks -- declining isn't a permanent refusal.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        dpdp_consent_required=True,
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == flows.STATE_AWAITING_DPDP_CONSENT
+
+
+@pytest.mark.asyncio
+async def test_dpdp_consent_off_by_default_leaves_flow_unchanged(hospital_id):
+    """The hospital fixture's default (dpdp_consent_required=False) must
+    behave exactly as before this feature existed -- straight to the menu."""
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"

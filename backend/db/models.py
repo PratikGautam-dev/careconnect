@@ -275,6 +275,10 @@ class Hospital:
     # db/schema.sql's own column comments for what each controls.
     require_patient_confirmation: bool
     privacy_notice_text: str | None
+    # DPDP Act consent gate (db/schema.sql's own comment on
+    # hospitals.dpdp_consent_required/dpdp_consents): default off, same
+    # self-serve opt-in convention as require_patient_confirmation above.
+    dpdp_consent_required: bool = False
 
 
 @dataclass
