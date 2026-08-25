@@ -25,6 +25,7 @@ underscore-prefixed, kept as-is here rather than renamed mid-move).
 """
 from flows.booking.state import (
     BACK_ID,
+    CHANGE_APPOINTMENT_TYPE,
     CHANGE_DATE,
     CHANGE_DEPARTMENT,
     CHANGE_DOCTOR,

@@ -55,6 +55,17 @@ class ConnectorNotImplementedError(NotImplementedError):
 class Connector(abc.ABC):
     """The fixed contract (SPEC Section 12.6.2)."""
 
+    # Deliberately no hospital_id param, unlike every other method here --
+    # CareConnect account/identity resolution (db/schema.sql's own comment on
+    # care_connect_accounts) is a GLOBAL operation, not a per-hospital one; a
+    # person's WhatsApp identity is the same regardless of which hospital's
+    # bot received the message. See db/repositories/accounts.py.
+    @abc.abstractmethod
+    def identify_contact(self, provider_user_id: str, phone_number: str | None = None, username: str | None = None) -> dict: ...
+
+    @abc.abstractmethod
+    def get_appointment_types(self, hospital_id: int) -> list[dict]: ...
+
     @abc.abstractmethod
     def get_departments(self, hospital_id: int) -> list[dict]: ...
 
@@ -68,7 +79,8 @@ class Connector(abc.ABC):
     def create_booking(
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str, scheduled_at: datetime,
         source: str = "whatsapp", patient_name: str | None = None, patient_age: int | None = None,
-        patient_id: int | None = None,
+        patient_id: int | None = None, appointment_type_id: str | None = None,
+        consent_given_at: str | None = None,
     ) -> Appointment: ...
 
     @abc.abstractmethod
@@ -147,6 +159,12 @@ class _UnimplementedTierConnector(Connector):
             f"onboarding it onto this tier, rather than guessing at one ahead of time."
         )
 
+    def identify_contact(self, provider_user_id, phone_number=None, username=None):
+        self._not_implemented("identify_contact")
+
+    def get_appointment_types(self, hospital_id):
+        self._not_implemented("get_appointment_types")
+
     def get_departments(self, hospital_id):
         self._not_implemented("get_departments")
 
@@ -156,7 +174,7 @@ class _UnimplementedTierConnector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         self._not_implemented("get_available_slots")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None):
         self._not_implemented("create_booking")
 
     def get_patient_info(self, hospital_id, phone):

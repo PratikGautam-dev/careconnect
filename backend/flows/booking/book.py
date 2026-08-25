@@ -14,14 +14,15 @@ from db.connection import IntegrityError
 from flows.booking.manage_patients import _start_manage_patients_flow
 from flows.booking.messages import (
     _handle_back_navigation, _handle_slot_taken, _notify_no_doctors_available, _notify_no_slots_available,
-    _reject_if_patient_link_invalid, _resend_menu_for_state, _select_patient_and_continue, _send_change_selection_menu,
-    _send_confirmation, _send_date_menu, _send_department_menu, _send_doctor_menu, _send_main_menu,
-    _send_patient_selector, _send_time_menu,
+    _reject_if_patient_link_invalid, _resend_menu_for_state, _select_patient_and_continue, _send_appointment_type_menu,
+    _send_change_selection_menu, _send_confirmation, _send_consent_prompt, _send_date_menu, _send_department_menu,
+    _send_doctor_menu, _send_main_menu, _send_patient_selector, _send_time_menu,
 )
 from flows.booking.state import (
-    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, MAX_PATIENT_AGE, MIN_PATIENT_AGE, STATE_AWAITING_CHANGE_SELECTION,
-    STATE_AWAITING_CONFIRMATION, STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR,
-    STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_TIME_SLOT,
+    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, MAX_PATIENT_AGE, MIN_PATIENT_AGE, STATE_AWAITING_APPOINTMENT_TYPE,
+    STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
+    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
+    STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_TIME_SLOT,
     STATE_BOOKED, _CHANGE_TARGETS, _HISTORY_KEY, _append_closing_message, _carry_forward_preserved_fields,
     _date_label, _find_by_id, _history_pop_to, _manage_cancel_id, _manage_reschedule_id, _parse_patient_age,
     _push_history,
@@ -84,6 +85,38 @@ async def _start_booking_flow(
         await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patients[0], "booking", language=language)
         return
     await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "booking", language=language)
+
+
+async def _handle_awaiting_appointment_type(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    """Appointment type step (WhatsApp flow alignment) -- the first booking
+    step after patient resolution (_select_patient_and_continue's booking
+    branch), same position Back navigation returns to first (there's no
+    earlier booking-specific step for Back to fall through to; a Back tap
+    here falls all the way out to the main menu, same as department's Back
+    used to before this step existed)."""
+    if reply["type"] == "interactive_reply":
+        if reply["id"] == BACK_ID:
+            sessions.reset(hospital_id, phone)
+            await _send_main_menu(wa, phone, "the hospital", language=language)
+            return
+        appt_type = _find_by_id(connector.get_appointment_types(hospital_id), reply["id"])
+        if appt_type:
+            history = _push_history(context, STATE_AWAITING_APPOINTMENT_TYPE)
+            new_context = {
+                **context,
+                "appointment_type_id": appt_type["id"],
+                "appointment_type_label": appt_type["label"],
+                "appointment_type_requires_consent": appt_type["requires_consent"],
+                _HISTORY_KEY: history,
+            }
+            sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, new_context)
+            await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+            return
+    sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
+    await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
 
 
 async def _handle_awaiting_department(
@@ -289,6 +322,101 @@ async def _handle_awaiting_patient_age(
     await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patient, next_action, language=language)
 
 
+async def _create_booking_and_notify(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None, consent_given_at: str | None = None,
+) -> None:
+    """The actual "create the appointment and tell the patient" sequence --
+    shared by _handle_awaiting_confirmation's CONFIRM_YES branch (an
+    appointment type with no consent requirement) and
+    _handle_awaiting_consent's own CONFIRM_YES branch (consent just given),
+    so this isn't duplicated across the two entry points."""
+    if await _reject_if_patient_link_invalid(
+        wa, sessions, phone, hospital_id, context.get("active_patient_id"), connector, language=language,
+    ):
+        return
+    try:
+        appointment = connector.create_booking(
+            hospital_id=hospital_id,
+            phone=phone,
+            department_id=context.get("department_id"),
+            doctor_id=context.get("doctor_id"),
+            scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
+            patient_name=context.get("patient_name"),
+            patient_age=context.get("patient_age"),
+            patient_id=context.get("active_patient_id"),
+            appointment_type_id=context.get("appointment_type_id"),
+            consent_given_at=consent_given_at,
+        )
+    except DuplicateBookingError as exc:
+        # Item 5: must be checked BEFORE the generic IntegrityError
+        # catch below -- DuplicateBookingError IS an IntegrityError
+        # (same subclassing pattern as QuotaExceededError), so the
+        # more specific except has to come first or this branch is
+        # unreachable. Offer the SAME quick-action pattern the
+        # booking-success message uses (item 3), scoped to the
+        # already-existing appointment, not a generic error.
+        sessions.reset(hospital_id, phone)
+        existing = next(
+            (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone)
+             if a.id == exc.existing_appointment_id),
+            None,
+        )
+        doctor_name = existing.doctor_name if existing else context.get("doctor_name", "")
+        await wa.send_buttons(
+            to=phone,
+            body_text=t("duplicate_booking_text", language, doctor_name=doctor_name),
+            buttons=[
+                {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
+                {"id": _manage_cancel_id(exc.existing_appointment_id), "title": t("cancel_button", language)},
+                {"id": _manage_reschedule_id(exc.existing_appointment_id), "title": t("reschedule_short", language)},
+            ],
+        )
+        return
+    except IntegrityError:
+        # Someone else booked this exact doctor+slot first (db/schema.sql's
+        # partial unique index — the real double-booking guard, not this
+        # try/except). Send the patient back to time selection with a
+        # freshly-queried list that no longer offers the taken slot.
+        await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_TIME_SLOT, connector, language=language)
+        return
+    # Section 12.12: reference_id is generated once, inside
+    # create_appointment() itself (db/repository.py) -- read back off
+    # the returned Appointment rather than regenerated here, so the
+    # id shown to the patient is the exact one actually stored.
+    summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
+    summary = _append_closing_message(summary, closing_message_text)
+    # Item 3: quick-action buttons attached to the success message --
+    # tapping any of them, even long after this session has expired,
+    # routes straight into that flow for THIS specific appointment
+    # (flows.py checks for these ids before normal session dispatch).
+    await wa.send_buttons(
+        to=phone,
+        body_text=summary,
+        buttons=[
+            {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
+            {"id": _manage_cancel_id(appointment.id), "title": t("cancel_button", language)},
+            {"id": _manage_reschedule_id(appointment.id), "title": t("reschedule_short", language)},
+        ],
+    )
+    # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
+    # separate incoming message that moves it out of BOOKED, so it's never
+    # actually written to the session store.
+    #
+    # Language-reset follow-up (Spec.md Section 0): a FULLY COMPLETED
+    # booking specifically clears the chosen language too
+    # (keep_language=False) -- the next fresh conversation from this
+    # patient shows the language picker again, rather than assuming
+    # the last-used language forever. Every OTHER reset() call site
+    # in this file (decline, cancel flow, reschedule, stale-session
+    # cleanup, ...) is deliberately untouched and keeps preserving
+    # language, per Section 12.11's original "only ask once per
+    # fresh conversation" reasoning -- this is a narrow, deliberate
+    # exception for the one specific event requested, not a general
+    # policy change.
+    sessions.reset(hospital_id, phone, keep_language=False)
+
+
 async def _handle_awaiting_confirmation(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
@@ -296,88 +424,23 @@ async def _handle_awaiting_confirmation(
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
         if rid == CONFIRM_YES:
-            if await _reject_if_patient_link_invalid(
-                wa, sessions, phone, hospital_id, context.get("active_patient_id"), connector, language=language,
-            ):
-                return
-            try:
-                appointment = connector.create_booking(
-                    hospital_id=hospital_id,
-                    phone=phone,
-                    department_id=context.get("department_id"),
-                    doctor_id=context.get("doctor_id"),
-                    scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
-                    patient_name=context.get("patient_name"),
-                    patient_age=context.get("patient_age"),
-                    patient_id=context.get("active_patient_id"),
-                )
-            except DuplicateBookingError as exc:
-                # Item 5: must be checked BEFORE the generic IntegrityError
-                # catch below -- DuplicateBookingError IS an IntegrityError
-                # (same subclassing pattern as QuotaExceededError), so the
-                # more specific except has to come first or this branch is
-                # unreachable. Offer the SAME quick-action pattern the
-                # booking-success message uses (item 3), scoped to the
-                # already-existing appointment, not a generic error.
-                sessions.reset(hospital_id, phone)
-                existing = next(
-                    (a for a in connector.get_upcoming_appointments(hospital_id, phone=phone)
-                     if a.id == exc.existing_appointment_id),
-                    None,
-                )
-                doctor_name = existing.doctor_name if existing else context.get("doctor_name", "")
-                await wa.send_buttons(
-                    to=phone,
-                    body_text=t("duplicate_booking_text", language, doctor_name=doctor_name),
-                    buttons=[
-                        {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
-                        {"id": _manage_cancel_id(exc.existing_appointment_id), "title": t("cancel_button", language)},
-                        {"id": _manage_reschedule_id(exc.existing_appointment_id), "title": t("reschedule_short", language)},
-                    ],
+            # Appointment type step (WhatsApp flow alignment): a type whose
+            # requires_consent is TRUE (e.g. tele-consultation, second
+            # opinion) needs an explicit consent step BEFORE the appointment
+            # is actually created -- everything else (department/doctor/
+            # date/time review, patient-link validity) is already settled by
+            # the time confirmation is reached, so this only gates the final
+            # create_booking() call, not re-asking anything already answered.
+            if context.get("appointment_type_requires_consent"):
+                sessions.set(hospital_id, phone, STATE_AWAITING_CONSENT, context)
+                await _send_consent_prompt(
+                    wa, phone, context.get("appointment_type_label", ""), language=language,
                 )
                 return
-            except IntegrityError:
-                # Someone else booked this exact doctor+slot first (db/schema.sql's
-                # partial unique index — the real double-booking guard, not this
-                # try/except). Send the patient back to time selection with a
-                # freshly-queried list that no longer offers the taken slot.
-                await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_TIME_SLOT, connector, language=language)
-                return
-            # Section 12.12: reference_id is generated once, inside
-            # create_appointment() itself (db/repository.py) -- read back off
-            # the returned Appointment rather than regenerated here, so the
-            # id shown to the patient is the exact one actually stored.
-            summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
-            summary = _append_closing_message(summary, closing_message_text)
-            # Item 3: quick-action buttons attached to the success message --
-            # tapping any of them, even long after this session has expired,
-            # routes straight into that flow for THIS specific appointment
-            # (flows.py checks for these ids before normal session dispatch).
-            await wa.send_buttons(
-                to=phone,
-                body_text=summary,
-                buttons=[
-                    {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
-                    {"id": _manage_cancel_id(appointment.id), "title": t("cancel_button", language)},
-                    {"id": _manage_reschedule_id(appointment.id), "title": t("reschedule_short", language)},
-                ],
+            await _create_booking_and_notify(
+                wa, sessions, phone, hospital_id, context, connector,
+                language=language, closing_message_text=closing_message_text,
             )
-            # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
-            # separate incoming message that moves it out of BOOKED, so it's never
-            # actually written to the session store.
-            #
-            # Language-reset follow-up (Spec.md Section 0): a FULLY COMPLETED
-            # booking specifically clears the chosen language too
-            # (keep_language=False) -- the next fresh conversation from this
-            # patient shows the language picker again, rather than assuming
-            # the last-used language forever. Every OTHER reset() call site
-            # in this file (decline, cancel flow, reschedule, stale-session
-            # cleanup, ...) is deliberately untouched and keeps preserving
-            # language, per Section 12.11's original "only ask once per
-            # fresh conversation" reasoning -- this is a narrow, deliberate
-            # exception for the one specific event requested, not a general
-            # policy change.
-            sessions.reset(hospital_id, phone, keep_language=False)
             return
         if rid == CONFIRM_NO:
             await wa.send_text(phone, t("booking_not_confirmed", language))
@@ -389,6 +452,34 @@ async def _handle_awaiting_confirmation(
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
     await _send_confirmation(wa, phone, context, language=language)
+
+
+async def _handle_awaiting_consent(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    """Reached only for an appointment type with requires_consent=TRUE, right
+    after confirmation -- see _handle_awaiting_confirmation's own CONFIRM_YES
+    branch. Declining does NOT go back to confirmation (there's nothing to
+    change that would make consent unnecessary for this type -- the patient
+    would need to pick a different appointment type instead, i.e. start
+    over), so this ends the flow with an explanatory message rather than
+    looping."""
+    if reply["type"] == "interactive_reply":
+        rid = reply["id"]
+        if rid == CONFIRM_YES:
+            await _create_booking_and_notify(
+                wa, sessions, phone, hospital_id, context, connector,
+                language=language, closing_message_text=closing_message_text,
+                consent_given_at=datetime.now().isoformat(),
+            )
+            return
+        if rid == CONFIRM_NO:
+            await wa.send_text(phone, t("consent_declined", language))
+            sessions.reset(hospital_id, phone)
+            return
+    sessions.set(hospital_id, phone, STATE_AWAITING_CONSENT, context)
+    await _send_consent_prompt(wa, phone, context.get("appointment_type_label", ""), language=language)
 
 
 async def _handle_awaiting_change_selection(

@@ -14,9 +14,9 @@ from core.whatsapp import WhatsAppClient
 
 from flows.common import is_reset_keyword
 from flows.booking.book import (
-    _handle_awaiting_change_selection, _handle_awaiting_confirmation, _handle_awaiting_date,
-    _handle_awaiting_department, _handle_awaiting_doctor, _handle_awaiting_patient_age, _handle_awaiting_patient_name,
-    _handle_awaiting_time_slot, _start_booking_flow,
+    _handle_awaiting_appointment_type, _handle_awaiting_change_selection, _handle_awaiting_confirmation,
+    _handle_awaiting_consent, _handle_awaiting_date, _handle_awaiting_department, _handle_awaiting_doctor,
+    _handle_awaiting_patient_age, _handle_awaiting_patient_name, _handle_awaiting_time_slot, _start_booking_flow,
 )
 from flows.booking.cancel import _handle_awaiting_cancel_confirm, _handle_awaiting_cancel_selection, _start_cancel_flow
 from flows.booking.manage_patients import _handle_awaiting_manage_patients_action, _handle_awaiting_unlink_confirm
@@ -27,8 +27,9 @@ from flows.booking.reschedule import (
 )
 from flows.booking.state import (
     FREE_TEXT_INPUT_STATES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ, MAIN_MENU_RESCHEDULE,
-    STATE_AWAITING_CANCEL_CONFIRM, STATE_AWAITING_CANCEL_SELECTION, STATE_AWAITING_CHANGE_SELECTION,
-    STATE_AWAITING_CONFIRMATION, STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR,
+    STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_CANCEL_CONFIRM, STATE_AWAITING_CANCEL_SELECTION,
+    STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
+    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -66,6 +67,8 @@ async def _handle_idle(
 
 
 _HANDLERS = {
+    STATE_AWAITING_APPOINTMENT_TYPE: _handle_awaiting_appointment_type,
+    STATE_AWAITING_CONSENT: _handle_awaiting_consent,
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
     STATE_AWAITING_DATE: _handle_awaiting_date,

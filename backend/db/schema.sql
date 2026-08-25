@@ -480,6 +480,29 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_age INTEGER;
 -- appointment()'s own guard) -- deleting a still-active appointment without
 -- cancelling it first isn't offered.
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+
+-- Appointment type step (WhatsApp flow alignment): hospital-configurable
+-- (like enabled_features/feature_labels), not hardcoded -- each hospital's
+-- onboarding picks its own subset/labels from the fixed id set db/init_db.py
+-- seeds (new, followup, tele, second_opinion, diagnostic, lab, daycare).
+-- requires_doctor_selection is carried for a future per-type booking-path
+-- branch (e.g. a lab/diagnostic type skipping straight to a resource picker
+-- instead of doctor selection) -- not yet acted on by the booking flow in
+-- this pass, every type goes through department/doctor selection today
+-- regardless of this flag's value.
+CREATE TABLE IF NOT EXISTS appointment_types (
+    id TEXT NOT NULL,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    label TEXT NOT NULL,
+    requires_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    requires_doctor_selection BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (hospital_id, id)
+);
+
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_type_id TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS consent_given_at TEXT;
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
@@ -570,6 +593,52 @@ ALTER TABLE patient_links ADD CONSTRAINT patient_links_relationship_label_check
 -- consent together.
 ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS service_consent BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS marketing_consent BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- CareConnect account/identity layer: separates "who is messaging us" (a
+-- durable, GLOBAL identity) from "which hospital's patient record does this
+-- resolve to" (patient_links above, which stays hospital-scoped -- medical
+-- records are). Deliberately NO hospital_id on either table below: a
+-- person's WhatsApp identity is the same no matter which hospital's
+-- WhatsApp Business number they message (each hospital has its own
+-- phone_number_id, but the sender's own wa_id doesn't change), so they're
+-- recognized instantly on their FIRST message to a second/third hospital --
+-- they just still land in patient_links' 0-links -> registration branch
+-- there, since that hospital has no patient record for them yet. This is
+-- also what makes a future patient portal (one login across every hospital)
+-- and ERP integration tractable without a later identity-unification
+-- migration.
+CREATE TABLE IF NOT EXISTS care_connect_accounts (
+    id SERIAL PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'blocked')),
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    updated_at TEXT
+);
+
+-- One row per WhatsApp identity. provider_user_id is WhatsApp's own stable
+-- per-sender id (today, the Cloud API webhook's `message.from`, which is
+-- also the phone number -- but named/modeled distinctly from phone_number
+-- so a future identifier that isn't the phone number itself, e.g. a
+-- username-first contact, is additive here, not a rework). Globally UNIQUE,
+-- same reasoning as the account table having no hospital_id.
+CREATE TABLE IF NOT EXISTS whatsapp_identities (
+    id SERIAL PRIMARY KEY,
+    care_connect_account_id INTEGER NOT NULL UNIQUE REFERENCES care_connect_accounts(id),
+    provider_user_id TEXT NOT NULL UNIQUE,
+    username TEXT,
+    phone_number TEXT,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    updated_at TEXT
+);
+
+-- Informational link from a patient_links row back to the account that
+-- created/owns it -- NULLable and populated going forward by
+-- create_patient_profile()/link_existing_patient() (db/repositories/patients.py),
+-- with a one-time backfill (db/init_db.py) for pre-existing rows. Not yet the
+-- join key any hospital-scoped lookup relies on (whatsapp_phone still is,
+-- exactly as before) -- this column exists so the account/identity layer is
+-- fully wired up and ready for a future portal/ERP read to use, without
+-- rewriting every existing phone-keyed query in this pass.
+ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER REFERENCES care_connect_accounts(id);
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

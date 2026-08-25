@@ -93,6 +93,7 @@ async def test_department_menu_isolated_between_hospitals(hospital_id, second_ho
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
     hospital_a_depts = _row_ids(_last_list(wa))
 
     wa2 = FakeWhatsAppClient()
@@ -100,6 +101,7 @@ async def test_department_menu_isolated_between_hospitals(hospital_id, second_ho
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, tap("menu_book"))
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, text_reply("Ravi Kumar"))
     await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, text_reply("34"))
+    await handle_incoming(wa2, sessions2, PHONE, second_hospital_id, tap("new"))
     hospital_b_depts = _row_ids(_last_list(wa2))
 
     assert hospital_a_depts == {"cardiology", "orthopedics", "general_medicine", "pediatrics"}

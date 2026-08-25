@@ -18,6 +18,7 @@ db.repository.get_slots() keeps returning the same "10:00"/"15:00" slots
 existing tests already expect, now sourced from real generated doctor_slots
 rows (Section 12.1.1) instead of computed on the fly.
 """
+from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 from db.repository import generate_slots_for_doctor
 
 _DEFAULT_WORKING_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -110,6 +111,27 @@ def seed_default_hospital(
     return hospital_id
 
 
+def _seed_appointment_types(conn, hospital_id: int) -> None:
+    """Called by seed_test_hospital() below -- db/repositories/hospitals.py's
+    create_hospital() seeds the same DEFAULT_APPOINTMENT_TYPES catalog for
+    the real onboarding path, and seed_default_hospital()'s own hospital
+    gets it from db/init_db.py's _backfill_appointment_types() (run right
+    after seed_default_hospital() in init_db_on_connection) -- but
+    seed_test_hospital() is never followed by that backfill (tests/conftest.py
+    calls it standalone, after the backfill already ran for the FIRST
+    hospital only), so it needs this step done explicitly."""
+    for sort_order, appt_type in enumerate(DEFAULT_APPOINTMENT_TYPES):
+        conn.execute(
+            "INSERT INTO appointment_types "
+            "(id, hospital_id, label, requires_consent, requires_doctor_selection, sort_order) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                appt_type["id"], hospital_id, appt_type["label"], appt_type["requires_consent"],
+                appt_type["requires_doctor_selection"], sort_order,
+            ),
+        )
+
+
 def seed_test_hospital(
     conn,
     hospital_name: str = "Test Hospital 2",
@@ -142,5 +164,6 @@ def seed_test_hospital(
                  ",".join(_DEFAULT_WORKING_DAYS), ",".join(_DEFAULT_WORKING_HOURS), _DEFAULT_SLOT_DURATION_MINUTES),
             )
             generate_slots_for_doctor(hospital_id, doc["id"], conn=conn)
+    _seed_appointment_types(conn, hospital_id)
     conn.commit()
     return hospital_id

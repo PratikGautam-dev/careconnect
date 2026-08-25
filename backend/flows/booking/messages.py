@@ -19,10 +19,11 @@ from core.translations import t
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_DATE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_TIME,
-    CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ, MAIN_MENU_RESCHEDULE,
-    STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME,
-    STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
+    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT,
+    CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
+    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT,
+    STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
+    STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
     _parse_appointment_row_id, _parse_patient_row_id, _patient_row_id, _patient_row_title,
 )
@@ -101,6 +102,37 @@ async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, la
     )
 
 
+async def _send_appointment_type_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
+    """The APPOINTMENT TYPE step -- shown right after patient resolution,
+    before department selection (see _select_patient_and_continue's booking
+    branch). Row ids are the appointment_types.id values themselves (e.g.
+    "new", "tele") -- same "use the real id directly as the WA row id, no
+    extra prefix" convention _send_department_menu already uses."""
+    rows = [{"id": t_["id"], "title": t_["label"]} for t_ in connector.get_appointment_types(hospital_id)]
+    rows = _cap_rows(rows, "appointment type menu")
+    await wa.send_list(
+        to=phone,
+        body_text=t("select_appointment_type", language),
+        button_text=t("view_appointment_types_button", language),
+        sections=[{"title": t("appointment_types_section_title", language), "rows": rows}],
+    )
+
+
+async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_label: str, language: str = "en") -> None:
+    """Shown between confirmation and actually creating the booking, only
+    for an appointment type whose requires_consent is TRUE (e.g.
+    tele-consultation, second opinion) -- see db/schema.sql's own comment on
+    appointment_types.requires_consent."""
+    await wa.send_buttons(
+        to=phone,
+        body_text=t("consent_prompt", language, appointment_type_label=appointment_type_label),
+        buttons=[
+            {"id": CONFIRM_YES, "title": t("consent_agree_button", language)},
+            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+        ],
+    )
+
+
 async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
     rows = [{"id": d["id"], "title": d["name"]} for d in connector.get_departments(hospital_id)]
     rows = _cap_rows(rows, "department menu")
@@ -135,8 +167,8 @@ async def _select_patient_and_continue(
         context = {
             "active_patient_id": patient["id"], "patient_name": patient["name"], "patient_age": patient["age"],
         }
-        sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
-        await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+        sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
+        await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
     elif next_action == "cancel":
         await _start_cancel_flow_for_patient(wa, sessions, phone, hospital_id, connector, patient["id"], language=language)
     elif next_action == "reschedule":
@@ -375,6 +407,7 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
     reference screenshot didn't have it -- explicitly requested."""
     summary = t(
         "confirm_booking_summary", language,
+        appointment_type_label=context.get("appointment_type_label"),
         department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
@@ -395,6 +428,7 @@ async def _send_change_selection_menu(wa: WhatsAppClient, phone: str, language: 
     so this asks which one instead (see the module-level comment by
     _CHANGE_TARGETS for why)."""
     rows = [
+        {"id": CHANGE_APPOINTMENT_TYPE, "title": t("change_appointment_type_option", language)},
         {"id": CHANGE_DEPARTMENT, "title": t("change_department_option", language)},
         {"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)},
         {"id": CHANGE_DATE, "title": t("change_date_option", language)},
@@ -416,7 +450,9 @@ async def _resend_menu_for_state(
     after both a single-step Back (_history_pop) and a change-target jump
     (_history_pop_to) land on one of the 4 list states, so the patient
     actually sees the list to pick from again, not just a silent state change."""
-    if state == STATE_AWAITING_DEPARTMENT:
+    if state == STATE_AWAITING_APPOINTMENT_TYPE:
+        await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
+    elif state == STATE_AWAITING_DEPARTMENT:
         await _send_department_menu(wa, phone, hospital_id, connector, language=language)
     elif state == STATE_AWAITING_DOCTOR:
         await _send_doctor_menu(

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from db.connection import get_connection
 from db.models import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError, _generate_patient_display_id
+from db.repositories.accounts import _get_or_create_account_in_conn
 
 # --- Patients (Section 12.9 -- staff-created bookings need to search by name,
 # not just phone; see db/schema.sql's comment on the patients table and
@@ -239,10 +240,19 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
         raise TooManyLinkedPatientsError(
             f"This phone number already has {MAX_ACTIVE_PATIENT_LINKS} linked patients -- unlink one first."
         )
+    # CareConnect account/identity layer (db/schema.sql's own comment on
+    # care_connect_accounts): stamps every new link with the GLOBAL account
+    # this phone resolves to. Uses the transaction-agnostic helper (not
+    # get_or_create_account()) since this already runs inside the caller's
+    # own BEGIN/COMMIT -- idempotent either way, so this is a cheap lookup on
+    # the common path where webhook/dispatch.py's own per-message
+    # identify_contact() call already created the account earlier in this
+    # same conversation.
+    account = _get_or_create_account_in_conn(conn, phone, phone_number=phone)
     conn.execute(
-        "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label) "
-        "VALUES (?, ?, ?, ?)",
-        (hospital_id, phone, patient_id, relationship_label),
+        "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label, care_connect_account_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (hospital_id, phone, patient_id, relationship_label, account["id"]),
     )
 
 

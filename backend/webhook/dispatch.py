@@ -110,7 +110,10 @@ def _release_message_lock(hospital_id: int, phone: str):
         _message_locks.pop(key_suffix, None)
 
 
-async def _process_message(wa: WhatsAppClient, hospital: Hospital, phone: str, reply: dict) -> None:
+async def _process_message(
+    wa: WhatsAppClient, hospital: Hospital, phone: str, reply: dict,
+    provider_user_id: str | None = None, username: str | None = None,
+) -> None:
     """Process a single already-parsed incoming message with the (hospital, phone) lock already held."""
     logger.info(
         "Dispatching message from %s (hospital %s), enabled_features=%s: %s",
@@ -136,5 +139,7 @@ async def _process_message(wa: WhatsAppClient, hospital: Hospital, phone: str, r
         session_timeout_minutes=hospital.session_timeout_minutes,
         require_patient_confirmation=hospital.require_patient_confirmation,
         privacy_notice_text=hospital.privacy_notice_text,
+        provider_user_id=provider_user_id,
+        username=username,
     )
     logger.info("Flow router returned for %s (hospital %s)", phone, hospital.id)

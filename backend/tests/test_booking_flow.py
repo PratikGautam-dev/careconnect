@@ -88,9 +88,11 @@ async def test_idle_book_tap_advances_to_awaiting_patient_name(hospital_id):
     assert kind == "text"
     assert "full name" in kwargs["text"].lower()
 
-    # Name -> age -> NOW department selection.
+    # Name -> age -> appointment type -> NOW department selection.
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kwargs = _last_list(wa)
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
@@ -368,12 +370,18 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert kind == "text"
     assert "age" in kwargs["text"].lower()
 
-    # Give an age -> NOW department selection starts.
+    # Give an age -> NOW appointment type selection starts.
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_DEPARTMENT"
+    assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
     assert session["context"]["patient_name"] == "Ravi Kumar"
     assert session["context"]["patient_age"] == 34
+
+    # Pick an appointment type -> department selection.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_DEPARTMENT"
+    assert session["context"]["appointment_type_id"] == "new"
 
     # Pick a department
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
@@ -540,12 +548,17 @@ async def test_patient_name_and_age_free_text_validation(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("200"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_AGE"
 
-    # A valid age proceeds to department selection (Spec.md Section 0's
-    # reorder -- name/age now come before department, not confirmation).
+    # A valid age proceeds to appointment type selection (Spec.md Section 0's
+    # reorder -- name/age now come before department, not confirmation; the
+    # appointment type step, added later, comes right after).
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("41"))
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_DEPARTMENT"
+    assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
     assert session["context"]["patient_age"] == 41
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_DEPARTMENT"
 
 
 @pytest.mark.asyncio

@@ -94,6 +94,12 @@ class FakeConnector:
         self._patients = [dict(_DEFAULT_FAKE_PATIENT)] if patients is None else patients
         self._consent = {}
 
+    def identify_contact(self, provider_user_id, phone_number=None, username=None):
+        return {"id": 1, "provider_user_id": provider_user_id, "phone_number": phone_number, "username": username}
+
+    def get_appointment_types(self, hospital_id):
+        return [{"id": "new", "label": "New Consultation", "requires_consent": False, "requires_doctor_selection": True}]
+
     def get_departments(self, hospital_id):
         return self._departments
 
@@ -251,9 +257,11 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
     # Tap "Book Appointment" -> enters booking_flow's own state machine --
-    # straight to department selection, since name/age/relationship are
-    # already resolved.
+    # straight to appointment type selection (then department), since
+    # name/age/relationship are already resolved.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=enabled)
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=enabled)
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kwargs = _last_list(wa)
     assert {d["id"] for d in departments} == set(_row_ids(kwargs))
@@ -755,6 +763,11 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="the hospital"))
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    kwargs = _last_list(wa)
+    assert kwargs["body_text"] == translate("select_appointment_type", "hi")
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kwargs = _last_list(wa)
     assert kwargs["body_text"] == translate("select_department", "hi")
@@ -789,6 +802,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert kind == "buttons"
     assert kwargs["body_text"] == translate(
         "confirm_booking_summary", "hi",
+        appointment_type_label=session["context"]["appointment_type_label"],
         department_name=session["context"]["department_name"],
         doctor_name=session["context"]["doctor_name"],
         date_label=session["context"]["date_label"],
@@ -869,6 +883,8 @@ async def test_a_linked_patient_is_remembered_across_a_genuinely_new_session_obj
     assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_NAME"
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
+    assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     assert sessions1.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa1, sessions1, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
@@ -889,9 +905,11 @@ async def test_a_linked_patient_is_remembered_across_a_genuinely_new_session_obj
     sessions2 = _sessions_with_english_chosen(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     session2 = sessions2.get(hospital_id, PHONE)
-    assert session2["state"] == "AWAITING_DEPARTMENT"
+    assert session2["state"] == "AWAITING_APPOINTMENT_TYPE"
     assert session2["context"]["patient_name"] == "Priya Shah"
     assert session2["context"]["patient_age"] == 29
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
+    assert sessions2.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kind, kwargs = wa2.sent[-1]
     assert kind == "buttons"  # the department list's own follow-up Back button
 
@@ -914,6 +932,7 @@ async def test_language_resets_to_picker_after_a_completed_booking(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Shah"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("29"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     slots = db.get_slots(hospital_id, doctor_id)

@@ -9,6 +9,7 @@ import os
 
 from db.connection import get_connection
 from db.models import Hospital
+from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 
 # --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
 
@@ -216,6 +217,23 @@ def create_hospital(
          bool(require_patient_confirmation), privacy_notice_text),
     )
     new_id = cur.fetchone()["id"]
+    # Appointment type step (WhatsApp flow alignment): every new hospital
+    # gets the same fixed catalog db/init_db.py's own startup backfill seeds
+    # for pre-existing hospitals (DEFAULT_APPOINTMENT_TYPES is the single
+    # source of truth both share) -- without this, a hospital onboarded
+    # after startup (the real self-serve onboarding wizard path, and any
+    # test that creates a hospital mid-run) would have ZERO appointment
+    # types and booking would have nothing to offer at that step.
+    for sort_order, appt_type in enumerate(DEFAULT_APPOINTMENT_TYPES):
+        conn.execute(
+            "INSERT INTO appointment_types "
+            "(id, hospital_id, label, requires_consent, requires_doctor_selection, sort_order) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                appt_type["id"], new_id, appt_type["label"], appt_type["requires_consent"],
+                appt_type["requires_doctor_selection"], sort_order,
+            ),
+        )
     conn.commit()
     return get_hospital(new_id)
 

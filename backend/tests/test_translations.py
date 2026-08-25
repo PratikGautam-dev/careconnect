@@ -94,6 +94,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     must render correctly (and identically in shape) in both languages."""
     summary_en = t(
         "confirm_booking_summary", "en",
+        appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
     )
@@ -111,6 +112,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
 
     summary_hi = t(
         "confirm_booking_summary", "hi",
+        appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
     )

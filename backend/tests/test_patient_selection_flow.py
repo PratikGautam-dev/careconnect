@@ -71,6 +71,7 @@ async def _add_patient_via_chat(wa, sessions, hospital_id, connector, name, age,
     await flows.handle_incoming(wa, sessions, phone, hospital_id, tap("menu_book"), connector=connector, enabled_features=list(enabled))
     await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(name), connector=connector, enabled_features=list(enabled))
     await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(str(age)), connector=connector, enabled_features=list(enabled))
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, tap("new"), connector=connector, enabled_features=list(enabled))
 
 
 @pytest.mark.asyncio
@@ -93,6 +94,8 @@ async def test_single_linked_patient_booking_is_unchanged_zero_friction(hospital
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_en(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    assert sessions2.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     session2 = sessions2.get(hospital_id, PHONE)
     assert session2["state"] == "AWAITING_DEPARTMENT"
     assert session2["context"]["patient_name"] == "Ravi Kumar"
@@ -194,6 +197,8 @@ async def test_patient_selection_scopes_booking_to_the_chosen_patient(hospital_i
     assert f"patient_{child['id']}" in row_ids
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"patient_{child['id']}"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DEPARTMENT"
     assert session["context"]["active_patient_id"] == child["id"]
@@ -326,6 +331,7 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     sessions = _sessions_en(hospital_id)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"patient_{child['id']}"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     department = db.get_departments(hospital_id)[0]
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
@@ -347,6 +353,7 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     sessions2 = _sessions_en(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(f"patient_{parent['id']}"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
     # A genuinely free slot -- not `slot` (parent's own existing appointment)

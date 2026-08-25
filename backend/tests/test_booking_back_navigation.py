@@ -13,7 +13,7 @@ Covers, per the task's own request:
     free-text-resends-current-message behavior.
 """
 import db.repository as db
-from flows.booking import BACK_ID, CHANGE_DATE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_TIME, handle_incoming
+from flows.booking import BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_TIME, handle_incoming
 from core.session_store import InMemorySessionStore
 
 PHONE = "5491112345678"
@@ -58,11 +58,13 @@ def _last_list(wa):
 async def _start_booking(wa, sessions, hospital_id, name="Ravi Kumar", age="34"):
     """Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
     user: name/age is now collected FIRST, right after "Book Appointment" is
-    tapped -- before department selection. Drives through both, landing on
-    AWAITING_DEPARTMENT."""
+    tapped -- before department selection. Drives through both plus the
+    appointment type step, landing on AWAITING_DEPARTMENT."""
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(name))
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(age))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
 
 
@@ -147,7 +149,7 @@ async def test_back_from_confirmation_offers_change_submenu(hospital_id):
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     row_ids = _row_ids(kwargs)
-    assert row_ids == {CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_DATE, CHANGE_TIME}
+    assert row_ids == {CHANGE_APPOINTMENT_TYPE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_DATE, CHANGE_TIME}
 
 
 async def test_change_time_from_submenu_returns_to_time_list_preserving_name_age(hospital_id):
@@ -241,13 +243,31 @@ async def test_back_does_not_leak_stale_slots_when_picking_a_different_doctor(ho
     assert _row_ids(kwargs) <= expected_dates
 
 
-async def test_back_at_department_with_no_history_falls_back_to_main_menu(hospital_id):
-    """Back tapped at the very first interactive step (department) has
-    nowhere earlier to return to -- falls back to the main menu instead of
-    erroring or looping."""
+async def test_back_at_department_returns_to_appointment_type(hospital_id):
+    """Department is no longer the very first interactive booking step --
+    appointment type (added later) now precedes it, so Back at department
+    returns there instead of falling all the way back to the main menu."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     await _start_booking(wa, sessions, hospital_id)
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
+    kwargs = _last_list(wa)
+    assert "new" in _row_ids(kwargs)
+
+
+async def test_back_at_appointment_type_with_no_history_falls_back_to_main_menu(hospital_id):
+    """Back tapped at the very first interactive booking step (appointment
+    type) has nowhere earlier to return to -- falls back to the main menu
+    instead of erroring or looping."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
     session = sessions.get(hospital_id, PHONE)

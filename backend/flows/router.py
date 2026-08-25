@@ -402,6 +402,8 @@ async def handle_incoming(
     session_timeout_minutes: int | None = None,
     require_patient_confirmation: bool = False,
     privacy_notice_text: str | None = None,
+    provider_user_id: str | None = None,
+    username: str | None = None,
 ) -> None:
     """The real conversation entry point (SPEC Section 14.5) -- core/main.py
     calls this directly now, passing the resolved hospital's enabled_features
@@ -419,7 +421,17 @@ async def handle_incoming(
 
     require_patient_confirmation/privacy_notice_text (CareConnect
     architecture doc alignment, Spec.md Section 0): same "self-serve bot
-    customization, defaults to off/unset" treatment."""
+    customization, defaults to off/unset" treatment.
+
+    provider_user_id/username (CareConnect account/identity layer,
+    db/schema.sql's own comment on care_connect_accounts): CONTACT
+    IDENTIFICATION, resolved on every message before anything else --
+    provider_user_id defaults to `phone` when not given (today's WhatsApp
+    Cloud API webhook has no identifier distinct from the phone number; see
+    webhook/dispatch.py), so every pre-existing caller/test that doesn't pass
+    these gets identical behavior to before this was added."""
+    connector = connector or _DEFAULT_CONNECTOR
+    connector.identify_contact(provider_user_id or phone, phone_number=phone, username=username)
     # Item 7 (Spec.md Section 0): a real production bug -- once a patient's
     # "Talk to Reception" request is open, the bot must go completely silent
     # for that phone (including the reset-keyword escape hatch below, which
@@ -443,7 +455,6 @@ async def handle_incoming(
             hospital_id, phone,
         )
         return
-    connector = connector or _DEFAULT_CONNECTOR
     enabled_features = enabled_features or []
     # Section 12.13: a hospital's own session_timeout_minutes (5-120) overrides
     # core/session_store.py's fixed 30-min default -- None (never customized) keeps

@@ -9,6 +9,12 @@ from connectors.base import Connector
 
 
 class Tier1Connector(Connector):
+    def identify_contact(self, provider_user_id, phone_number=None, username=None):
+        return repo.get_or_create_account(provider_user_id, phone_number=phone_number, username=username)
+
+    def get_appointment_types(self, hospital_id):
+        return repo.get_appointment_types(hospital_id)
+
     def get_departments(self, hospital_id):
         return repo.get_departments(hospital_id)
 
@@ -18,10 +24,11 @@ class Tier1Connector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         return repo.get_slots(hospital_id, doctor_id)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
             source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
+            appointment_type_id=appointment_type_id, consent_given_at=consent_given_at,
         )
 
     def get_patient_info(self, hospital_id, phone):
@@ -67,10 +74,20 @@ class Tier1Connector(Connector):
         rebooked slot stays tied to the SAME linked patient the original
         appointment belonged to -- without it, a multi-patient phone
         rescheduling would have no way to know which family member's
-        appointment this actually is."""
+        appointment this actually is.
+
+        Appointment type step (WhatsApp flow alignment): the new booking
+        inherits the OLD appointment's appointment_type_id -- rescheduling
+        changes when a visit happens, not what kind of visit it is, so this
+        is read straight off the old row rather than asked again. Any
+        consent already given at original booking time does NOT carry
+        forward (consent_given_at stays unset on the new row) -- it was
+        given for that specific visit, not a standing grant."""
+        old_appointment = repo.get_appointment(hospital_id, old_appointment_id)
         new_appointment = repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
             exclude_appointment_id=old_appointment_id,
+            appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
         )
         repo.mark_rescheduled(hospital_id, old_appointment_id)
         return new_appointment

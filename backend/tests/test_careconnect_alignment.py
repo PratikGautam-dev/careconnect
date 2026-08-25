@@ -314,6 +314,8 @@ async def test_booking_confirm_rejects_a_since_unlinked_patient(hospital_id):
     sessions = _sessions_en(hospital_id, active_patient_id=patient["id"])
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])

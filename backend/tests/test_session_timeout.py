@@ -85,26 +85,31 @@ async def test_activity_every_90s_over_5_minutes_never_times_out_at_2_minute_set
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), **common_kwargs)
     assert sessions.get(hospital_id, PHONE, timeout_seconds=120)["state"] == "AWAITING_PATIENT_AGE"
 
-    # t=180 (gap 90s): give age -> department list
+    # t=180 (gap 90s): give age -> appointment type list
     clock.now += 90
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), **common_kwargs)
+    assert sessions.get(hospital_id, PHONE, timeout_seconds=120)["state"] == "AWAITING_APPOINTMENT_TYPE"
+
+    # t=270 (gap 90s): pick appointment type -> department list
+    clock.now += 90
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), **common_kwargs)
     assert sessions.get(hospital_id, PHONE, timeout_seconds=120)["state"] == "AWAITING_DEPARTMENT"
 
-    # t=270 (gap 90s): pick department -> doctor list
+    # t=360 (gap 90s): pick department -> doctor list
     clock.now += 90
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"), **common_kwargs)
     session = sessions.get(hospital_id, PHONE, timeout_seconds=120)
     assert session["state"] == "AWAITING_DOCTOR"
     assert session["context"]["department_id"] == "cardiology"
 
-    # t=360 (gap 90s): pick doctor -> date list
+    # t=450 (gap 90s): pick doctor -> date list
     clock.now += 90
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), **common_kwargs)
     session = sessions.get(hospital_id, PHONE, timeout_seconds=120)
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
 
-    # t=450 (gap 90s, total elapsed since t=0 is 450s -- well past 120s, but
+    # t=540 (gap 90s, total elapsed since t=0 is 540s -- well past 120s, but
     # every individual gap stayed under it): still alive.
     clock.now += 90
     slots = db.get_slots(hospital_id, doctor_id)
@@ -137,6 +142,7 @@ async def test_genuine_2_minute_silence_times_out_and_resets_to_idle(hospital_id
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), **common_kwargs)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), **common_kwargs)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), **common_kwargs)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), **common_kwargs)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"), **common_kwargs)
     assert sessions.get(hospital_id, PHONE, timeout_seconds=120)["state"] == "AWAITING_DOCTOR"
 

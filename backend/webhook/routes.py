@@ -141,6 +141,20 @@ async def receive_message(request: Request):
         reply = parse_incoming_message(message)
         wa = _get_whatsapp_client(hospital)
 
+        # CareConnect account/identity layer (db/schema.sql's own comment on
+        # care_connect_accounts): `contacts[0].wa_id` is Meta's own stable
+        # sender id -- today numerically identical to `phone` (message["from"])
+        # on every real payload, but kept as its own value (not just reused
+        # from `phone`) so a future identifier that genuinely differs (e.g. a
+        # username-first contact) is a payload-shape change, not a code
+        # change. `profile.name` is the sender's own WhatsApp DISPLAY name
+        # (not a stable @username -- Meta's Cloud API doesn't expose one
+        # distinct from phone/wa_id as of this writing), stored as the
+        # closest available stand-in until Meta exposes a real username field.
+        contact = (change.get("contacts") or [{}])[0]
+        provider_user_id = contact.get("wa_id") or phone
+        username = (contact.get("profile") or {}).get("name")
+
         if reply["type"] == "audio":
             # No transcription pipeline (no AI/LLM in this build) — bypass the state
             # machine entirely and tell the patient to use text instead. Outside
@@ -161,7 +175,7 @@ async def receive_message(request: Request):
 
     logger.info("Message lock acquired for %s (hospital %s), type=%s", phone, hospital.id, reply["type"])
     try:
-        await _process_message(wa, hospital, phone, reply)
+        await _process_message(wa, hospital, phone, reply, provider_user_id=provider_user_id, username=username)
     except ConnectorNotImplementedError:
         # SPEC Section 12.6.2: this hospital is configured for a tier with no
         # real connector yet -- a real, loud problem, but not one that should

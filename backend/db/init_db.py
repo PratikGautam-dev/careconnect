@@ -15,6 +15,7 @@ from pathlib import Path
 from core.config import get_settings
 from db import seed
 from db.connection import get_connection, get_database_url
+from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 from db.repository import _generate_patient_display_id
 
 _SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -163,6 +164,76 @@ def _backfill_patient_links(conn) -> None:
     conn.commit()
 
 
+def _backfill_care_connect_accounts(conn) -> None:
+    """CareConnect account/identity layer (db/schema.sql's own comment on
+    care_connect_accounts/whatsapp_identities): every patient_links row that
+    predates this feature (i.e. every one that currently exists, since this
+    migration ships alongside the feature itself) needs a care_connect_account_id.
+    Deliberately collapses onto ONE shared account per distinct whatsapp_phone
+    across ALL hospitals (not one per hospital) -- the account layer is global
+    by design (see schema comment), so if the same phone already has links at
+    two different hospitals today, this is exactly the case that should
+    resolve to a single account, matching how a real person's identity
+    actually works.
+
+    provider_user_id is set to the phone itself -- the practical fallback
+    since historical rows never captured a real WhatsApp wa_id distinct from
+    the phone string. Gated on care_connect_account_id IS NULL, so re-running
+    this on every startup is a safe no-op once every phone is caught up."""
+    phones = [
+        row["whatsapp_phone"] for row in conn.execute(
+            "SELECT DISTINCT whatsapp_phone FROM patient_links WHERE care_connect_account_id IS NULL"
+        ).fetchall()
+    ]
+    for phone in phones:
+        account_row = conn.execute(
+            "SELECT care_connect_account_id FROM whatsapp_identities WHERE provider_user_id = ?", (phone,),
+        ).fetchone()
+        if account_row is not None:
+            account_id = account_row["care_connect_account_id"]
+        else:
+            new_account = conn.execute("INSERT INTO care_connect_accounts DEFAULT VALUES RETURNING id").fetchone()
+            account_id = new_account["id"]
+            conn.execute(
+                "INSERT INTO whatsapp_identities (care_connect_account_id, provider_user_id, phone_number) "
+                "VALUES (?, ?, ?)",
+                (account_id, phone, phone),
+            )
+        conn.execute(
+            "UPDATE patient_links SET care_connect_account_id = ? "
+            "WHERE whatsapp_phone = ? AND care_connect_account_id IS NULL",
+            (account_id, phone),
+        )
+    conn.commit()
+
+
+def _backfill_appointment_types(conn) -> None:
+    """Appointment type step (WhatsApp flow alignment): seeds
+    DEFAULT_APPOINTMENT_TYPES (db/repositories/appointment_types.py, the
+    single source of truth this mirrors) for every hospital that doesn't
+    already have a row for a given type id -- so a hospital created before
+    this feature, and a hospital onboarded after it, both end up with the
+    same fixed catalog, ready to relabel/deactivate via the portal without
+    a second migration. Gated per (hospital_id, type id), so re-running this
+    on every startup is a safe no-op once every hospital is caught up, and a
+    hospital that's already relabeled/deactivated a type is never touched
+    again."""
+    hospital_ids = [row["id"] for row in conn.execute("SELECT id FROM hospitals").fetchall()]
+    for hospital_id in hospital_ids:
+        for sort_order, appt_type in enumerate(DEFAULT_APPOINTMENT_TYPES):
+            conn.execute(
+                "INSERT INTO appointment_types "
+                "(id, hospital_id, label, requires_consent, requires_doctor_selection, sort_order) "
+                "SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS "
+                "(SELECT 1 FROM appointment_types WHERE hospital_id = ? AND id = ?)",
+                (
+                    appt_type["id"], hospital_id, appt_type["label"], appt_type["requires_consent"],
+                    appt_type["requires_doctor_selection"], sort_order, hospital_id, appt_type["id"],
+                ),
+            )
+    conn.commit()
+
+
 def _backfill_reports_prescriptions_feature(conn) -> None:
     """CareConnect architecture doc alignment (Spec.md Section 0): "my_details"
     renamed to "reports_prescriptions" (Section 20's exact menu item) --
@@ -230,6 +301,8 @@ def init_db_on_connection(conn) -> int:
     _backfill_appointment_patient_age(conn)
     _backfill_patient_display_ids(conn)
     _backfill_patient_links(conn)
+    _backfill_care_connect_accounts(conn)
+    _backfill_appointment_types(conn)
     _backfill_reports_prescriptions_feature(conn)
     _backfill_handoff_messages(conn)
     return hospital_id

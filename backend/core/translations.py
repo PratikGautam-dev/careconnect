@@ -162,6 +162,28 @@ STRINGS: dict[str, dict[Language, str]] = {
     # Reused as both this message's body text AND its one button's label.
     "back_option": {"en": "Back", "hi": "पीछे"},
 
+    # --- Booking: appointment type (shown right after patient resolution,
+    # before department selection) ---
+    "select_appointment_type": {
+        "en": "What type of appointment would you like to book?",
+        "hi": "आप किस प्रकार की अपॉइंटमेंट बुक करना चाहेंगे?",
+    },
+    "view_appointment_types_button": {"en": "View Types", "hi": "प्रकार देखें"},
+    "appointment_types_section_title": {"en": "Appointment Type", "hi": "अपॉइंटमेंट प्रकार"},
+    "change_appointment_type_option": {"en": "Appointment Type", "hi": "अपॉइंटमेंट प्रकार"},
+
+    # --- Booking: consent (shown after confirmation, only for an
+    # appointment type with requires_consent=TRUE, e.g. tele-consultation) ---
+    "consent_prompt": {
+        "en": "This is a {appointment_type_label} appointment. Do you consent to proceed with this type of consultation?",
+        "hi": "यह एक {appointment_type_label} अपॉइंटमेंट है। क्या आप इस प्रकार के परामर्श के साथ आगे बढ़ने के लिए सहमत हैं?",
+    },
+    "consent_agree_button": {"en": "I Agree", "hi": "मैं सहमत हूँ"},
+    "consent_declined": {
+        "en": "No problem -- this appointment type needs your consent to proceed, so it hasn't been booked.",
+        "hi": "कोई बात नहीं -- इस प्रकार की अपॉइंटमेंट के लिए आपकी सहमति आवश्यक है, इसलिए इसे बुक नहीं किया गया है।",
+    },
+
     # --- Booking: department/doctor/date/time menus ---
     "select_department": {"en": "Please select a medical department:", "hi": "कृपया एक चिकित्सा विभाग चुनें:"},
     "view_departments_button": {"en": "View Departments", "hi": "विभाग देखें"},
@@ -259,8 +281,14 @@ STRINGS: dict[str, dict[Language, str]] = {
     # Item 10 (Spec.md Section 0): patient name/age moved first, ahead of
     # department/doctor/date/time -- was department/doctor/date/time then
     # patient info last.
+    # Appointment type step (WhatsApp flow alignment): {appointment_type_label}
+    # line added above Patient. Always populated for real traffic --
+    # _select_patient_and_continue's booking branch sets STATE_AWAITING_
+    # APPOINTMENT_TYPE as the very first booking step now, before this
+    # confirmation can ever be reached.
     "confirm_booking_summary": {
         "en": "*Confirm Booking Details:*\n"
+              "📋 *Type:* {appointment_type_label}\n"
               "👤 *Patient:* {patient_name}\n"
               "🎂 *Age:* {patient_age}\n"
               "🏥 *Dept:* {department_name}\n"
@@ -269,6 +297,7 @@ STRINGS: dict[str, dict[Language, str]] = {
               "🕐 *Slot:* {time_label}\n\n"
               "Please confirm this appointment:",
         "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
+              "📋 *प्रकार:* {appointment_type_label}\n"
               "👤 *मरीज़:* {patient_name}\n"
               "🎂 *उम्र:* {patient_age}\n"
               "🏥 *विभाग:* {department_name}\n"

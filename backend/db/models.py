@@ -76,7 +76,7 @@ class TooManyLinkedPatientsError(Exception):
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
-           a.patient_id, p.patient_display_id
+           a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -214,6 +214,14 @@ class Appointment:
     # dataclass) -- needed to filter "my appointments" down to one linked
     # patient, and to carry the SAME patient through a reschedule.
     patient_id: int | None = None
+    # Appointment type step (WhatsApp flow alignment): which of the
+    # hospital's appointment_types this booking is, and (only when that
+    # type's requires_consent was true) when consent was given -- see
+    # db/schema.sql's own comment on appointment_types. None for any
+    # appointment predating this feature (never backfilled -- there's no
+    # correct type to guess for a historical row).
+    appointment_type_id: str | None = None
+    consent_given_at: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -231,6 +239,8 @@ def _row_to_appointment(row) -> Appointment:
         reference_id=row["reference_id"],
         patient_display_id=row["patient_display_id"],
         patient_id=row["patient_id"],
+        appointment_type_id=row["appointment_type_id"],
+        consent_given_at=row["consent_given_at"],
     )
 
 

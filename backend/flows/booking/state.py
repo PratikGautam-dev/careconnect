@@ -13,6 +13,12 @@ from flows.common import MAX_LIST_ROWS, RESET_KEYWORDS, cap_rows
 STATE_IDLE = "IDLE"
 
 
+STATE_AWAITING_APPOINTMENT_TYPE = "AWAITING_APPOINTMENT_TYPE"
+
+
+STATE_AWAITING_CONSENT = "AWAITING_CONSENT"
+
+
 STATE_AWAITING_DEPARTMENT = "AWAITING_DEPARTMENT"
 
 
@@ -43,6 +49,9 @@ STATE_AWAITING_CHANGE_SELECTION = "AWAITING_CHANGE_SELECTION"
 BACK_ID = "nav_back"
 
 
+CHANGE_APPOINTMENT_TYPE = "change_appointment_type"
+
+
 CHANGE_DEPARTMENT = "change_department"
 
 
@@ -56,6 +65,7 @@ CHANGE_TIME = "change_time"
 
 
 _CHANGE_TARGETS = {
+    CHANGE_APPOINTMENT_TYPE: STATE_AWAITING_APPOINTMENT_TYPE,
     CHANGE_DEPARTMENT: STATE_AWAITING_DEPARTMENT,
     CHANGE_DOCTOR: STATE_AWAITING_DOCTOR,
     CHANGE_DATE: STATE_AWAITING_DATE,
@@ -66,7 +76,10 @@ _CHANGE_TARGETS = {
 _HISTORY_KEY = "_history"
 
 
-_PRESERVE_ACROSS_BACK = ("patient_name", "patient_age", "active_patient_id")
+_PRESERVE_ACROSS_BACK = (
+    "patient_name", "patient_age", "active_patient_id",
+    "appointment_type_id", "appointment_type_label", "appointment_type_requires_consent",
+)
 
 
 MIN_PATIENT_AGE = 0

@@ -91,6 +91,8 @@ def create_appointment(
     patient_age: int | None = None,
     patient_id: int | None = None,
     exclude_appointment_id: int | None = None,
+    appointment_type_id: str | None = None,
+    consent_given_at: str | None = None,
 ) -> Appointment:
     """Raises db.connection.IntegrityError if this doctor's max_bookings_per_slot
     (default 1) worth of *booked* appointments already exist at this exact
@@ -327,10 +329,12 @@ def create_appointment(
         # denormalize onto the new row, not re-upserted a second time.
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
+            "appointment_type_id, consent_given_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
-             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age),
+             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
+             appointment_type_id, consent_given_at),
         )
         new_id = cur.fetchone()["id"]
 
