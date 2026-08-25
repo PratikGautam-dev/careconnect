@@ -40,6 +40,7 @@ connectors/dispatch.py.
 """
 import abc
 from datetime import datetime
+from typing import NoReturn
 
 from db.models import Appointment
 
@@ -138,7 +139,7 @@ class _UnimplementedTierConnector(Connector):
 
     _tier_label: str
 
-    def _not_implemented(self, method_name: str):
+    def _not_implemented(self, method_name: str) -> NoReturn:
         raise ConnectorNotImplementedError(
             f"{self._tier_label} has no real connector implementation yet (SPEC Section 12.6) — "
             f"'{method_name}' was called for a hospital configured on this tier. This is expected "

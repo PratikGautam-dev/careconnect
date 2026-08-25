@@ -21,7 +21,7 @@ os.environ.setdefault("WHATSAPP_APP_SECRET", "appsecret")
 os.environ.setdefault("INTERNAL_SECRET", "internalsecret")
 
 import db.repository as db  # noqa: E402
-from app import app  # noqa: E402
+from backend.main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)

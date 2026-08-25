@@ -49,7 +49,7 @@ echo "==> Building ${BACKEND_IMAGE}:${VERSION} (and :latest)"
 docker build \
   -t "${BACKEND_IMAGE}:${VERSION}" \
   -t "${BACKEND_IMAGE}:latest" \
-  -f Dockerfile .
+  -f backend/Dockerfile backend
 
 echo "==> Building ${FRONTEND_IMAGE}:${VERSION} (and :latest)"
 docker build \

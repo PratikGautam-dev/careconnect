@@ -1,7 +1,15 @@
+# Backend code now lives in backend/ (see ARCHITECTURE_PLAN.md's Phase A),
+# not the repo root. railway.toml has no "root directory" field of its own --
+# that's set on the Railway service itself (Settings -> Source -> Root
+# Directory = "backend"), which must be updated in the Railway dashboard for
+# this startCommand to find main:app.
+#
+# Phase 4: core/main.py split into app.py (composition root) + webhook/ --
+# the ASGI app is now main:app, not core.main:app.
 [build]
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "sh -c \"uvicorn core.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'\""
+startCommand = "sh -c \"uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'\""
 healthcheckPath = "/health"
 restartPolicyType = "ON_FAILURE"

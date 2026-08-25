@@ -38,4 +38,4 @@ EXPOSE 8000
 # though the real request was https://, which Google rejects as
 # redirect_uri_mismatch (a real incident on Railway, same underlying
 # cause -- see Spec.md Section 0 and railway.toml's own startCommand).
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]

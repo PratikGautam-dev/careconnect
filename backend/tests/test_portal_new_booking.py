@@ -34,7 +34,7 @@ os.environ.setdefault("GOOGLE_CALENDAR_ID", "test@calendar")
 os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
 os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
 
-from app import app  # noqa: E402
+from backend.main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)

@@ -17,7 +17,7 @@ os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
 # instance by tests/conftest.py (loaded before this module), so importing this
 # test module never touches a real production database.
 
-from app import app
+from backend.main import app
 
 client = TestClient(app)
 

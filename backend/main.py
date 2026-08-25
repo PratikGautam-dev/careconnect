@@ -6,7 +6,7 @@ out of the former single core/main.py module, which mixed this with
 webhook routing, the WA-client cache, and message locking (now
 webhook/routes.py, webhook/dispatch.py, webhook/cron_routes.py).
 
-Deployment note: the ASGI app is now `app:app`, not `core.main:app` -- see
+Deployment note: the ASGI app is now `main:app`, not `core.main:app` -- see
 ARCHITECTURE_PLAN.md's Phase A/Phase 4 status notes for what else that
 touches (Dockerfile CMD, railway.toml startCommand).
 """
