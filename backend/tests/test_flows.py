@@ -559,7 +559,7 @@ async def test_bot_resumes_for_a_stale_never_resolved_handoff(hospital_id):
     covers the case staff genuinely forgot/never resolved it, not just the
     already-covered "staff resolved it" case above."""
     import db.repository as db
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
@@ -572,7 +572,7 @@ async def test_bot_resumes_for_a_stale_never_resolved_handoff(hospital_id):
 
     # Never resolved by staff -- just goes stale with time.
     conn = db.get_connection()
-    stale_at = datetime.now() - timedelta(minutes=90)
+    stale_at = datetime.now(timezone.utc) - timedelta(minutes=90)
     conn.execute(
         "UPDATE handoff_requests SET created_at = ? WHERE id = ?",
         (stale_at.strftime("%Y-%m-%d %H:%M:%S"), handoff["id"]),

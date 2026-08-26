@@ -92,7 +92,7 @@ def test_stale_open_handoff_no_longer_silences_the_bot(hospital_id):
     resumes normal service for that phone -- but its real DB status is left
     completely untouched (still 'open'), so staff still see and can resolve
     it whenever they actually get to it."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     handoff = db.create_handoff_request(hospital_id, PHONE, reason="patient_requested")
     assert db.has_open_handoff(hospital_id, PHONE) is True
@@ -102,7 +102,7 @@ def test_stale_open_handoff_no_longer_silences_the_bot(hospital_id):
     # (tests/test_portal_api.py) already uses for a similar "simulate an old
     # row" need.
     conn = db.get_connection()
-    stale_at = datetime.now() - timedelta(minutes=90)
+    stale_at = datetime.now(timezone.utc) - timedelta(minutes=90)
     conn.execute(
         "UPDATE handoff_requests SET created_at = ? WHERE id = ?",
         (stale_at.strftime("%Y-%m-%d %H:%M:%S"), handoff["id"]),

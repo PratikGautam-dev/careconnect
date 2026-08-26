@@ -2,7 +2,7 @@
 """Human handoff queue -- fed by flows.py's reception_handoff feature and
 core/main.py's unexpected-exception catch. Split out of db/repository.py --
 see ARCHITECTURE_PLAN.md Phase 1."""
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from db.connection import get_connection
 
@@ -105,11 +105,12 @@ def get_open_handoff(hospital_id: int, phone: str, now: datetime | None = None) 
     it in the portal queue and can resolve it whenever they actually get to
     it; this only stops it from silencing the bot forever."""
     conn = get_connection()
-    now = now or datetime.now()
-    # created_at is stamped by Postgres's own `now()::text` default (space-
-    # separated -- see get_handoff_requests()'s own date-filter fix for the
-    # same format mismatch this mirrors), so the threshold must match that
-    # shape, not the "T"-separated isoformat() used elsewhere in this file.
+    # created_at is stamped by Postgres's own `now()::text` default, which is
+    # UTC (space-separated -- see get_handoff_requests()'s own date-filter fix
+    # for the same format mismatch this mirrors) -- so the threshold must be
+    # computed in UTC too, not local time, or a fresh row can already look
+    # "stale" purely from the client/server clock offset.
+    now = now or datetime.now(timezone.utc)
     threshold = (now - timedelta(minutes=_HANDOFF_STALE_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
     row = conn.execute(
         "SELECT id, phone, reason, status, created_at FROM handoff_requests "

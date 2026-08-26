@@ -945,24 +945,17 @@ async def test_new_consultation_blocks_rebooking_in_same_department(hospital_id)
         patient_id=patient["id"], appointment_type_id="new",
     )
 
-    # Same patient (auto-selected, only one linked), same department, a
-    # DIFFERENT slot -- still blocked, since the existing booking is in the
-    # same department and still active.
+    # Same patient (auto-selected, only one linked), same department -- blocked
+    # immediately on department selection, before doctor/date/slot are ever asked.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
-    all_slots = db.get_slots(hospital_id, doctor_id)
-    other_slot = next(s for s in all_slots if s["id"] != slot["id"])
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(other_slot["date"]))
-    remaining = [s for s in all_slots if s["date"] == other_slot["date"] and s["id"] != slot["id"]]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(remaining[0]["id"]))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
-    assert "already have an active appointment in this department" in kwargs["text"].lower()
-    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+    text_messages = [kwargs for kind, kwargs in wa.sent if kind == "text"]
+    assert any("already have an active appointment in this department" in m["text"].lower() for m in text_messages)
+    # Re-prompted with the department menu, not reset or advanced to doctor.
+    assert any(kind == "list" for kind, kwargs in wa.sent[-3:])
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     # No second appointment was created.
     assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 1
 

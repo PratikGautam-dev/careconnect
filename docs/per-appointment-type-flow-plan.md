@@ -102,28 +102,34 @@ one type at a time, waiting for confirmation before moving to the next)
 
 ### Step 1 — New Consultation (`new_consultation.py`) — ✅ DONE
 
-Two New-Consultation-only booking rules, confirmed with the user, enforced right before the
-booking is actually created:
+Two New-Consultation-only booking rules, confirmed with the user:
 1. A patient cannot have a second ACTIVE (non-cancelled) booking in the SAME department — must
-   cancel the existing one first.
+   cancel the existing one first. Enforced right when the department is picked (doesn't need a
+   date), so the patient sees the conflict immediately instead of after picking doctor/date/slot.
 2. A patient cannot book a DIFFERENT department on a day they already have ANY active booking —
-   one active booking per day, regardless of department.
+   one active booking per day, regardless of department. Enforced right before the booking is
+   actually created, since it needs the chosen date.
 
-**How it was built** — a new `TypeFlow.validate_booking` hook (`flows/booking/types/base.py`):
-an optional `(connector, hospital_id, patient_id, department_id, scheduled_at) -> str | None`
-callable, `None` by default for every type that has nothing extra to check. This is the general
-Phase 2 extension point every subsequent step below plugs into the same way.
+**How it was built** — two `TypeFlow` hooks (`flows/booking/types/base.py`):
+- `validate_department`: an optional `(connector, hospital_id, patient_id, department_id) -> str | None`
+  callable, checked in `book.py`'s `_handle_awaiting_department` right after a department is
+  selected (before the doctor menu is even sent). On a conflict, sends the translated message as
+  plain text and re-shows the department menu (session stays at `AWAITING_DEPARTMENT`).
+- `validate_booking`: an optional `(connector, hospital_id, patient_id, department_id, scheduled_at) -> str | None`
+  callable, `None` by default for every type that has nothing extra to check. This is the general
+  Phase 2 extension point every subsequent step below plugs into the same way.
 - `db/repositories/appointments.py` — new `get_active_appointments_for_patient(hospital_id, patient_id)`
   (STATUS_BOOKED only, scoped by `patient_id` not `phone`, since one phone can have several linked
   patients), exposed through `Connector`/`Tier1Connector`.
-- `flows/booking/types/new_consultation.py` — `_validate_new_consultation_booking(...)` implements
-  both rules against `get_active_appointments_for_patient`, returning a translation key naming
-  which rule blocked the booking (or `None`).
-- `flows/booking/book.py` — `_create_booking_and_notify` calls `flow.validate_booking(...)` right
-  after `_reject_if_patient_link_invalid` and before `connector.create_booking(...)` (context can
-  still change up to that exact point via "change selection," so validating any earlier could go
-  stale); on a conflict, sends the translated message as plain text and resets the session, same
-  as every other hard-stop in this file.
+- `flows/booking/types/new_consultation.py` — `_validate_new_consultation_department(...)` (rule 1,
+  wired to `validate_department`) and `_validate_new_consultation_booking(...)` (both rules, wired
+  to `validate_booking` as a same-department safety net plus the same-day check), both against
+  `get_active_appointments_for_patient`.
+- `flows/booking/book.py` — `_handle_awaiting_department` calls `flow.validate_department(...)`
+  right after department selection; `_create_booking_and_notify` calls `flow.validate_booking(...)`
+  right after `_reject_if_patient_link_invalid` and before `connector.create_booking(...)` (context
+  can still change up to that exact point via "change selection," so a same-department re-check
+  here too, not just at department-selection time).
 - `core/translations.py` — `new_consultation_department_conflict` / `new_consultation_same_day_conflict`
   (en/hi).
 

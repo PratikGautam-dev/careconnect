@@ -199,6 +199,16 @@ async def _handle_awaiting_department(
             if not connector.get_doctors(hospital_id, dept["id"]):
                 await _notify_no_doctors_available(wa, sessions, hospital_id, phone, dept["name"], language=language)
                 return
+            flow = get_type_flow(context.get("appointment_type_id"))
+            if flow.validate_department is not None:
+                conflict = flow.validate_department(
+                    connector, hospital_id, context.get("active_patient_id"), dept["id"],
+                )
+                if conflict is not None:
+                    await wa.send_text(phone, t(conflict, language))
+                    sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
+                    await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+                    return
             # Bug fix (Section 3.3 "Go back" follow-up): this branch used to
             # build new_context from scratch with no **context spread, unlike
             # every other handler below -- silently dropping _history/

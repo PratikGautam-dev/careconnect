@@ -15,6 +15,12 @@ from flows.booking.state import (
 # translations.py key blocking the booking, or None if no conflict.
 BookingValidator = Callable[[object, int, "int | None", "str | None", datetime], "str | None"]
 
+# (connector, hospital_id, patient_id, department_id) -> a translations.py key
+# blocking department selection, or None. Runs right when a department is
+# picked -- checks that don't need scheduled_at, so the patient sees the
+# conflict immediately instead of after picking doctor/date/slot.
+DepartmentValidator = Callable[[object, int, "int | None", str], "str | None"]
+
 # (wa, sessions, phone, hospital_id, connector, new_context, language) -> None.
 # Fully replaces the default "go to flow.first_step()" behavior.
 OnSelectedHook = Callable[..., Awaitable[Any]]
@@ -26,6 +32,8 @@ class TypeFlow:
     steps: tuple[str, ...]
     # Optional check run right before booking creation. None = nothing extra.
     validate_booking: BookingValidator | None = None
+    # Optional check run right when a department is picked. None = nothing extra.
+    validate_department: DepartmentValidator | None = None
     # Optional override for what happens right after this type is picked.
     # None = use the normal steps-driven behavior.
     on_selected: OnSelectedHook | None = None

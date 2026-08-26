@@ -329,11 +329,9 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     docs/per-appointment-type-flow-plan.md Phase 2: for a "new" (New
     Consultation) booking specifically, this is now caught by
     flows/booking/types/new_consultation.py's own same-department check
-    (patient_id + department_id scoped) BEFORE connector.create_booking() is
-    even attempted -- superseding the older, narrower same-DOCTOR
-    DuplicateBookingError path this test originally exercised. The block is
-    still there, just delivered as a plain text message instead of the
-    quick-action buttons DuplicateBookingError sends."""
+    (patient_id + department_id scoped), right when the department is picked --
+    superseding the older, narrower same-DOCTOR DuplicateBookingError path this
+    test originally exercised at confirm time."""
     connector = flows._DEFAULT_CONNECTOR
     parent = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
     child = db.create_patient_profile(hospital_id, PHONE, "Priya Kumar", 8)
@@ -365,24 +363,14 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     assert kind == "buttons"
     assert "book" in kwargs["body_text"].lower() or "success" in kwargs["body_text"].lower() or "consulting" in kwargs["body_text"].lower()
 
-    # Now the SAME patient (parent) trying the same doctor again is blocked.
+    # Now the SAME patient (parent) trying the same department again is
+    # blocked immediately on department selection -- before doctor/date/slot
+    # are ever asked.
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_en(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(f"patient_{parent['id']}"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
-    # A genuinely free slot -- not `slot` (parent's own existing appointment)
-    # or `other_slot` (just booked by the child above), on WHATEVER date it
-    # falls on -- the duplicate check is doctor+patient scoped, not
-    # date/time scoped, so this exercises the patient_id duplicate check
-    # itself, not the unrelated "this exact slot is already at capacity"
-    # IntegrityError path.
-    free_slot = next(s for s in slots if s["id"] not in (slot["id"], other_slot["id"]))
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(free_slot["date"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(free_slot["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
-    kind2, kwargs2 = wa2.sent[-1]
-    assert kind2 == "text"
-    assert "already have an active appointment in this department" in kwargs2["text"].lower()
+    text_messages = [kwargs for kind, kwargs in wa2.sent if kind == "text"]
+    assert any("already have an active appointment in this department" in m["text"].lower() for m in text_messages)
