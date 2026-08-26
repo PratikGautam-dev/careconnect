@@ -93,6 +93,17 @@ ALL_FEATURES = REAL_FEATURES
 # toggle.
 CHANGE_LANGUAGE_ROW = "menu_change_language"
 
+# Lets the same phone switch which linked patient the conversation acts as --
+# always offered (not gated on >1 linked patient), since the patient
+# selector it opens also has the "Manage Patients"/add-a-patient entry point,
+# so it's the way to go from exactly one linked patient to a second one too.
+# A separate row/mechanism from the "manage_patients" FEATURE (that one's a
+# full view/add/unlink screen, opt-in per hospital, reached from its own
+# main-menu row when enabled) -- this is always available, on every tenant,
+# confirmed with the user directly: "give back button also after main menu
+# to go to select patients."
+SWITCH_PATIENT_ROW = "menu_switch_patient"
+
 GOTO_MAIN_MENU = "goto_main_menu"
 CONFIRM_YES = "confirm"
 CONFIRM_NO = "cancel"
@@ -134,6 +145,7 @@ async def _send_dynamic_menu(
     if not rows:
         await wa.send_text(phone, t("feature_menu_unavailable", language, hospital_name=hospital_name))
         return
+    rows.append({"id": SWITCH_PATIENT_ROW, "title": t("back_option", language)})
     rows = cap_rows(rows, f"main menu for {hospital_name}")
     body_text = _patient_header(active_patient, language) + t("welcome_menu", language, hospital_name=hospital_name)
     await wa.send_list(

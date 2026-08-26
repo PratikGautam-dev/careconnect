@@ -199,7 +199,7 @@ async def test_menu_only_shows_enabled_features(hospital_id):
     assert len(wa.sent) == 1
     kind, kwargs = wa.sent[0]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_switch_patient"]
 
 
 @pytest.mark.asyncio
@@ -217,7 +217,7 @@ async def test_unselected_features_dont_appear_in_menu(hospital_id):
     assert "menu_faq_bot" not in ids
     assert "menu_reschedule" not in ids
     assert "menu_cancel" not in ids
-    assert ids == ["menu_book"]
+    assert ids == ["menu_book", "menu_switch_patient"]
 
 
 @pytest.mark.asyncio
@@ -277,7 +277,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # 14.5 behavior.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_switch_patient"]
 
     # Now tap "FAQ / Information" -> enters faq_flow's topic loop.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_faq_bot"), connector=connector, enabled_features=enabled)
@@ -291,7 +291,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # just faq_flow's own topic list.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("restart"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_switch_patient"]
 
 
 @pytest.mark.asyncio
@@ -309,7 +309,7 @@ async def test_tap_for_disabled_feature_falls_back_to_menu(hospital_id):
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_switch_patient"]
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
@@ -1071,7 +1071,7 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     sent_body = json.loads(requests[0].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info"]
+    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info", "menu_switch_patient"]
 
 
 def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_mock):
@@ -1108,7 +1108,7 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
     assert first_resp.status_code == 200
     first_sent = json.loads(httpx_mock.get_requests()[-1].content)
     menu_row_ids = [row["id"] for section in first_sent["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert menu_row_ids == ["menu_faq_bot"]
+    assert menu_row_ids == ["menu_faq_bot", "menu_switch_patient"]
 
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",

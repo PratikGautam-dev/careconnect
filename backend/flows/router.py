@@ -84,9 +84,11 @@ from flows.patient_identity import (
     _FEATURE_MENU,
     _ROW_ID_TO_FEATURE,
     _send_dynamic_menu,
+    _send_patient_selector as _send_identity_patient_selector,
     ALL_FEATURES,
     CHANGE_LANGUAGE_ROW,
     REAL_FEATURES,
+    SWITCH_PATIENT_ROW,
 )
 from flows.common import cap_rows, is_reset_keyword
 from core.storage import get_storage
@@ -664,6 +666,19 @@ async def handle_incoming(
         if reply["id"] == CHANGE_LANGUAGE_ROW and language_prompt_enabled:
             sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
             await _send_language_picker(wa, phone, default_language=default_language)
+            return
+        # Main menu's own "Back" (Spec.md Section 0 follow-up, confirmed with
+        # the user): switches which linked patient this phone is acting as.
+        # Always offered, not gated on >1 linked patient -- the selector it
+        # opens also has the add-a-patient entry point, so it's how a
+        # single-patient phone gets to a second one too. Reuses core/
+        # patient_identity.py's own pre-resolution selector/handler pair
+        # (STATE_AWAITING_PATIENT_SELECTION is already in that module's
+        # _HANDLERS table, which already re-shows the real dynamic menu once
+        # a patient is picked -- see this function's own identity_handler
+        # branch above).
+        if reply["id"] == SWITCH_PATIENT_ROW and language is not None:
+            await _send_identity_patient_selector(wa, sessions, phone, hospital_id, connector, language)
             return
         feature_key = _ROW_ID_TO_FEATURE.get(reply["id"])
         if feature_key is not None and feature_key in enabled_features and language is not None:
