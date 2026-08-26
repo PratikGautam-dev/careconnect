@@ -112,6 +112,39 @@ async def _handle_awaiting_appointment_type(
                 "appointment_type_requires_consent": appt_type["requires_consent"],
                 _HISTORY_KEY: history,
             }
+            # Single-doctor tenant (a clinic, per tenant-capability-gating-
+            # plan.md -- onboarded with exactly one department and one
+            # doctor): asking a clinic's patient to pick a department then a
+            # doctor when there's only ever one of each is pure friction, so
+            # skip straight to date selection with both auto-selected. Not
+            # gated on tenant_type directly -- this module only ever talks to
+            # `connector`, never db/repository.py or Hospital -- so it's
+            # phrased as "there's only one real choice," which happens to be
+            # exactly the clinic case and degrades safely if a hospital ever
+            # legitimately has one department with one doctor too. Back
+            # navigation needs no special-casing: since STATE_AWAITING_
+            # DEPARTMENT/DOCTOR frames are simply never pushed here, popping
+            # history naturally returns straight to appointment type.
+            departments = connector.get_departments(hospital_id)
+            if len(departments) == 1:
+                only_dept = departments[0]
+                doctors = connector.get_doctors(hospital_id, only_dept["id"])
+                if len(doctors) == 1:
+                    only_doctor = doctors[0]
+                    if not connector.get_available_slots(hospital_id, only_doctor["id"]):
+                        await _notify_no_slots_available(wa, sessions, hospital_id, phone, only_doctor["name"], language=language)
+                        return
+                    new_context = {
+                        **new_context,
+                        "department_id": only_dept["id"], "department_name": only_dept["name"],
+                        "doctor_id": only_doctor["id"], "doctor_name": only_doctor["name"],
+                    }
+                    sessions.set(hospital_id, phone, STATE_AWAITING_DATE, new_context)
+                    await _send_date_menu(wa, phone, hospital_id, only_doctor["id"], only_doctor["name"], connector, language=language)
+                    return
+                if not doctors:
+                    await _notify_no_doctors_available(wa, sessions, hospital_id, phone, only_dept["name"], language=language)
+                    return
             sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, new_context)
             await _send_department_menu(wa, phone, hospital_id, connector, language=language)
             return
@@ -448,7 +481,7 @@ async def _handle_awaiting_confirmation(
             return
         if rid == BACK_ID:
             sessions.set(hospital_id, phone, STATE_AWAITING_CHANGE_SELECTION, context)
-            await _send_change_selection_menu(wa, phone, language=language)
+            await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
     await _send_confirmation(wa, phone, context, language=language)
@@ -505,4 +538,4 @@ async def _handle_awaiting_change_selection(
             await _send_main_menu(wa, phone, "the hospital", language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CHANGE_SELECTION, context)
-    await _send_change_selection_menu(wa, phone, language=language)
+    await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language)

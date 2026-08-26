@@ -1,26 +1,36 @@
-import { Plus } from "lucide-react";
+import { Building2, Plus, Stethoscope } from "lucide-react";
+import { cn } from "@/lib/cn";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
-import { WizardState } from "../types";
+import { TenantType, WizardState } from "../types";
 import type { WizardDispatch } from "../useWizardState";
 import { DepartmentCard } from "./DepartmentCard";
+import { DoctorCard } from "./DoctorCard";
 import { TopicCard } from "./TopicCard";
 
 type Props = { state: WizardState; dispatch: WizardDispatch; error?: string };
 
+const TENANT_TYPE_OPTIONS: { value: TenantType; label: string; description: string; icon: typeof Building2 }[] = [
+  { value: "hospital", label: "Hospital", description: "Multiple departments and doctors.", icon: Building2 },
+  { value: "clinic", label: "Clinic", description: "A single doctor's practice.", icon: Stethoscope },
+];
+
 export function Step7HospitalDetails({ state, dispatch, error }: Props) {
   const bookingEnabled = state.enabledFeatures.includes("booking");
   const faqEnabled = state.enabledFeatures.includes("faq");
+  const isClinic = state.tenantType === "clinic";
 
   const parts = [];
-  if (bookingEnabled) parts.push("departments & doctors");
+  if (bookingEnabled) parts.push(isClinic ? "your doctor's details" : "departments & doctors");
   if (faqEnabled) parts.push("topics & answers");
-  const heading = parts.length ? `Add ${parts.join(" and ")}` : "Hospital details";
+  const heading = parts.length ? `Add ${parts.join(" and ")}` : isClinic ? "Clinic details" : "Hospital details";
   const desc = bookingEnabled
     ? "This drives real slot generation — patients only see times a doctor is actually working."
     : faqEnabled
       ? "Each topic becomes a tappable option — patients get an instant answer, no scheduling involved."
-      : "Basic details for this hospital.";
+      : isClinic
+        ? "Basic details for this clinic."
+        : "Basic details for this hospital.";
 
   return (
     <div>
@@ -28,7 +38,45 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
       <h2 className="text-display mb-space-2">{heading}</h2>
       <p className="text-body mb-space-4">{desc}</p>
 
-      <Field label="Hospital name" htmlFor="hospital_name" required>
+      <Field label="Type of practice">
+        <div className="grid grid-cols-1 gap-space-3 sm:grid-cols-2">
+          {TENANT_TYPE_OPTIONS.map(({ value, label, description, icon: Icon }) => {
+            const selected = state.tenantType === value;
+            return (
+              <label
+                key={value}
+                className={cn(
+                  "flex cursor-pointer items-start gap-space-3 rounded-lg border bg-card p-space-4 shadow-[var(--shadow-sm)] transition-all duration-150 ease-(--ease-standard)",
+                  "hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]",
+                  selected ? "border-brand-400 ring-2 ring-brand-100" : "border-line",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="tenant_type"
+                  className="sr-only"
+                  checked={selected}
+                  onChange={() => dispatch({ type: "setTenantType", value })}
+                />
+                <div
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]",
+                    selected ? "bg-brand-600 text-white" : "bg-brand-50 text-brand-600",
+                  )}
+                >
+                  <Icon size={16} strokeWidth={2} />
+                </div>
+                <div>
+                  <h3 className="mb-space-1 text-[14.5px] font-bold text-ink-900">{label}</h3>
+                  <p className="text-[12.5px] leading-relaxed text-ink-600">{description}</p>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      </Field>
+
+      <Field label={isClinic ? "Clinic name" : "Hospital name"} htmlFor="hospital_name" required>
         <Input
           id="hospital_name"
           value={state.name}
@@ -88,17 +136,34 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
             />
           </Field>
 
-          <p className="text-label mb-space-2 mt-space-5">Departments &amp; doctors</p>
-          {state.departments.map((dept, i) => (
-            <DepartmentCard key={i} deptIndex={i} department={dept} dispatch={dispatch} />
-          ))}
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "addDepartment" })}
-            className="flex items-center gap-1 text-[13px] font-semibold text-brand-600 hover:underline"
-          >
-            <Plus size={14} /> Add department
-          </button>
+          {isClinic ? (
+            <>
+              <p className="text-label mb-space-2 mt-space-5">Doctor details</p>
+              {state.departments[0]?.doctors[0] && (
+                <DoctorCard
+                  deptIndex={0}
+                  docIndex={0}
+                  doctor={state.departments[0].doctors[0]}
+                  dispatch={dispatch}
+                  hideActions
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-label mb-space-2 mt-space-5">Departments &amp; doctors</p>
+              {state.departments.map((dept, i) => (
+                <DepartmentCard key={i} deptIndex={i} department={dept} dispatch={dispatch} />
+              ))}
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "addDepartment" })}
+                className="flex items-center gap-1 text-[13px] font-semibold text-brand-600 hover:underline"
+              >
+                <Plus size={14} /> Add department
+              </button>
+            </>
+          )}
         </>
       )}
 
@@ -128,10 +193,15 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
 }
 
 export function validateStep7(state: WizardState): string | null {
-  if (!state.name.trim()) return "Hospital name is required.";
+  const isClinic = state.tenantType === "clinic";
+  if (!state.name.trim()) return isClinic ? "Clinic name is required." : "Hospital name is required.";
   if (state.enabledFeatures.includes("booking")) {
     const doctorCount = state.departments.reduce((n, d) => n + d.doctors.length, 0);
-    if (doctorCount === 0) return "Booking is enabled, so at least one department with at least one doctor is required.";
+    if (doctorCount === 0) {
+      return isClinic
+        ? "Booking is enabled, so your doctor's details are required."
+        : "Booking is enabled, so at least one department with at least one doctor is required.";
+    }
     if (!state.portalPassword.trim()) return "A bookings portal password is required.";
   }
   if (state.enabledFeatures.includes("faq")) {

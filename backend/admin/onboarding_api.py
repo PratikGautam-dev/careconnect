@@ -19,6 +19,9 @@ from admin.onboarding import _VALID_TIERS, check_admin_secret
 from admin.validation import _parse_offsets, _validate_doctor_fields
 from db.connection import IntegrityError
 from auth.google_oauth import authenticate_user
+from portal.capabilities import DEFAULT_CAPABILITIES_BY_TYPE, resolve_default_capabilities
+
+_VALID_TENANT_TYPES = set(DEFAULT_CAPABILITIES_BY_TYPE.keys())
 
 router = APIRouter()
 
@@ -66,6 +69,11 @@ class OnboardingSubmission(BaseModel):
     api_key: str = ""
     departments: list[DepartmentIn] = Field(default_factory=list)
     topics: list[TopicIn] = Field(default_factory=list)
+    # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
+    # defaults to "hospital" for backward compatibility -- every existing
+    # onboarding caller that doesn't know about this field yet keeps getting
+    # full admin capabilities, unchanged.
+    tenant_type: str = "hospital"
 
 
 def _validate_departments(departments: list[DepartmentIn]) -> tuple[list[dict], list[str], list[str]]:
@@ -164,6 +172,9 @@ async def submit_onboarding(
     elif payload.data_tier == "tier2" and not (payload.api_base_url.strip() and payload.api_key.strip()):
         errors.append('"Connect my existing system\'s API" requires both an API base URL and an API key.')
 
+    if payload.tenant_type not in _VALID_TENANT_TYPES:
+        errors.append(f'Unrecognized tenant type "{payload.tenant_type}".')
+
     departments, dept_errors, dept_warnings = _validate_departments(payload.departments)
     topics, topic_errors = _validate_topics(payload.topics)
 
@@ -199,6 +210,8 @@ async def submit_onboarding(
             external_api_key=stored_api_key,
             portal_password=payload.portal_password.strip() or None,
             enabled_features=payload.enabled_features,
+            tenant_type=payload.tenant_type,
+            admin_capabilities=resolve_default_capabilities(payload.tenant_type),
         )
     except IntegrityError:
         return JSONResponse(

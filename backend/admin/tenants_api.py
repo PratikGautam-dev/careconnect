@@ -31,6 +31,9 @@ from core.config import get_settings
 from core.translations import t
 from db.connection import IntegrityError
 from flows import _FEATURE_MENU, REAL_FEATURES
+from portal.capabilities import ALL_CAPABILITIES, DEFAULT_CAPABILITIES_BY_TYPE, get_capabilities
+
+_VALID_TENANT_TYPES = set(DEFAULT_CAPABILITIES_BY_TYPE.keys())
 
 router = APIRouter()
 
@@ -94,6 +97,15 @@ def _tenant_detail(h) -> dict:
         # checklist label per key.
         "enabled_features": h.enabled_features,
         "feature_default_labels": {key: t(f"feature_{key}", "en") for key in REAL_FEATURES},
+        # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
+        # get_capabilities() resolves the type default whenever
+        # admin_capabilities is unset (None), so this always reflects the
+        # EFFECTIVE set, not just whatever's literally in the column --
+        # tenant_type is shown alongside it so an operator can tell whether
+        # what they're looking at is an explicit override or the default.
+        "tenant_type": h.tenant_type,
+        "admin_capabilities": sorted(get_capabilities(h)),
+        "all_capabilities": sorted(ALL_CAPABILITIES),
     }
 
 
@@ -167,6 +179,9 @@ class TenantUpdatePayload(BaseModel):
     api_base_url: str = ""
     api_key: str = ""
     enabled_features: list[str] = []
+    # Tenant-type-driven capability gating (tenant-capability-gating-plan.md).
+    tenant_type: str = "hospital"
+    admin_capabilities: list[str] = []
 
 
 @router.post("/api/admin/tenants/{tenant_id}")
@@ -192,8 +207,22 @@ async def update_tenant(
     elif payload.data_tier == "tier2" and not (payload.api_base_url.strip() and payload.api_key.strip()):
         errors.append('"Connect my existing system\'s API" requires both an API base URL and an API key.')
 
+    # Tenant-type-driven capability gating: "omitted" (any caller predating
+    # these two fields) keeps both current values unchanged -- same
+    # model_fields_set-based distinction enabled_features already uses just
+    # below, for the same "an explicit [] is a deliberate choice, not the
+    # same as not sending the field" reason.
+    tenant_type = payload.tenant_type if "tenant_type" in payload.model_fields_set else hospital.tenant_type
+    if tenant_type not in _VALID_TENANT_TYPES:
+        errors.append(f'Unrecognized tenant type "{tenant_type}".')
+
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
+
+    if "admin_capabilities" in payload.model_fields_set:
+        admin_capabilities = [c for c in payload.admin_capabilities if c in ALL_CAPABILITIES]
+    else:
+        admin_capabilities = hospital.admin_capabilities
 
     # "Omitted from the request body" (any caller that predates this field,
     # or a partial direct API call) keeps the CURRENT value unchanged --
@@ -255,6 +284,8 @@ async def update_tenant(
             session_timeout_minutes=hospital.session_timeout_minutes,
             require_patient_confirmation=hospital.require_patient_confirmation,
             privacy_notice_text=hospital.privacy_notice_text,
+            tenant_type=tenant_type,
+            admin_capabilities=admin_capabilities,
         )
     except IntegrityError:
         return JSONResponse({

@@ -10,24 +10,29 @@ type Props = {
   docIndex: number;
   doctor: DoctorForm;
   dispatch: WizardDispatch;
+  /** Clinics have exactly one doctor -- hide the per-card "Doctor #N" /
+   * Remove affordances that only make sense in a multi-doctor repeater. */
+  hideActions?: boolean;
 };
 
-export function DoctorCard({ deptIndex, docIndex, doctor, dispatch }: Props) {
+export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions }: Props) {
   const set = (field: keyof DoctorForm, value: unknown) =>
     dispatch({ type: "setDoctorField", deptIndex, docIndex, field, value });
 
   return (
     <div className="rounded-lg border border-line bg-paper p-space-4">
-      <div className="mb-space-3 flex items-center justify-between">
-        <strong className="text-[13.5px] font-bold text-ink-900">Doctor #{docIndex + 1}</strong>
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "removeDoctor", deptIndex, docIndex })}
-          className="flex items-center gap-1 text-[12.5px] font-semibold text-error hover:underline"
-        >
-          <Trash2 size={13} /> Remove
-        </button>
-      </div>
+      {!hideActions && (
+        <div className="mb-space-3 flex items-center justify-between">
+          <strong className="text-[13.5px] font-bold text-ink-900">Doctor #{docIndex + 1}</strong>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "removeDoctor", deptIndex, docIndex })}
+            className="flex items-center gap-1 text-[12.5px] font-semibold text-error hover:underline"
+          >
+            <Trash2 size={13} /> Remove
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
         <Field label="Name" htmlFor={`doc-${deptIndex}-${docIndex}-name`}>

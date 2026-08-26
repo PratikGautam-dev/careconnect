@@ -59,6 +59,7 @@ type Props = {
 export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting, submitErrors }: Props) {
   const bookingEnabled = state.enabledFeatures.includes("booking");
   const faqEnabled = state.enabledFeatures.includes("faq");
+  const isClinic = state.tenantType === "clinic";
   const namedDepartments = state.departments.filter((d) => d.name.trim() || d.doctors.length > 0);
   const filledTopics = state.topics.filter((t) => t.topicLabel.trim() || t.answerText.trim());
 
@@ -105,30 +106,34 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
       </ReviewSection>
 
       <ReviewSection title="Hospital details (Step 7)" onEdit={() => onGoToStep(7)}>
-        <Row label="Hospital name" value={state.name || "(not set)"} />
+        <Row label={isClinic ? "Clinic name" : "Hospital name"} value={state.name || "(not set)"} />
         <Row label="Welcome message" value={state.welcomeMessageText || "(not set)"} />
         {bookingEnabled && (
           <>
             <Row label="Reminder offsets (hours)" value={state.reminderOffsetsHours} />
             <Row label="Reminder template name" value={state.reminderTemplateName || "(not set)"} />
             <Row label="Bookings portal password" value={state.portalPassword ? "Set" : "Not set — can add later"} />
-            <Row
-              label="Departments & doctors"
-              value={
-                namedDepartments.length === 0 ? (
-                  "(none added yet)"
-                ) : (
-                  <ul className="list-disc space-y-0.5 pl-space-4">
-                    {namedDepartments.map((d, i) => (
-                      <li key={i}>
-                        {d.name || "(unnamed department)"}:{" "}
-                        {d.doctors.map((doc) => doc.name || "(unnamed doctor)").join(", ") || "(no doctors)"}
-                      </li>
-                    ))}
-                  </ul>
-                )
-              }
-            />
+            {isClinic ? (
+              <Row label="Doctor" value={state.departments[0]?.doctors[0]?.name || "(not set)"} />
+            ) : (
+              <Row
+                label="Departments & doctors"
+                value={
+                  namedDepartments.length === 0 ? (
+                    "(none added yet)"
+                  ) : (
+                    <ul className="list-disc space-y-0.5 pl-space-4">
+                      {namedDepartments.map((d, i) => (
+                        <li key={i}>
+                          {d.name || "(unnamed department)"}:{" "}
+                          {d.doctors.map((doc) => doc.name || "(unnamed doctor)").join(", ") || "(no doctors)"}
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                }
+              />
+            )}
           </>
         )}
         {faqEnabled && (

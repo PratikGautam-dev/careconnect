@@ -53,6 +53,22 @@ export function OnboardingWizard() {
     if (!getUserToken()) router.replace("/auth");
   }, [router]);
 
+  // Landing page's "Set up your clinic" button stashes this before sending
+  // someone through the Google OAuth round-trip (/auth -> Google -> /auth/
+  // callback -> here) -- sessionStorage survives that full-page navigation
+  // within the same tab, unlike a query param on this page (Google's
+  // redirect back only carries a token, not our own state). Routed through
+  // the same "setTenantType" action Step7's own picker uses, not set
+  // directly on the initial state, so the department/doctor seeding that
+  // action performs runs exactly once, consistently, from a single place.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionStorage.getItem("onboarding_intent") === "clinic") {
+      sessionStorage.removeItem("onboarding_intent");
+      dispatch({ type: "setTenantType", value: "clinic" });
+    }
+  }, [dispatch]);
+
   // goToStep is for rail clicks, gated by maxUnlockedStep already committed to
   // state from a previous render. handleNext must NOT route through it --
   // setMaxUnlockedStep(next) hasn't landed yet in this synchronous tick, so a

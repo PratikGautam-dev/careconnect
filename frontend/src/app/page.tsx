@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { CircleCheck, ListChecks, Tag } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ClinicSetupButton } from "@/components/marketing/ClinicSetupButton";
 import { PhoneMockup } from "@/components/marketing/PhoneMockup";
 
 const FEATURES = [
@@ -36,9 +37,14 @@ export default function LandingPage() {
       <a href="/" aria-label="CareConnect home">
         <BrandMark size="sm" />
       </a>
-      <Button href="/portal/login" variant="secondary" size="md">
-        Hospital login
-      </Button>
+      <div className="flex items-center gap-space-2">
+        <Button href="/portal/login" variant="secondary" size="md">
+          Hospital login
+        </Button>
+        <Button href="/portal/login" variant="secondary" size="md">
+          Clinic login
+        </Button>
+      </div>
     </header>
 
     <main className="relative isolate overflow-hidden">
@@ -99,6 +105,7 @@ export default function LandingPage() {
               <Button href="/auth" variant="primary" size="lg">
                 Set up your hospital
               </Button>
+              <ClinicSetupButton />
               <Button
                 href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
                 variant="secondary"

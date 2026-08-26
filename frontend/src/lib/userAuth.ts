@@ -54,7 +54,18 @@ export async function fetchAuthMe(): Promise<
  * session token (portal.py's _sign_session) -- ownership is re-checked
  * server-side, never trusted from this call alone. */
 export async function selectHospital(hospitalId: number): Promise<
-  { token: string; expires_at: number; hospital: { id: number; name: string; data_tier: string; enabled_features: string[] } } | null
+  {
+    token: string;
+    expires_at: number;
+    hospital: {
+      id: number;
+      name: string;
+      data_tier: string;
+      enabled_features: string[];
+      tenant_type: string;
+      admin_capabilities: string[];
+    };
+  } | null
 > {
   const token = getUserToken();
   if (!token) return null;

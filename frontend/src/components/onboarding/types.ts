@@ -1,5 +1,7 @@
 export type DataTier = "tier1" | "tier2" | "tier3";
 
+export type TenantType = "hospital" | "clinic";
+
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
@@ -55,6 +57,7 @@ export type WizardState = {
   whatsappPhoneNumberId: string;
   appSecret: string;
   enabledFeatures: FeatureKey[];
+  tenantType: TenantType;
   name: string;
   welcomeMessageText: string;
   reminderOffsetsHours: string;
@@ -104,6 +107,7 @@ export function initialWizardState(): WizardState {
     whatsappPhoneNumberId: "",
     appSecret: "",
     enabledFeatures: ["booking", "reschedule", "cancel", "view_appointments", "hospital_info", "reception_handoff"],
+    tenantType: "hospital",
     name: "",
     welcomeMessageText: "",
     reminderOffsetsHours: "24",
@@ -147,6 +151,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
 export function buildSubmissionPayload(state: WizardState) {
   return {
     admin_secret: state.adminSecret,
+    tenant_type: state.tenantType,
     name: state.name,
     whatsapp_phone_number_id: state.whatsappPhoneNumberId,
     access_token: state.accessToken,

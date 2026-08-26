@@ -81,7 +81,14 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
         </div>
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map(({ key, label, icon: Icon, href }) => {
+          {NAV_ITEMS.filter(
+            // Hide "Doctors" for clinic tenants that lack manage_doctors --
+            // this is only a UI convenience, the backend route guard is the
+            // real enforcement (403s the mutation), so a still-loading or
+            // missing capabilities array fails OPEN (keeps the link) rather
+            // than flashing it away.
+            (item) => item.key !== "doctors" || !hospital || hospital.admin_capabilities?.includes("manage_doctors"),
+          ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(
               "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium transition-colors duration-150",

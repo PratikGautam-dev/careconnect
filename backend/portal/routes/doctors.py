@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 import db.repository as db
 from admin.validation import _validate_doctor_fields
-from portal.deps import _authenticate
+from portal.deps import _authenticate, require_capability
 from portal.routes.bookings import _appointment_json
 
 router = APIRouter()
@@ -27,6 +27,9 @@ async def portal_create_department(payload: dict, authorization: str | None = He
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_departments")
+    if forbidden:
+        return forbidden
     name = (payload or {}).get("name", "").strip()
     if not name:
         return JSONResponse({"error": "Department name is required."}, status_code=400)
@@ -57,6 +60,9 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
 
     department = db.find_department(hospital.id, payload.department_id)
     if department is None:
@@ -95,6 +101,9 @@ async def portal_set_doctor_active(doctor_id: str, payload: dict, authorization:
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     is_active = bool((payload or {}).get("is_active", True))
     ok = db.set_doctor_active(hospital.id, doctor_id, is_active)
     if not ok:
@@ -117,6 +126,9 @@ async def portal_add_doctor_leave(doctor_id: str, payload: dict, authorization: 
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     # Audit follow-up (Spec.md Section 0): db.create_doctor_leave() itself has
     # no way to know whether doctor_id actually belongs to hospital_id -- its
     # INSERT would succeed either way -- so that check has to happen here,
@@ -139,6 +151,9 @@ async def portal_add_doctor_leave_range(doctor_id: str, payload: dict, authoriza
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     if db.get_doctor_full(hospital.id, doctor_id) is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
     from_date = (payload or {}).get("from_date", "").strip()
@@ -160,6 +175,9 @@ async def portal_delete_doctor_leave(
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     ok = db.delete_doctor_leave(hospital.id, doctor_id, leave_id)
     if not ok:
         return JSONResponse({"error": "No such leave date."}, status_code=404)
@@ -189,6 +207,9 @@ async def portal_set_slot_blocked(doctor_id: str, payload: dict, authorization: 
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     if db.get_doctor_full(hospital.id, doctor_id) is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
     scheduled_at = (payload or {}).get("scheduled_at", "").strip()
@@ -213,6 +234,9 @@ async def portal_add_slot(doctor_id: str, payload: dict, authorization: str | No
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     if db.get_doctor_full(hospital.id, doctor_id) is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
     date_str = (payload or {}).get("date", "").strip()
@@ -235,6 +259,9 @@ async def portal_remove_slot(doctor_id: str, payload: dict, authorization: str |
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     if db.get_doctor_full(hospital.id, doctor_id) is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
     scheduled_at = (payload or {}).get("scheduled_at", "").strip()
@@ -297,6 +324,9 @@ async def portal_csv_import_doctors(
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
 
     existing_departments = {d["name"].strip().lower(): d["id"] for d in db.get_departments(hospital.id)}
     created_count = 0
@@ -378,6 +408,9 @@ async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authoriza
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
     if db.get_doctor_full(hospital.id, doctor_id) is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
 

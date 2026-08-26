@@ -259,6 +259,36 @@ def _backfill_reports_prescriptions_feature(conn) -> None:
     conn.commit()
 
 
+def _backfill_admin_capabilities(conn) -> None:
+    """Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
+    every existing hospital row gets an EXPLICIT admin_capabilities value
+    (rather than leaving it NULL and relying on
+    backend/portal/capabilities.py's get_capabilities() runtime fallback) so
+    nothing silently depends on "default = full access" -- same "backfill
+    explicitly, don't just infer at read time" precedent
+    _backfill_enabled_features() above already established. Only touches
+    rows where admin_capabilities IS NULL, so re-running this on every
+    startup is a safe no-op once every hospital is caught up, and it can
+    never overwrite a value a tenant admin already edited via
+    admin/tenants_api.py. The literal JSON arrays here are a snapshot
+    matching backend/portal/capabilities.py's DEFAULT_CAPABILITIES_BY_TYPE
+    at the time this migration was written -- that module (not this
+    function) is the single source of truth application code actually
+    reads through; this only needs to match at backfill time, same as
+    every other one-time JSON-literal backfill in this file."""
+    conn.execute(
+        "UPDATE hospitals SET admin_capabilities = "
+        "'[\"manage_doctors\",\"manage_departments\",\"manage_appointment_types\",\"manage_bookings\",\"manage_settings\",\"manage_staff\"]' "
+        "WHERE admin_capabilities IS NULL AND tenant_type = 'hospital'"
+    )
+    conn.execute(
+        "UPDATE hospitals SET admin_capabilities = "
+        "'[\"manage_bookings\",\"manage_settings\"]' "
+        "WHERE admin_capabilities IS NULL AND tenant_type = 'clinic'"
+    )
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -304,6 +334,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_care_connect_accounts(conn)
     _backfill_appointment_types(conn)
     _backfill_reports_prescriptions_feature(conn)
+    _backfill_admin_capabilities(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

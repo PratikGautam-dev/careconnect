@@ -29,6 +29,11 @@ type Doctor = {
 export default function PortalDoctorsPage() {
   const router = useRouter();
   const { hospital, ready } = usePortalGuard();
+  // Backend route guards already 403 the actual mutations for clinic tenants
+  // lacking manage_doctors -- this is just a UI convenience so those staff
+  // don't hit an error after filling out a form. Fails open (keeps the
+  // controls) while hospital hasn't loaded yet, matching PortalSidebar.
+  const canManageDoctors = !hospital || hospital.admin_capabilities?.includes("manage_doctors");
   const [departments, setDepartments] = useState<Department[] | null>(null);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +211,7 @@ export default function PortalDoctorsPage() {
     <PortalShell hospital={hospital} active="doctors">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
           <h1 className="text-display">Doctors &amp; departments</h1>
-          {departments && departments.length > 0 && (
+          {canManageDoctors && departments && departments.length > 0 && (
             <div className="flex gap-space-2">
               <Button
                 variant="secondary"
@@ -234,6 +239,12 @@ export default function PortalDoctorsPage() {
           )}
         </div>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+        {!canManageDoctors && (
+          <p className="mb-space-4 text-[13px] text-ink-400">
+            Doctor and department management isn&apos;t available for your account type. Contact support if you need
+            changes made.
+          </p>
+        )}
 
         {!departments ? (
           <p className="text-[13px] text-ink-400">Loading…</p>
@@ -314,22 +325,24 @@ export default function PortalDoctorsPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-space-3">
-                              <button
-                                type="button"
-                                onClick={() => handleEditDoctor(doc)}
-                                disabled={loadingDoctorForEdit === doc.id}
-                                className="text-ink-400 hover:text-ink-700 disabled:opacity-50"
-                                title="Edit doctor"
-                              >
-                                <Pencil size={15} />
-                              </button>
+                              {canManageDoctors && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditDoctor(doc)}
+                                  disabled={loadingDoctorForEdit === doc.id}
+                                  className="text-ink-400 hover:text-ink-700 disabled:opacity-50"
+                                  title="Edit doctor"
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                              )}
                               <Badge tone={doc.is_active ? "success" : "neutral"}>
                                 {doc.is_active ? "Available" : "Unavailable"}
                               </Badge>
                               <button
                                 type="button"
                                 onClick={() => handleToggleActive(doc)}
-                                disabled={togglingId === doc.id}
+                                disabled={togglingId === doc.id || !canManageDoctors}
                                 role="switch"
                                 aria-checked={doc.is_active}
                                 className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-150 ${
@@ -368,12 +381,14 @@ export default function PortalDoctorsPage() {
 
             <Card className="h-fit p-space-4">
               <h3 className="text-label mb-space-3 font-bold text-ink-900">Departments</h3>
-              <form onSubmit={handleAddDepartment} className="mb-space-3 flex gap-space-2">
-                <Input placeholder="New department" value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} />
-                <Button type="submit" size="md" disabled={addingDept || !newDeptName.trim()}>
-                  <Plus size={14} />
-                </Button>
-              </form>
+              {canManageDoctors && (
+                <form onSubmit={handleAddDepartment} className="mb-space-3 flex gap-space-2">
+                  <Input placeholder="New department" value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} />
+                  <Button type="submit" size="md" disabled={addingDept || !newDeptName.trim()}>
+                    <Plus size={14} />
+                  </Button>
+                </form>
+              )}
               {departments.length === 0 ? (
                 <p className="text-[12.5px] text-ink-400">No departments yet.</p>
               ) : (

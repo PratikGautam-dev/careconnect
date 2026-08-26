@@ -26,6 +26,9 @@ type TenantDetail = {
   is_active: boolean;
   enabled_features: string[];
   feature_default_labels: Record<string, string>;
+  tenant_type: string;
+  admin_capabilities: string[];
+  all_capabilities: string[];
 };
 
 type FormState = {
@@ -41,7 +44,16 @@ type FormState = {
   api_base_url: string;
   api_key: string;
   enabled_features: string[];
+  tenant_type: string;
+  admin_capabilities: string[];
 };
+
+function titleCaseCapability(key: string): string {
+  return key
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 function EditTenantForm({ tenantId }: { tenantId: number }) {
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
@@ -72,6 +84,8 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
       api_base_url: t.external_api_base_url,
       api_key: t.external_api_key,
       enabled_features: t.enabled_features,
+      tenant_type: t.tenant_type,
+      admin_capabilities: t.admin_capabilities,
     });
   }, [tenantId]);
 
@@ -82,6 +96,16 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
       enabled_features: checked
         ? [...form.enabled_features, key]
         : form.enabled_features.filter((k) => k !== key),
+    });
+  }
+
+  function toggleCapability(key: string, checked: boolean) {
+    if (!form) return;
+    setForm({
+      ...form,
+      admin_capabilities: checked
+        ? [...form.admin_capabilities, key]
+        : form.admin_capabilities.filter((k) => k !== key),
     });
   }
 
@@ -184,6 +208,36 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               hint={tenant.has_portal_password ? "Leave blank to keep the current password." : "Not set yet — set one so staff can log in."}
             >
               <Input id="portal_password" type="password" value={form.portal_password} onChange={(e) => setForm({ ...form, portal_password: e.target.value })} />
+            </Field>
+
+            <Field label="Tenant type" htmlFor="tenant_type">
+              <select
+                id="tenant_type"
+                value={form.tenant_type}
+                onChange={(e) => setForm({ ...form, tenant_type: e.target.value })}
+                className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+              >
+                <option value="hospital">Hospital</option>
+                <option value="clinic">Clinic</option>
+              </select>
+            </Field>
+
+            <Field
+              label="Admin capabilities"
+              htmlFor="admin_capabilities"
+              hint="Controls which staff-portal management screens this tenant can use."
+            >
+              <div id="admin_capabilities" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
+                {tenant.all_capabilities.map((key) => (
+                  <CheckboxRow
+                    key={key}
+                    checked={form.admin_capabilities.includes(key)}
+                    onChange={(checked) => toggleCapability(key, checked)}
+                  >
+                    {titleCaseCapability(key)}
+                  </CheckboxRow>
+                ))}
+              </div>
             </Field>
 
             <Field label="Data connection tier" htmlFor="data_tier">

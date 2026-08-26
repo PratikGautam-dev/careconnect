@@ -6,6 +6,8 @@ export type PortalHospital = {
   name: string;
   data_tier: string;
   enabled_features: string[];
+  tenant_type: string;
+  admin_capabilities: string[];
 };
 
 export function savePortalSession(token: string, hospital: PortalHospital) {

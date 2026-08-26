@@ -2,6 +2,7 @@ import { useImmerReducer } from "use-immer";
 import {
   DoctorForm,
   FeatureKey,
+  TenantType,
   TimeRange,
   WizardState,
   emptyDepartment,
@@ -13,6 +14,7 @@ import {
 type Action =
   | { type: "set"; field: keyof WizardState; value: unknown }
   | { type: "toggleFeature"; key: FeatureKey }
+  | { type: "setTenantType"; value: TenantType }
   | { type: "addDepartment" }
   | { type: "removeDepartment"; deptIndex: number }
   | { type: "setDepartmentName"; deptIndex: number; name: string }
@@ -41,6 +43,24 @@ function reducer(draft: WizardState, action: Action) {
       const i = draft.enabledFeatures.indexOf(action.key);
       if (i === -1) draft.enabledFeatures.push(action.key);
       else draft.enabledFeatures.splice(i, 1);
+      return;
+    }
+    case "setTenantType": {
+      draft.tenantType = action.value;
+      // A clinic is a single doctor with no department concept -- collapse
+      // (or seed) the departments array down to exactly one department with
+      // exactly one doctor, under a fixed internal name the backend's
+      // _validate_departments() contract requires but the clinic UI never
+      // shows. Switching back to "hospital" leaves whatever's there alone so
+      // no data the user already entered is silently thrown away.
+      if (action.value === "clinic") {
+        if (draft.departments.length === 0) draft.departments.push(emptyDepartment());
+        else if (draft.departments.length > 1) draft.departments.length = 1;
+        const dept = draft.departments[0];
+        dept.name = "General";
+        if (dept.doctors.length === 0) dept.doctors.push(emptyDoctor());
+        else if (dept.doctors.length > 1) dept.doctors.length = 1;
+      }
       return;
     }
     case "addDepartment":

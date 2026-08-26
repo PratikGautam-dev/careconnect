@@ -71,6 +71,8 @@ def _set_hospital_creds(hospital_id: int, *, password: str, phone_number_id: str
         external_api_key=h.external_api_key,
         portal_password_hash=db.hash_portal_password(password),
         enabled_features=h.enabled_features,
+        tenant_type=h.tenant_type,
+        admin_capabilities=h.admin_capabilities,
     )
 
 

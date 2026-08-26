@@ -61,6 +61,22 @@ def _row_to_hospital(row) -> Hospital:
             raise ValueError
     except (TypeError, ValueError):
         feature_labels = {}
+    # Tenant-type-driven capability gating: None (column genuinely NULL, or
+    # malformed) is meaningfully different from `[]` (an explicit, deliberate
+    # "no capabilities") -- None means "not set, fall back to
+    # DEFAULT_CAPABILITIES_BY_TYPE[tenant_type]" (get_capabilities()'s own
+    # job, not this row-mapper's), so it's preserved as None rather than
+    # coerced to a list here.
+    admin_capabilities_raw = row["admin_capabilities"]
+    if admin_capabilities_raw is None:
+        admin_capabilities = None
+    else:
+        try:
+            admin_capabilities = json_lib.loads(admin_capabilities_raw)
+            if not isinstance(admin_capabilities, list):
+                raise ValueError
+        except (TypeError, ValueError):
+            admin_capabilities = None
     return Hospital(
         id=row["id"],
         name=row["name"],
@@ -87,6 +103,8 @@ def _row_to_hospital(row) -> Hospital:
         session_timeout_minutes=row["session_timeout_minutes"],
         require_patient_confirmation=bool(row["require_patient_confirmation"]),
         privacy_notice_text=row["privacy_notice_text"],
+        tenant_type=row["tenant_type"] or "hospital",
+        admin_capabilities=admin_capabilities,
     )
 
 
@@ -165,6 +183,8 @@ def create_hospital(
     session_timeout_minutes: int | None = None,
     require_patient_confirmation: bool = False,
     privacy_notice_text: str | None = None,
+    tenant_type: str = "hospital",
+    admin_capabilities: list[str] | None = None,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -196,25 +216,37 @@ def create_hospital(
     bot customization, all optional -- see db/schema.sql's column comments.
     Every one defaults to "unset" (None, or True for language_prompt_enabled)
     here too, same reasoning as enabled_features above: a hospital that never
-    touches its settings page keeps the exact fixed default behavior."""
+    touches its settings page keeps the exact fixed default behavior.
+
+    tenant_type/admin_capabilities (tenant-capability-gating-plan.md):
+    admin_capabilities is stored EXACTLY as given -- this function doesn't
+    resolve DEFAULT_CAPABILITIES_BY_TYPE itself (that policy decision lives
+    in backend/portal/capabilities.py, imported by the onboarding API layer
+    that actually calls this with an already-resolved list), same
+    "repository function stores what it's told, doesn't compute defaults"
+    precedent enabled_features already sets. None stores NULL (falls back
+    to the type default at read time, backend/portal/capabilities.py's
+    get_capabilities())."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
     feature_labels_json = json_lib.dumps(feature_labels or {})
+    admin_capabilities_json = json_lib.dumps(admin_capabilities) if admin_capabilities is not None else None
     portal_password_hash = hash_portal_password(portal_password) if portal_password else None
     cur = conn.execute(
         "INSERT INTO hospitals (name, whatsapp_phone_number_id, meta_access_token_ref, app_secret_ref, "
         "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
         "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features, "
         "feature_labels, closing_message_text, business_hours_text, default_language, "
-        "language_prompt_enabled, session_timeout_minutes, require_patient_confirmation, privacy_notice_text) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "language_prompt_enabled, session_timeout_minutes, require_patient_confirmation, privacy_notice_text, "
+        "tenant_type, admin_capabilities) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
          data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
          feature_labels_json, closing_message_text, business_hours_text, default_language,
          int(language_prompt_enabled), session_timeout_minutes,
-         bool(require_patient_confirmation), privacy_notice_text),
+         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json),
     )
     new_id = cur.fetchone()["id"]
     # Appointment type step (WhatsApp flow alignment): every new hospital
@@ -261,6 +293,8 @@ def update_hospital(
     session_timeout_minutes: int | None = None,
     require_patient_confirmation: bool = False,
     privacy_notice_text: str | None = None,
+    tenant_type: str = "hospital",
+    admin_capabilities: list[str] | None = None,
 ) -> Hospital:
     """admin/onboarding.py's tenant edit form -- the only way to correct an
     already-onboarded hospital's stored values (there's no way to change
@@ -296,24 +330,33 @@ def update_hospital(
     endpoint actually changes these; every other caller (admin edit-tenant
     forms, portal.py's own settings route for the still-unmigrated fields)
     passes the hospital's existing values straight through so an unrelated
-    edit can never silently wipe a tenant's customizations back to defaults."""
+    edit can never silently wipe a tenant's customizations back to defaults.
+
+    tenant_type/admin_capabilities (tenant-capability-gating-plan.md): same
+    "every caller passes the hospital's own current value through
+    explicitly" discipline -- only admin/tenants_api.py's tenant-edit
+    endpoint actually changes these (the tenant/platform admin flipping a
+    clinic's capability set); every other caller passes the hospital's
+    existing tenant_type/admin_capabilities straight through."""
     conn = get_connection()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
     feature_labels_json = json_lib.dumps(feature_labels or {})
+    admin_capabilities_json = json_lib.dumps(admin_capabilities) if admin_capabilities is not None else None
     conn.execute(
         "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
         "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
         "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
         "portal_password_hash = ?, enabled_features = ?, feature_labels = ?, closing_message_text = ?, "
         "business_hours_text = ?, default_language = ?, language_prompt_enabled = ?, "
-        "session_timeout_minutes = ?, require_patient_confirmation = ?, privacy_notice_text = ? WHERE id = ?",
+        "session_timeout_minutes = ?, require_patient_confirmation = ?, privacy_notice_text = ?, "
+        "tenant_type = ?, admin_capabilities = ? WHERE id = ?",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
          data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
          feature_labels_json, closing_message_text, business_hours_text, default_language,
          int(language_prompt_enabled), session_timeout_minutes,
-         bool(require_patient_confirmation), privacy_notice_text, hospital_id),
+         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json, hospital_id),
     )
     conn.commit()
     return get_hospital(hospital_id)

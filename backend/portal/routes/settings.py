@@ -120,5 +120,12 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         session_timeout_minutes=session_timeout_minutes,
         require_patient_confirmation=bool(payload.get("require_patient_confirmation", False)),
         privacy_notice_text=(payload.get("privacy_notice_text") or "").strip() or None,
+        # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
+        # not self-serve -- passed straight through unchanged, same
+        # discipline every other operator-only field on this call already
+        # follows (enabled_features, portal_password_hash, ...). Only
+        # admin/tenants_api.py's tenant-edit endpoint actually changes these.
+        tenant_type=hospital.tenant_type,
+        admin_capabilities=hospital.admin_capabilities,
     )
     return JSONResponse({"ok": True})

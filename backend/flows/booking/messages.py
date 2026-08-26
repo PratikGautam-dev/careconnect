@@ -423,17 +423,28 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
     )
 
 
-async def _send_change_selection_menu(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
+async def _send_change_selection_menu(
+    wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+) -> None:
     """Confirmation's own Back: there's no single "the" field to pop back to,
     so this asks which one instead (see the module-level comment by
-    _CHANGE_TARGETS for why)."""
-    rows = [
-        {"id": CHANGE_APPOINTMENT_TYPE, "title": t("change_appointment_type_option", language)},
-        {"id": CHANGE_DEPARTMENT, "title": t("change_department_option", language)},
-        {"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)},
-        {"id": CHANGE_DATE, "title": t("change_date_option", language)},
-        {"id": CHANGE_TIME, "title": t("change_time_option", language)},
-    ]
+    _CHANGE_TARGETS for why).
+
+    "Change Department"/"Change Doctor" are omitted for a single-department,
+    single-doctor tenant (a clinic) -- there's nothing else to change TO, and
+    offering them would be a dead end anyway: _handle_awaiting_appointment_
+    type's clinic auto-skip never pushes a STATE_AWAITING_DEPARTMENT/DOCTOR
+    history frame to jump back to, so _history_pop_to would find none and
+    fail safe to a full reset -- confusing for a tap that looked like a
+    normal menu option."""
+    departments = connector.get_departments(hospital_id)
+    single_choice = len(departments) == 1 and len(connector.get_doctors(hospital_id, departments[0]["id"])) == 1
+    rows = [{"id": CHANGE_APPOINTMENT_TYPE, "title": t("change_appointment_type_option", language)}]
+    if not single_choice:
+        rows.append({"id": CHANGE_DEPARTMENT, "title": t("change_department_option", language)})
+        rows.append({"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)})
+    rows.append({"id": CHANGE_DATE, "title": t("change_date_option", language)})
+    rows.append({"id": CHANGE_TIME, "title": t("change_time_option", language)})
     await wa.send_list(
         to=phone,
         body_text=t("what_would_you_like_to_change", language),
