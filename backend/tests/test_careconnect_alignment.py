@@ -201,8 +201,7 @@ async def test_single_patient_auto_continues_by_default(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
 
     # Straight to the menu -- no confirmation step shown.
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    _last_list(wa)
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
