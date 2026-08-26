@@ -176,29 +176,6 @@ ALTER TABLE hospitals ADD CONSTRAINT hospitals_tenant_type_check
 -- section always gets a real value at creation time, never NULL.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS admin_capabilities TEXT;
 
--- Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
--- tenant_type is purely descriptive/default-seeding metadata, never read
--- directly by feature routes -- admin_capabilities (below) is the column
--- every portal route actually checks. Mirrors the enabled_features pattern
--- exactly (a JSON array column), just for staff/admin capabilities instead
--- of the patient-facing WhatsApp menu -- deliberately a separate column
--- from enabled_features, not reused, since the two are different concerns
--- (who can manage doctors/departments in the STAFF portal vs. what a
--- PATIENT sees on WhatsApp) that would otherwise get silently conflated.
-ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS tenant_type TEXT NOT NULL DEFAULT 'hospital';
-ALTER TABLE hospitals DROP CONSTRAINT IF EXISTS hospitals_tenant_type_check;
-ALTER TABLE hospitals ADD CONSTRAINT hospitals_tenant_type_check
-    CHECK (tenant_type IN ('hospital', 'clinic'));
--- NULL means "not explicitly set -- fall back to DEFAULT_CAPABILITIES_BY_TYPE[tenant_type]"
--- (backend/portal/capabilities.py's get_capabilities()), same "unset means
--- default behavior" precedent every other self-serve customization column
--- on this table already follows. Backfilled explicitly below anyway (not
--- left to the runtime fallback) so every existing row's capabilities are
--- visible/auditable by reading the column directly, not by re-deriving
--- them -- matching how enabled_features itself was backfilled from the old
--- flow_type column rather than left to infer at read time.
-ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS admin_capabilities TEXT;
-
 -- Widens the CHECK bound below from 5-120 to 2-120 (a 2-minute idle-timeout
 -- option, for testing/demoing the flow without a real 5+ minute wait) --
 -- the ADD COLUMN IF NOT EXISTS above only fires on a database created
