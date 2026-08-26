@@ -45,6 +45,16 @@ def _row_titles(kwargs):
     return [row["title"] for section in kwargs["sections"] for row in section["rows"]]
 
 
+def _last_list(wa):
+    """The main menu now always sends its own follow-up "Back" (switch
+    patient) buttons message right after the list -- this finds the list
+    itself regardless of that trailing message."""
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "list":
+            return kwargs
+    raise AssertionError("no list message was sent")
+
+
 def _english_session(hospital_id, phone=PHONE):
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, phone, "IDLE", {}, language="en")
@@ -73,8 +83,7 @@ async def test_custom_feature_label_overrides_default_in_menu(hospital_id):
         feature_labels={"booking": "Schedule a consultation"},
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     titles = _row_titles(kwargs)
     assert "Schedule a consultation" in titles
     assert "Book Appointment" not in titles
@@ -94,8 +103,8 @@ async def test_no_custom_label_falls_back_to_default(hospital_id):
         feature_labels={},
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert _row_titles(kwargs) == ["Book Appointment", "Back"]
+    kwargs = _last_list(wa)
+    assert _row_titles(kwargs) == ["Book Appointment"]
 
 
 # --- Closing message ---
@@ -216,8 +225,7 @@ async def test_language_prompt_disabled_skips_picker_and_uses_default_language(h
         default_language="hi", language_prompt_enabled=False,
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"  # straight to the menu, never the picker
+    kwargs = _last_list(wa)  # straight to the menu, never the picker
     assert "आपका स्वागत है" in kwargs["body_text"]
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"

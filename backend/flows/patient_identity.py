@@ -145,7 +145,6 @@ async def _send_dynamic_menu(
     if not rows:
         await wa.send_text(phone, t("feature_menu_unavailable", language, hospital_name=hospital_name))
         return
-    rows.append({"id": SWITCH_PATIENT_ROW, "title": t("back_option", language)})
     rows = cap_rows(rows, f"main menu for {hospital_name}")
     body_text = _patient_header(active_patient, language) + t("welcome_menu", language, hospital_name=hospital_name)
     await wa.send_list(
@@ -153,6 +152,15 @@ async def _send_dynamic_menu(
         body_text=body_text,
         button_text=t("main_menu_button", language),
         sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
+    )
+    # Confirmed with the user directly: shown as its OWN follow-up buttons
+    # message right under the main menu list, not as a row hidden inside it
+    # (WhatsApp collapses a list to just its button_text until tapped, so a
+    # row-based version was invisible until the patient opened the list) --
+    # same "list, then a separate Back message" convention flows/booking/
+    # messages.py's own _send_back_button already established.
+    await wa.send_buttons(
+        to=phone, body_text="​", buttons=[{"id": SWITCH_PATIENT_ROW, "title": t("back_option", language)}],
     )
 
 

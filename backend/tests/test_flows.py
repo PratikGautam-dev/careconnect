@@ -196,10 +196,11 @@ async def test_menu_only_shows_enabled_features(hospital_id):
         enabled_features=["booking", "faq"],
     )
 
-    assert len(wa.sent) == 1
+    assert len(wa.sent) == 2
     kind, kwargs = wa.sent[0]
     assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_switch_patient"]
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert wa.sent[1][0] == "buttons"  # the follow-up "Back" (switch patient)
 
 
 @pytest.mark.asyncio
@@ -217,7 +218,7 @@ async def test_unselected_features_dont_appear_in_menu(hospital_id):
     assert "menu_faq_bot" not in ids
     assert "menu_reschedule" not in ids
     assert "menu_cancel" not in ids
-    assert ids == ["menu_book", "menu_switch_patient"]
+    assert ids == ["menu_book"]
 
 
 @pytest.mark.asyncio
@@ -276,8 +277,8 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # booking_flow's own idea of "start over") -- new, deliberate Section
     # 14.5 behavior.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=enabled)
-    kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_switch_patient"]
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
 
     # Now tap "FAQ / Information" -> enters faq_flow's topic loop.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_faq_bot"), connector=connector, enabled_features=enabled)
@@ -290,8 +291,8 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     # A reset keyword mid-FAQ ALSO returns to the top-level unified menu, not
     # just faq_flow's own topic list.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("restart"), connector=connector, enabled_features=enabled)
-    kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot", "menu_switch_patient"]
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
 
 
 @pytest.mark.asyncio
@@ -307,9 +308,8 @@ async def test_tap_for_disabled_feature_falls_back_to_menu(hospital_id):
         connector=FakeConnector(), enabled_features=["booking"],
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
-    assert _row_ids(kwargs) == ["menu_book", "menu_switch_patient"]
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == ["menu_book"]
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
@@ -532,10 +532,10 @@ async def test_bot_resumes_normal_flow_after_handoff_resolved(hospital_id):
     )
 
     # A real bot response this time -- the reset keyword "hi" reached normal
-    # routing and showed the unified menu, not silence.
-    assert len(wa.sent) == sent_before + 1
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    # routing and showed the unified menu, not silence. Two sends: the menu
+    # list, then its own follow-up "Back" (switch patient) buttons message.
+    assert len(wa.sent) == sent_before + 2
+    kwargs = _last_list(wa)
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
     assert "menu_reception" in row_ids
     assert "menu_book" in row_ids
@@ -584,8 +584,7 @@ async def test_bot_resumes_for_a_stale_never_resolved_handoff(hospital_id):
         connector=FakeConnector(), enabled_features=["reception_handoff", "booking"],
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
     assert "menu_book" in row_ids
 
@@ -666,8 +665,7 @@ async def test_selecting_english_then_shows_menu_in_english(hospital_id):
         hospital_name="City Clinic", connector=FakeConnector(), enabled_features=["booking"],
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     assert "City Clinic" in kwargs["body_text"]
     # CareConnect architecture doc alignment (Spec.md Section 0): the main
     # menu now leads with a "Patient: X / MRN: Y" header (Section 20) --
@@ -693,8 +691,7 @@ async def test_selecting_hindi_then_shows_menu_in_hindi(hospital_id):
         hospital_name="City Clinic", connector=FakeConnector(), enabled_features=["booking"],
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="City Clinic"))
     row = kwargs["sections"][0]["rows"][0]
     assert row["title"] == translate("feature_booking", "hi")
@@ -999,8 +996,7 @@ async def test_hindi_reset_keyword_escapes_mid_flow_and_stays_in_hindi(hospital_
         hospital_name="City Clinic", connector=FakeConnector(), enabled_features=["booking"],
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"  # straight back to the Hindi menu, not the language picker again
+    kwargs = _last_list(wa)  # straight back to the Hindi menu, not the language picker again
     assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="City Clinic"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
@@ -1056,9 +1052,15 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     db.create_patient_profile(hospital_id, "5490001234", "Test Patient", 30, relationship_label="Self")
     import webhook.dispatch as m
     m.SESSIONS.set(hospital_id, "5490001234", "IDLE", {}, language="en")  # language already chosen -- see test_language_picker tests below for that step itself
+    # Two outbound sends now: the main menu list, then its own follow-up
+    # "Back" (switch patient) buttons message.
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",
         json={"messages": [{"id": "wamid.1"}]},
+    )
+    httpx_mock.add_response(
+        url="https://graph.facebook.com/v22.0/123/messages",
+        json={"messages": [{"id": "wamid.1b"}]},
     )
     body = _webhook_body("123", "5490001234", "hi")
     resp = client.post("/webhook", content=body, headers={
@@ -1067,11 +1069,11 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     })
     assert resp.status_code == 200
     requests = httpx_mock.get_requests()
-    assert len(requests) == 1
+    assert len(requests) == 2
     sent_body = json.loads(requests[0].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info", "menu_switch_patient"]
+    assert row_ids == ["menu_book", "menu_reschedule", "menu_cancel", "menu_hospital_info"]
 
 
 def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_mock):
@@ -1096,9 +1098,15 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
     # tapping THAT is what hands the conversation to faq_flow.py, not first
     # contact itself (Section 14.5: faq is one feature among several now, not
     # an exclusive top-level flow_type entered automatically).
+    # Two outbound sends: the main menu list, then its own follow-up "Back"
+    # (switch patient) buttons message.
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",
         json={"messages": [{"id": "wamid.menu"}]},
+    )
+    httpx_mock.add_response(
+        url="https://graph.facebook.com/v22.0/123/messages",
+        json={"messages": [{"id": "wamid.menu_back"}]},
     )
     first_body = _webhook_body("123", "5490001234", "hi")
     first_resp = client.post("/webhook", content=first_body, headers={
@@ -1106,9 +1114,9 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
         "Content-Type": "application/json",
     })
     assert first_resp.status_code == 200
-    first_sent = json.loads(httpx_mock.get_requests()[-1].content)
+    first_sent = json.loads(httpx_mock.get_requests()[0].content)
     menu_row_ids = [row["id"] for section in first_sent["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert menu_row_ids == ["menu_faq_bot", "menu_switch_patient"]
+    assert menu_row_ids == ["menu_faq_bot"]
 
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",
