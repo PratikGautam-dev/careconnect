@@ -286,6 +286,7 @@ async def update_tenant(
             privacy_notice_text=hospital.privacy_notice_text,
             tenant_type=tenant_type,
             admin_capabilities=admin_capabilities,
+            dpdp_consent_required=hospital.dpdp_consent_required,
         )
     except IntegrityError:
         return JSONResponse({

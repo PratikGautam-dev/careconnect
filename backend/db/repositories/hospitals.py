@@ -105,6 +105,7 @@ def _row_to_hospital(row) -> Hospital:
         privacy_notice_text=row["privacy_notice_text"],
         tenant_type=row["tenant_type"] or "hospital",
         admin_capabilities=admin_capabilities,
+        dpdp_consent_required=bool(row["dpdp_consent_required"]),
     )
 
 
@@ -185,6 +186,7 @@ def create_hospital(
     privacy_notice_text: str | None = None,
     tenant_type: str = "hospital",
     admin_capabilities: list[str] | None = None,
+    dpdp_consent_required: bool = False,
 ) -> Hospital:
     """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
     db.connection.IntegrityError if whatsapp_phone_number_id is already used by
@@ -239,14 +241,15 @@ def create_hospital(
         "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features, "
         "feature_labels, closing_message_text, business_hours_text, default_language, "
         "language_prompt_enabled, session_timeout_minutes, require_patient_confirmation, privacy_notice_text, "
-        "tenant_type, admin_capabilities) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "tenant_type, admin_capabilities, dpdp_consent_required) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
          data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
          feature_labels_json, closing_message_text, business_hours_text, default_language,
          int(language_prompt_enabled), session_timeout_minutes,
-         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json),
+         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json,
+         bool(dpdp_consent_required)),
     )
     new_id = cur.fetchone()["id"]
     # Appointment type step (WhatsApp flow alignment): every new hospital
@@ -295,6 +298,7 @@ def update_hospital(
     privacy_notice_text: str | None = None,
     tenant_type: str = "hospital",
     admin_capabilities: list[str] | None = None,
+    dpdp_consent_required: bool = False,
 ) -> Hospital:
     """admin/onboarding.py's tenant edit form -- the only way to correct an
     already-onboarded hospital's stored values (there's no way to change
@@ -350,13 +354,14 @@ def update_hospital(
         "portal_password_hash = ?, enabled_features = ?, feature_labels = ?, closing_message_text = ?, "
         "business_hours_text = ?, default_language = ?, language_prompt_enabled = ?, "
         "session_timeout_minutes = ?, require_patient_confirmation = ?, privacy_notice_text = ?, "
-        "tenant_type = ?, admin_capabilities = ? WHERE id = ?",
+        "tenant_type = ?, admin_capabilities = ?, dpdp_consent_required = ? WHERE id = ?",
         (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
          welcome_message_text, offsets_json, reminder_template_name,
          data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
          feature_labels_json, closing_message_text, business_hours_text, default_language,
          int(language_prompt_enabled), session_timeout_minutes,
-         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json, hospital_id),
+         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json,
+         bool(dpdp_consent_required), hospital_id),
     )
     conn.commit()
     return get_hospital(hospital_id)

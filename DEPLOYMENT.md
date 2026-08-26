@@ -22,8 +22,10 @@ live deployment.
 
 - **Backend (Railway)**: `railway.toml` at the repo root pins
   `builder = "NIXPACKS"` explicitly — Railway builds from source via
-  Nixpacks (`pip install -r requirements.txt`, no Dockerfile involved),
-  and runs `uvicorn main:app --host 0.0.0.0 --port $PORT` ($PORT is
+  Nixpacks (`backend/nixpacks.toml`'s install phase: `uv sync --locked
+  --no-dev` against `backend/pyproject.toml`/`uv.lock`, no Dockerfile
+  involved), and runs `uv run uvicorn main:app --host 0.0.0.0 --port $PORT`
+  ($PORT is
   Railway's own assigned port, not the `8000` the Docker image hardcodes).
   Health check: `/health`. Env vars are set in Railway's own dashboard
   (Project → Variables) — see the tables further down for the full list;
@@ -101,9 +103,10 @@ move off Railway/Vercel is decided.
 ## Images
 
 - **`backend/Dockerfile`** — backend. `python:3.12-slim` (matches
-  `.github/workflows/tests.yml`'s pinned CI version), single stage —
-  `pip install -r requirements.txt`, copy the app, run
-  `uvicorn main:app --host 0.0.0.0 --port 8000` (no `--reload`, that's
+  `pyproject.toml`'s `requires-python` pin), single stage — copies the `uv`
+  binary from Astral's official image, `uv sync --locked --no-dev` against
+  `backend/pyproject.toml`/`uv.lock`, copy the app, run
+  `uv run uvicorn main:app --host 0.0.0.0 --port 8000` (no `--reload`, that's
   dev-only). No build stage: every dependency this project actually needs
   compiled (`psycopg2-binary`, `cryptography` via Authlib) ships a prebuilt
   wheel for this base image already, so there's nothing a multi-stage build

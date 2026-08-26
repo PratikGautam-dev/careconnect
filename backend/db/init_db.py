@@ -275,17 +275,26 @@ def _backfill_admin_capabilities(conn) -> None:
     at the time this migration was written -- that module (not this
     function) is the single source of truth application code actually
     reads through; this only needs to match at backfill time, same as
-    every other one-time JSON-literal backfill in this file."""
+    every other one-time JSON-literal backfill in this file.
+
+    The final catch-all (admin_capabilities = '[]' for anything still NULL
+    after the two typed UPDATEs above) covers a tenant_type value other than
+    'hospital'/'clinic' -- shouldn't happen given the column's own CHECK
+    constraint, but a zero-capability default is the safe failure mode if it
+    ever does, rather than leaving the column NULL (which would fall back to
+    the full hospital capability set via get_capabilities())."""
     conn.execute(
-        "UPDATE hospitals SET admin_capabilities = "
-        "'[\"manage_doctors\",\"manage_departments\",\"manage_appointment_types\",\"manage_bookings\",\"manage_settings\",\"manage_staff\"]' "
-        "WHERE admin_capabilities IS NULL AND tenant_type = 'hospital'"
+        "UPDATE hospitals SET admin_capabilities = ? "
+        "WHERE admin_capabilities IS NULL AND tenant_type = 'hospital'",
+        ('["manage_doctors","manage_departments","manage_appointment_types",'
+         '"manage_bookings","manage_settings","manage_staff"]',),
     )
     conn.execute(
-        "UPDATE hospitals SET admin_capabilities = "
-        "'[\"manage_bookings\",\"manage_settings\"]' "
-        "WHERE admin_capabilities IS NULL AND tenant_type = 'clinic'"
+        "UPDATE hospitals SET admin_capabilities = ? "
+        "WHERE admin_capabilities IS NULL AND tenant_type = 'clinic'",
+        ('["manage_bookings","manage_settings"]',),
     )
+    conn.execute("UPDATE hospitals SET admin_capabilities = '[]' WHERE admin_capabilities IS NULL")
     conn.commit()
 
 

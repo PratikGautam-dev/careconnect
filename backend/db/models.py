@@ -282,6 +282,13 @@ class Hospital:
     # raw string outside that module) is what routes actually check.
     tenant_type: str
     admin_capabilities: list[str] | None
+    # DPDP Act consent gate (db/schema.sql's own comment on
+    # hospitals.dpdp_consent_required/dpdp_consents): default off, same
+    # self-serve opt-in convention as require_patient_confirmation above.
+    # Kept last among these three (not interleaved) since it's the only one
+    # of the three with a default value -- a dataclass field with a default
+    # can't precede one without.
+    dpdp_consent_required: bool = False
 
 
 @dataclass

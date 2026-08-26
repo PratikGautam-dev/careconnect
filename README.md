@@ -91,9 +91,7 @@ See [Spec.md](Spec.md) for the full build history, architecture decisions, and a
 ```bash
 git clone https://github.com/PratikGautam-dev/whatsapp-ai-receptionist.git
 cd whatsapp-ai-receptionist/backend
-python -m venv venv
-source venv/bin/activate      # Windows (PowerShell): venv\Scripts\Activate.ps1 -- Windows (Git Bash): source venv/Scripts/activate
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. Configure
@@ -135,10 +133,8 @@ The real, deployed database's connection string lives in `.env.production` (giti
 ### 4. Run the backend
 
 ```bash
-uvicorn main:app --reload
+uv run main.py
 ```
-
-(Windows, if the venv isn't activated: `venv\Scripts\uvicorn main:app --reload`)
 
 Serves at `http://127.0.0.1:8000` — creates the schema and seeds a default hospital against whichever `DATABASE_URL` is active on first request (step 3's local Postgres by default).
 
@@ -176,7 +172,7 @@ Visit `/admin/onboard-hospital` (served by the Next.js frontend) and walk throug
 ## Testing
 
 ```bash
-pytest
+uv run pytest
 ```
 
 499+ tests covering the booking/reschedule/cancel/FAQ state machines, multi-tenant isolation, the staff portal API, onboarding, patient records, rate limiting, and reminders. The suite needs a real Postgres to run against (`tests/conftest.py` provisions one automatically via [testcontainers](https://testcontainers.com/) if Docker is available, or set `TEST_DATABASE_URL` to point at any reachable Postgres instead — useful where Docker itself isn't available).
@@ -264,7 +260,7 @@ Contributions are welcome. The codebase favors small, direct, auditable code ove
 
 1. Fork the repo
 2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Make sure tests pass (`pytest`)
+3. Make sure tests pass (`uv run pytest`)
 4. Open a pull request
 
 No issue template, no CLA. Just describe what you changed and why.

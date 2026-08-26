@@ -151,6 +151,12 @@ _UNLINK_ROW_PREFIX = "idunlink_"
 _REL_ROW_PREFIX = "idrel_"
 MANAGE_ADD_ROW_ID = "id_manage_add"
 MANAGE_PATIENTS_ENTRY_ID = "id_manage_patients_entry"
+# Single-patient-confirm screen's escape hatch (confirmed with the user):
+# goes straight into registration (_start_registration(), same entry point
+# the 0-linked-patients case uses) rather than the full Manage Patients
+# menu -- the natural action from "continue as X?" is adding someone else
+# on this phone, not managing existing links.
+ADD_PATIENT_ENTRY_ID = "id_add_patient_entry"
 DUPLICATE_LINK_ID = "id_dup_link"
 DUPLICATE_DIFFERENT_ID = "id_dup_different"
 CONSENT_TOGGLE_MARKETING_ID = "id_consent_marketing_toggle"
@@ -497,7 +503,13 @@ async def _send_single_patient_confirm(
         ),
         buttons=[
             {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": MANAGE_PATIENTS_ENTRY_ID, "title": t("manage_patients_short", language)},
+            # Confirmed with the user: the natural action from "continue as
+            # X?" is adding someone ELSE on this phone (a family member not
+            # yet linked), not the full Manage Patients menu -- goes
+            # straight into registration via _start_registration(), which
+            # auto-selects the newly added patient as active once done
+            # (identity_flow_next defaults to "resolve").
+            {"id": ADD_PATIENT_ENTRY_ID, "title": t("add_patient_short", language)},
         ],
     )
 
@@ -512,8 +524,8 @@ async def _handle_awaiting_single_patient_confirm(
                 hospital_id, phone, "IDLE", {}, language=language, active_patient_id=context["candidate_patient_id"],
             )
             return
-        if reply["id"] == MANAGE_PATIENTS_ENTRY_ID:
-            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+        if reply["id"] == ADD_PATIENT_ENTRY_ID:
+            await _start_registration(wa, sessions, phone, hospital_id, language)
             return
     # Unrecognized/stale -- re-fetch (the single patient may have changed
     # since this was sent) and re-show fresh.

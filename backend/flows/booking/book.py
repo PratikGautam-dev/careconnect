@@ -447,7 +447,17 @@ async def _create_booking_and_notify(
     # fresh conversation" reasoning -- this is a narrow, deliberate
     # exception for the one specific event requested, not a general
     # policy change.
-    sessions.reset(hospital_id, phone, keep_language=False)
+    #
+    # Patient-reconfirmation follow-up (confirmed with the user): a fully
+    # completed booking now ALSO clears active_patient_id
+    # (keep_active_patient=False), same narrow exception as language above
+    # and for the same event -- returning to the menu after this booking and
+    # touching anything patient-scoped (booking again, reschedule, cancel,
+    # ...) re-resolves identity fresh (0/1/2-5 branching, or the
+    # single-patient confirm screen) instead of silently continuing to use
+    # whichever patient THIS booking was for. Every other reset() call site
+    # is untouched and keeps preserving active_patient_id.
+    sessions.reset(hospital_id, phone, keep_language=False, keep_active_patient=False)
 
 
 async def _handle_awaiting_confirmation(

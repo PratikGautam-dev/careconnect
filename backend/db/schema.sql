@@ -143,6 +143,38 @@ ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS require_patient_confirmation BOOL
 -- -- the Consent & Privacy screen falls back to a fixed generic notice
 -- rather than showing nothing.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS privacy_notice_text TEXT;
+-- DPDP Act consent gate (default off, same "self-serve, opt-in" convention
+-- as require_patient_confirmation above): when TRUE, a fresh conversation
+-- must tap "I Agree" on a fixed DPDP notice (core/translations.py's
+-- dpdp_consent_body) right after language selection, BEFORE any patient
+-- identity is resolved -- see dpdp_consents below for where the decision
+-- is recorded. A hospital that doesn't need this (or handles consent
+-- outside the bot) leaves it off and the flow is unchanged.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS dpdp_consent_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- [tenant-capability-gating] (docs/tenant-capability-gating-plan.md, SQL
+-- step -- DONE): hospital vs. clinic tenant gating, WITHOUT any
+-- if tenant_type == 'clinic' branches in feature code. tenant_type is purely
+-- descriptive/default-seeding metadata; 'hospital' default preserves today's
+-- behavior (full admin capability) for every existing row.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS tenant_type TEXT NOT NULL DEFAULT 'hospital';
+ALTER TABLE hospitals DROP CONSTRAINT IF EXISTS hospitals_tenant_type_check;
+ALTER TABLE hospitals ADD CONSTRAINT hospitals_tenant_type_check
+    CHECK (tenant_type IN ('hospital', 'clinic'));
+-- admin_capabilities: JSON array of staff-portal capability keys this tenant
+-- has (e.g. ["manage_doctors","manage_departments","manage_appointment_types",
+-- "manage_bookings","manage_settings","manage_staff"] -- see
+-- backend/portal/capabilities.py once added, next step of the plan above).
+-- Distinct from enabled_features above (patient-facing WhatsApp menu) -- this
+-- one gates staff/admin PORTAL routes instead; every route delegates to the
+-- same has_capability() check rather than branching on tenant_type directly,
+-- so adding/removing a capability per tenant never requires new backend
+-- logic. NULL means "not yet backfilled from tenant_type" -- db/init_db.py's
+-- _backfill_admin_capabilities() (added alongside this column) fills every
+-- NULL row once, at startup, same convention as
+-- _backfill_enabled_features() above; every hospital created after this
+-- section always gets a real value at creation time, never NULL.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS admin_capabilities TEXT;
 
 -- Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
 -- tenant_type is purely descriptive/default-seeding metadata, never read
@@ -662,6 +694,25 @@ CREATE TABLE IF NOT EXISTS whatsapp_identities (
 -- fully wired up and ready for a future portal/ERP read to use, without
 -- rewriting every existing phone-keyed query in this pass.
 ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER REFERENCES care_connect_accounts(id);
+
+-- DPDP Act consent gate (hospitals.dpdp_consent_required above): recorded
+-- once per (hospital, phone), right after language selection and BEFORE
+-- any patient identity is resolved. Deliberately hospital-scoped (unlike
+-- care_connect_accounts/whatsapp_identities, which are global) -- consent
+-- is inherently about what THIS hospital does with the data, not a fact
+-- about the person's identity overall. Only an AGREED decision is ever
+-- written here -- declining doesn't insert a row at all, so a person who
+-- taps "I Do Not Agree" is simply asked again on their next fresh
+-- conversation (they may have misread the prompt, or changed their mind)
+-- rather than being permanently flagged as refused.
+CREATE TABLE IF NOT EXISTS dpdp_consents (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    whatsapp_phone TEXT NOT NULL,
+    care_connect_account_id INTEGER REFERENCES care_connect_accounts(id),
+    consented_at TEXT NOT NULL DEFAULT (now()::text),
+    UNIQUE(hospital_id, whatsapp_phone)
+);
 
 -- Which reminder offset(s) (SPEC Section 4's hospitals.reminder_offsets_hours,
 -- e.g. a hospital configured for both 24h-before AND 1h-before) have already

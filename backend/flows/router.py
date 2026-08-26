@@ -125,12 +125,38 @@ async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language
     await wa.send_buttons(to=phone, body_text=t("language_picker_body", None), buttons=buttons)
 
 
+STATE_AWAITING_DPDP_CONSENT = "AWAITING_DPDP_CONSENT"
+DPDP_AGREE_ID = "dpdp_agree"
+DPDP_DECLINE_ID = "dpdp_decline"
+
+
+async def _send_dpdp_consent_prompt(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, hospital_name: str, language: str,
+) -> None:
+    """DPDP Act consent gate (hospitals.dpdp_consent_required, default off):
+    shown right after language selection, before any patient identity is
+    resolved -- see _enter_idle()'s own call site. The exact copy is fixed
+    (core/translations.py's dpdp_consent_body), not a per-hospital custom
+    text field like closing_message_text -- this is compliance-facing text
+    given verbatim, not something to make freely editable per tenant yet."""
+    sessions.set(hospital_id, phone, STATE_AWAITING_DPDP_CONSENT, {}, language=language)
+    await wa.send_buttons(
+        to=phone,
+        body_text=t("dpdp_consent_body", language, hospital_name=hospital_name),
+        buttons=[
+            {"id": DPDP_AGREE_ID, "title": t("dpdp_agree_button", language)},
+            {"id": DPDP_DECLINE_ID, "title": t("dpdp_decline_button", language)},
+        ],
+    )
+
+
 async def _enter_idle(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, hospital_name: str,
     enabled_features: list[str], language: str | None, connector: Connector,
     feature_labels: dict[str, str] | None = None,
     default_language: str = "en", language_prompt_enabled: bool = True,
     require_patient_confirmation: bool = False,
+    dpdp_consent_required: bool = False,
 ) -> None:
     """The one place that decides "does this session need the language
     picker, or does it already know what to show." Called everywhere the
@@ -161,6 +187,10 @@ async def _enter_idle(
     else:
         resolved_language = language
 
+    if dpdp_consent_required and not db.has_agreed_to_dpdp_consent(hospital_id, phone):
+        await _send_dpdp_consent_prompt(wa, sessions, phone, hospital_id, hospital_name, resolved_language)
+        return
+
     active_patient = await patient_identity.get_or_prompt_for_active_patient(
         wa, sessions, phone, hospital_id, connector, language=resolved_language,
         require_patient_confirmation=require_patient_confirmation,
@@ -177,6 +207,7 @@ async def _handle_awaiting_language(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
     enabled_features: list[str], connector: Connector, feature_labels: dict[str, str] | None = None,
     default_language: str = "en", require_patient_confirmation: bool = False,
+    dpdp_consent_required: bool = False,
 ) -> None:
     chosen = _LANGUAGE_ROW_TO_CODE.get(reply["id"]) if reply["type"] == "interactive_reply" else None
     if chosen is None:
@@ -194,6 +225,37 @@ async def _handle_awaiting_language(
         wa, sessions, phone, hospital_id, hospital_name, enabled_features, chosen, connector,
         feature_labels=feature_labels, default_language=default_language, language_prompt_enabled=True,
         require_patient_confirmation=require_patient_confirmation,
+        dpdp_consent_required=dpdp_consent_required,
+    )
+
+
+async def _handle_awaiting_dpdp_consent(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
+    enabled_features: list[str], connector: Connector, language: str, feature_labels: dict[str, str] | None = None,
+    default_language: str = "en", language_prompt_enabled: bool = True,
+    require_patient_confirmation: bool = False, dpdp_consent_required: bool = False,
+) -> None:
+    if reply["type"] == "interactive_reply" and reply["id"] == DPDP_DECLINE_ID:
+        await wa.send_text(phone, t("dpdp_declined_message", language))
+        # reset() preserves language (its own default) so a later message
+        # from this same phone doesn't have to re-pick a language too --
+        # only this consent decision gets asked again.
+        sessions.reset(hospital_id, phone)
+        return
+    if reply["type"] == "interactive_reply" and reply["id"] == DPDP_AGREE_ID:
+        db.record_dpdp_consent(hospital_id, phone)
+    # Agreed, or an unrecognized/stale tap -- either way re-enter the same
+    # gate _enter_idle() itself checks: a genuine agreement just recorded
+    # above now passes has_agreed_to_dpdp_consent() and proceeds straight to
+    # patient resolution; an unrecognized tap still fails that check and
+    # re-shows this same prompt fresh (same "recheck rather than trust the
+    # tap" discipline this codebase uses everywhere else).
+    await _enter_idle(
+        wa, sessions, phone, hospital_id, hospital_name, enabled_features, language, connector,
+        feature_labels=feature_labels, default_language=default_language,
+        language_prompt_enabled=language_prompt_enabled,
+        require_patient_confirmation=require_patient_confirmation,
+        dpdp_consent_required=dpdp_consent_required,
     )
 
 
@@ -404,6 +466,7 @@ async def handle_incoming(
     privacy_notice_text: str | None = None,
     provider_user_id: str | None = None,
     username: str | None = None,
+    dpdp_consent_required: bool = False,
 ) -> None:
     """The real conversation entry point (SPEC Section 14.5) -- core/main.py
     calls this directly now, passing the resolved hospital's enabled_features
@@ -429,7 +492,11 @@ async def handle_incoming(
     provider_user_id defaults to `phone` when not given (today's WhatsApp
     Cloud API webhook has no identifier distinct from the phone number; see
     webhook/dispatch.py), so every pre-existing caller/test that doesn't pass
-    these gets identical behavior to before this was added."""
+    these gets identical behavior to before this was added.
+
+    dpdp_consent_required (DPDP Act consent gate, db/schema.sql's own
+    comment on hospitals.dpdp_consent_required): same "self-serve,
+    defaults to off" treatment as require_patient_confirmation."""
     connector = connector or _DEFAULT_CONNECTOR
     connector.identify_contact(provider_user_id or phone, phone_number=phone, username=username)
     # Item 7 (Spec.md Section 0): a real production bug -- once a patient's
@@ -475,6 +542,7 @@ async def handle_incoming(
             feature_labels=feature_labels, default_language=default_language,
             language_prompt_enabled=language_prompt_enabled,
             require_patient_confirmation=require_patient_confirmation,
+            dpdp_consent_required=dpdp_consent_required,
         )
 
     # Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a specific
@@ -523,6 +591,17 @@ async def handle_incoming(
             wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features, connector,
             feature_labels=feature_labels, default_language=default_language,
             require_patient_confirmation=require_patient_confirmation,
+            dpdp_consent_required=dpdp_consent_required,
+        )
+        return
+
+    if state == STATE_AWAITING_DPDP_CONSENT:
+        await _handle_awaiting_dpdp_consent(
+            wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features, connector,
+            language=language or "en", feature_labels=feature_labels, default_language=default_language,
+            language_prompt_enabled=language_prompt_enabled,
+            require_patient_confirmation=require_patient_confirmation,
+            dpdp_consent_required=dpdp_consent_required,
         )
         return
 

@@ -1,0 +1,8 @@
+# Explicit install phase for Nixpacks -- rather than relying on its
+# auto-detection to notice uv.lock/pyproject.toml and pick the right install
+# method, this spells it out: install uv itself, then let it install
+# everything from the lockfile (--locked fails the build instead of silently
+# drifting if uv.lock and pyproject.toml ever disagree; --no-dev keeps
+# pytest/testcontainers out of the deployed image).
+[phases.install]
+cmds = ["pip install uv", "uv sync --locked --no-dev"]

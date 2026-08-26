@@ -474,6 +474,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "आप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
     },
     "manage_patients_short": {"en": "Manage Patients", "hi": "मरीज़ प्रबंधित करें"},
+    "add_patient_short": {"en": "Add Patient", "hi": "मरीज़ जोड़ें"},
     "back_to_menu_option": {"en": "Back to Menu", "hi": "मेनू पर वापस"},
     "registration_blocked_contact_hospital": {
         "en": "This phone number already has the maximum number of linked patients. Please contact the hospital directly.",
@@ -516,6 +517,44 @@ STRINGS: dict[str, dict[Language, str]] = {
     "single_patient_confirm": {
         "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nMRN: {mrn}\n\nContinue?",
         "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nMRN: {mrn}\n\nजारी रखें?",
+    },
+
+    # --- DPDP Act consent gate (hospitals.dpdp_consent_required, default
+    # off) -- shown right after language selection, before any patient
+    # identity is resolved, for a hospital that has turned this on. Only
+    # "I Agree" is ever persisted (db/schema.sql's own comment on
+    # dpdp_consents explains why); the exact copy here was given verbatim,
+    # not drafted -- do not reword without checking with the user first,
+    # since this is compliance-facing text. ---
+    "dpdp_consent_body": {
+        "en": (
+            "Welcome to the {hospital_name} Booking Bot!\n\n"
+            "Your privacy is important to us. In compliance with the Digital Personal Data Protection (DPDP) Act, "
+            "we need your explicit consent before we begin:\n\n"
+            "* We will securely store your name, phone number, age, and doctor preferences to manage your "
+            "appointments and send medical reminders.\n"
+            "* Your data remains strictly confidential and will never be shared with third parties.\n"
+            "* You can request the removal of your data at any time by texting \"DELETE\".\n\n"
+            "Please select an option below to proceed:"
+        ),
+        "hi": (
+            "नमस्ते! {hospital_name} बुकिंग बोट में आपका स्वागत है।\n\n"
+            "आपकी गोपनीयता हमारे लिए महत्वपूर्ण है। डिजिटल व्यक्तिगत डेटा संरक्षण (DPDP) अधिनियम के तहत, "
+            "आगे बढ़ने से पहले हमें आपकी सहमति की आवश्यकता है:\n\n"
+            "* हम आपका नाम, फ़ोन नंबर, उम्र और डॉक्टर की पसंद जैसी जानकारी आपके अपॉइंटमेंट बुक करने और आपको "
+            "मेडिकल रिमाइंडर भेजने के लिए सुरक्षित रूप से जमा (store) करेंगे।\n"
+            "* आपका डेटा पूरी तरह से सुरक्षित रहेगा और इसे किसी बाहरी संस्था के साथ साझा (share) नहीं किया जाएगा।\n"
+            "* आप जब चाहें \"DELETE\" लिखकर अपना डेटा हटाने का अनुरोध कर सकते हैं।\n\n"
+            "आगे बढ़ने के लिए कृपया नीचे दिए गए विकल्पों में से एक चुनें:"
+        ),
+    },
+    "dpdp_agree_button": {"en": "I Agree", "hi": "मैं सहमत हूँ"},
+    "dpdp_decline_button": {"en": "I Do Not Agree", "hi": "मैं सहमत नहीं हूँ"},
+    "dpdp_declined_message": {
+        "en": "No problem — we can't proceed without your consent to store this information, so we're unable to "
+              "continue right now. Message us again anytime if you change your mind.",
+        "hi": "कोई बात नहीं — इस जानकारी को सुरक्षित रखने की आपकी सहमति के बिना हम आगे नहीं बढ़ सकते, इसलिए अभी जारी "
+              "रखना संभव नहीं है। यदि आप अपना मन बदलें, तो कभी भी दोबारा संदेश भेजें।",
     },
 
     # --- Section 20's "Consent & Privacy" menu item -- kept intentionally
