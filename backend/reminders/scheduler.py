@@ -59,6 +59,15 @@ async def send_reminders(
                 f"({appt.department_name}) on {appt.scheduled_at.strftime('%A, %d %B at %H:%M')}. "
                 f"Message us here if you need to reschedule or cancel."
             )
+            # Tele-consultation Phase 2 (confirmed with the user directly):
+            # the video link is deliberately withheld from the immediate
+            # booking confirmation and only surfaces here, close to the
+            # actual slot -- a patient can't casually share/join a "live"
+            # room hours or days early. video_link is None for every other
+            # type (and for a tele appointment predating this column), so
+            # this is a no-op for them.
+            if appt.appointment_type_id == "tele" and appt.video_link:
+                message += f"\n\n🎥 Video Consultation Link: {appt.video_link}"
             await wa.send_text(appt.phone, message)
             connector.mark_reminder_sent(hospital_id, appt.id, offset_hours)
             sent += 1

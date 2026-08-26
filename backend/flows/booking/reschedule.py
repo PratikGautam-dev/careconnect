@@ -20,6 +20,7 @@ from flows.booking.state import (
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, _append_closing_message, _date_label,
     _find_by_id,
 )
+from flows.booking.types.registry import get_type_flow
 
 async def _start_reschedule_flow_for_appointment(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt, connector: Connector, language: str = "en",
@@ -196,7 +197,7 @@ async def _handle_awaiting_reschedule_confirm(
         rid = reply["id"]
         if rid == CONFIRM_YES:
             try:
-                connector.reschedule_booking(
+                new_appointment = connector.reschedule_booking(
                     hospital_id=hospital_id,
                     old_appointment_id=context["reschedule_appointment_id"],
                     phone=phone,
@@ -212,6 +213,22 @@ async def _handle_awaiting_reschedule_confirm(
                 # patient's original appointment intact rather than with neither.
                 await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_RESCHEDULE_SLOT, connector, language=language)
                 return
+            # Tele-consultation Phase 2 follow-up (confirmed with the user
+            # directly, after real-world testing surfaced this exact gap):
+            # reschedule_booking() creates a genuinely NEW appointment row
+            # that inherits the OLD row's appointment_type_id -- a
+            # rescheduled tele-consultation stays type "tele" but its new
+            # row starts with video_link unset, since create_appointment()
+            # never copies it forward (the room is tied to a specific slot,
+            # not something to silently carry to a different date/time).
+            # Regenerate it here, the same on_booking_confirmed hook book.py
+            # uses for a fresh booking, so the reminder sent for the NEW
+            # slot (reminders/scheduler.py) has a real link to include.
+            flow = get_type_flow(new_appointment.appointment_type_id)
+            if flow.on_booking_confirmed is not None:
+                await flow.on_booking_confirmed(
+                    new_appointment.id, hospital_id, context.get("active_patient_id"), connector,
+                )
             summary = t(
                 "appointment_rescheduled", language,
                 doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),

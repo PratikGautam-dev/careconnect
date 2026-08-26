@@ -1218,6 +1218,15 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
 
 @pytest.mark.asyncio
 async def test_tele_consultation_booking_generates_and_stores_a_video_link(hospital_id):
+    """Confirmed with the user directly, after real-world testing raised the
+    question of when the doctor/patient actually get to use this link: the
+    video link is generated and persisted right at booking time, but
+    deliberately WITHHELD from this immediate confirmation -- a patient
+    shouldn't be able to join (or casually forward) a "live" room hours or
+    days before the actual slot. It's surfaced later instead, close to the
+    appointment, via the reminder message (see test_reminders.py) -- and to
+    the doctor any time via the staff portal (portal/routes/bookings.py's
+    _appointment_json)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
@@ -1226,17 +1235,14 @@ async def test_tele_consultation_booking_generates_and_stores_a_video_link(hospi
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert "booked successfully" in kwargs["body_text"].lower()
-    assert "🎥" in kwargs["body_text"]
-    assert "https://meet.jit.si/CareConnect-" in kwargs["body_text"]
+    assert "🎥" not in kwargs["body_text"]
+    assert "meet.jit.si" not in kwargs["body_text"]
 
     due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
     appt = next(a for a in due if a.phone == PHONE)
     stored = db.get_appointment(hospital_id, appt.id)
     assert stored.video_link is not None
     assert stored.video_link.startswith("https://meet.jit.si/CareConnect-")
-    # The URL in the notification is the SAME one that got persisted, not a
-    # second, independently generated one.
-    assert stored.video_link in kwargs["body_text"]
 
 
 @pytest.mark.asyncio
@@ -1308,3 +1314,50 @@ async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_i
     appt = next(a for a in due if a.phone == PHONE)
     stored = db.get_appointment(hospital_id, appt.id)
     assert stored.video_link is None
+
+
+@pytest.mark.asyncio
+async def test_rescheduling_a_tele_consultation_generates_a_fresh_video_link(hospital_id):
+    """Real-world testing gap (confirmed with the user directly):
+    reschedule_booking() creates a genuinely NEW appointment row that
+    inherits the OLD row's appointment_type_id, so a rescheduled
+    tele-consultation stays type "tele" -- but the new row starts with
+    video_link unset (create_appointment() never copies it forward, since
+    the room is tied to a specific slot). flows/booking/reschedule.py's own
+    confirm handler must regenerate one, same on_booking_confirmed hook
+    book.py uses for a fresh booking, so the reminder sent for the NEW slot
+    has a real link."""
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    original = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id, datetime.now() + timedelta(hours=24),
+        appointment_type_id="tele",
+    )
+    db.set_appointment_video_link(hospital_id, original.id, "https://meet.jit.si/CareConnect-original")
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{original.id}"))
+    all_slots = db.get_slots(hospital_id, doctor_id)
+    date_str = all_slots[0]["date"]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+    slot = [s for s in all_slots if s["date"] == date_str][0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_CONFIRM"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "rescheduled" in kwargs["text"].lower()
+    # Same "don't show it in the notification" rule as a fresh booking.
+    assert "🎥" not in kwargs["text"]
+    assert "meet.jit.si" not in kwargs["text"]
+
+    due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
+    new_appt = next(a for a in due if a.phone == PHONE and a.id != original.id)
+    assert new_appt.appointment_type_id == "tele"
+    assert new_appt.video_link is not None
+    assert new_appt.video_link.startswith("https://meet.jit.si/CareConnect-")
+    # A genuinely NEW link, not the old one carried forward unchanged.
+    assert new_appt.video_link != "https://meet.jit.si/CareConnect-original"

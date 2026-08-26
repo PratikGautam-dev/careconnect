@@ -474,17 +474,18 @@ async def _create_booking_and_notify(
     # the returned Appointment rather than regenerated here, so the
     # id shown to the patient is the exact one actually stored.
     summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
-    # Tele-consultation Phase 2: an optional post-creation hook (None for
-    # every other type, so their summary text is untouched) that can attach
-    # extra context -- e.g. a freshly generated video-call link -- to this
-    # exact notification, run once the appointment row actually exists (it
-    # needs appointment.id to persist the link against).
+    # Tele-consultation Phase 2, revised per the user's own explicit
+    # "soft-gate" call: the video link is generated and persisted right here
+    # (needs appointment.id to attach it to), but deliberately NOT shown in
+    # this immediate confirmation -- it's sent later, close to the actual
+    # slot, via the reminder message (reminders/scheduler.py) instead, so a
+    # patient can't casually share/join a "live" room hours or days before
+    # the appointment. None for every other type, so their notification is
+    # untouched -- the hook's return value is no longer consulted by either
+    # call site (this one, or reschedule.py's own) now that neither
+    # notification shows the link directly.
     if flow.on_booking_confirmed is not None:
-        extra = await flow.on_booking_confirmed(
-            appointment.id, hospital_id, context.get("active_patient_id"), connector,
-        )
-        if extra and extra.get("video_link"):
-            summary += "\n\n" + t("tele_video_link_line", language, video_link=extra["video_link"])
+        await flow.on_booking_confirmed(appointment.id, hospital_id, context.get("active_patient_id"), connector)
     summary = _append_closing_message(summary, closing_message_text)
     # Item 3: quick-action buttons attached to the success message --
     # tapping any of them, even long after this session has expired,

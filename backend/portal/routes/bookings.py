@@ -37,6 +37,14 @@ def _appointment_json(a) -> dict:
         # different one -- both read through Appointment.patient_display_id/
         # patients.patient_display_id, never a second identifier.
         "patient_display_id": a.patient_display_id,
+        # Tele-consultation Phase 2 (confirmed with the user directly): the
+        # staff portal is how a doctor actually gets the video link -- there's
+        # no doctor login/notification channel of its own in this codebase.
+        # appointment_type_id lets the frontend show the link only for a
+        # tele-consultation row; video_link itself is None for every other
+        # type, and for a tele appointment predating this column.
+        "appointment_type_id": a.appointment_type_id,
+        "video_link": a.video_link,
     }
 
 

@@ -9,6 +9,8 @@ type Appointment = {
   phone: string;
   scheduled_at: string;
   status: string;
+  appointment_type_id: string | null;
+  video_link: string | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -51,12 +53,29 @@ export function DoctorTodayAppointments({ doctorId }: { doctorId: string }) {
       ) : (
         <ul className="space-y-space-1">
           {appointments.map((a) => (
-            <li key={a.id} className="flex items-center justify-between rounded-md bg-card px-space-3 py-space-2 text-[12.5px]">
-              <span className="tabular-nums text-ink-900">{formatTime(a.scheduled_at)}</span>
-              <span className="text-ink-600">{a.phone}</span>
-              <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600")}>
-                {STATUS_LABELS[a.status] || a.status}
-              </span>
+            <li key={a.id} className="rounded-md bg-card px-space-3 py-space-2 text-[12.5px]">
+              <div className="flex items-center justify-between">
+                <span className="tabular-nums text-ink-900">{formatTime(a.scheduled_at)}</span>
+                <span className="text-ink-600">{a.phone}</span>
+                <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600")}>
+                  {STATUS_LABELS[a.status] || a.status}
+                </span>
+              </div>
+              {/* Tele-consultation Phase 2 (confirmed with the user
+                  directly): this portal view is the doctor's own way to get
+                  the video link -- there's no separate doctor login or
+                  notification channel in this app. Only shown for a
+                  tele-consultation row that actually has one. */}
+              {a.appointment_type_id === "tele" && a.video_link && (
+                <a
+                  href={a.video_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-space-1 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-600 hover:underline"
+                >
+                  🎥 Join video consultation
+                </a>
+              )}
             </li>
           ))}
         </ul>

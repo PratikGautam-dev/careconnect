@@ -147,6 +147,62 @@ async def test_second_cron_pass_does_not_resend_the_first_offset(hospital_id):
     assert db.get_reminded_offsets(hospital_id, appt.id) == [24]
 
 
+# --- Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md,
+# confirmed with the user directly): the video link is deliberately withheld
+# from the immediate booking confirmation and only surfaces here, close to
+# the actual slot -- see flows/booking/book.py's own _create_booking_and_notify. ---
+
+@pytest.mark.asyncio
+async def test_tele_appointment_reminder_includes_video_link(hospital_id):
+    now = datetime.now()
+    appt = db.create_appointment(
+        hospital_id, "5491112345678", "cardiology", "doc_card_1", now + timedelta(hours=5),
+        appointment_type_id="tele",
+    )
+    db.set_appointment_video_link(hospital_id, appt.id, "https://meet.jit.si/CareConnect-abc123")
+    wa = _fake_wa()
+
+    await send_reminders(wa, hospital_id, offsets_hours=[24])
+
+    message = wa.send_text.call_args[0][1]
+    assert "https://meet.jit.si/CareConnect-abc123" in message
+    assert "🎥" in message
+
+
+@pytest.mark.asyncio
+async def test_non_tele_appointment_reminder_has_no_video_link(hospital_id):
+    """The one thing that must not regress: every other appointment type's
+    reminder is exactly what it was before tele's video link existed."""
+    now = datetime.now()
+    _make(hospital_id, scheduled_at=now + timedelta(hours=5))
+    wa = _fake_wa()
+
+    await send_reminders(wa, hospital_id, offsets_hours=[24])
+
+    message = wa.send_text.call_args[0][1]
+    assert "🎥" not in message
+    assert "meet.jit.si" not in message
+
+
+@pytest.mark.asyncio
+async def test_tele_appointment_with_no_video_link_yet_gets_plain_reminder(hospital_id):
+    """A tele appointment predating the video_link column (or one that
+    somehow never got one generated) must not crash the reminder pass or
+    show a broken/empty link line."""
+    now = datetime.now()
+    db.create_appointment(
+        hospital_id, "5491112345678", "cardiology", "doc_card_1", now + timedelta(hours=5),
+        appointment_type_id="tele",
+    )
+    wa = _fake_wa()
+
+    sent = await send_reminders(wa, hospital_id, offsets_hours=[24])
+
+    assert sent == 1
+    message = wa.send_text.call_args[0][1]
+    assert "🎥" not in message
+
+
 @pytest.mark.asyncio
 async def test_hospital_with_single_offset_still_works_as_before(hospital_id):
     """A hospital configured for just one offset (the common case, e.g. [24])
