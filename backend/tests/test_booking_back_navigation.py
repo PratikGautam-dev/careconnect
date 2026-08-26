@@ -13,7 +13,10 @@ Covers, per the task's own request:
     free-text-resends-current-message behavior.
 """
 import db.repository as db
-from flows.booking import BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_TIME, handle_incoming
+from flows.booking import (
+    BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_TIME, GOTO_MAIN_MENU,
+    handle_incoming,
+)
 from core.session_store import InMemorySessionStore
 
 PHONE = "5491112345678"
@@ -149,7 +152,9 @@ async def test_back_from_confirmation_offers_change_submenu(hospital_id):
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     row_ids = _row_ids(kwargs)
-    assert row_ids == {CHANGE_APPOINTMENT_TYPE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_DATE, CHANGE_TIME}
+    assert row_ids == {
+        CHANGE_APPOINTMENT_TYPE, CHANGE_DEPARTMENT, CHANGE_DOCTOR, CHANGE_DATE, CHANGE_TIME, GOTO_MAIN_MENU,
+    }
 
 
 async def test_change_time_from_submenu_returns_to_time_list_preserving_name_age(hospital_id):

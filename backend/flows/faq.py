@@ -45,6 +45,13 @@ from core.translations import t
 from core.whatsapp import WhatsAppClient
 
 STATE_FAQ_ACTIVE = "FAQ_ACTIVE"
+# Same id flows/router.py's own GOTO_MAIN_MENU uses -- intercepted globally
+# in that module's handle_incoming, BEFORE any state dispatch (including the
+# delegation into this module), so no local handling is needed here. Not
+# imported from flows/booking/state.py (the value "goto_main_menu" is
+# duplicated, not shared) to avoid a dependency this module's own docstring
+# doesn't otherwise need -- FAQ has no booking/connector relationship at all.
+GOTO_MAIN_MENU = "goto_main_menu"
 
 
 async def send_topic_menu(
@@ -63,6 +70,7 @@ async def send_topic_menu(
         return
 
     rows = [{"id": str(t_["id"]), "title": t_["topic_label"]} for t_ in topics]
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = cap_rows(rows, f"FAQ topic menu for hospital {hospital_id}")
     await wa.send_list(
         to=phone,

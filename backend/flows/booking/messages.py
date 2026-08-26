@@ -19,7 +19,7 @@ from core.translations import t
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT,
+    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
     CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
     MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
@@ -116,6 +116,11 @@ async def _send_appointment_type_menu(wa: WhatsAppClient, phone: str, hospital_i
         button_text=t("view_appointment_types_button", language),
         sections=[{"title": t("appointment_types_section_title", language), "rows": rows}],
     )
+    # Booking's own first step -- _handle_awaiting_appointment_type already
+    # resets to the main menu on BACK_ID (there's nothing earlier in booking
+    # to pop back to), this was just the one screen in that department/
+    # doctor/date/time family that never actually showed the button.
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_label: str, language: str = "en") -> None:
@@ -201,6 +206,11 @@ async def _send_patient_selector(
         rows.append({"id": ALL_PATIENTS_ROW_ID, "title": t("all_patients_option", language)})
     if next_action == "booking" and len(patients) < MAX_ACTIVE_PATIENT_LINKS:
         rows.append({"id": ADD_PATIENT_ROW_ID, "title": t("add_patient_option", language)})
+    # Reached right from the main menu (Book/Cancel/Reschedule/View
+    # Appointments) -- unlike core/patient_identity.py's own patient
+    # selector (shown BEFORE the main menu exists at all, so it has nothing
+    # to go back to), this one always has a real main menu behind it.
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = _cap_rows(rows, "patient selector")
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_SELECTION, {"patient_flow_next": next_action})
     await wa.send_list(
@@ -445,6 +455,13 @@ async def _send_change_selection_menu(
         rows.append({"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)})
     rows.append({"id": CHANGE_DATE, "title": t("change_date_option", language)})
     rows.append({"id": CHANGE_TIME, "title": t("change_time_option", language)})
+    # Previously a dead end -- every row here picked a field to change, with
+    # no way out except actually picking one. GOTO_MAIN_MENU is intercepted
+    # globally (flows/router.py's handle_incoming, before any state
+    # dispatch), so this abandons the in-progress booking rather than
+    # returning to the confirmation card underneath -- same trade-off
+    # _send_patient_selector's own back row above makes.
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     await wa.send_list(
         to=phone,
         body_text=t("what_would_you_like_to_change", language),
@@ -519,6 +536,11 @@ async def _send_appointment_selection_menu(
             "title": title,
             "description": a.scheduled_at.strftime("%a %d %b %Y, %H:%M"),
         })
+    # Cancel/reschedule's own first screen (right from the main menu, or
+    # after the patient selector above for a multi-patient phone) -- a real
+    # main menu always exists behind it, unlike identity's pre-resolution
+    # screens.
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = _cap_rows(rows, "appointment selection menu")
     await wa.send_list(
         to=phone,

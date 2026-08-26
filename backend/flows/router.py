@@ -334,6 +334,7 @@ async def _send_reports_prescriptions(
         return
 
     rows = [{"id": _reports_document_row_id(d["id"]), "title": d["file_name"]} for d in documents]
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = cap_rows(rows, f"reports & prescriptions documents for patient {patient['id']}")
     sessions.set(hospital_id, phone, STATE_AWAITING_REPORTS_DOCUMENT, {"patient_id": patient["id"]})
     await wa.send_list(

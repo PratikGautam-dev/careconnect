@@ -283,7 +283,7 @@ async def test_dual_feature_tenant_can_access_both_booking_and_faq(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_faq_bot"), connector=connector, enabled_features=enabled)
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == [str(t["id"]) for t in db.get_faq_topics(hospital_id)]
+    assert _row_ids(kwargs) == [str(t["id"]) for t in db.get_faq_topics(hospital_id)] + ["goto_main_menu"]
     import flows.faq as faq_flow
     assert sessions.get(hospital_id, PHONE)["state"] == faq_flow.STATE_FAQ_ACTIVE
 
@@ -1129,5 +1129,5 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
     sent_body = json.loads(httpx_mock.get_requests()[-1].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert row_ids == [str(t["id"]) for t in db.get_faq_topics(hospital_id)]
+    assert row_ids == [str(t["id"]) for t in db.get_faq_topics(hospital_id)] + ["goto_main_menu"]
     assert "menu_book" not in row_ids

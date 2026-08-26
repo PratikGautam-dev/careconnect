@@ -71,6 +71,7 @@ async def _send_view_appointments(
             "title": title,
             "description": f"{a.department_name} — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}",
         })
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = _cap_rows(rows, "view appointments menu")
     sessions.set(hospital_id, phone, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, {"active_patient_id": active_patient_id})
     await wa.send_list(

@@ -652,7 +652,7 @@ async def test_cancel_flow_one_appointment_happy_path(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_cancel"))
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == {f"appt_{appt.id}"}
+    assert _row_ids(kwargs) == {f"appt_{appt.id}", "goto_main_menu"}
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CANCEL_SELECTION"
 
     # Pick it -> confirm buttons
@@ -683,7 +683,7 @@ async def test_cancel_flow_multiple_appointments_cancels_only_the_selected_one(h
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_cancel"))
     kind, kwargs = wa.sent[-1]
-    assert _row_ids(kwargs) == {f"appt_{first.id}", f"appt_{second.id}"}
+    assert _row_ids(kwargs) == {f"appt_{first.id}", f"appt_{second.id}", "goto_main_menu"}
 
     # Pick the second one specifically
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{second.id}"))
@@ -706,7 +706,7 @@ async def test_cancel_flow_excludes_past_and_already_cancelled_appointments(hosp
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == {f"appt_{valid.id}"}
+    assert _row_ids(kwargs) == {f"appt_{valid.id}", "goto_main_menu"}
 
 
 @pytest.mark.asyncio
@@ -759,7 +759,7 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == {f"appt_{appt.id}"}
+    assert _row_ids(kwargs) == {f"appt_{appt.id}", "goto_main_menu"}
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_SELECTION"
 
     # Pick it -> goes straight to a DATE list (no department/doctor re-pick)
@@ -881,7 +881,7 @@ async def test_reschedule_back_from_time_list_returns_to_date_list(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == {f"appt_{appt.id}"}
+    assert _row_ids(kwargs) == {f"appt_{appt.id}", "goto_main_menu"}
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_SELECTION"
 
 
@@ -926,4 +926,4 @@ async def test_reschedule_flow_excludes_past_and_cancelled_appointments(hospital
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert _row_ids(kwargs) == {f"appt_{valid.id}"}
+    assert _row_ids(kwargs) == {f"appt_{valid.id}", "goto_main_menu"}

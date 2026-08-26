@@ -9,7 +9,7 @@ from core.translations import t
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    CONFIRM_NO, CONFIRM_YES, MANAGE_PATIENTS_ADD_ROW_ID, STATE_AWAITING_MANAGE_PATIENTS_ACTION,
+    CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, MANAGE_PATIENTS_ADD_ROW_ID, STATE_AWAITING_MANAGE_PATIENTS_ACTION,
     STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_UNLINK_CONFIRM, _cap_rows, _parse_patient_row_id, _patient_row_id,
     _patient_row_title,
 )
@@ -21,6 +21,7 @@ async def _start_manage_patients_flow(
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
     if len(patients) < MAX_ACTIVE_PATIENT_LINKS:
         rows.append({"id": MANAGE_PATIENTS_ADD_ROW_ID, "title": t("add_patient_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = _cap_rows(rows, "manage patients list")
     sessions.set(hospital_id, phone, STATE_AWAITING_MANAGE_PATIENTS_ACTION, {})
     await wa.send_list(
