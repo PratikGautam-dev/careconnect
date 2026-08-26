@@ -23,6 +23,8 @@ type Appointment = {
   source: string;
   reference_id: string | null;
   patient_display_id: string | null;
+  appointment_type_id: string | null;
+  video_link: string | null;
 };
 
 type Department = { id: string; name: string };
@@ -46,6 +48,20 @@ const STATUS_LABELS: Record<string, string> = {
   attended: "Attended", no_show: "No-show",
 };
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
+// docs/per-appointment-type-flow-plan.md's fixed catalog (db/repositories/
+// appointment_types.py's DEFAULT_APPOINTMENT_TYPES) -- there's no portal CRUD
+// for appointment types (seeded once, at onboarding), so this mirrors that
+// same fixed id->label mapping rather than fetching it from a new endpoint.
+const TYPE_LABELS: Record<string, string> = {
+  new: "New Consultation",
+  followup: "Follow-up",
+  tele: "Tele-consultation",
+  second_opinion: "Second Opinion",
+  diagnostic: "Diagnostic",
+  lab: "Lab Test",
+  daycare: "Daycare",
+};
+const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -79,6 +95,11 @@ export default function PortalAppointmentsPage() {
   // needed).
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Divides the appointments list by type (New Consultation, Follow-up,
+  // Tele-consultation, ...) as its own tab row -- "other" covers any
+  // appointment predating appointment_type_id (never backfilled, so an
+  // old row is legitimately typeless, not a bug).
+  const [typeFilter, setTypeFilter] = useState("all");
 
   // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
   // real status" gap -- a still-'booked' appointment whose scheduled time
@@ -108,10 +129,24 @@ export default function PortalAppointmentsPage() {
     if (result.ok) load();
   }
 
+  function typeBucket(a: Appointment) {
+    return a.appointment_type_id && a.appointment_type_id in TYPE_LABELS ? a.appointment_type_id : "other";
+  }
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: appointments?.length ?? 0 };
+    for (const a of appointments || []) {
+      const bucket = typeBucket(a);
+      counts[bucket] = (counts[bucket] || 0) + 1;
+    }
+    return counts;
+  }, [appointments]);
+
   const filteredAppointments = useMemo(() => {
     if (!appointments) return appointments;
     const q = searchQuery.trim().toLowerCase();
     return appointments.filter((a) => {
+      if (typeFilter !== "all" && typeBucket(a) !== typeFilter) return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (!q) return true;
       return (
@@ -122,7 +157,7 @@ export default function PortalAppointmentsPage() {
         (a.patient_display_id || "").toLowerCase().includes(q)
       );
     });
-  }, [appointments, searchQuery, statusFilter]);
+  }, [appointments, searchQuery, statusFilter, typeFilter]);
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/bookings");
@@ -224,6 +259,30 @@ export default function PortalAppointmentsPage() {
 
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
+        {/* Divides the list by appointment type -- a tab per type (plus
+            "Other" for the rare pre-appointment-type-feature row), each
+            showing how many currently match, "All" always first. */}
+        <div className="mb-space-4 flex flex-wrap gap-space-2">
+          {TYPE_TAB_ORDER.filter((id) => id === "all" || (typeCounts[id] || 0) > 0 || typeFilter === id).map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTypeFilter(id)}
+              className={cn(
+                "rounded-full border px-space-3 py-space-1 text-[12.5px] font-semibold transition-colors duration-150",
+                typeFilter === id
+                  ? "border-brand-600 bg-brand-600 text-white"
+                  : "border-line bg-card text-ink-600 hover:border-brand-300 hover:bg-brand-50",
+              )}
+            >
+              {id === "all" ? "All" : id === "other" ? "Other" : TYPE_LABELS[id]}
+              <span className={cn("ml-space-1 tabular-nums", typeFilter === id ? "text-white/80" : "text-ink-400")}>
+                {typeCounts[id] || 0}
+              </span>
+            </button>
+          ))}
+        </div>
+
         <div className="mb-space-4 flex flex-wrap items-center gap-space-3">
           <div className="relative min-w-[220px] flex-1">
             <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
@@ -264,6 +323,7 @@ export default function PortalAppointmentsPage() {
                     <th className="pb-space-2 font-semibold">Patient</th>
                     <th className="pb-space-2 font-semibold">Doctor</th>
                     <th className="pb-space-2 font-semibold">Department</th>
+                    <th className="pb-space-2 font-semibold">Type</th>
                     <th className="pb-space-2 font-semibold">Source</th>
                     <th className="pb-space-2 font-semibold">Status</th>
                     <th className="pb-space-2 font-semibold">Visited</th>
@@ -284,6 +344,24 @@ export default function PortalAppointmentsPage() {
                         </td>
                         <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
                         <td className="py-space-2 text-ink-600">{a.department_name}</td>
+                        <td className="py-space-2 text-ink-600">
+                          <div>{a.appointment_type_id ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id : "—"}</div>
+                          {/* Tele-consultation Phase 2 (confirmed with the
+                              user directly): staff need the video link too,
+                              not just the doctor's own "Today's appointments"
+                              widget -- withheld from the patient's immediate
+                              confirmation, but always visible here. */}
+                          {a.appointment_type_id === "tele" && a.video_link && (
+                            <a
+                              href={a.video_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11.5px] font-semibold text-brand-600 hover:underline"
+                            >
+                              🎥 Join
+                            </a>
+                          )}
+                        </td>
                         <td className="py-space-2 text-ink-600">{SOURCE_LABELS[a.source] || a.source}</td>
                         <td className="py-space-2">
                           <span
@@ -367,7 +445,7 @@ export default function PortalAppointmentsPage() {
                       </tr>
                       {reschedulePanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={9} className="pb-space-3">
+                          <td colSpan={10} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 sm:grid-cols-2">
                                 <div>
@@ -484,7 +562,7 @@ export default function PortalAppointmentsPage() {
                       )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={9} className="pb-space-3">
+                          <td colSpan={10} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
                                 Message to send {a.phone} on WhatsApp
