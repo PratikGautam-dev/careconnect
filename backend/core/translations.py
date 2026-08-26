@@ -341,6 +341,26 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "You already have an appointment booked with {doctor_name} — reply below to manage it.",
         "hi": "आपकी {doctor_name} के साथ पहले से ही एक अपॉइंटमेंट बुक है — इसे प्रबंधित करने के लिए नीचे उत्तर दें।",
     },
+    # docs/per-appointment-type-flow-plan.md Phase 2: New Consultation-only
+    # booking rules -- flows/booking/types/new_consultation.py.
+    "new_consultation_department_conflict": {
+        "en": "You already have an active appointment in this department. Please cancel it first if you'd like to book again.",
+        "hi": "इस विभाग में आपकी पहले से ही एक सक्रिय अपॉइंटमेंट है। दोबारा बुक करने के लिए कृपया पहले उसे रद्द करें।",
+    },
+    "new_consultation_same_day_conflict": {
+        "en": "You already have an appointment booked on this day. Please choose a different date, or manage your existing appointment first.",
+        "hi": "इस दिन आपकी पहले से ही एक अपॉइंटमेंट बुक है। कृपया कोई और तारीख चुनें, या पहले अपनी मौजूदा अपॉइंटमेंट प्रबंधित करें।",
+    },
+    # docs/per-appointment-type-flow-plan.md Phase 2 Step 2:
+    # flows/booking/types/followup.py.
+    "no_previous_appointment_for_followup": {
+        "en": "We couldn't find any previous completed appointment for you, so Follow-up isn't available yet. Please choose New Consultation instead.",
+        "hi": "हमें आपकी कोई पिछली पूर्ण अपॉइंटमेंट नहीं मिली, इसलिए फॉलो-अप अभी उपलब्ध नहीं है। कृपया इसके बजाय नई परामर्श चुनें।",
+    },
+    "followup_confirm_prompt": {
+        "en": "Book a follow-up with {doctor_name} ({department_name})?\nYour last visit was on {last_visit_label}.",
+        "hi": "क्या {doctor_name} ({department_name}) के साथ फॉलो-अप बुक करें?\nआपकी पिछली मुलाकात {last_visit_label} को हुई थी।",
+    },
     # Item 6 (Spec.md Section 0): shown after tapping one appointment in "My
     # Appointments" -- the same quick-action buttons item 3/5 use.
     "manage_appointment_prompt": {

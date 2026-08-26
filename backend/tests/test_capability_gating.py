@@ -21,7 +21,7 @@ os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
 os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
 
 import db.repository as db  # noqa: E402
-from backend.main import app  # noqa: E402
+from main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from portal.capabilities import (  # noqa: E402
     ALL_CAPABILITIES, DEFAULT_CAPABILITIES_BY_TYPE, get_capabilities, has_capability,

@@ -27,6 +27,18 @@ from flows.booking.state import (
     _date_label, _find_by_id, _history_pop_to, _manage_cancel_id, _manage_reschedule_id, _parse_patient_age,
     _push_history,
 )
+from flows.booking.types.registry import get_type_flow
+
+
+def _first_available_resource(connector: Connector, hospital_id: int) -> tuple[dict, dict] | None:
+    """Picks the first department's first doctor with open slots -- the
+    internal resource used for types with no department/doctor step
+    (diagnostic, lab). Returns None if nothing has any open slot."""
+    for dept in connector.get_departments(hospital_id):
+        for doctor in connector.get_doctors(hospital_id, dept["id"]):
+            if connector.get_available_slots(hospital_id, doctor["id"]):
+                return dept, doctor
+    return None
 
 async def _start_booking_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
@@ -112,6 +124,28 @@ async def _handle_awaiting_appointment_type(
                 "appointment_type_requires_consent": appt_type["requires_consent"],
                 _HISTORY_KEY: history,
             }
+            # A type with its own on_selected hook (e.g. followup.py) fully
+            # owns what happens next -- checked before the skip branch below.
+            flow = get_type_flow(appt_type["id"])
+            if flow.on_selected is not None:
+                await flow.on_selected(wa, sessions, phone, hospital_id, connector, new_context, language)
+                return
+            # No department/doctor step at all (diagnostic, lab): auto-resolve
+            # a resource instead of asking, regardless of tenant shape.
+            if STATE_AWAITING_DEPARTMENT not in flow.steps:
+                resource = _first_available_resource(connector, hospital_id)
+                if resource is None:
+                    await _notify_no_doctors_available(wa, sessions, hospital_id, phone, appt_type["label"], language=language)
+                    return
+                dept, doctor = resource
+                new_context = {
+                    **new_context,
+                    "department_id": dept["id"], "department_name": dept["name"],
+                    "doctor_id": doctor["id"], "doctor_name": doctor["name"],
+                }
+                sessions.set(hospital_id, phone, flow.first_step(), new_context)
+                await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
+                return
             # Single-doctor tenant (a clinic, per tenant-capability-gating-
             # plan.md -- onboarded with exactly one department and one
             # doctor): asking a clinic's patient to pick a department then a
@@ -368,13 +402,25 @@ async def _create_booking_and_notify(
         wa, sessions, phone, hospital_id, context.get("active_patient_id"), connector, language=language,
     ):
         return
+    scheduled_at = datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}")
+    # Checked right before create_booking, not earlier -- context can still
+    # change via "change selection" up to this exact point.
+    flow = get_type_flow(context.get("appointment_type_id"))
+    if flow.validate_booking is not None:
+        conflict = flow.validate_booking(
+            connector, hospital_id, context.get("active_patient_id"), context.get("department_id"), scheduled_at,
+        )
+        if conflict is not None:
+            await wa.send_text(phone, t(conflict, language))
+            sessions.reset(hospital_id, phone)
+            return
     try:
         appointment = connector.create_booking(
             hospital_id=hospital_id,
             phone=phone,
             department_id=context.get("department_id"),
             doctor_id=context.get("doctor_id"),
-            scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
+            scheduled_at=scheduled_at,
             patient_name=context.get("patient_name"),
             patient_age=context.get("patient_age"),
             patient_id=context.get("active_patient_id"),
@@ -432,31 +478,11 @@ async def _create_booking_and_notify(
             {"id": _manage_reschedule_id(appointment.id), "title": t("reschedule_short", language)},
         ],
     )
-    # STATE_BOOKED is terminal and resets to IDLE immediately — there's no
-    # separate incoming message that moves it out of BOOKED, so it's never
-    # actually written to the session store.
-    #
-    # Language-reset follow-up (Spec.md Section 0): a FULLY COMPLETED
-    # booking specifically clears the chosen language too
-    # (keep_language=False) -- the next fresh conversation from this
-    # patient shows the language picker again, rather than assuming
-    # the last-used language forever. Every OTHER reset() call site
-    # in this file (decline, cancel flow, reschedule, stale-session
-    # cleanup, ...) is deliberately untouched and keeps preserving
-    # language, per Section 12.11's original "only ask once per
-    # fresh conversation" reasoning -- this is a narrow, deliberate
-    # exception for the one specific event requested, not a general
-    # policy change.
-    #
-    # Patient-reconfirmation follow-up (confirmed with the user): a fully
-    # completed booking now ALSO clears active_patient_id
-    # (keep_active_patient=False), same narrow exception as language above
-    # and for the same event -- returning to the menu after this booking and
-    # touching anything patient-scoped (booking again, reschedule, cancel,
-    # ...) re-resolves identity fresh (0/1/2-5 branching, or the
-    # single-patient confirm screen) instead of silently continuing to use
-    # whichever patient THIS booking was for. Every other reset() call site
-    # is untouched and keeps preserving active_patient_id.
+    # STATE_BOOKED is terminal and resets to IDLE immediately, never written
+    # to the session store. A fully completed booking also clears language
+    # and active_patient_id -- next conversation re-picks language and
+    # re-resolves patient identity fresh. Every other reset() call site
+    # keeps preserving both.
     sessions.reset(hospital_id, phone, keep_language=False, keep_active_patient=False)
 
 
@@ -491,7 +517,7 @@ async def _handle_awaiting_confirmation(
             return
         if rid == BACK_ID:
             sessions.set(hospital_id, phone, STATE_AWAITING_CHANGE_SELECTION, context)
-            await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language)
+            await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language, context=context)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
     await _send_confirmation(wa, phone, context, language=language)
@@ -548,4 +574,4 @@ async def _handle_awaiting_change_selection(
             await _send_main_menu(wa, phone, "the hospital", language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CHANGE_SELECTION, context)
-    await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language)
+    await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language, context=context)

@@ -84,6 +84,12 @@ class Connector(abc.ABC):
     ) -> Appointment: ...
 
     @abc.abstractmethod
+    def get_active_appointments_for_patient(self, hospital_id: int, patient_id: int) -> list[Appointment]: ...
+
+    @abc.abstractmethod
+    def get_last_attended_appointment(self, hospital_id: int, patient_id: int) -> Appointment | None: ...
+
+    @abc.abstractmethod
     def get_patient_info(self, hospital_id: int, phone: str) -> dict | None: ...
 
     @abc.abstractmethod
@@ -176,6 +182,12 @@ class _UnimplementedTierConnector(Connector):
 
     def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None):
         self._not_implemented("create_booking")
+
+    def get_active_appointments_for_patient(self, hospital_id, patient_id):
+        self._not_implemented("get_active_appointments_for_patient")
+
+    def get_last_attended_appointment(self, hospital_id, patient_id):
+        self._not_implemented("get_last_attended_appointment")
 
     def get_patient_info(self, hospital_id, phone):
         self._not_implemented("get_patient_info")

@@ -31,6 +31,12 @@ class Tier1Connector(Connector):
             appointment_type_id=appointment_type_id, consent_given_at=consent_given_at,
         )
 
+    def get_active_appointments_for_patient(self, hospital_id, patient_id):
+        return repo.get_active_appointments_for_patient(hospital_id, patient_id)
+
+    def get_last_attended_appointment(self, hospital_id, patient_id):
+        return repo.get_last_attended_appointment(hospital_id, patient_id)
+
     def get_patient_info(self, hospital_id, phone):
         return repo.get_patient_by_phone(hospital_id, phone)
 

@@ -22,11 +22,13 @@ from flows.booking.state import (
     ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
     CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
     MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT,
+    STATE_AWAITING_FOLLOWUP_CONFIRM,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
     _parse_appointment_row_id, _parse_patient_row_id, _patient_row_id, _patient_row_title,
 )
+from flows.booking.types.registry import get_type_flow
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +446,7 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
 
 async def _send_change_selection_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    context: dict | None = None,
 ) -> None:
     """Confirmation's own Back: there's no single "the" field to pop back to,
     so this asks which one instead (see the module-level comment by
@@ -455,9 +458,12 @@ async def _send_change_selection_menu(
     type's clinic auto-skip never pushes a STATE_AWAITING_DEPARTMENT/DOCTOR
     history frame to jump back to, so _history_pop_to would find none and
     fail safe to a full reset -- confusing for a tap that looked like a
-    normal menu option."""
+    normal menu option. Same applies to any type with no department/doctor
+    step at all (diagnostic, lab, followup) via `context`'s TypeFlow."""
     departments = connector.get_departments(hospital_id)
     single_choice = len(departments) == 1 and len(connector.get_doctors(hospital_id, departments[0]["id"])) == 1
+    flow = get_type_flow((context or {}).get("appointment_type_id"))
+    single_choice = single_choice or not flow.has_step(STATE_AWAITING_DEPARTMENT)
     rows = [{"id": CHANGE_APPOINTMENT_TYPE, "title": t("change_appointment_type_option", language)}]
     if not single_choice:
         rows.append({"id": CHANGE_DEPARTMENT, "title": t("change_department_option", language)})
@@ -489,6 +495,10 @@ async def _resend_menu_for_state(
     actually sees the list to pick from again, not just a silent state change."""
     if state == STATE_AWAITING_APPOINTMENT_TYPE:
         await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
+    elif state == STATE_AWAITING_FOLLOWUP_CONFIRM:
+        # Lazy import: avoids this module -> types.registry -> followup cycle.
+        from flows.booking.types.followup import _send_followup_confirm_prompt
+        await _send_followup_confirm_prompt(wa, phone, context, language=language)
     elif state == STATE_AWAITING_DEPARTMENT:
         await _send_department_menu(wa, phone, hospital_id, connector, language=language)
     elif state == STATE_AWAITING_DOCTOR:

@@ -927,3 +927,261 @@ async def test_reschedule_flow_excludes_past_and_cancelled_appointments(hospital
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
     assert _row_ids(kwargs) == {f"appt_{valid.id}", "goto_main_menu"}
+
+
+@pytest.mark.asyncio
+async def test_new_consultation_blocks_rebooking_in_same_department(hospital_id):
+    """docs/per-appointment-type-flow-plan.md Phase 2, New Consultation-only
+    rule 1: a patient with an existing ACTIVE (non-cancelled) booking in a
+    department cannot book that same department again until it's
+    cancelled."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
+        patient_id=patient["id"], appointment_type_id="new",
+    )
+
+    # Same patient (auto-selected, only one linked), same department, a
+    # DIFFERENT slot -- still blocked, since the existing booking is in the
+    # same department and still active.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
+    all_slots = db.get_slots(hospital_id, doctor_id)
+    other_slot = next(s for s in all_slots if s["id"] != slot["id"])
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(other_slot["date"]))
+    remaining = [s for s in all_slots if s["date"] == other_slot["date"] and s["id"] != slot["id"]]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(remaining[0]["id"]))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "already have an active appointment in this department" in kwargs["text"].lower()
+    assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
+    # No second appointment was created.
+    assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 1
+
+
+@pytest.mark.asyncio
+async def test_new_consultation_blocks_other_department_same_day(hospital_id):
+    """Rule 2: a patient with an active booking on a given day cannot book a
+    DIFFERENT department that same day."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    card_doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    card_slot = db.get_slots(hospital_id, card_doctor_id)[0]
+    db.create_appointment(
+        hospital_id, PHONE, "cardiology", card_doctor_id, datetime.fromisoformat(f"{card_slot['date']}T{card_slot['time']}"),
+        patient_id=patient["id"], appointment_type_id="new",
+    )
+    ortho_doctor_id = db.get_doctors(hospital_id, "orthopedics")[0]["id"]
+    ortho_slots = db.get_slots(hospital_id, ortho_doctor_id)
+    same_day_slot = next((s for s in ortho_slots if s["date"] == card_slot["date"]), None)
+    assert same_day_slot is not None, "test setup assumes both doctors share at least one working date"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("orthopedics"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(ortho_doctor_id))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(same_day_slot["date"]))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(same_day_slot["id"]))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "text"
+    assert "already have an appointment booked on this day" in kwargs["text"].lower()
+    assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 1
+
+
+@pytest.mark.asyncio
+async def test_new_consultation_allows_other_department_on_a_different_day(hospital_id):
+    """Sanity check: the same patient CAN book a different department on a
+    day they don't already have a booking -- rules 1/2 shouldn't over-block."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    card_doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    card_slot = db.get_slots(hospital_id, card_doctor_id)[0]
+    db.create_appointment(
+        hospital_id, PHONE, "cardiology", card_doctor_id, datetime.fromisoformat(f"{card_slot['date']}T{card_slot['time']}"),
+        patient_id=patient["id"], appointment_type_id="new",
+    )
+    ortho_doctor_id = db.get_doctors(hospital_id, "orthopedics")[0]["id"]
+    ortho_slots = db.get_slots(hospital_id, ortho_doctor_id)
+    different_day_slot = next(s for s in ortho_slots if s["date"] != card_slot["date"])
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("orthopedics"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(ortho_doctor_id))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(different_day_slot["date"]))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(different_day_slot["id"]))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "booked successfully" in kwargs["body_text"].lower()
+    assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 2
+
+
+@pytest.mark.asyncio
+async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(hospital_id):
+    """docs/per-appointment-type-flow-plan.md Phase 2 Step 2: a patient with
+    no attended appointment at all can't Follow-up -- told so, and sent back
+    to appointment-type selection rather than left stuck."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
+
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+    kind, kwargs = wa.sent[-2]
+    assert kind == "text"
+    assert "couldn't find any previous" in kwargs["text"].lower()
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+
+
+@pytest.mark.asyncio
+async def test_followup_confirm_screen_then_straight_to_date_selection(hospital_id):
+    """The core Follow-up behavior: auto-selects the SAME doctor/department
+    as the patient's last attended appointment, shows a confirm screen (with
+    a Back button), then on confirm jumps straight to date selection -- no
+    department/doctor prompt at all."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    past_appt = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.now() - timedelta(days=10), patient_id=patient["id"],
+    )
+    db.mark_attendance(hospital_id, past_appt.id, True)
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_FOLLOWUP_CONFIRM"
+    assert session["context"]["doctor_id"] == doctor_id
+    assert session["context"]["department_id"] == "cardiology"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"confirm", BACK_ID}
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_DATE"
+    assert session["context"]["doctor_id"] == doctor_id
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"  # the date list's own follow-up Back button
+
+
+@pytest.mark.asyncio
+async def test_followup_back_from_date_returns_to_followup_confirm_screen(hospital_id):
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    past_appt = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id,
+        datetime.now() - timedelta(days=10), patient_id=patient["id"],
+    )
+    db.mark_attendance(hospital_id, past_appt.id, True)
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_FOLLOWUP_CONFIRM"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"confirm", BACK_ID}
+
+    # And Back from THERE returns to appointment-type selection.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_appointment_type_skips_department_and_doctor_selection(hospital_id):
+    """docs/per-appointment-type-flow-plan.md Phase 1: 'diagnostic' (and
+    'lab') have requires_doctor_selection=False and no department/doctor step
+    in their TypeFlow (flows/booking/types/diagnostic.py) -- picking this
+    type should jump straight to date selection, with a department/doctor
+    auto-resolved behind the scenes (_first_available_resource) rather than
+    asked for."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_DATE"
+    assert session["context"]["appointment_type_id"] == "diagnostic"
+    assert session["context"]["department_id"]
+    assert session["context"]["doctor_id"]
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"  # the date list's own follow-up Back button
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_back_from_date_returns_to_appointment_type_selection(hospital_id):
+    """No STATE_AWAITING_DEPARTMENT/DOCTOR history frame is ever pushed for a
+    type with no department/doctor step, so a Back tap from the date list
+    should land straight back on appointment-type selection, not doctor."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
+    kwargs = _last_list(wa)
+    assert "appointment type" in kwargs["body_text"].lower() or "diagnostic" in {
+        r["id"] for s in kwargs["sections"] for r in s["rows"]
+    }
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hospital_id):
+    """Confirmation's "what would you like to change?" sub-menu should not
+    offer Change Department/Change Doctor for a type whose flow never asked
+    for either -- there'd be no history frame to jump back to."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]
+    all_slots = db.get_slots(hospital_id, doctor_id)
+    date_str = all_slots[0]["date"]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+    slot = [s for s in all_slots if s["date"] == date_str][0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+
+    kwargs = _last_list(wa)
+    row_ids = _row_ids(kwargs)
+    assert "change_department" not in row_ids
+    assert "change_doctor" not in row_ids
+    assert "change_date" in row_ids
+    assert "change_time" in row_ids

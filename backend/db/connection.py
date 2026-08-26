@@ -44,9 +44,27 @@ this module's reconnect-on-failure retry) becomes a bottleneck.
 """
 import os
 import re
+from typing import Any, Protocol, cast
 
 import psycopg2
 import psycopg2.extras
+
+
+class _Row(Protocol):
+    """A RealDictCursor row: dict-like access by column name."""
+    def __getitem__(self, key: str) -> Any: ...
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+
+class _Cursor(Protocol):
+    """What repository code actually calls on an execute() result. The real
+    object is a psycopg2 RealDictCursor -- rows come back dict-like despite
+    psycopg2's own stubs describing plain tuples, so execute() casts to this
+    Protocol rather than fighting those stubs."""
+    @property
+    def rowcount(self) -> int: ...
+    def fetchone(self) -> _Row | None: ...
+    def fetchall(self) -> list[_Row]: ...
 
 # Re-exported so every other module that needs to catch a constraint
 # violation (core/booking_flow.py's double-booking race, admin/onboarding.py's
@@ -104,14 +122,14 @@ class _PGConnection:
             pass  # already broken/closed -- nothing to clean up
         self._conn = self._new_raw_connection()
 
-    def execute(self, sql: str, params=()):
+    def execute(self, sql: str, params=()) -> _Cursor:
         translated = _QUESTION_MARK_RE.sub("%s", sql)
         if self._conn.closed:
             self._reconnect()
         try:
             cur = self._conn.cursor()
             cur.execute(translated, params)
-            return cur
+            return cast(_Cursor, cur)
         except (psycopg2.InterfaceError, psycopg2.OperationalError):
             # The connection died between our .closed check above and this
             # statement actually running (or was never flagged closed at all,
@@ -120,7 +138,7 @@ class _PGConnection:
             self._reconnect()
             cur = self._conn.cursor()
             cur.execute(translated, params)
-            return cur
+            return cast(_Cursor, cur)
 
     def executescript(self, sql: str) -> None:
         if self._conn.closed:

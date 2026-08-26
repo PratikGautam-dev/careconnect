@@ -324,7 +324,16 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     assume" instruction: the SAME linked patient booking the SAME doctor
     twice, through the real chat flow (patient selection -> confirm), is
     still blocked -- while a DIFFERENT linked patient booking that same
-    doctor is allowed."""
+    doctor is allowed.
+
+    docs/per-appointment-type-flow-plan.md Phase 2: for a "new" (New
+    Consultation) booking specifically, this is now caught by
+    flows/booking/types/new_consultation.py's own same-department check
+    (patient_id + department_id scoped) BEFORE connector.create_booking() is
+    even attempted -- superseding the older, narrower same-DOCTOR
+    DuplicateBookingError path this test originally exercised. The block is
+    still there, just delivered as a plain text message instead of the
+    quick-action buttons DuplicateBookingError sends."""
     connector = flows._DEFAULT_CONNECTOR
     parent = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
     child = db.create_patient_profile(hospital_id, PHONE, "Priya Kumar", 8)
@@ -375,5 +384,5 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(free_slot["id"]), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
     kind2, kwargs2 = wa2.sent[-1]
-    assert kind2 == "buttons"
-    assert "already have an appointment" in kwargs2["body_text"].lower()
+    assert kind2 == "text"
+    assert "already have an active appointment in this department" in kwargs2["text"].lower()

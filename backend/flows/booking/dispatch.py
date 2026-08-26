@@ -21,6 +21,7 @@ from flows.booking.book import (
 from flows.booking.cancel import _handle_awaiting_cancel_confirm, _handle_awaiting_cancel_selection, _start_cancel_flow
 from flows.booking.manage_patients import _handle_awaiting_manage_patients_action, _handle_awaiting_unlink_confirm
 from flows.booking.messages import _handle_awaiting_patient_selection, _send_main_menu
+from flows.booking.types.followup import _handle_awaiting_followup_confirm
 from flows.booking.reschedule import (
     _handle_awaiting_reschedule_confirm, _handle_awaiting_reschedule_date, _handle_awaiting_reschedule_selection,
     _handle_awaiting_reschedule_slot, _start_reschedule_flow,
@@ -29,7 +30,7 @@ from flows.booking.state import (
     FREE_TEXT_INPUT_STATES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ, MAIN_MENU_RESCHEDULE,
     STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_CANCEL_CONFIRM, STATE_AWAITING_CANCEL_SELECTION,
     STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
-    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR,
+    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_FOLLOWUP_CONFIRM,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -68,6 +69,7 @@ async def _handle_idle(
 
 _HANDLERS = {
     STATE_AWAITING_APPOINTMENT_TYPE: _handle_awaiting_appointment_type,
+    STATE_AWAITING_FOLLOWUP_CONFIRM: _handle_awaiting_followup_confirm,
     STATE_AWAITING_CONSENT: _handle_awaiting_consent,
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
