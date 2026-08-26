@@ -56,7 +56,7 @@ async def test_first_contact_shows_welcome_and_topic_list(hospital_id):
     assert kind == "list"
     assert "City Clinic" in kwargs["body_text"]
     labels = {row["title"] for section in kwargs["sections"] for row in section["rows"]}
-    assert labels == {"Hours", "Location"}
+    assert labels == {"Hours", "Location", "Back to Menu"}
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_tapping_a_topic_replies_with_its_answer_then_loops_back_to_topic_
     assert wa.sent[0] == ("text", {"to": PHONE, "text": "Consultations start at $50."})
     kind, kwargs = wa.sent[1]
     assert kind == "list"
-    assert _row_ids(kwargs) == {str(topic["id"])}
+    assert _row_ids(kwargs) == {str(topic["id"]), "goto_main_menu"}
 
 
 @pytest.mark.asyncio
@@ -162,4 +162,4 @@ async def test_faq_topics_scoped_to_own_hospital(hospital_id, second_hospital_id
 
     kind, kwargs = wa.sent[-1]
     labels = {row["title"] for section in kwargs["sections"] for row in section["rows"]}
-    assert labels == {"Hospital A topic"}
+    assert labels == {"Hospital A topic", "Back to Menu"}

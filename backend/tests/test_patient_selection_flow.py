@@ -234,7 +234,7 @@ async def test_patient_selection_scopes_my_appointments_to_the_chosen_patient(ho
         connector=connector, enabled_features=["view_appointments"],
     )
     row_ids = _row_ids(_last_list(wa))
-    assert row_ids == [f"appt_{child_appt.id}"]
+    assert row_ids == [f"appt_{child_appt.id}", "goto_main_menu"]
     assert f"appt_{parent_appt.id}" not in row_ids
 
 
@@ -266,7 +266,7 @@ async def test_all_patients_view_shows_every_linked_patients_appointments_labele
     )
     kwargs = _last_list(wa)
     rows = kwargs["sections"][0]["rows"]
-    assert {r["id"] for r in rows} == {f"appt_{parent_appt.id}", f"appt_{child_appt.id}"}
+    assert {r["id"] for r in rows} == {f"appt_{parent_appt.id}", f"appt_{child_appt.id}", "goto_main_menu"}
     titles = {r["id"]: r["title"] for r in rows}
     assert "Ravi Kumar" in titles[f"appt_{parent_appt.id}"]
     assert "Priya Kumar" in titles[f"appt_{child_appt.id}"]

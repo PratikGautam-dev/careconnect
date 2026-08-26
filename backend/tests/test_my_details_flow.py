@@ -177,7 +177,7 @@ async def test_documents_are_offered_as_a_list_and_tapping_one_sends_it(hospital
     assert len(wa.sent) == 2
     kind, kwargs = wa.sent[1]
     assert kind == "list"
-    assert _row_ids(kwargs) == [f"reportdoc_{doc['id']}"]
+    assert _row_ids(kwargs) == [f"reportdoc_{doc['id']}", "goto_main_menu"]
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_REPORTS_DOCUMENT"
 
     # Tap the document row -> sent via WhatsApp, marked sent, session resolved.
