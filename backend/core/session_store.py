@@ -109,7 +109,7 @@ class InMemorySessionStore:
         if existing is not None:
             existing["active_patient_id"] = None
 
-    def reset(self, hospital_id: int, phone: str, keep_language: bool = True) -> None:
+    def reset(self, hospital_id: int, phone: str, keep_language: bool = True, keep_active_patient: bool = True) -> None:
         """Section 12.11 established preserving language across every
         reset(), so a patient is only asked once per genuinely fresh
         conversation, not after every booking/cancel/reset -- still the
@@ -120,28 +120,28 @@ class InMemorySessionStore:
         while every other reset() call site (cancel, decline, FAQ exit,
         stale-session cleanup, ...) is untouched and keeps preserving it.
 
-        active_patient_id is ALWAYS preserved across reset() (Section 13 --
-        resolved once per conversation, not per action) -- there is
-        deliberately no keep_active_patient=False variant, unlike language's
-        keep_language=False: a fully completed booking clearing the chosen
-        LANGUAGE is a deliberate re-ask-preference choice, but there's no
-        equivalent "re-resolve which patient this is" trigger anywhere in
-        this codebase -- that only ever happens via clear_active_patient()
-        (an explicit unlink of the active patient) or a genuine session
-        timeout (get()'s own expiry branch, which returns a session with
-        neither field at all)."""
+        active_patient_id (Section 13) is likewise preserved by default --
+        resolved once per conversation, not re-asked after every single
+        action. keep_active_patient=False is the same kind of narrow,
+        deliberate exception keep_language=False already is: a fully
+        COMPLETED booking (flows/booking/book.py's
+        _create_booking_and_notify(), confirmed with the user) now clears it
+        too, alongside language -- so returning to the menu afterward and
+        touching anything patient-scoped forces a fresh patient
+        confirmation/selection, not a silent reuse of whichever patient the
+        just-finished booking was for. Every other reset() call site is
+        unaffected and keeps preserving it, same as language."""
         existing = self._store.get((hospital_id, phone))
         language = existing.get("language") if (existing and keep_language) else None
-        active_patient_id = existing.get("active_patient_id") if existing else None
+        active_patient_id = existing.get("active_patient_id") if (existing and keep_active_patient) else None
         if language is None and active_patient_id is None:
             self._store.pop((hospital_id, phone), None)
             return
-        # Deliberately NOT self.set() -- that method treats language=None as
-        # "not specified, inherit the existing value" (the same ambiguity
-        # clear_active_patient() exists to work around for the other field),
-        # which would silently un-clear language here whenever
-        # active_patient_id alone needed preserving (keep_language=False but
-        # an active patient exists) -- a real bug caught by
+        # Deliberately NOT self.set() -- that method treats language=None/
+        # active_patient_id=None as "not specified, inherit the existing
+        # value" (the same ambiguity clear_active_patient() exists to work
+        # around), which would silently un-clear one of these here whenever
+        # only the OTHER one needed clearing -- a real bug caught by
         # tests/test_flows.py::test_language_persists_across_a_full_booking_flow_in_hindi.
         # Writing the record directly bypasses that inheritance entirely.
         self._store[(hospital_id, phone)] = {
@@ -207,14 +207,14 @@ class RedisSessionStore:
         remaining_ttl = self._redis.ttl(self._key(hospital_id, phone))
         self._redis.setex(self._key(hospital_id, phone), remaining_ttl if remaining_ttl > 0 else self._timeout, json.dumps(session))
 
-    def reset(self, hospital_id: int, phone: str, keep_language: bool = True) -> None:
+    def reset(self, hospital_id: int, phone: str, keep_language: bool = True, keep_active_patient: bool = True) -> None:
         """See InMemorySessionStore.reset()'s docstring -- identical
-        keep_language/active_patient_id semantics, mirrored here for the
+        keep_language/keep_active_patient semantics, mirrored here for the
         Redis backend."""
         raw = self._redis.get(self._key(hospital_id, phone))
         existing = json.loads(raw) if raw else None
         language = existing.get("language") if (existing and keep_language) else None
-        active_patient_id = existing.get("active_patient_id") if existing else None
+        active_patient_id = existing.get("active_patient_id") if (existing and keep_active_patient) else None
         if language is None and active_patient_id is None:
             self._redis.delete(self._key(hospital_id, phone))
             return

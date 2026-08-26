@@ -194,7 +194,6 @@ async def _enter_idle(
     active_patient = await patient_identity.get_or_prompt_for_active_patient(
         wa, sessions, phone, hospital_id, connector, language=resolved_language,
         require_patient_confirmation=require_patient_confirmation,
-        manage_patients_enabled="manage_patients" in enabled_features,
     )
     if active_patient is None:
         return

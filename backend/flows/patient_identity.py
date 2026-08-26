@@ -141,6 +141,12 @@ _UNLINK_ROW_PREFIX = "idunlink_"
 _REL_ROW_PREFIX = "idrel_"
 MANAGE_ADD_ROW_ID = "id_manage_add"
 MANAGE_PATIENTS_ENTRY_ID = "id_manage_patients_entry"
+# Single-patient-confirm screen's escape hatch (confirmed with the user):
+# goes straight into registration (_start_registration(), same entry point
+# the 0-linked-patients case uses) rather than the full Manage Patients
+# menu -- the natural action from "continue as X?" is adding someone else
+# on this phone, not managing existing links.
+ADD_PATIENT_ENTRY_ID = "id_add_patient_entry"
 DUPLICATE_LINK_ID = "id_dup_link"
 DUPLICATE_DIFFERENT_ID = "id_dup_different"
 CONSENT_TOGGLE_MARKETING_ID = "id_consent_marketing_toggle"
@@ -216,7 +222,7 @@ def _parse_patient_age(text: str) -> int | None:
 
 async def get_or_prompt_for_active_patient(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector,
-    language: str = "en", require_patient_confirmation: bool = False, manage_patients_enabled: bool = False,
+    language: str = "en", require_patient_confirmation: bool = False,
 ) -> dict | None:
     """Called by flows.py's `_enter_idle()` right after language is settled,
     BEFORE the main menu is ever shown (Section 5's "Initial WhatsApp Flow" /
@@ -229,14 +235,7 @@ async def get_or_prompt_for_active_patient(
     sent an interstitial message (registration / confirmation / selection)
     and the caller must stop; the conversation continues from whatever state
     was just set, and will re-enter here once resolution actually completes
-    (every completion path below ends by calling this again).
-
-    manage_patients_enabled (bug fix, flagged during a later review): whether
-    THIS hospital has the "manage_patients" feature toggled on
-    (hospitals.enabled_features) -- threaded down to
-    _send_single_patient_confirm() so its "Manage Patients" escape-hatch
-    button isn't offered for a hospital that doesn't expose that menu item
-    at all. Previously this screen always showed that button regardless."""
+    (every completion path below ends by calling this again)."""
     session = sessions.get(hospital_id, phone)
     active_patient_id = session.get("active_patient_id")
     if active_patient_id is not None:
@@ -255,10 +254,7 @@ async def get_or_prompt_for_active_patient(
         return None
     if len(patients) == 1:
         if require_patient_confirmation:
-            await _send_single_patient_confirm(
-                wa, sessions, phone, hospital_id, patients[0], language,
-                manage_patients_enabled=manage_patients_enabled,
-            )
+            await _send_single_patient_confirm(wa, sessions, phone, hospital_id, patients[0], language)
             return None
         sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patients[0]["id"])
         return patients[0]
@@ -420,28 +416,26 @@ async def _handle_awaiting_relationship(
 
 async def _send_single_patient_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, patient: dict, language: str,
-    manage_patients_enabled: bool = False,
 ) -> None:
-    # Bug fix (flagged during a later review): manage_patients_enabled is
-    # stashed in context (not just used to decide the button below) so
-    # _handle_awaiting_single_patient_confirm's own re-show/stale-tap path
-    # -- reached via the generic per-state dispatch table, which doesn't
-    # carry extra params of its own -- still knows whether to offer/honor
-    # the Manage Patients escape hatch without re-deriving it.
     sessions.set(
-        hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM,
-        {"candidate_patient_id": patient["id"], "manage_patients_enabled": manage_patients_enabled},
+        hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM, {"candidate_patient_id": patient["id"]},
         language=language,
     )
-    buttons = [{"id": CONFIRM_YES, "title": t("confirm_button", language)}]
-    if manage_patients_enabled:
-        buttons.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t("manage_patients_short", language)})
     await wa.send_buttons(
         to=phone,
         body_text=t(
             "single_patient_confirm", language, patient_name=patient["name"], mrn=patient["patient_display_id"] or "—",
         ),
-        buttons=buttons,
+        buttons=[
+            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+            # Confirmed with the user: the natural action from "continue as
+            # X?" is adding someone ELSE on this phone (a family member not
+            # yet linked), not the full Manage Patients menu -- goes
+            # straight into registration via _start_registration(), which
+            # auto-selects the newly added patient as active once done
+            # (identity_flow_next defaults to "resolve").
+            {"id": ADD_PATIENT_ENTRY_ID, "title": t("add_patient_short", language)},
+        ],
     )
 
 
@@ -455,17 +449,14 @@ async def _handle_awaiting_single_patient_confirm(
                 hospital_id, phone, "IDLE", {}, language=language, active_patient_id=context["candidate_patient_id"],
             )
             return
-        if reply["id"] == MANAGE_PATIENTS_ENTRY_ID and context.get("manage_patients_enabled"):
-            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+        if reply["id"] == ADD_PATIENT_ENTRY_ID:
+            await _start_registration(wa, sessions, phone, hospital_id, language)
             return
     # Unrecognized/stale -- re-fetch (the single patient may have changed
     # since this was sent) and re-show fresh.
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) == 1:
-        await _send_single_patient_confirm(
-            wa, sessions, phone, hospital_id, patients[0], language,
-            manage_patients_enabled=context.get("manage_patients_enabled", False),
-        )
+        await _send_single_patient_confirm(wa, sessions, phone, hospital_id, patients[0], language)
     else:
         sessions.clear_active_patient(hospital_id, phone)
         sessions.reset(hospital_id, phone)
