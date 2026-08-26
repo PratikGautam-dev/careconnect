@@ -76,7 +76,7 @@ class TooManyLinkedPatientsError(Exception):
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
-           a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at
+           a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -222,6 +222,12 @@ class Appointment:
     # correct type to guess for a historical row).
     appointment_type_id: str | None = None
     consent_given_at: str | None = None
+    # Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md): the
+    # Jitsi Meet URL generated at confirmation time (flows/booking/types/
+    # tele_consultation.py's on_booking_confirmed hook). None for every
+    # other appointment type, and for any tele booking that predates this
+    # column.
+    video_link: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -241,6 +247,7 @@ def _row_to_appointment(row) -> Appointment:
         patient_id=row["patient_id"],
         appointment_type_id=row["appointment_type_id"],
         consent_given_at=row["consent_given_at"],
+        video_link=row["video_link"],
     )
 
 

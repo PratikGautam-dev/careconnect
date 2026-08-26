@@ -67,6 +67,9 @@ class Tier1Connector(Connector):
     def cancel_booking(self, hospital_id, appointment_id):
         repo.cancel_appointment(hospital_id, appointment_id)
 
+    def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
+        repo.set_appointment_video_link(hospital_id, appointment_id, video_link)
+
     def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
         """Books the new slot BEFORE marking the old appointment rescheduled:
         if someone else grabbed this exact doctor+slot first (IntegrityError,

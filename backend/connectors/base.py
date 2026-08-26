@@ -124,6 +124,9 @@ class Connector(abc.ABC):
     def cancel_booking(self, hospital_id: int, appointment_id: int) -> None: ...
 
     @abc.abstractmethod
+    def set_appointment_video_link(self, hospital_id: int, appointment_id: int, video_link: str) -> None: ...
+
+    @abc.abstractmethod
     def reschedule_booking(
         self,
         hospital_id: int,
@@ -218,6 +221,9 @@ class _UnimplementedTierConnector(Connector):
 
     def cancel_booking(self, hospital_id, appointment_id):
         self._not_implemented("cancel_booking")
+
+    def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
+        self._not_implemented("set_appointment_video_link")
 
     def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
         self._not_implemented("reschedule_booking")

@@ -224,6 +224,20 @@ def create_appointment(
     return created
 
 
+def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link: str) -> None:
+    """Tele-consultation Phase 2: called once, right after create_appointment()
+    succeeds, by flows/booking/types/tele_consultation.py's on_booking_confirmed
+    hook -- every other appointment type never calls this, so their rows keep
+    video_link NULL. Same "small single-purpose UPDATE" shape as
+    cancel_appointment()/mark_rescheduled() above."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE appointments SET video_link = ? WHERE id = ? AND hospital_id = ?",
+        (video_link, appointment_id, hospital_id),
+    )
+    conn.commit()
+
+
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:
     conn = get_connection()
     row = conn.execute(

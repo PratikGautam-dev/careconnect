@@ -21,6 +21,12 @@ def test_known_types_resolve_to_their_own_flow():
     # Doctor" for it too.
     assert get_type_flow("followup").steps == NO_DOCTOR_FLOW
     assert get_type_flow("followup").on_selected is not None
+    # docs/per-appointment-type-flow-plan.md Phase 2 Step 3: Tele-consultation
+    # attaches a video-call link via on_booking_confirmed, with its step list
+    # completely unchanged (still FULL_FLOW) -- confirmed above already.
+    assert get_type_flow("tele").on_booking_confirmed is not None
+    for type_id in ("new", "followup", "second_opinion", "diagnostic", "lab", "daycare"):
+        assert get_type_flow(type_id).on_booking_confirmed is None
 
 
 def test_unknown_type_id_falls_back_to_full_flow():

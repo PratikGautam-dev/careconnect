@@ -25,6 +25,13 @@ DepartmentValidator = Callable[[object, int, "int | None", str], "str | None"]
 # Fully replaces the default "go to flow.first_step()" behavior.
 OnSelectedHook = Callable[..., Awaitable[Any]]
 
+# (appointment_id, hospital_id, patient_id, connector) -> an optional dict of
+# extra context to merge into the confirmation notification (e.g.
+# {"video_link": "..."}), or None. Run right after connector.create_booking()
+# succeeds, before the confirmation message is built -- None (the default)
+# means the notification is byte-identical to every type without this hook.
+OnBookingConfirmedHook = Callable[..., Awaitable["dict[str, Any] | None"]]
+
 
 @dataclass(frozen=True)
 class TypeFlow:
@@ -37,6 +44,9 @@ class TypeFlow:
     # Optional override for what happens right after this type is picked.
     # None = use the normal steps-driven behavior.
     on_selected: OnSelectedHook | None = None
+    # Optional post-creation hook (e.g. tele's video-link generation). None =
+    # the confirmation notification is exactly what it is today.
+    on_booking_confirmed: OnBookingConfirmedHook | None = None
 
     def first_step(self) -> str:
         return self.steps[0]

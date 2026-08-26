@@ -333,6 +333,13 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "Okay, I've cancelled this booking. Send any message to start over.",
         "hi": "ठीक है, मैंने यह बुकिंग रद्द कर दी है। फिर से शुरू करने के लिए कोई भी संदेश भेजें।",
     },
+    # Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md):
+    # appended to booking_confirmed only for tele bookings (TypeFlow.
+    # on_booking_confirmed) -- every other type's confirmation is unchanged.
+    "tele_video_link_line": {
+        "en": "🎥 Video Consultation Link: {video_link}",
+        "hi": "🎥 वीडियो परामर्श लिंक: {video_link}",
+    },
     # Item 5 (Spec.md Section 0): shown when create_appointment() raises
     # DuplicateBookingError -- an active booking with this same doctor (and
     # age on file) already exists, so this attempt is blocked rather than

@@ -474,6 +474,17 @@ async def _create_booking_and_notify(
     # the returned Appointment rather than regenerated here, so the
     # id shown to the patient is the exact one actually stored.
     summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
+    # Tele-consultation Phase 2: an optional post-creation hook (None for
+    # every other type, so their summary text is untouched) that can attach
+    # extra context -- e.g. a freshly generated video-call link -- to this
+    # exact notification, run once the appointment row actually exists (it
+    # needs appointment.id to persist the link against).
+    if flow.on_booking_confirmed is not None:
+        extra = await flow.on_booking_confirmed(
+            appointment.id, hospital_id, context.get("active_patient_id"), connector,
+        )
+        if extra and extra.get("video_link"):
+            summary += "\n\n" + t("tele_video_link_line", language, video_link=extra["video_link"])
     summary = _append_closing_message(summary, closing_message_text)
     # Item 3: quick-action buttons attached to the success message --
     # tapping any of them, even long after this session has expired,

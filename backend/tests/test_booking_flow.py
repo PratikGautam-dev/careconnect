@@ -1178,3 +1178,133 @@ async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hosp
     assert "change_doctor" not in row_ids
     assert "change_date" in row_ids
     assert "change_time" in row_ids
+
+
+# --- docs/per-appointment-type-flow-plan.md Phase 2 Step 3: Tele-consultation
+# video-link generation (TypeFlow.on_booking_confirmed) ---
+
+async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type_id):
+    """Shared setup for the video-link regression tests below: drives a full
+    booking up to (and past) the confirmation tap for the given type, using
+    the same cardiology/doc_card_1 fixture data test_full_happy_path_through_
+    confirmation itself uses. requires_consent types (tele, second_opinion)
+    get their extra consent tap; every other type goes straight from
+    "confirm" to the success message."""
+    from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
+
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(appointment_type_id))
+    session = sessions.get(hospital_id, PHONE)
+
+    if session["state"] == "AWAITING_DEPARTMENT":
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
+        doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
+    doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]
+    all_slots = db.get_slots(hospital_id, doctor_id)
+    date_str = all_slots[0]["date"]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+    slot = [s for s in all_slots if s["date"] == date_str][0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+    requires_consent = next(t for t in DEFAULT_APPOINTMENT_TYPES if t["id"] == appointment_type_id)["requires_consent"]
+    if requires_consent:
+        assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONSENT"
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+
+
+@pytest.mark.asyncio
+async def test_tele_consultation_booking_generates_and_stores_a_video_link(hospital_id):
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+
+    await _book_through_confirmation(wa, sessions, hospital_id, "tele")
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "🎥" in kwargs["body_text"]
+    assert "https://meet.jit.si/CareConnect-" in kwargs["body_text"]
+
+    due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
+    appt = next(a for a in due if a.phone == PHONE)
+    stored = db.get_appointment(hospital_id, appt.id)
+    assert stored.video_link is not None
+    assert stored.video_link.startswith("https://meet.jit.si/CareConnect-")
+    # The URL in the notification is the SAME one that got persisted, not a
+    # second, independently generated one.
+    assert stored.video_link in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_tele_consultation_video_link_token_is_not_predictable(hospital_id):
+    """Not a full cryptographic audit -- just confirms the token isn't
+    sequential/derived from the appointment id or timestamp (which would be
+    trivially guessable), by generating several bookings back to back and
+    checking every token is unique and long enough to not be brute-forceable
+    in any practical sense."""
+    tokens = []
+    for _ in range(5):
+        wa = FakeWhatsAppClient()
+        sessions = InMemorySessionStore()
+        await _book_through_confirmation(wa, sessions, hospital_id, "tele")
+        due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
+        appt = next(a for a in due if a.phone == PHONE and a.video_link)
+        token = appt.video_link.removeprefix("https://meet.jit.si/CareConnect-")
+        tokens.append(token)
+        db.cancel_appointment(hospital_id, appt.id)  # keep get_upcoming_appointments' set small
+
+    assert len(set(tokens)) == len(tokens)  # every token unique
+    for token in tokens:
+        assert len(token) >= 32  # secrets.token_urlsafe(24) -> 32 chars
+        assert not token.isdigit()  # not a bare counter/timestamp
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("appointment_type_id", ["new", "followup", "second_opinion", "diagnostic", "lab", "daycare"])
+async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_id, appointment_type_id):
+    """The one thing that must not regress (docs/per-appointment-type-flow-plan.md's
+    own discipline): every OTHER type's confirmation notification is exactly
+    what it was before tele's on_booking_confirmed hook existed -- no video
+    link field, no stray blank line, nothing conditional on this hook at all
+    (their TypeFlow.on_booking_confirmed is still None)."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+
+    if appointment_type_id == "followup":
+        # Follow-up has no department/doctor step of its own -- it needs a
+        # prior ATTENDED appointment to auto-select from (see this file's
+        # own test_followup_confirm_screen_then_straight_to_date_selection).
+        patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+        doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+        past_appt = db.create_appointment(
+            hospital_id, PHONE, "cardiology", doctor_id, datetime.now() - timedelta(days=10), patient_id=patient["id"],
+        )
+        db.mark_attendance(hospital_id, past_appt.id, True)
+        sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))  # followup's own "use this doctor?" confirm
+        doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]
+        all_slots = db.get_slots(hospital_id, doctor_id)
+        date_str = all_slots[0]["date"]
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
+        slot = [s for s in all_slots if s["date"] == date_str][0]
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+    else:
+        await _book_through_confirmation(wa, sessions, hospital_id, appointment_type_id)
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "🎥" not in kwargs["body_text"]
+    assert "meet.jit.si" not in kwargs["body_text"]
+    assert "Video Consultation" not in kwargs["body_text"]
+
+    due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
+    appt = next(a for a in due if a.phone == PHONE)
+    stored = db.get_appointment(hospital_id, appt.id)
+    assert stored.video_link is None
