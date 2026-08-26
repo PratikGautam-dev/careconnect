@@ -107,6 +107,14 @@ CONFIRM_NO = "cancel"
 # genuinely-linear steps that had no way back before.
 BACK_ID = "identity_nav_back"
 
+# Main menu's own "Back" (Spec.md Section 0 follow-up, confirmed with the
+# user): always offered, not gated on >1 linked patient -- opens Manage
+# Patients (view/add/unlink, and now also "use this patient" to switch --
+# see _handle_awaiting_manage_patients_action) rather than the removed
+# multi-patient list picker. Handled in flows/router.py's IDLE dispatch,
+# same as CHANGE_LANGUAGE_ROW.
+MAIN_MENU_BACK_ROW = "menu_back_manage_patients"
+
 
 def _patient_header(active_patient: dict | None, language: str) -> str:
     """Section 20's exact header shape -- "Patient: {name}\\nMRN: {id}" --
@@ -142,6 +150,13 @@ async def _send_dynamic_menu(
         button_text=t("main_menu_button", language),
         sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
     )
+    # Its own follow-up buttons message right under the list, not a row
+    # hidden inside it (WhatsApp collapses a list to just its button_text
+    # until tapped) -- same "list, then a separate Back message" convention
+    # flows/booking/messages.py's own _send_back_button established.
+    await wa.send_buttons(
+        to=phone, body_text="​", buttons=[{"id": MAIN_MENU_BACK_ROW, "title": t("back_option", language)}],
+    )
 
 
 # --- Row-id helpers ---
@@ -157,6 +172,12 @@ MANAGE_PATIENTS_ENTRY_ID = "id_manage_patients_entry"
 # menu -- the natural action from "continue as X?" is adding someone else
 # on this phone, not managing existing links.
 ADD_PATIENT_ENTRY_ID = "id_add_patient_entry"
+# Manage Patients' own per-patient action choice (confirmed with the user):
+# tapping a linked patient's row no longer jumps straight to unlink --
+# these three are the buttons on that intermediate screen instead.
+PATIENT_ACTION_USE_ID = "id_patient_action_use"
+PATIENT_ACTION_UNLINK_ID = "id_patient_action_unlink"
+PATIENT_ACTION_BACK_ID = "id_patient_action_back"
 DUPLICATE_LINK_ID = "id_dup_link"
 DUPLICATE_DIFFERENT_ID = "id_dup_different"
 CONSENT_TOGGLE_MARKETING_ID = "id_consent_marketing_toggle"
@@ -218,6 +239,7 @@ STATE_AWAITING_RELATIONSHIP = "IDENTITY_AWAITING_RELATIONSHIP"
 STATE_AWAITING_SINGLE_PATIENT_CONFIRM = "IDENTITY_AWAITING_SINGLE_CONFIRM"
 STATE_AWAITING_PATIENT_SELECTION = "IDENTITY_AWAITING_SELECTION"
 STATE_AWAITING_MANAGE_PATIENTS_ACTION = "IDENTITY_AWAITING_MANAGE_ACTION"
+STATE_AWAITING_PATIENT_ACTION_CHOICE = "IDENTITY_AWAITING_PATIENT_ACTION_CHOICE"
 STATE_AWAITING_UNLINK_CONFIRM = "IDENTITY_AWAITING_UNLINK_CONFIRM"
 STATE_AWAITING_CONSENT_ACTION = "IDENTITY_AWAITING_CONSENT_ACTION"
 
@@ -251,10 +273,27 @@ async def get_or_prompt_for_active_patient(
     case (this session already has a valid active_patient_id) and the
     exactly-one-linked-patient case (unless the hospital's
     require_patient_confirmation is on, Section 11) -- or None if it just
-    sent an interstitial message (registration / confirmation / selection)
-    and the caller must stop; the conversation continues from whatever state
-    was just set, and will re-enter here once resolution actually completes
-    (every completion path below ends by calling this again)."""
+    sent an interstitial message (registration / confirmation) and the
+    caller must stop; the conversation continues from whatever state was
+    just set, and will re-enter here once resolution actually completes
+    (every completion path below ends by calling this again).
+
+    Confirmed with the user directly: the "Who are you accessing CareConnect
+    for?" list picker (_send_patient_selector/_handle_awaiting_patient_
+    selection/STATE_AWAITING_PATIENT_SELECTION below -- kept in place, not
+    deleted, same "flag dead code rather than blindly remove it" precedent
+    this codebase already follows for core/booking_flow.py's own old
+    selector) is no longer shown here for a >1-linked-patient phone -- it
+    always confirms against the FIRST ever linked patient (patients[0],
+    list_active_patients' own linked_at ordering) instead, same "Welcome to
+    CareConnect... Continue?" screen the exactly-one case uses, now shown
+    UNCONDITIONALLY when there's more than one (ignoring
+    require_patient_confirmation, which only still gates the single-patient
+    case) -- there's no way to silently pick the "right" one among several
+    without asking. Switching to a DIFFERENT already-linked patient now goes
+    through Manage Patients' own patient rows instead (see
+    _send_patient_action_choice/_handle_awaiting_patient_action_choice's
+    "use this patient" branch)."""
     session = sessions.get(hospital_id, phone)
     active_patient_id = session.get("active_patient_id")
     if active_patient_id is not None:
@@ -271,13 +310,10 @@ async def get_or_prompt_for_active_patient(
     if len(patients) == 0:
         await _start_registration(wa, sessions, phone, hospital_id, language)
         return None
-    if len(patients) == 1:
-        if require_patient_confirmation:
-            await _send_single_patient_confirm(wa, sessions, phone, hospital_id, patients[0], language)
-            return None
+    if len(patients) == 1 and not require_patient_confirmation:
         sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patients[0]["id"])
         return patients[0]
-    await _send_patient_selector(wa, sessions, phone, hospital_id, connector, language)
+    await _send_single_patient_confirm(wa, sessions, phone, hospital_id, patients[0], language)
     return None
 
 
@@ -548,6 +584,14 @@ async def _handle_awaiting_single_patient_confirm(
 
 
 # --- Section 12: multi-patient selection ---
+# Known, deliberate scope decision (flagged, not hidden): no longer reachable
+# from real traffic as of the "remove the multi-patient list picker" round
+# (confirmed with the user) -- get_or_prompt_for_active_patient() now always
+# confirms against patients[0] instead of calling this for a >1-linked-
+# patient phone, and the main menu's own "Back" opens Manage Patients, not
+# this. Kept in place rather than deleted, same precedent this file's own
+# earlier scope-decision note (core/booking_flow.py's old selector) already
+# established -- worth a dedicated cleanup pass later.
 
 async def _send_patient_selector(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str,
@@ -623,19 +667,66 @@ async def _handle_awaiting_manage_patients_action(
             patients = connector.list_active_patients(hospital_id, phone)
             match = next((p for p in patients if p["id"] == patient_id), None)
             if match:
-                sessions.set(
-                    hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM,
-                    {"unlink_patient_id": patient_id, "unlink_patient_name": match["name"]}, language=language,
-                )
-                await wa.send_buttons(
-                    to=phone,
-                    body_text=t("unlink_patient_confirm", language, patient_name=match["name"]),
-                    buttons=[
-                        {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-                        {"id": CONFIRM_NO, "title": t("cancel_button", language)},
-                    ],
-                )
+                await _send_patient_action_choice(wa, sessions, phone, hospital_id, patient_id, match["name"], language)
                 return
+    await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+
+
+async def _send_patient_action_choice(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, patient_id: int, patient_name: str, language: str,
+) -> None:
+    sessions.set(
+        hospital_id, phone, STATE_AWAITING_PATIENT_ACTION_CHOICE,
+        {"chosen_patient_id": patient_id, "chosen_patient_name": patient_name}, language=language,
+    )
+    await wa.send_buttons(
+        to=phone,
+        body_text=t("patient_action_prompt", language, patient_name=patient_name),
+        buttons=[
+            {"id": PATIENT_ACTION_USE_ID, "title": t("use_this_patient_option", language)},
+            {"id": PATIENT_ACTION_UNLINK_ID, "title": t("unlink_option", language)},
+            {"id": PATIENT_ACTION_BACK_ID, "title": t("back_option", language)},
+        ],
+    )
+
+
+async def _handle_awaiting_patient_action_choice(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    patient_id = context.get("chosen_patient_id")
+    patient_name = context.get("chosen_patient_name", "")
+    if reply["type"] == "interactive_reply" and patient_id is not None:
+        if reply["id"] == PATIENT_ACTION_USE_ID:
+            # Switching to an already-linked patient needs no confirmation
+            # (unlike unlinking, it's trivially reversible) -- straight to
+            # IDLE with the new active_patient_id, same as every other
+            # resolution-complete path; flows/router.py's own
+            # identity_handler branch re-shows the real menu once it sees
+            # state == IDLE.
+            sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patient_id)
+            return
+        if reply["id"] == PATIENT_ACTION_UNLINK_ID:
+            sessions.set(
+                hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM,
+                {"unlink_patient_id": patient_id, "unlink_patient_name": patient_name}, language=language,
+            )
+            await wa.send_buttons(
+                to=phone,
+                body_text=t("unlink_patient_confirm", language, patient_name=patient_name),
+                buttons=[
+                    {"id": CONFIRM_YES, "title": t("confirm_button", language)},
+                    {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+                ],
+            )
+            return
+        if reply["id"] == PATIENT_ACTION_BACK_ID:
+            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+            return
+    # Unrecognized/stale tap -- re-show the same choice.
+    if patient_id is not None:
+        await _send_patient_action_choice(wa, sessions, phone, hospital_id, patient_id, patient_name, language)
+        return
     await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
 
 
@@ -740,5 +831,6 @@ _HANDLERS = {
     STATE_AWAITING_SINGLE_PATIENT_CONFIRM: _handle_awaiting_single_patient_confirm,
     STATE_AWAITING_PATIENT_SELECTION: _handle_awaiting_patient_selection,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION: _handle_awaiting_manage_patients_action,
+    STATE_AWAITING_PATIENT_ACTION_CHOICE: _handle_awaiting_patient_action_choice,
     STATE_AWAITING_UNLINK_CONFIRM: _handle_awaiting_unlink_confirm,
 }

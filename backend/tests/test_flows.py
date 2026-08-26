@@ -196,10 +196,11 @@ async def test_menu_only_shows_enabled_features(hospital_id):
         enabled_features=["booking", "faq"],
     )
 
-    assert len(wa.sent) == 1
+    assert len(wa.sent) == 2
     kind, kwargs = wa.sent[0]
     assert kind == "list"
     assert _row_ids(kwargs) == ["menu_book", "menu_faq_bot"]
+    assert wa.sent[1][0] == "buttons"  # the follow-up "Back" (Manage Patients)
 
 
 @pytest.mark.asyncio
@@ -531,10 +532,10 @@ async def test_bot_resumes_normal_flow_after_handoff_resolved(hospital_id):
     )
 
     # A real bot response this time -- the reset keyword "hi" reached normal
-    # routing and showed the unified menu, not silence.
-    assert len(wa.sent) == sent_before + 1
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    # routing and showed the unified menu, not silence. Two sends: the menu
+    # list, then its own follow-up "Back" (Manage Patients) buttons message.
+    assert len(wa.sent) == sent_before + 2
+    kwargs = _last_list(wa)
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
     assert "menu_reception" in row_ids
     assert "menu_book" in row_ids
@@ -1051,9 +1052,15 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     db.create_patient_profile(hospital_id, "5490001234", "Test Patient", 30, relationship_label="Self")
     import webhook.dispatch as m
     m.SESSIONS.set(hospital_id, "5490001234", "IDLE", {}, language="en")  # language already chosen -- see test_language_picker tests below for that step itself
+    # Two outbound sends: the main menu list, then its own follow-up "Back"
+    # (Manage Patients) buttons message.
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",
         json={"messages": [{"id": "wamid.1"}]},
+    )
+    httpx_mock.add_response(
+        url="https://graph.facebook.com/v22.0/123/messages",
+        json={"messages": [{"id": "wamid.1b"}]},
     )
     body = _webhook_body("123", "5490001234", "hi")
     resp = client.post("/webhook", content=body, headers={
@@ -1062,7 +1069,7 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     })
     assert resp.status_code == 200
     requests = httpx_mock.get_requests()
-    assert len(requests) == 1
+    assert len(requests) == 2
     sent_body = json.loads(requests[0].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
@@ -1091,9 +1098,15 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
     # tapping THAT is what hands the conversation to faq_flow.py, not first
     # contact itself (Section 14.5: faq is one feature among several now, not
     # an exclusive top-level flow_type entered automatically).
+    # Two outbound sends: the main menu list, then its own follow-up "Back"
+    # (Manage Patients) buttons message.
     httpx_mock.add_response(
         url="https://graph.facebook.com/v22.0/123/messages",
         json={"messages": [{"id": "wamid.menu"}]},
+    )
+    httpx_mock.add_response(
+        url="https://graph.facebook.com/v22.0/123/messages",
+        json={"messages": [{"id": "wamid.menu_back"}]},
     )
     first_body = _webhook_body("123", "5490001234", "hi")
     first_resp = client.post("/webhook", content=first_body, headers={
@@ -1101,7 +1114,7 @@ def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_m
         "Content-Type": "application/json",
     })
     assert first_resp.status_code == 200
-    first_sent = json.loads(httpx_mock.get_requests()[-1].content)
+    first_sent = json.loads(httpx_mock.get_requests()[0].content)
     menu_row_ids = [row["id"] for section in first_sent["interactive"]["action"]["sections"] for row in section["rows"]]
     assert menu_row_ids == ["menu_faq_bot"]
 

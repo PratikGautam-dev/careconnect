@@ -295,6 +295,14 @@ async def test_unlinking_a_patient_via_manage_patients_does_not_delete_their_his
         wa, sessions, PHONE, hospital_id, tap(f"idpat_{patient['id']}"),
         connector=connector, enabled_features=["manage_patients"],
     )
+    # Tapping a patient row now asks WHICH action first (confirmed with the
+    # user), rather than jumping straight to unlink.
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_ACTION_CHOICE
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.PATIENT_ACTION_UNLINK_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_UNLINK_CONFIRM
 
     await flows.handle_incoming(

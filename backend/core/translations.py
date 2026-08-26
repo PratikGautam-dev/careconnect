@@ -451,6 +451,15 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "{patient_name} has been added.",
         "hi": "{patient_name} को जोड़ दिया गया है।",
     },
+    # Tapping a patient row in Manage Patients (confirmed with the user):
+    # asks which action, rather than jumping straight to unlink -- "Use This
+    # Patient" switches the conversation to act as them.
+    "patient_action_prompt": {
+        "en": "What would you like to do with {patient_name}?",
+        "hi": "{patient_name} के साथ आप क्या करना चाहेंगे?",
+    },
+    "use_this_patient_option": {"en": "Use This Patient", "hi": "इस मरीज़ का उपयोग करें"},
+    "unlink_option": {"en": "Unlink", "hi": "अनलिंक करें"},
     "unlink_patient_confirm": {
         "en": "Unlink {patient_name} from this number? Their appointment history and Patient ID are not affected "
               "— you can add them again anytime.",

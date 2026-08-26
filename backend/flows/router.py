@@ -84,8 +84,10 @@ from flows.patient_identity import (
     _FEATURE_MENU,
     _ROW_ID_TO_FEATURE,
     _send_dynamic_menu,
+    _start_manage_patients,
     ALL_FEATURES,
     CHANGE_LANGUAGE_ROW,
+    MAIN_MENU_BACK_ROW,
     REAL_FEATURES,
 )
 from flows.common import cap_rows, is_reset_keyword
@@ -664,6 +666,13 @@ async def handle_incoming(
         if reply["id"] == CHANGE_LANGUAGE_ROW and language_prompt_enabled:
             sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
             await _send_language_picker(wa, phone, default_language=default_language)
+            return
+        # Main menu's own "Back" (confirmed with the user): opens Manage
+        # Patients -- view/add/unlink, and switch which linked patient is
+        # active (see core/patient_identity.py's own manage-patients-action
+        # handler).
+        if reply["id"] == MAIN_MENU_BACK_ROW and language is not None:
+            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
             return
         feature_key = _ROW_ID_TO_FEATURE.get(reply["id"])
         if feature_key is not None and feature_key in enabled_features and language is not None:
