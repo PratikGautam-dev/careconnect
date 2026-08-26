@@ -93,17 +93,6 @@ ALL_FEATURES = REAL_FEATURES
 # toggle.
 CHANGE_LANGUAGE_ROW = "menu_change_language"
 
-# Lets the same phone switch which linked patient the conversation acts as --
-# always offered (not gated on >1 linked patient), since the patient
-# selector it opens also has the "Manage Patients"/add-a-patient entry point,
-# so it's the way to go from exactly one linked patient to a second one too.
-# A separate row/mechanism from the "manage_patients" FEATURE (that one's a
-# full view/add/unlink screen, opt-in per hospital, reached from its own
-# main-menu row when enabled) -- this is always available, on every tenant,
-# confirmed with the user directly: "give back button also after main menu
-# to go to select patients."
-SWITCH_PATIENT_ROW = "menu_switch_patient"
-
 GOTO_MAIN_MENU = "goto_main_menu"
 CONFIRM_YES = "confirm"
 CONFIRM_NO = "cancel"
@@ -152,15 +141,6 @@ async def _send_dynamic_menu(
         body_text=body_text,
         button_text=t("main_menu_button", language),
         sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
-    )
-    # Confirmed with the user directly: shown as its OWN follow-up buttons
-    # message right under the main menu list, not as a row hidden inside it
-    # (WhatsApp collapses a list to just its button_text until tapped, so a
-    # row-based version was invisible until the patient opened the list) --
-    # same "list, then a separate Back message" convention flows/booking/
-    # messages.py's own _send_back_button already established.
-    await wa.send_buttons(
-        to=phone, body_text="​", buttons=[{"id": SWITCH_PATIENT_ROW, "title": t("back_option", language)}],
     )
 
 
@@ -530,6 +510,13 @@ async def _send_single_patient_confirm(
             # auto-selects the newly added patient as active once done
             # (identity_flow_next defaults to "resolve").
             {"id": ADD_PATIENT_ENTRY_ID, "title": t("add_patient_short", language)},
+            # Confirmed with the user directly: a third option to reach the
+            # full view/add/unlink screen right from this first prompt,
+            # rather than only being reachable after confirming a patient
+            # and then finding "Manage Patients" in the main menu (which
+            # this session's separate main-menu "Back" switch-patient
+            # affordance has since been removed in favor of this).
+            {"id": MANAGE_PATIENTS_ENTRY_ID, "title": t("manage_patients_short", language)},
         ],
     )
 
@@ -546,6 +533,9 @@ async def _handle_awaiting_single_patient_confirm(
             return
         if reply["id"] == ADD_PATIENT_ENTRY_ID:
             await _start_registration(wa, sessions, phone, hospital_id, language)
+            return
+        if reply["id"] == MANAGE_PATIENTS_ENTRY_ID:
+            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
             return
     # Unrecognized/stale -- re-fetch (the single patient may have changed
     # since this was sent) and re-show fresh.
