@@ -259,6 +259,32 @@ def _backfill_reports_prescriptions_feature(conn) -> None:
     conn.commit()
 
 
+def _backfill_admin_capabilities(conn) -> None:
+    """[tenant-capability-gating] (docs/tenant-capability-gating-plan.md, SQL
+    step -- DONE): one-time, idempotent backfill for any hospital row with
+    admin_capabilities still NULL (created before this column existed) --
+    same convention as _backfill_enabled_features() above. Only ever touches
+    NULL rows, so re-running this on every startup is safe and never
+    overwrites a real tenant's own later capability choices. Every hospital
+    is 'hospital'-typed by default (tenant_type's column default), so this
+    currently only ever assigns the full hospital capability set; the
+    reduced clinic default is exercised once a real clinic is onboarded via
+    admin/onboarding_api.py."""
+    conn.execute(
+        "UPDATE hospitals SET admin_capabilities = ? "
+        "WHERE admin_capabilities IS NULL AND tenant_type = 'hospital'",
+        ('["manage_doctors","manage_departments","manage_appointment_types",'
+         '"manage_bookings","manage_settings","manage_staff"]',),
+    )
+    conn.execute(
+        "UPDATE hospitals SET admin_capabilities = ? "
+        "WHERE admin_capabilities IS NULL AND tenant_type = 'clinic'",
+        ('["manage_bookings","manage_settings"]',),
+    )
+    conn.execute("UPDATE hospitals SET admin_capabilities = '[]' WHERE admin_capabilities IS NULL")
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -304,6 +330,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_care_connect_accounts(conn)
     _backfill_appointment_types(conn)
     _backfill_reports_prescriptions_feature(conn)
+    _backfill_admin_capabilities(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

@@ -152,6 +152,30 @@ ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS privacy_notice_text TEXT;
 -- outside the bot) leaves it off and the flow is unchanged.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS dpdp_consent_required BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- [tenant-capability-gating] (docs/tenant-capability-gating-plan.md, SQL
+-- step -- DONE): hospital vs. clinic tenant gating, WITHOUT any
+-- if tenant_type == 'clinic' branches in feature code. tenant_type is purely
+-- descriptive/default-seeding metadata; 'hospital' default preserves today's
+-- behavior (full admin capability) for every existing row.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS tenant_type TEXT NOT NULL DEFAULT 'hospital';
+ALTER TABLE hospitals DROP CONSTRAINT IF EXISTS hospitals_tenant_type_check;
+ALTER TABLE hospitals ADD CONSTRAINT hospitals_tenant_type_check
+    CHECK (tenant_type IN ('hospital', 'clinic'));
+-- admin_capabilities: JSON array of staff-portal capability keys this tenant
+-- has (e.g. ["manage_doctors","manage_departments","manage_appointment_types",
+-- "manage_bookings","manage_settings","manage_staff"] -- see
+-- backend/portal/capabilities.py once added, next step of the plan above).
+-- Distinct from enabled_features above (patient-facing WhatsApp menu) -- this
+-- one gates staff/admin PORTAL routes instead; every route delegates to the
+-- same has_capability() check rather than branching on tenant_type directly,
+-- so adding/removing a capability per tenant never requires new backend
+-- logic. NULL means "not yet backfilled from tenant_type" -- db/init_db.py's
+-- _backfill_admin_capabilities() (added alongside this column) fills every
+-- NULL row once, at startup, same convention as
+-- _backfill_enabled_features() above; every hospital created after this
+-- section always gets a real value at creation time, never NULL.
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS admin_capabilities TEXT;
+
 -- Widens the CHECK bound below from 5-120 to 2-120 (a 2-minute idle-timeout
 -- option, for testing/demoing the flow without a real 5+ minute wait) --
 -- the ADD COLUMN IF NOT EXISTS above only fires on a database created

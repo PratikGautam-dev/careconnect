@@ -10,7 +10,9 @@ Goal: one generic "does this tenant have capability X" check, config-driven per 
 
 ## Design
 
-### 1. Data model changes (SQL)
+### 1. Data model changes (SQL) — ✅ DONE
+
+> Implemented in `backend/db/schema.sql` (`tenant_type`, `admin_capabilities` columns on `hospitals`, added via the existing idempotent `ALTER TABLE ADD COLUMN IF NOT EXISTS` convention) and `backend/db/init_db.py` (`_backfill_admin_capabilities()`, registered in `init_db_on_connection()` next to `_backfill_enabled_features()`). Verified against a real Postgres test container: `uv run pytest tests/ -k hospital` → 93 passed. No Python model/repository/route code touched yet — see remaining sections below.
 
 Add two things to `hospitals`:
 
