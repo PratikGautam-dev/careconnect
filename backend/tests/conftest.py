@@ -95,8 +95,15 @@ def _fresh_test_db():
     seeded_hospital_id = init_db_on_connection(conn)
     second_hospital_id = seed_test_hospital(conn)
     db_connection.set_connection(conn)
+    # Groundwork for the SQLAlchemy ORM migration (no repository reads
+    # through get_session() yet): discards any session left over from a
+    # previous test so the next get_session() call lazily creates one bound
+    # to THIS test's just-recreated schema, not a stale one referencing
+    # tables that no longer exist after the DROP SCHEMA above.
+    db_connection.reset_session()
     yield seeded_hospital_id, second_hospital_id
     db_connection.reset_connection()
+    db_connection.reset_session()
 
 
 @pytest.fixture

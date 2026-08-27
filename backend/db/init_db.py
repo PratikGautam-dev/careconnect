@@ -1,6 +1,8 @@
 # db/init_db.py
 """
-Creates the schema (db/schema.sql, SPEC Section 4) and seeds the default
+Creates the schema (SPEC Section 4 -- see db/migrations/versions/
+0001_baseline_schema.py's frozen SQL, or db/schema.sql for the same content
+kept as a human-readable, no-longer-executed reference) and seeds the default
 hospital (db/seed.py). Safe to re-run — every CREATE is IF NOT EXISTS and
 seed_default_hospital() no-ops if that hospital already exists.
 
@@ -9,8 +11,12 @@ Run directly to set up (or update) the on-disk database:
 core/main.py also calls init_db() once at startup, so a fresh clone works
 without a manual step.
 """
+import importlib
 import re
 from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 
 from core.config import get_settings
 from db import seed
@@ -18,7 +24,39 @@ from db.connection import get_connection, get_database_url
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 from db.repository import _generate_patient_display_id
 
-_SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+# SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+_ALEMBIC_INI_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+# db/schema.sql is retired as a runtime dependency -- kept on disk purely as
+# a human-readable reference (SPEC Section 4's own schema documentation).
+# db/migrations/versions/0001_baseline_schema.py's _BASELINE_SQL is a frozen,
+# byte-for-byte snapshot of it taken at the moment Alembic was adopted, and is
+# now the actual source this module applies -- importlib, not a normal
+# `import`, because "0001_baseline_schema" isn't a valid Python identifier.
+_baseline_schema = importlib.import_module("db.migrations.versions.0001_baseline_schema")
+
+
+def run_alembic_migrations() -> None:
+    """Establishes schema version tracking (alembic_version table) going
+    forward -- production/dev only, deliberately NOT called by
+    init_db_on_connection() below, so the per-test fixture in
+    tests/conftest.py (which calls init_db_on_connection() directly, hundreds
+    of times per run) is completely unaffected by this addition.
+
+    Safe to run every time this process starts, including against a database
+    the baseline schema is already fully applied to: migration 0001
+    (db/migrations/versions/0001_baseline_schema.py) is entirely IF NOT
+    EXISTS/IF EXISTS-guarded, so replaying it is a verified no-op.
+    init_db_on_connection() below still separately applies that same frozen
+    baseline SQL too, for the same reason -- redundant but harmless."""
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+    # alembic.ini's script_location is the relative path "db/migrations",
+    # which Alembic resolves against the process's CWD, not the ini file's
+    # own directory -- overridden here to an absolute path so this works
+    # regardless of where this process was started from (e.g. Docker's
+    # CMD/WORKDIR, or `python -m db.init_db` run from an unexpected cwd).
+    alembic_cfg.set_main_option("script_location", str(_ALEMBIC_INI_PATH.parent / "db" / "migrations"))
+    command.upgrade(alembic_cfg, "head")
 
 
 def _backfill_enabled_features(conn) -> None:
@@ -319,8 +357,9 @@ def _backfill_handoff_messages(conn) -> None:
 def init_db_on_connection(conn) -> int:
     """Apply schema + seed data to an already-open connection. Used directly by
     tests (against an in-memory DB) and internally by init_db() below."""
-    schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
-    conn.executescript(schema_sql)
+    # schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+    # conn.executescript(schema_sql)
+    conn.executescript(_baseline_schema._BASELINE_SQL)
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
     phone_number_id = _settings.WHATSAPP_PHONE_NUMBER_ID
@@ -357,6 +396,7 @@ def init_db() -> int:
     connection object.
     Returns the seeded hospital's id.
     """
+    run_alembic_migrations()
     conn = get_connection()
     return init_db_on_connection(conn)
 

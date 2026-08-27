@@ -4,7 +4,10 @@ node between patient resolution and department selection. Hospital-
 configurable set, same "toggle a fixed catalog" shape as
 hospitals.enabled_features -- see db/schema.sql's own comment on
 appointment_types for why this isn't hardcoded in the flow itself."""
-from db.connection import get_connection
+from sqlalchemy import select
+
+from db.connection import get_session
+from db.orm_models import AppointmentType
 
 # The fixed catalog db/init_db.py seeds per hospital (idempotent, additive --
 # a hospital can still deactivate/relabel any of these via is_active/label
@@ -26,23 +29,31 @@ def get_appointment_types(hospital_id: int) -> list[dict]:
     """Active types only, in the hospital's configured display order --
     powers the WhatsApp APPOINTMENT TYPE list, same "only ever read the
     active/enabled subset" discipline as connector.get_departments()."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT id, label, requires_consent, requires_doctor_selection FROM appointment_types "
-        "WHERE hospital_id = ? AND is_active = TRUE ORDER BY sort_order, id",
-        (hospital_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(
+            AppointmentType.id, AppointmentType.label,
+            AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
+        )
+        .where(AppointmentType.hospital_id == hospital_id, AppointmentType.is_active.is_(True))
+        .order_by(AppointmentType.sort_order, AppointmentType.id)
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def get_appointment_type(hospital_id: int, appointment_type_id: str) -> dict | None:
     """Looked up once a patient taps a row, to re-validate + read
     requires_consent for the next step -- same "recheck dynamic data at the
     point of use" discipline as _find_by_id() for department/doctor/slot."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id, label, requires_consent, requires_doctor_selection FROM appointment_types "
-        "WHERE hospital_id = ? AND id = ? AND is_active = TRUE",
-        (hospital_id, appointment_type_id),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(
+        select(
+            AppointmentType.id, AppointmentType.label,
+            AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
+        )
+        .where(
+            AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id,
+            AppointmentType.is_active.is_(True),
+        )
+    ).first()
+    return dict(row._mapping) if row else None

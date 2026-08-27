@@ -1036,11 +1036,14 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
 
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
-    kind, kwargs = wa.sent[-2]
+    # text (no previous visit) -> list (appointment types) -> buttons (Back to Menu follow-up)
+    kind, kwargs = wa.sent[-3]
     assert kind == "text"
     assert "couldn't find any previous" in kwargs["text"].lower()
-    kind, kwargs = wa.sent[-1]
+    kind, kwargs = wa.sent[-2]
     assert kind == "list"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
 
 
 @pytest.mark.asyncio

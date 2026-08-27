@@ -3,9 +3,15 @@
 docstring). Split out of db/repository.py -- see ARCHITECTURE_PLAN.md
 Phase 1."""
 from datetime import datetime
+from typing import cast
 
-from db.connection import get_connection
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
+
+from db.connection import get_session
 from db.models import STATUS_BOOKED
+from db.orm_models import AppointmentRow, DoctorRow, DoctorSlot
 
 # --- Slots (real, persisted rows — see module docstring) ---
 
@@ -16,30 +22,31 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
     max_bookings_per_slot=1 means "any booked appointment at all," exactly
     Phase 8's original behavior; >1 keeps offering the slot until that many
     patients have booked it)."""
-    conn = get_connection()
-    doctor_row = conn.execute(
-        "SELECT max_bookings_per_slot FROM doctors WHERE hospital_id = ? AND id = ?",
-        (hospital_id, doctor_id),
-    ).fetchone()
-    max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+    session = get_session()
+    doctor_row = session.execute(
+        select(DoctorRow.max_bookings_per_slot).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
+    ).first()
+    max_bookings_per_slot = doctor_row[0] if doctor_row else 1
 
-    booked_rows = conn.execute(
-        "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ?",
-        (hospital_id, doctor_id, STATUS_BOOKED),
-    ).fetchall()
+    booked_rows = session.execute(
+        select(AppointmentRow.scheduled_at).where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.status == STATUS_BOOKED,
+        )
+    ).all()
     booked_counts: dict[str, int] = {}
     for row in booked_rows:
-        booked_counts[row["scheduled_at"]] = booked_counts.get(row["scheduled_at"], 0) + 1
+        booked_counts[row.scheduled_at] = booked_counts.get(row.scheduled_at, 0) + 1
 
-    slot_rows = conn.execute(
-        "SELECT scheduled_at FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND blocked = FALSE "
-        "ORDER BY scheduled_at",
-        (hospital_id, doctor_id),
-    ).fetchall()
+    slot_rows = session.execute(
+        select(DoctorSlot.scheduled_at)
+        .where(DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id, DoctorSlot.blocked.is_(False))
+        .order_by(DoctorSlot.scheduled_at)
+    ).all()
 
     slots = []
     for row in slot_rows:
-        scheduled_at_iso = row["scheduled_at"]
+        scheduled_at_iso = row.scheduled_at
         if booked_counts.get(scheduled_at_iso, 0) >= max_bookings_per_slot:
             continue
         dt = datetime.fromisoformat(scheduled_at_iso)
@@ -66,41 +73,33 @@ def get_doctor_slots_for_admin(
     generated window, each row carrying its own "date" so the portal can
     group them by day in one list rather than paging through dates one at a
     time to find (and remove) a specific slot."""
-    conn = get_connection()
+    session = get_session()
+    slot_stmt = select(DoctorSlot.scheduled_at, DoctorSlot.blocked, DoctorSlot.block_reason).where(
+        DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id,
+    )
+    booked_stmt = select(AppointmentRow.scheduled_at).where(
+        AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+        AppointmentRow.status == STATUS_BOOKED,
+    )
     if date_str:
         start, end = f"{date_str}T00:00:00", f"{date_str}T23:59:59"
-        slot_rows = conn.execute(
-            "SELECT scheduled_at, blocked, block_reason FROM doctor_slots "
-            "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
-            "ORDER BY scheduled_at",
-            (hospital_id, doctor_id, start, end),
-        ).fetchall()
-        booked_rows = conn.execute(
-            "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ? "
-            "AND scheduled_at >= ? AND scheduled_at <= ?",
-            (hospital_id, doctor_id, STATUS_BOOKED, start, end),
-        ).fetchall()
+        slot_stmt = slot_stmt.where(DoctorSlot.scheduled_at >= start, DoctorSlot.scheduled_at <= end)
+        booked_stmt = booked_stmt.where(AppointmentRow.scheduled_at >= start, AppointmentRow.scheduled_at <= end)
     else:
         start = (now or datetime.now()).isoformat()
-        slot_rows = conn.execute(
-            "SELECT scheduled_at, blocked, block_reason FROM doctor_slots "
-            "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ? ORDER BY scheduled_at",
-            (hospital_id, doctor_id, start),
-        ).fetchall()
-        booked_rows = conn.execute(
-            "SELECT scheduled_at FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND status = ? "
-            "AND scheduled_at >= ?",
-            (hospital_id, doctor_id, STATUS_BOOKED, start),
-        ).fetchall()
-    booked_at = {row["scheduled_at"] for row in booked_rows}
+        slot_stmt = slot_stmt.where(DoctorSlot.scheduled_at >= start)
+        booked_stmt = booked_stmt.where(AppointmentRow.scheduled_at >= start)
+    slot_rows = session.execute(slot_stmt.order_by(DoctorSlot.scheduled_at)).all()
+    booked_rows = session.execute(booked_stmt).all()
+    booked_at = {row.scheduled_at for row in booked_rows}
     return [
         {
-            "scheduled_at": row["scheduled_at"],
-            "date": datetime.fromisoformat(row["scheduled_at"]).date().isoformat(),
-            "time": datetime.fromisoformat(row["scheduled_at"]).strftime("%H:%M"),
-            "blocked": row["blocked"],
-            "block_reason": row["block_reason"],
-            "booked": row["scheduled_at"] in booked_at,
+            "scheduled_at": row.scheduled_at,
+            "date": datetime.fromisoformat(row.scheduled_at).date().isoformat(),
+            "time": datetime.fromisoformat(row.scheduled_at).strftime("%H:%M"),
+            "blocked": row.blocked,
+            "block_reason": row.block_reason,
+            "booked": row.scheduled_at in booked_at,
         }
         for row in slot_rows
     ]
@@ -118,21 +117,23 @@ def set_slot_blocked(
     has no such restriction (a blocked slot can never have a real booking on
     it in the first place, since get_slots() never offers a blocked slot to
     book)."""
-    conn = get_connection()
+    session = get_session()
     if blocked:
-        existing = conn.execute(
-            "SELECT 1 FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ? AND status = ?",
-            (hospital_id, doctor_id, scheduled_at, STATUS_BOOKED),
-        ).fetchone()
+        existing = session.execute(
+            select(AppointmentRow.id).where(
+                AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+                AppointmentRow.scheduled_at == scheduled_at, AppointmentRow.status == STATUS_BOOKED,
+            )
+        ).first()
         if existing:
             return False
-    cur = conn.execute(
-        "UPDATE doctor_slots SET blocked = ?, block_reason = ? "
-        "WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ?",
-        (blocked, reason if blocked else None, hospital_id, doctor_id, scheduled_at),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    result = cast(CursorResult, session.execute(
+        update(DoctorSlot)
+        .where(DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id, DoctorSlot.scheduled_at == scheduled_at)
+        .values(blocked=blocked, block_reason=reason if blocked else None)
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def add_custom_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
@@ -153,13 +154,13 @@ def add_custom_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool
     Acceptable for now (matches how every other slot already behaves under
     a schedule edit); worth a dedicated "protect custom slots" fix only if
     that turns out to matter in practice."""
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?) "
-        "ON CONFLICT (doctor_id, scheduled_at) DO NOTHING",
-        (hospital_id, doctor_id, scheduled_at),
+    session = get_session()
+    session.execute(
+        pg_insert(DoctorSlot)
+        .values(hospital_id=hospital_id, doctor_id=doctor_id, scheduled_at=scheduled_at)
+        .on_conflict_do_nothing(index_elements=["doctor_id", "scheduled_at"])
     )
-    conn.commit()
+    session.commit()
     return True
 
 
@@ -171,19 +172,23 @@ def remove_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
     Refuses to remove a slot with a real BOOKED appointment on it, same
     guard set_slot_blocked() already uses -- cancel/reschedule that
     appointment first."""
-    conn = get_connection()
-    existing = conn.execute(
-        "SELECT 1 FROM appointments WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ? AND status = ?",
-        (hospital_id, doctor_id, scheduled_at, STATUS_BOOKED),
-    ).fetchone()
+    session = get_session()
+    existing = session.execute(
+        select(AppointmentRow.id).where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.scheduled_at == scheduled_at, AppointmentRow.status == STATUS_BOOKED,
+        )
+    ).first()
     if existing:
         return False
-    cur = conn.execute(
-        "DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at = ?",
-        (hospital_id, doctor_id, scheduled_at),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    result = cast(CursorResult, session.execute(
+        delete(DoctorSlot).where(
+            DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id,
+            DoctorSlot.scheduled_at == scheduled_at,
+        )
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:

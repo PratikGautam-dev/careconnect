@@ -3,8 +3,13 @@
 core/main.py's unexpected-exception catch. Split out of db/repository.py --
 see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import date, datetime, timedelta, timezone
+from typing import cast
 
-from db.connection import get_connection
+from sqlalchemy import insert, select, update
+from sqlalchemy.engine import CursorResult
+
+from db.connection import get_session
+from db.orm_models import HandoffMessage, HandoffRequest
 
 # --- Human handoff queue -- fed by flows.py's reception_handoff feature and
 # core/main.py's unexpected-exception catch (see db/schema.sql's own comment
@@ -15,23 +20,24 @@ def create_handoff_request(hospital_id: int, phone: str, reason: str, message_te
     is now ALSO inserted as the thread's first inbound handoff_messages row
     -- get_handoff_messages() is the single source of truth for the portal's
     chat thread, not a mix of this row's own message_text plus the table."""
-    conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO handoff_requests (hospital_id, phone, reason, message_text) "
-        "VALUES (?, ?, ?, ?) RETURNING id, created_at",
-        (hospital_id, phone, reason, message_text),
-    )
-    row = cur.fetchone()
+    session = get_session()
+    row = session.execute(
+        insert(HandoffRequest)
+        .values(hospital_id=hospital_id, phone=phone, reason=reason, message_text=message_text)
+        .returning(HandoffRequest.id, HandoffRequest.created_at)
+    ).first()
+    assert row is not None  # INSERT ... RETURNING always returns the inserted row
     if message_text:
-        conn.execute(
-            "INSERT INTO handoff_messages (hospital_id, handoff_request_id, direction, message_text) "
-            "VALUES (?, ?, 'inbound', ?)",
-            (hospital_id, row["id"], message_text),
+        session.execute(
+            insert(HandoffMessage).values(
+                hospital_id=hospital_id, handoff_request_id=row.id,
+                direction="inbound", message_text=message_text,
+            )
         )
-    conn.commit()
+    session.commit()
     return {
-        "id": row["id"], "hospital_id": hospital_id, "phone": phone, "reason": reason,
-        "message_text": message_text, "status": "open", "created_at": row["created_at"], "resolved_at": None,
+        "id": row.id, "hospital_id": hospital_id, "phone": phone, "reason": reason,
+        "message_text": message_text, "status": "open", "created_at": row.created_at, "resolved_at": None,
     }
 
 
@@ -44,12 +50,13 @@ def get_handoff_requests(
     to requests created on that one calendar day. Item 3: soft-deleted
     requests (deleted_at IS NOT NULL) are always excluded, same convention
     _APPOINTMENT_SELECT enforces for appointments."""
-    conn = get_connection()
-    conditions = ["hospital_id = ?", "deleted_at IS NULL"]
-    params: list = [hospital_id]
+    session = get_session()
+    stmt = select(
+        HandoffRequest.id, HandoffRequest.phone, HandoffRequest.reason, HandoffRequest.message_text,
+        HandoffRequest.status, HandoffRequest.created_at, HandoffRequest.resolved_at,
+    ).where(HandoffRequest.hospital_id == hospital_id, HandoffRequest.deleted_at.is_(None))
     if status is not None:
-        conditions.append("status = ?")
-        params.append(status)
+        stmt = stmt.where(HandoffRequest.status == status)
     if date_str:
         # created_at is stamped by Postgres's own `now()::text` default
         # (space-separated, "YYYY-MM-DD HH:MM:SS.ffffff+TZ" -- NOT the
@@ -59,15 +66,13 @@ def get_handoff_requests(
         # Exclusive next-day upper bound sidesteps any further precision
         # mismatch at the boundary itself.
         next_day = (date.fromisoformat(date_str) + timedelta(days=1)).isoformat()
-        conditions.append("created_at >= ? AND created_at < ?")
-        params.extend([f"{date_str} 00:00:00", f"{next_day} 00:00:00"])
-    params.append(limit)
-    rows = conn.execute(
-        "SELECT id, phone, reason, message_text, status, created_at, resolved_at FROM handoff_requests "
-        f"WHERE {' AND '.join(conditions)} ORDER BY created_at DESC LIMIT ?",
-        tuple(params),
-    ).fetchall()
-    return [dict(r) for r in rows]
+        stmt = stmt.where(
+            HandoffRequest.created_at >= f"{date_str} 00:00:00",
+            HandoffRequest.created_at < f"{next_day} 00:00:00",
+        )
+    stmt = stmt.order_by(HandoffRequest.created_at.desc()).limit(limit)
+    rows = session.execute(stmt).all()
+    return [dict(r._mapping) for r in rows]
 
 
 # "Bot stuck on Talk to Reception" follow-up (Spec.md Section 0): an open
@@ -104,7 +109,7 @@ def get_open_handoff(hospital_id: int, phone: str, now: datetime | None = None) 
     the DB is left completely untouched (still 'open'), so staff still see
     it in the portal queue and can resolve it whenever they actually get to
     it; this only stops it from silencing the bot forever."""
-    conn = get_connection()
+    session = get_session()
     # created_at is stamped by Postgres's own `now()::text` default, which is
     # UTC (space-separated -- see get_handoff_requests()'s own date-filter fix
     # for the same format mismatch this mirrors) -- so the threshold must be
@@ -112,30 +117,36 @@ def get_open_handoff(hospital_id: int, phone: str, now: datetime | None = None) 
     # "stale" purely from the client/server clock offset.
     now = now or datetime.now(timezone.utc)
     threshold = (now - timedelta(minutes=_HANDOFF_STALE_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
-    row = conn.execute(
-        "SELECT id, phone, reason, status, created_at FROM handoff_requests "
-        "WHERE hospital_id = ? AND phone = ? AND status = 'open' AND deleted_at IS NULL "
-        "AND created_at >= ? LIMIT 1",
-        (hospital_id, phone, threshold),
-    ).fetchone()
-    return dict(row) if row else None
+    row = session.execute(
+        select(HandoffRequest.id, HandoffRequest.phone, HandoffRequest.reason, HandoffRequest.status, HandoffRequest.created_at)
+        .where(
+            HandoffRequest.hospital_id == hospital_id, HandoffRequest.phone == phone,
+            HandoffRequest.status == "open", HandoffRequest.deleted_at.is_(None),
+            HandoffRequest.created_at >= threshold,
+        )
+        .limit(1)
+    ).first()
+    return dict(row._mapping) if row else None
 
 
 def add_handoff_message(hospital_id: int, handoff_request_id: int, direction: str, message_text: str) -> dict:
     """direction: 'inbound' (patient -> staff, recorded by flows.py while a
     handoff is open) or 'outbound' (staff -> patient, recorded by
     portal_reply_handoff() after the real WhatsApp send succeeds)."""
-    conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO handoff_messages (hospital_id, handoff_request_id, direction, message_text) "
-        "VALUES (?, ?, ?, ?) RETURNING id, created_at",
-        (hospital_id, handoff_request_id, direction, message_text),
-    )
-    row = cur.fetchone()
-    conn.commit()
+    session = get_session()
+    row = session.execute(
+        insert(HandoffMessage)
+        .values(
+            hospital_id=hospital_id, handoff_request_id=handoff_request_id,
+            direction=direction, message_text=message_text,
+        )
+        .returning(HandoffMessage.id, HandoffMessage.created_at)
+    ).first()
+    assert row is not None  # INSERT ... RETURNING always returns the inserted row
+    session.commit()
     return {
-        "id": row["id"], "handoff_request_id": handoff_request_id, "direction": direction,
-        "message_text": message_text, "created_at": row["created_at"],
+        "id": row.id, "handoff_request_id": handoff_request_id, "direction": direction,
+        "message_text": message_text, "created_at": row.created_at,
     }
 
 
@@ -144,23 +155,24 @@ def get_handoff_messages(hospital_id: int, handoff_request_id: int) -> list[dict
     truth for the portal's chat-thread UI (create_handoff_request() inserts
     the trigger message here too, so callers never need to separately show
     handoff_requests.message_text)."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT id, direction, message_text, created_at FROM handoff_messages "
-        "WHERE hospital_id = ? AND handoff_request_id = ? ORDER BY created_at ASC, id ASC",
-        (hospital_id, handoff_request_id),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(HandoffMessage.id, HandoffMessage.direction, HandoffMessage.message_text, HandoffMessage.created_at)
+        .where(HandoffMessage.hospital_id == hospital_id, HandoffMessage.handoff_request_id == handoff_request_id)
+        .order_by(HandoffMessage.created_at.asc(), HandoffMessage.id.asc())
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE handoff_requests SET status = 'resolved', resolved_at = ? WHERE id = ? AND hospital_id = ? AND status = 'open'",
-        (datetime.now().isoformat(), handoff_id, hospital_id),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(HandoffRequest)
+        .where(HandoffRequest.id == handoff_id, HandoffRequest.hospital_id == hospital_id, HandoffRequest.status == "open")
+        .values(status="resolved", resolved_at=datetime.now().isoformat())
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def soft_delete_handoff(hospital_id: int, handoff_id: int) -> bool:
@@ -169,11 +181,12 @@ def soft_delete_handoff(hospital_id: int, handoff_id: int) -> bool:
     first" guard) since an open handoff has no in-progress side effect a
     delete could silently orphan -- staff can delete a stale/mistaken
     request directly."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE handoff_requests SET deleted_at = ? WHERE id = ? AND hospital_id = ? AND deleted_at IS NULL",
-        (datetime.now().isoformat(), handoff_id, hospital_id),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(HandoffRequest)
+        .where(HandoffRequest.id == handoff_id, HandoffRequest.hospital_id == hospital_id, HandoffRequest.deleted_at.is_(None))
+        .values(deleted_at=datetime.now().isoformat())
+    ))
+    session.commit()
+    return result.rowcount > 0
 

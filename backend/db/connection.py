@@ -44,10 +44,13 @@ this module's reconnect-on-failure retry) becomes a bottleneck.
 """
 import os
 import re
-from typing import Any, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 
 import psycopg2
 import psycopg2.extras
+import sqlalchemy.exc
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 
 class _Row(Protocol):
@@ -197,3 +200,93 @@ def reset_connection() -> None:
     if _connection is not None:
         _connection.close()
     _connection = None
+
+
+# --- SQLAlchemy engine/session (ORM migration groundwork) ---
+#
+# Deliberately additive, not a replacement: _PGConnection/get_connection()
+# above stay the live path for every db/repositories/*.py function until
+# that domain's own migration converts it to use get_session() instead (one
+# domain PR at a time, per the SQLAlchemy ORM + Alembic migration plan) --
+# ripping out _PGConnection now would break all 14 repository files at once,
+# not just the ones actually being migrated. IntegrityError above is
+# similarly left as psycopg2.IntegrityError for now; each domain's own
+# migration PR decides whether its `except IntegrityError:` call sites need
+# to also catch sqlalchemy.exc.IntegrityError once that domain uses
+# get_session() instead of get_connection().
+
+_engine: Engine | None = None
+_session: Session | None = None
+
+
+def get_engine() -> Engine:
+    """SQLAlchemy Engine for the same DATABASE_URL get_connection() uses.
+    pool_pre_ping=True is SQLAlchemy's built-in equivalent of _PGConnection's
+    hand-rolled Neon-idle-disconnect detect-and-reconnect logic above (it
+    checks a pooled connection is still alive before handing it out) -- ORM-
+    based repository code doesn't need to reimplement that workaround.
+
+    isolation_level="AUTOCOMMIT" matches _PGConnection.__init__'s own
+    `conn.autocommit = True` exactly (same underlying psycopg2 mechanism) --
+    load-bearing, not cosmetic: get_session() below returns ONE Session
+    object reused for the process lifetime, same shape as get_connection()'s
+    single reused connection. Without autocommit, a failed statement (e.g. a
+    UNIQUE-constraint IntegrityError an ORM-migrated repository function
+    lets propagate to its caller, same as the old code did) leaves Postgres's
+    transaction "aborted" on that shared session -- poisoning every
+    subsequent statement ANY caller runs on it afterward with "current
+    transaction is aborted", not just the one that failed. Autocommit makes
+    each statement its own implicitly-committed unit exactly like
+    _PGConnection already documents doing for the raw-SQL path, so a caught
+    exception here doesn't poison anything after it either -- verified via a
+    real UNIQUE-violation test, not assumed (see the hospitals.py domain's
+    migration notes)."""
+    global _engine
+    if _engine is None:
+        _engine = create_engine(get_database_url(), pool_pre_ping=True, isolation_level="AUTOCOMMIT")
+    return _engine
+
+
+def get_session() -> Session:
+    """SQLAlchemy Session, mirroring get_connection()'s shape: one object
+    reused for the process lifetime (not a session-per-request pattern), so
+    ORM-based repository code added by a future domain migration calls
+    session.commit() explicitly at the same points conn.commit() is called
+    today, rather than adopting a different transaction-lifecycle model.
+    Nothing reads through this yet -- see the module-level comment above."""
+    global _session
+    if _session is None:
+        _session = sessionmaker(bind=get_engine())()
+    return _session
+
+
+def set_session(session: Session) -> None:
+    """Test hook counterpart to set_connection() above."""
+    global _session
+    _session = session
+
+
+def reset_session() -> None:
+    global _session
+    if _session is not None:
+        _session.close()
+    _session = None
+
+
+def reraise_as_driver_integrity_error(sa_error: sqlalchemy.exc.IntegrityError) -> NoReturn:
+    """SQLAlchemy wraps a real constraint violation (e.g. a UNIQUE-index hit)
+    in its own sqlalchemy.exc.IntegrityError, with the original driver
+    exception on `.orig` -- but every existing `except IntegrityError:` call
+    site in this app (admin/onboarding_api.py, admin/tenants_api.py, and
+    core/booking_flow.py's double-booking handling once appointments.py
+    migrates) was written against IntegrityError above (psycopg2's), from
+    when every write went through _PGConnection directly. An ORM-migrated
+    repository function whose caller relies on catching that specific type
+    calls this in its `except sqlalchemy.exc.IntegrityError:` handler to
+    re-raise the ORIGINAL driver exception instead, so those call sites keep
+    working unchanged. Never call this for an exception no caller catches by
+    type -- letting sqlalchemy.exc.IntegrityError propagate as-is is fine
+    there."""
+    if isinstance(sa_error.orig, IntegrityError):
+        raise sa_error.orig from sa_error
+    raise sa_error

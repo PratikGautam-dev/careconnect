@@ -1,10 +1,15 @@
 # db/repositories/users.py
 """Google-OAuth user accounts and hospital-ownership links (Section 15).
 Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
-from db.connection import get_connection
-from db.models import Hospital, User
-from db.repositories.hospitals import _row_to_hospital
+from sqlalchemy import insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from db.connection import get_session
+from db.models import Hospital, User
+from db.orm_models import HospitalRow, HospitalUser, UserAccount
+from db.repositories.hospitals import _HOSPITAL_COLUMNS, _row_to_hospital
+
+_USER_COLUMNS = (UserAccount.id, UserAccount.google_id, UserAccount.email, UserAccount.name, UserAccount.created_at)
 
 
 def _row_to_user(row) -> User:
@@ -12,38 +17,38 @@ def _row_to_user(row) -> User:
 
 
 def get_user(user_id: int) -> User | None:
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _row_to_user(row) if row else None
+    session = get_session()
+    row = session.execute(select(*_USER_COLUMNS).where(UserAccount.id == user_id)).first()
+    return _row_to_user(row._mapping) if row else None
 
 
 def get_user_by_google_id(google_id: str) -> User | None:
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM users WHERE google_id = ?", (google_id,)).fetchone()
-    return _row_to_user(row) if row else None
+    session = get_session()
+    row = session.execute(select(*_USER_COLUMNS).where(UserAccount.google_id == google_id)).first()
+    return _row_to_user(row._mapping) if row else None
 
 
 def get_user_by_email(email: str) -> User | None:
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-    return _row_to_user(row) if row else None
+    session = get_session()
+    row = session.execute(select(*_USER_COLUMNS).where(UserAccount.email == email)).first()
+    return _row_to_user(row._mapping) if row else None
 
 
 def create_user(email: str, google_id: str | None = None, name: str | None = None) -> User:
-    conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO users (google_id, email, name) VALUES (?, ?, ?) RETURNING id",
-        (google_id, email, name),
-    )
-    new_id = cur.fetchone()["id"]
-    conn.commit()
-    return get_user(new_id)
+    session = get_session()
+    new_id = session.execute(
+        insert(UserAccount).values(google_id=google_id, email=email, name=name).returning(UserAccount.id)
+    ).scalar_one()
+    session.commit()
+    created = get_user(new_id)
+    assert created is not None  # the row was just committed above
+    return created
 
 
 def set_user_google_id(user_id: int, google_id: str) -> None:
-    conn = get_connection()
-    conn.execute("UPDATE users SET google_id = ? WHERE id = ?", (google_id, user_id))
-    conn.commit()
+    session = get_session()
+    session.execute(update(UserAccount).where(UserAccount.id == user_id).values(google_id=google_id))
+    session.commit()
 
 
 def get_or_create_user_for_google_login(google_id: str, email: str, name: str | None) -> User:
@@ -61,7 +66,9 @@ def get_or_create_user_for_google_login(google_id: str, email: str, name: str | 
     if user is not None:
         if user.google_id != google_id:
             set_user_google_id(user.id, google_id)
-        return get_user(user.id)
+        refreshed = get_user(user.id)
+        assert refreshed is not None  # user was just looked up above, still exists
+        return refreshed
     return create_user(email=email, google_id=google_id, name=name)
 
 
@@ -69,42 +76,46 @@ def link_hospital_owner(hospital_id: int, user_id: int, role: str = "owner") -> 
     """Idempotent: re-linking an already-owned hospital (e.g. a duplicate
     onboarding submit) is a harmless no-op, not a duplicate row -- same
     reasoning as doctor_leave's UNIQUE(doctor_id, date)."""
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO hospital_users (hospital_id, user_id, role) VALUES (?, ?, ?) "
-        "ON CONFLICT (hospital_id, user_id) DO NOTHING",
-        (hospital_id, user_id, role),
+    session = get_session()
+    session.execute(
+        pg_insert(HospitalUser)
+        .values(hospital_id=hospital_id, user_id=user_id, role=role)
+        .on_conflict_do_nothing(index_elements=["hospital_id", "user_id"])
     )
-    conn.commit()
+    session.commit()
 
 
 def get_hospitals_for_user(user_id: int) -> list[Hospital]:
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT h.* FROM hospitals h JOIN hospital_users hu ON hu.hospital_id = h.id "
-        "WHERE hu.user_id = ? ORDER BY h.id",
-        (user_id,),
-    ).fetchall()
-    return [_row_to_hospital(r) for r in rows]
+    """Now ORM-based -- hospitals.py's HospitalRow/_HOSPITAL_COLUMNS landed
+    with that domain's own migration, closing the deferral this function's
+    docstring used to describe."""
+    session = get_session()
+    rows = session.execute(
+        select(*_HOSPITAL_COLUMNS)
+        .join(HospitalUser, HospitalUser.hospital_id == HospitalRow.id)
+        .where(HospitalUser.user_id == user_id)
+        .order_by(HospitalRow.id)
+    ).all()
+    return [_row_to_hospital(r._mapping) for r in rows]
 
 
 def user_owns_hospital(hospital_id: int, user_id: int) -> bool:
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT 1 FROM hospital_users WHERE hospital_id = ? AND user_id = ?",
-        (hospital_id, user_id),
-    ).fetchone()
+    session = get_session()
+    row = session.execute(
+        select(HospitalUser.id).where(HospitalUser.hospital_id == hospital_id, HospitalUser.user_id == user_id)
+    ).first()
     return row is not None
 
 
 def get_owners_for_hospital(hospital_id: int) -> list[User]:
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT u.* FROM users u JOIN hospital_users hu ON hu.user_id = u.id "
-        "WHERE hu.hospital_id = ? ORDER BY u.id",
-        (hospital_id,),
-    ).fetchall()
-    return [_row_to_user(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(*_USER_COLUMNS)
+        .join(HospitalUser, HospitalUser.user_id == UserAccount.id)
+        .where(HospitalUser.hospital_id == hospital_id)
+        .order_by(UserAccount.id)
+    ).all()
+    return [_row_to_user(r._mapping) for r in rows]
 
 
 def assign_hospital_owner_by_email(hospital_id: int, email: str) -> User:
@@ -131,11 +142,13 @@ def get_users_without_hospital() -> list[User]:
     platform-admin-assigned placeholder -- every row returned here is a
     genuine "signed in, then stopped" case. Most recent first, since that's
     the actionable end for a follow-up."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT u.* FROM users u LEFT JOIN hospital_users hu ON hu.user_id = u.id "
-        "WHERE hu.id IS NULL ORDER BY u.created_at DESC",
-    ).fetchall()
-    return [_row_to_user(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(*_USER_COLUMNS)
+        .join(HospitalUser, HospitalUser.user_id == UserAccount.id, isouter=True)
+        .where(HospitalUser.id.is_(None))
+        .order_by(UserAccount.created_at.desc())
+    ).all()
+    return [_row_to_user(r._mapping) for r in rows]
 
 

@@ -2,9 +2,15 @@
 """Patient visit history, visit notes, and document uploads (Section
 12.10). Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime
+from typing import cast
 
-from db.connection import get_connection
-from db.models import Appointment, _APPOINTMENT_SELECT, _row_to_appointment
+from sqlalchemy import insert, select, update
+from sqlalchemy.engine import CursorResult
+
+from db.connection import get_session
+from db.models import Appointment, _row_to_appointment
+from db.orm_models import AppointmentRow, DoctorRow, PatientDocument, PatientRow, PatientVisitNote
+from db.repositories.appointments import _appointment_select_stmt
 
 def get_patient_visit_history(hospital_id: int, patient_id: int) -> list[Appointment]:
     """Every appointment for this patient (any status, most recent first) --
@@ -12,106 +18,122 @@ def get_patient_visit_history(hospital_id: int, patient_id: int) -> list[Appoint
     has; no new table needed for "visit history" itself, only for notes/
     documents attached to a visit. Returns [] for an unknown/foreign
     patient_id rather than raising -- callers that need to distinguish
-    "no visits" from "no such patient" should call get_patient() first."""
-    conn = get_connection()
-    patient = conn.execute(
-        "SELECT phone FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
-    ).fetchone()
+    "no visits" from "no such patient" should call get_patient() first.
+
+    Now ORM-based, reusing appointments.py's _appointment_select_stmt() --
+    that domain's migration landed, closing the deferral this function's
+    docstring used to describe."""
+    session = get_session()
+    patient = session.execute(
+        select(PatientRow.phone).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)
+    ).first()
     if patient is None:
         return []
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.phone = ? ORDER BY a.scheduled_at DESC",
-        (hospital_id, patient["phone"]),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.phone == patient.phone)
+        .order_by(AppointmentRow.scheduled_at.desc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def create_patient_visit_note(
     hospital_id: int, patient_id: int, note_text: str,
     appointment_id: int | None = None, doctor_id: str | None = None, created_by_session_id: str | None = None,
 ) -> dict:
-    conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO patient_visit_notes "
-        "(hospital_id, patient_id, appointment_id, doctor_id, note_text, created_by_session_id) "
-        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, created_at",
-        (hospital_id, patient_id, appointment_id, doctor_id, note_text, created_by_session_id),
-    )
-    row = cur.fetchone()
-    conn.commit()
+    session = get_session()
+    row = session.execute(
+        insert(PatientVisitNote)
+        .values(
+            hospital_id=hospital_id, patient_id=patient_id, appointment_id=appointment_id,
+            doctor_id=doctor_id, note_text=note_text, created_by_session_id=created_by_session_id,
+        )
+        .returning(PatientVisitNote.id, PatientVisitNote.created_at)
+    ).first()
+    assert row is not None  # INSERT ... RETURNING always returns the inserted row
+    session.commit()
     return {
-        "id": row["id"], "patient_id": patient_id, "appointment_id": appointment_id, "doctor_id": doctor_id,
-        "note_text": note_text, "created_at": row["created_at"], "created_by_session_id": created_by_session_id,
+        "id": row.id, "patient_id": patient_id, "appointment_id": appointment_id, "doctor_id": doctor_id,
+        "note_text": note_text, "created_at": row.created_at, "created_by_session_id": created_by_session_id,
     }
 
 
 def get_patient_visit_notes(hospital_id: int, patient_id: int) -> list[dict]:
     """Most recent first. Includes the doctor's name (not just id) so the
     portal can render it directly without a second lookup."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT n.id, n.patient_id, n.appointment_id, n.doctor_id, doc.name AS doctor_name, "
-        "n.note_text, n.created_at, n.created_by_session_id "
-        "FROM patient_visit_notes n LEFT JOIN doctors doc ON doc.id = n.doctor_id "
-        "WHERE n.hospital_id = ? AND n.patient_id = ? ORDER BY n.created_at DESC",
-        (hospital_id, patient_id),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(
+            PatientVisitNote.id, PatientVisitNote.patient_id, PatientVisitNote.appointment_id,
+            PatientVisitNote.doctor_id, DoctorRow.name.label("doctor_name"),
+            PatientVisitNote.note_text, PatientVisitNote.created_at, PatientVisitNote.created_by_session_id,
+        )
+        .outerjoin(DoctorRow, DoctorRow.id == PatientVisitNote.doctor_id)
+        .where(PatientVisitNote.hospital_id == hospital_id, PatientVisitNote.patient_id == patient_id)
+        .order_by(PatientVisitNote.created_at.desc())
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def create_patient_document(
     hospital_id: int, patient_id: int, file_name: str, file_url: str,
     appointment_id: int | None = None, uploaded_by_session_id: str | None = None,
 ) -> dict:
-    conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO patient_documents "
-        "(hospital_id, patient_id, appointment_id, file_name, file_url, uploaded_by_session_id) "
-        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, uploaded_at",
-        (hospital_id, patient_id, appointment_id, file_name, file_url, uploaded_by_session_id),
-    )
-    row = cur.fetchone()
-    conn.commit()
+    session = get_session()
+    row = session.execute(
+        insert(PatientDocument)
+        .values(
+            hospital_id=hospital_id, patient_id=patient_id, appointment_id=appointment_id,
+            file_name=file_name, file_url=file_url, uploaded_by_session_id=uploaded_by_session_id,
+        )
+        .returning(PatientDocument.id, PatientDocument.uploaded_at)
+    ).first()
+    assert row is not None  # INSERT ... RETURNING always returns the inserted row
+    session.commit()
     return {
-        "id": row["id"], "patient_id": patient_id, "appointment_id": appointment_id, "file_name": file_name,
-        "file_url": file_url, "uploaded_at": row["uploaded_at"], "uploaded_by_session_id": uploaded_by_session_id,
+        "id": row.id, "patient_id": patient_id, "appointment_id": appointment_id, "file_name": file_name,
+        "file_url": file_url, "uploaded_at": row.uploaded_at, "uploaded_by_session_id": uploaded_by_session_id,
         "sent_to_whatsapp_at": None,
     }
 
 
 def get_patient_documents(hospital_id: int, patient_id: int) -> list[dict]:
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT id, patient_id, appointment_id, file_name, file_url, uploaded_at, "
-        "uploaded_by_session_id, sent_to_whatsapp_at FROM patient_documents "
-        "WHERE hospital_id = ? AND patient_id = ? ORDER BY uploaded_at DESC",
-        (hospital_id, patient_id),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(
+            PatientDocument.id, PatientDocument.patient_id, PatientDocument.appointment_id,
+            PatientDocument.file_name, PatientDocument.file_url, PatientDocument.uploaded_at,
+            PatientDocument.uploaded_by_session_id, PatientDocument.sent_to_whatsapp_at,
+        )
+        .where(PatientDocument.hospital_id == hospital_id, PatientDocument.patient_id == patient_id)
+        .order_by(PatientDocument.uploaded_at.desc())
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def get_patient_document(hospital_id: int, document_id: int) -> dict | None:
     """The ownership check portal/routes/documents.py's send-to-WhatsApp and
     download/signed-URL routes both use before touching storage."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id, patient_id, appointment_id, file_name, file_url, uploaded_at, "
-        "uploaded_by_session_id, sent_to_whatsapp_at FROM patient_documents "
-        "WHERE hospital_id = ? AND id = ?",
-        (hospital_id, document_id),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(
+        select(
+            PatientDocument.id, PatientDocument.patient_id, PatientDocument.appointment_id,
+            PatientDocument.file_name, PatientDocument.file_url, PatientDocument.uploaded_at,
+            PatientDocument.uploaded_by_session_id, PatientDocument.sent_to_whatsapp_at,
+        )
+        .where(PatientDocument.hospital_id == hospital_id, PatientDocument.id == document_id)
+    ).first()
+    return dict(row._mapping) if row else None
 
 
 def mark_document_sent_to_whatsapp(hospital_id: int, document_id: int) -> bool:
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE patient_documents SET sent_to_whatsapp_at = ? WHERE hospital_id = ? AND id = ?",
-        (datetime.now().isoformat(), hospital_id, document_id),
-    )
-    if cur.rowcount == 0:
-        return False
-    conn.commit()
-    return True
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientDocument)
+        .where(PatientDocument.hospital_id == hospital_id, PatientDocument.id == document_id)
+        .values(sent_to_whatsapp_at=datetime.now().isoformat())
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 

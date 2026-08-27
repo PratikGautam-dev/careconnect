@@ -3,13 +3,44 @@
 booking data path both the WhatsApp flow and the staff portal go through.
 Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime, timedelta
+from typing import cast
 
-from db.connection import IntegrityError, get_connection
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
+
+from db.connection import IntegrityError, get_connection, get_session
 from db.models import (
     Appointment, DuplicateBookingError, QuotaExceededError,
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
-    _APPOINTMENT_SELECT, _generate_patient_display_id, _generate_reference_id, _row_to_appointment,
+    _generate_patient_display_id, _generate_reference_id, _row_to_appointment,
 )
+from db.orm_models import AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientRow
+
+
+def _appointment_select_stmt():
+    """ORM equivalent of db/models.py's _APPOINTMENT_SELECT -- the shared
+    JOIN every appointment read here (and patient_records.py's
+    get_patient_visit_history()) builds on. Callers append their own
+    .where()/.order_by()/.limit(), same as callers of the raw SQL constant
+    append "AND ...". _row_to_appointment() (db/models.py) maps a result row
+    (via row._mapping) onto the Appointment dataclass unchanged -- it only
+    needs dict-like column access, not a particular ORM/raw origin."""
+    return (
+        select(
+            AppointmentRow.id, AppointmentRow.hospital_id, AppointmentRow.phone,
+            AppointmentRow.department_id, Department.name.label("department_name"),
+            AppointmentRow.doctor_id, DoctorRow.name.label("doctor_name"),
+            AppointmentRow.scheduled_at, AppointmentRow.status, AppointmentRow.source, AppointmentRow.reference_id,
+            AppointmentRow.patient_id, PatientRow.patient_display_id,
+            AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at,
+        )
+        .select_from(AppointmentRow)
+        .join(Department, Department.id == AppointmentRow.department_id)
+        .join(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
+        .outerjoin(PatientRow, PatientRow.id == AppointmentRow.patient_id)
+        .where(AppointmentRow.deleted_at.is_(None))
+    )
 
 # --- Appointments ---
 
@@ -23,7 +54,22 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
     so this is an explicit lookup-then-update-or-insert guarded by a session-
     level advisory lock (scoped to hospital_id+phone) instead of an upsert.
     If more than one `patients` row already exists for this phone, updates
-    the oldest one -- the original single-profile-per-phone row."""
+    the oldest one -- the original single-profile-per-phone row.
+
+    Deliberately NOT migrated to get_session()/ORM, permanently, along with
+    create_appointment() below: pg_advisory_lock/unlock is SESSION-scoped --
+    correctness depends on the lock() and unlock() calls running on the
+    EXACT SAME physical connection, held for the full duration in between.
+    The raw _PGConnection guarantees this (one literal psycopg2 connection
+    for its whole process lifetime, never pooled/swapped). A SQLAlchemy
+    Session backed by a pooled Engine has no such guarantee -- verifying
+    it would require understanding exactly when the pool might check a
+    session's underlying DBAPI connection back in and hand out a different
+    one between statements, which isn't worth the risk for the single most
+    concurrency-critical code path in the app (this function is called from
+    inside create_appointment(), the actual booking-creation transaction).
+    Same reasoning class as patients.py's create_patient_profile() trio and
+    doctors.py's generate_slots_for_doctor()."""
     conn.execute("SELECT pg_advisory_lock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
     try:
         existing = conn.execute(
@@ -89,7 +135,21 @@ def create_appointment(
     explicit Postgres transaction fails, the whole transaction is aborted, so
     retrying with more statements would raise a wrong-typed error instead of
     the real IntegrityError/QuotaExceededError (see
-    tests/test_create_appointment_transaction_safety.py)."""
+    tests/test_create_appointment_transaction_safety.py).
+
+    Deliberately NOT migrated to get_session()/ORM, permanently: this
+    function's pg_advisory_xact_lock only provides real protection inside a
+    genuine multi-statement BEGIN/COMMIT block (built here via manual
+    "BEGIN"/"COMMIT"/"ROLLBACK" text statements on one raw connection) --
+    the ORM engine runs in AUTOCOMMIT (db/connection.py's get_engine()), so
+    every session.execute() there is its own independent transaction,
+    which would release this lock instantly instead of holding it across
+    the quota checks + ordinal assignment + INSERT. This is THE booking-
+    creation transaction -- the single most concurrency-critical code path
+    in the app -- so it stays raw SQL permanently, same reasoning as
+    patients.py's create_patient_profile()/link_existing_patient() and
+    _upsert_patient() above. Every read function below IS migrated to ORM;
+    only this function and _upsert_patient() are the exception."""
     conn = get_connection()
     scheduled_at_iso = scheduled_at.isoformat()
     scheduled_date = scheduled_at.date()
@@ -225,12 +285,11 @@ def create_appointment(
 
 
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:
-    conn = get_connection()
-    row = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.id = ? AND a.hospital_id = ?",
-        (appointment_id, hospital_id),
-    ).fetchone()
-    return _row_to_appointment(row) if row else None
+    session = get_session()
+    row = session.execute(
+        _appointment_select_stmt().where(AppointmentRow.id == appointment_id, AppointmentRow.hospital_id == hospital_id)
+    ).first()
+    return _row_to_appointment(row._mapping) if row else None
 
 
 def get_upcoming_appointments_for_phone(hospital_id: int, phone: str, now: datetime | None = None) -> list[Appointment]:
@@ -238,36 +297,47 @@ def get_upcoming_appointments_for_phone(hospital_id: int, phone: str, now: datet
     Past appointments and ones already cancelled/rescheduled are excluded here
     (not filtered later) so callers never have to remember to check status."""
     now = now or datetime.now()
-    conn = get_connection()
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.phone = ? AND a.status = ? AND a.scheduled_at > ? "
-        "ORDER BY a.scheduled_at ASC",
-        (hospital_id, phone, STATUS_BOOKED, now.isoformat()),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.phone == phone,
+            AppointmentRow.status == STATUS_BOOKED, AppointmentRow.scheduled_at > now.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def get_active_appointments_for_patient(hospital_id: int, patient_id: int) -> list[Appointment]:
     """All still-booked appointments for this patient_id (not phone --
     one phone can have several linked patients). Any time window."""
-    conn = get_connection()
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.patient_id = ? AND a.status = ? ORDER BY a.scheduled_at ASC",
-        (hospital_id, patient_id, STATUS_BOOKED),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id,
+            AppointmentRow.status == STATUS_BOOKED,
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def get_last_attended_appointment(hospital_id: int, patient_id: int) -> Appointment | None:
     """Most recent STATUS_ATTENDED appointment -- a no-show or a still-
     upcoming booking doesn't count."""
-    conn = get_connection()
-    row = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.patient_id = ? AND a.status = ? "
-        "ORDER BY a.scheduled_at DESC LIMIT 1",
-        (hospital_id, patient_id, STATUS_ATTENDED),
-    ).fetchone()
-    return _row_to_appointment(row) if row else None
+    session = get_session()
+    row = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id,
+            AppointmentRow.status == STATUS_ATTENDED,
+        )
+        .order_by(AppointmentRow.scheduled_at.desc())
+        .limit(1)
+    ).first()
+    return _row_to_appointment(row._mapping) if row else None
 
 
 def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: datetime | None = None) -> list[Appointment]:
@@ -276,31 +346,35 @@ def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: dateti
     offsets (e.g. 24h and 1h before), each tracked independently."""
     now = now or datetime.now()
     cutoff = now + timedelta(hours=offset_hours)
-    conn = get_connection()
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + """
-        AND a.hospital_id = ? AND a.status = ?
-          AND a.scheduled_at >= ? AND a.scheduled_at <= ?
-          AND NOT EXISTS (
-              SELECT 1 FROM appointment_reminders ar
-              WHERE ar.appointment_id = a.id AND ar.offset_hours = ?
-          )
-        ORDER BY a.scheduled_at ASC
-        """,
-        (hospital_id, STATUS_BOOKED, now.isoformat(), cutoff.isoformat(), offset_hours),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    session = get_session()
+    reminder_exists = (
+        select(AppointmentReminder.id)
+        .where(AppointmentReminder.appointment_id == AppointmentRow.id, AppointmentReminder.offset_hours == offset_hours)
+        .exists()
+    )
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.status == STATUS_BOOKED,
+            AppointmentRow.scheduled_at >= now.isoformat(), AppointmentRow.scheduled_at <= cutoff.isoformat(),
+            ~reminder_exists,
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> list[Appointment]:
     """Every appointment (any status) for the hospital's own dashboard --
     unlike the other lookups here, not filtered to booked/future-only."""
-    conn = get_connection()
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? ORDER BY a.scheduled_at DESC LIMIT ?",
-        (hospital_id, limit),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(AppointmentRow.hospital_id == hospital_id)
+        .order_by(AppointmentRow.scheduled_at.desc())
+        .limit(limit)
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def soft_delete_appointment(hospital_id: int, appointment_id: int) -> bool:
@@ -308,13 +382,17 @@ def soft_delete_appointment(hospital_id: int, appointment_id: int) -> bool:
     Restricted to already-resolved appointments (status != 'booked') --
     an active booking must be cancelled first, not deleted out from under
     the patient."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE appointments SET deleted_at = ? WHERE id = ? AND hospital_id = ? AND status != ? AND deleted_at IS NULL",
-        (datetime.now().isoformat(), appointment_id, hospital_id, STATUS_BOOKED),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(AppointmentRow)
+        .where(
+            AppointmentRow.id == appointment_id, AppointmentRow.hospital_id == hospital_id,
+            AppointmentRow.status != STATUS_BOOKED, AppointmentRow.deleted_at.is_(None),
+        )
+        .values(deleted_at=datetime.now().isoformat())
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def get_total_bookings_count() -> int:
@@ -322,10 +400,8 @@ def get_total_bookings_count() -> int:
     status, including soft-deleted (deliberately not built on
     _APPOINTMENT_SELECT, which excludes those). A reschedule counts as a
     2nd use -- it's a separate INSERT."""
-    conn = get_connection()
-    row = conn.execute("SELECT COUNT(*) AS c FROM appointments").fetchone()
-    assert row is not None  # COUNT(*) with no GROUP BY always returns one row
-    return row["c"]
+    session = get_session()
+    return session.execute(select(func.count(AppointmentRow.id))).scalar_one()
 
 
 def get_doctor_appointments_today(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[Appointment]:
@@ -334,84 +410,96 @@ def get_doctor_appointments_today(hospital_id: int, doctor_id: str, now: datetim
     now = now or datetime.now()
     day_start = datetime.combine(now.date(), datetime.min.time()).isoformat()
     day_end = datetime.combine(now.date(), datetime.max.time()).isoformat()
-    conn = get_connection()
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.doctor_id = ? AND a.scheduled_at >= ? AND a.scheduled_at <= ? "
-        "ORDER BY a.scheduled_at ASC",
-        (hospital_id, doctor_id, day_start, day_end),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.scheduled_at >= day_start, AppointmentRow.scheduled_at <= day_end,
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def mark_reminded(hospital_id: int, appointment_id: int, offset_hours: float) -> None:
     """Records that this offset's reminder was sent. ON CONFLICT DO NOTHING
     makes calling this twice for the same offset a safe no-op."""
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO appointment_reminders (hospital_id, appointment_id, offset_hours) VALUES (?, ?, ?) "
-        "ON CONFLICT (appointment_id, offset_hours) DO NOTHING",
-        (hospital_id, appointment_id, offset_hours),
+    session = get_session()
+    session.execute(
+        pg_insert(AppointmentReminder)
+        .values(hospital_id=hospital_id, appointment_id=appointment_id, offset_hours=offset_hours)
+        .on_conflict_do_nothing(index_elements=["appointment_id", "offset_hours"])
     )
-    conn.commit()
+    session.commit()
 
 
 def get_reminded_offsets(hospital_id: int, appointment_id: int) -> list[float]:
     """Which reminder offsets (in hours) have already fired for this appointment."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT offset_hours FROM appointment_reminders WHERE hospital_id = ? AND appointment_id = ? ORDER BY offset_hours DESC",
-        (hospital_id, appointment_id),
-    ).fetchall()
-    return [r["offset_hours"] for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(AppointmentReminder.offset_hours)
+        .where(AppointmentReminder.hospital_id == hospital_id, AppointmentReminder.appointment_id == appointment_id)
+        .order_by(AppointmentReminder.offset_hours.desc())
+    ).all()
+    return [r.offset_hours for r in rows]
 
 
 def cancel_appointment(hospital_id: int, appointment_id: int) -> None:
     """Marks cancelled, doesn't delete the row. Stamps updated_at so the
     dashboard's activity feed reflects when this happened."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ?",
-        (STATUS_CANCELLED, datetime.now().isoformat(), appointment_id, hospital_id),
+    session = get_session()
+    session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.id == appointment_id, AppointmentRow.hospital_id == hospital_id)
+        .values(status=STATUS_CANCELLED, updated_at=datetime.now().isoformat())
     )
-    conn.commit()
+    session.commit()
 
 
 def mark_rescheduled(hospital_id: int, appointment_id: int) -> None:
     """Marks the old appointment superseded by a reschedule -- doesn't
     delete the row. Caller books the new slot separately via create_appointment()."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ?",
-        (STATUS_RESCHEDULED, datetime.now().isoformat(), appointment_id, hospital_id),
+    session = get_session()
+    session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.id == appointment_id, AppointmentRow.hospital_id == hospital_id)
+        .values(status=STATUS_RESCHEDULED, updated_at=datetime.now().isoformat())
     )
-    conn.commit()
+    session.commit()
 
 
 def mark_attendance(hospital_id: int, appointment_id: int, attended: bool) -> bool:
     """Staff-confirmed attended/no_show, replacing the dashboard's no-show
     heuristic. Freely re-toggleable (booked/attended/no_show), any time --
     not allowed from 'cancelled'/'rescheduled' (those never happened)."""
-    conn = get_connection()
+    session = get_session()
     new_status = STATUS_ATTENDED if attended else STATUS_NO_SHOW
-    cur = conn.execute(
-        "UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND hospital_id = ? "
-        "AND status IN (?, ?, ?)",
-        (new_status, datetime.now().isoformat(), appointment_id, hospital_id,
-         STATUS_BOOKED, STATUS_ATTENDED, STATUS_NO_SHOW),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    result = cast(CursorResult, session.execute(
+        update(AppointmentRow)
+        .where(
+            AppointmentRow.id == appointment_id, AppointmentRow.hospital_id == hospital_id,
+            AppointmentRow.status.in_([STATUS_BOOKED, STATUS_ATTENDED, STATUS_NO_SHOW]),
+        )
+        .values(status=new_status, updated_at=datetime.now().isoformat())
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def get_appointments_needing_attendance_review(hospital_id: int, now: datetime | None = None) -> list["Appointment"]:
     """Still 'booked' but scheduled_at has passed -- for staff to resolve
     via mark_attendance()."""
     now = now or datetime.now()
-    conn = get_connection()
-    rows = conn.execute(
-        _APPOINTMENT_SELECT + " AND a.hospital_id = ? AND a.status = ? AND a.scheduled_at < ? ORDER BY a.scheduled_at DESC",
-        (hospital_id, STATUS_BOOKED, now.isoformat()),
-    ).fetchall()
-    return [_row_to_appointment(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.status == STATUS_BOOKED,
+            AppointmentRow.scheduled_at < now.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.desc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
