@@ -60,6 +60,36 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+
+@app.middleware("http")
+async def _rollback_shared_session_on_error(request, call_next):
+    """db/connection.py's get_session() returns ONE SQLAlchemy Session
+    reused for the process lifetime (by design, mirrors get_connection()'s
+    single reused raw connection) -- isolation_level="AUTOCOMMIT" on the
+    underlying engine keeps a failed statement from poisoning Postgres's
+    own transaction state, but the ORM Session ALSO tracks its own
+    in_transaction() bookkeeping, independent of that, and nothing anywhere
+    else ever called session.rollback() to clear it after a request-level
+    exception. Left alone, the first ORM statement to fail on ANY request
+    (a bad query, a constraint violation, a stale column) leaves the SAME
+    shared session stuck for every request afterward -- including ones with
+    nothing to do with whatever failed originally -- raising
+    sqlalchemy.exc.PendingRollbackError until the process restarts. Rolling
+    back here, once, right after the exception propagates out of the route
+    handler, is the fix: it doesn't change what response this request gets
+    (the exception still propagates to Starlette's normal error handling),
+    it just leaves the shared session clean for the next one."""
+    try:
+        return await call_next(request)
+    except Exception:
+        from db.connection import get_session
+
+        try:
+            get_session().rollback()
+        except Exception:
+            pass
+        raise
+
 # Next.js frontend (frontend/) runs on a separate origin/port (localhost:3000
 # in dev, a Vercel domain in prod) and calls this API directly from the
 # browser, so it needs CORS -- everything else in this app is either a

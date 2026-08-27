@@ -199,6 +199,7 @@ class AppointmentRow(Base):
     deleted_at: Mapped[str | None]
     appointment_type_id: Mapped[str | None]
     consent_given_at: Mapped[str | None]
+    video_link: Mapped[str | None]
 
 
 class AppointmentReminder(Base):

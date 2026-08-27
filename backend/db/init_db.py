@@ -430,6 +430,11 @@ def init_db_on_connection(conn) -> int:
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_mrn "
         "ON patients(hospital_id, mrn) WHERE mrn IS NOT NULL"
     )
+    # Migration 0004: appointments.video_link (tele-consultation Jitsi URL --
+    # was in schema.sql but never made it into the frozen 0001 baseline or
+    # any numbered migration, so it silently didn't exist anywhere that
+    # only ever ran `alembic upgrade head`).
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS video_link TEXT")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
