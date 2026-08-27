@@ -3,9 +3,14 @@
 linking/consent model (Spec.md Section 0). Split out of db/repository.py --
 see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime
+from typing import cast
 
-from db.connection import get_connection
-from db.models import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError, _generate_patient_display_id
+from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy.engine import CursorResult
+
+from db.connection import get_connection, get_session
+from db.models import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError, _generate_patient_identifiers
+from db.orm_models import AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
 from db.repositories.accounts import _get_or_create_account_in_conn
 
 # --- Patients (Section 12.9 -- staff-created bookings need to search by name,
@@ -41,30 +46,43 @@ def search_patients(hospital_id: int, query: str, limit: int = 10) -> list[dict]
     query = query.strip()
     if not query:
         return []
-    conn = get_connection()
+    session = get_session()
     like = f"%{query}%"
-    rows = conn.execute(
-        "SELECT phone, name FROM patients WHERE hospital_id = ? "
-        "AND (phone ILIKE ? OR name ILIKE ?) ORDER BY name NULLS LAST, phone LIMIT ?",
-        (hospital_id, like, like, limit),
-    ).fetchall()
-    return [{"phone": r["phone"], "name": r["name"]} for r in rows]
+    rows = session.execute(
+        select(PatientRow.phone, PatientRow.name)
+        .where(PatientRow.hospital_id == hospital_id, or_(PatientRow.phone.ilike(like), PatientRow.name.ilike(like)))
+        .order_by(PatientRow.name.nulls_last(), PatientRow.phone)
+        .limit(limit)
+    ).all()
+    return [{"phone": r.phone, "name": r.name} for r in rows]
 
 
-def _patients_with_visit_stats_sql(where_extra: str = "") -> str:
+def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None):
     """Shared by list_patients()/get_recent_patients() -- last_visit is the
     most recent scheduled_at across every appointment (any status, same
     "staff want to see the full history" reasoning as
     get_all_appointments_for_hospital()), visit_count counts every
     appointment row ever created for that phone, not just kept ones."""
-    return (
-        "SELECT p.id, p.phone, p.name, p.patient_display_id, MAX(a.scheduled_at) AS last_visit, "
-        "COUNT(a.id) AS visit_count "
-        "FROM patients p LEFT JOIN appointments a ON a.hospital_id = p.hospital_id AND a.phone = p.phone "
-        f"WHERE p.hospital_id = ? {where_extra} "
-        "GROUP BY p.id, p.phone, p.name, p.patient_display_id "
-        "ORDER BY last_visit DESC NULLS LAST, p.name NULLS LAST, p.phone "
+    last_visit = func.max(AppointmentRow.scheduled_at)
+    visit_count = func.count(AppointmentRow.id)
+    stmt = (
+        select(
+            PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
+            last_visit.label("last_visit"), visit_count.label("visit_count"),
+        )
+        .select_from(PatientRow)
+        .outerjoin(
+            AppointmentRow,
+            and_(AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.phone == PatientRow.phone),
+        )
+        .where(PatientRow.hospital_id == hospital_id)
+        .group_by(PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn)
+        .order_by(last_visit.desc().nulls_last(), PatientRow.name.nulls_last(), PatientRow.phone)
     )
+    if search:
+        like = f"%{search}%"
+        stmt = stmt.where(or_(PatientRow.phone.ilike(like), PatientRow.name.ilike(like)))
+    return stmt
 
 
 def list_patients(hospital_id: int, search: str | None = None, limit: int = 200) -> list[dict]:
@@ -73,20 +91,13 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
     also surfaces last_visit/visit_count so staff can see engagement at a
     glance, and returns every patient (not just search hits) when no query
     is given."""
-    conn = get_connection()
+    session = get_session()
     search = (search or "").strip()
-    if search:
-        like = f"%{search}%"
-        rows = conn.execute(
-            _patients_with_visit_stats_sql("AND (p.phone ILIKE ? OR p.name ILIKE ?)") + "LIMIT ?",
-            (hospital_id, like, like, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(_patients_with_visit_stats_sql() + "LIMIT ?", (hospital_id, limit)).fetchall()
+    rows = session.execute(_patients_with_visit_stats_stmt(hospital_id, search or None).limit(limit)).all()
     return [
         {
-            "id": r["id"], "phone": r["phone"], "name": r["name"], "patient_display_id": r["patient_display_id"],
-            "last_visit": r["last_visit"], "visit_count": r["visit_count"],
+            "id": r.id, "phone": r.phone, "name": r.name, "patient_display_id": r.patient_display_id,
+            "mrn": r.mrn, "last_visit": r.last_visit, "visit_count": r.visit_count,
         }
         for r in rows
     ]
@@ -101,20 +112,22 @@ def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
 
 # --- Patient records (Section 12.10: visit history, notes, documents) ---
 
+_PATIENT_COLUMNS = (
+    PatientRow.id, PatientRow.hospital_id, PatientRow.phone, PatientRow.name, PatientRow.date_of_birth,
+    PatientRow.gender, PatientRow.address, PatientRow.age, PatientRow.patient_display_id, PatientRow.mrn,
+    PatientRow.status, PatientRow.created_at,
+)
+
+
 def get_patient(hospital_id: int, patient_id: int) -> dict | None:
     """The single ownership check every patient-detail/notes/documents route
     uses before doing anything else -- returns None for a patient_id that
     doesn't exist OR belongs to a different hospital, so callers can't tell
     the two cases apart from the response (same 404-not-403 discipline as
     get_doctor_full())."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, "
-        "status, created_at "
-        "FROM patients WHERE hospital_id = ? AND id = ?",
-        (hospital_id, patient_id),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(select(*_PATIENT_COLUMNS).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)).first()
+    return dict(row._mapping) if row else None
 
 
 def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
@@ -131,14 +144,9 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
     than one `patients` row, not an error, but is no longer the right
     lookup for anything booking-related. Use get_active_patients_for_phone()
     for that."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id, hospital_id, phone, name, date_of_birth, gender, address, age, patient_display_id, "
-        "status, created_at "
-        "FROM patients WHERE hospital_id = ? AND phone = ?",
-        (hospital_id, phone),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(select(*_PATIENT_COLUMNS).where(PatientRow.hospital_id == hospital_id, PatientRow.phone == phone)).first()
+    return dict(row._mapping) if row else None
 
 
 # --- Patient identity SEPARATION (Spec.md Section 0): one WhatsApp phone can
@@ -181,16 +189,21 @@ def get_active_patients_for_phone(hospital_id: int, phone: str) -> list[dict]:
     blocked/inactive). This is the one enforcement point every WhatsApp-
     facing patient list goes through, same "filter at the one real read
     path" precedent doctors.is_active already established."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT p.id, p.name, p.age, p.patient_display_id, pl.relationship_label, pl.id AS link_id "
-        "FROM patient_links pl JOIN patients p ON p.id = pl.patient_id "
-        "WHERE pl.hospital_id = ? AND pl.whatsapp_phone = ? AND pl.unlinked_at IS NULL "
-        "AND p.status = 'active' "
-        "ORDER BY pl.linked_at, pl.id",
-        (hospital_id, phone),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(
+            PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id,
+            PatientLink.relationship_label, PatientLink.id.label("link_id"),
+        )
+        .select_from(PatientLink)
+        .join(PatientRow, PatientRow.id == PatientLink.patient_id)
+        .where(
+            PatientLink.hospital_id == hospital_id, PatientLink.whatsapp_phone == phone,
+            PatientLink.unlinked_at.is_(None), PatientRow.status == "active",
+        )
+        .order_by(PatientLink.linked_at, PatientLink.id)
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def validate_active_patient_link(hospital_id: int, phone: str, patient_id: int) -> bool:
@@ -201,22 +214,26 @@ def validate_active_patient_link(hospital_id: int, phone: str, patient_id: int) 
     flow (department -> doctor -> date -> time -> confirm) could have been
     unlinked, or the patient blocked, in between. True only if the link is
     still active AND the patient itself is still 'active'."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT 1 FROM patient_links pl JOIN patients p ON p.id = pl.patient_id "
-        "WHERE pl.hospital_id = ? AND pl.whatsapp_phone = ? AND pl.patient_id = ? "
-        "AND pl.unlinked_at IS NULL AND p.status = 'active'",
-        (hospital_id, phone, patient_id),
-    ).fetchone()
+    session = get_session()
+    row = session.execute(
+        select(PatientLink.id)
+        .select_from(PatientLink)
+        .join(PatientRow, PatientRow.id == PatientLink.patient_id)
+        .where(
+            PatientLink.hospital_id == hospital_id, PatientLink.whatsapp_phone == phone,
+            PatientLink.patient_id == patient_id, PatientLink.unlinked_at.is_(None), PatientRow.status == "active",
+        )
+    ).first()
     return row is not None
 
 
 def count_active_links_for_phone(hospital_id: int, phone: str) -> int:
-    conn = get_connection()
-    return conn.execute(
-        "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
-        (hospital_id, phone),
-    ).fetchone()["c"]
+    session = get_session()
+    return session.execute(
+        select(func.count(PatientLink.id)).where(
+            PatientLink.hospital_id == hospital_id, PatientLink.whatsapp_phone == phone, PatientLink.unlinked_at.is_(None),
+        )
+    ).scalar_one()
 
 
 def _check_relationship_label(relationship_label: str | None) -> None:
@@ -230,7 +247,27 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     link row" sequence -- must run under `conn`'s already-open transaction
     (both callers wrap this in BEGIN/COMMIT/ROLLBACK) so the count-then-
     insert is atomic against a genuine concurrent "add/link a patient" tap
-    from the same phone."""
+    from the same phone.
+
+    Deliberately NOT migrated to get_session()/ORM, permanently, along with
+    create_patient_profile()/link_existing_patient() below: pg_advisory_xact_lock
+    is TRANSACTION-scoped (auto-released at COMMIT/ROLLBACK, unlike the
+    session-scoped pg_advisory_lock/unlock pair elsewhere) -- it only
+    provides real protection inside an actual multi-statement BEGIN/COMMIT
+    block, which is exactly what these three functions build via manual
+    "BEGIN"/"COMMIT"/"ROLLBACK" text statements on a single raw connection.
+    The ORM engine runs in AUTOCOMMIT (see db/connection.py's get_engine()),
+    so every session.execute() is its own independent transaction by
+    design -- an advisory lock taken and immediately released within one
+    autocommitted statement provides no protection at all against a second,
+    genuinely concurrent call racing in between statements. This is exactly
+    the class of concurrency-critical code the migration plan's own
+    guarantee calls out to leave untouched permanently, alongside
+    generate_slots_for_doctor() (doctors.py) and the atomic reference/
+    display-id counters (db/models.py). Also still calls
+    _get_or_create_account_in_conn() (accounts.py's raw-conn helper) inside
+    this same transaction -- see consent.py's docstring for that
+    dependency's own status."""
     conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"patient_links|{hospital_id}|{phone}",))
     active_count = conn.execute(
         "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
@@ -268,21 +305,28 @@ def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, ag
     phone -- if they're already linked, they'd show up in the family list
     directly, not through this duplicate-detection path at all. Returns the
     first match (deterministic: lowest patient id) or None."""
-    conn = get_connection()
     if age is None:
         return None
-    row = conn.execute(
-        "SELECT p.id, p.name, p.age, p.patient_display_id FROM patients p "
-        "WHERE p.hospital_id = ? AND p.status = 'active' "
-        "AND LOWER(TRIM(p.name)) = LOWER(TRIM(?)) AND p.age = ? "
-        "AND NOT EXISTS ("
-        "  SELECT 1 FROM patient_links pl WHERE pl.patient_id = p.id AND pl.hospital_id = ? "
-        "  AND pl.whatsapp_phone = ? AND pl.unlinked_at IS NULL"
-        ") "
-        "ORDER BY p.id LIMIT 1",
-        (hospital_id, name, age, hospital_id, phone),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    active_link_exists = (
+        select(PatientLink.id)
+        .where(
+            PatientLink.patient_id == PatientRow.id, PatientLink.hospital_id == hospital_id,
+            PatientLink.whatsapp_phone == phone, PatientLink.unlinked_at.is_(None),
+        )
+        .exists()
+    )
+    row = session.execute(
+        select(PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id)
+        .where(
+            PatientRow.hospital_id == hospital_id, PatientRow.status == "active",
+            func.lower(func.trim(PatientRow.name)) == func.lower(func.trim(name)),
+            PatientRow.age == age, ~active_link_exists,
+        )
+        .order_by(PatientRow.id)
+        .limit(1)
+    ).first()
+    return dict(row._mapping) if row else None
 
 
 def create_patient_profile(
@@ -314,9 +358,12 @@ def create_patient_profile(
             "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, name, age),
         ).fetchone()
+        assert patient_row is not None  # INSERT ... RETURNING always returns the inserted row
         patient_id = patient_row["id"]
-        display_id = _generate_patient_display_id(conn, hospital_id)
-        conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, patient_id))
+        display_id, mrn = _generate_patient_identifiers(conn, hospital_id)
+        conn.execute(
+            "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, patient_id),
+        )
         _link_patient_under_cap(conn, hospital_id, phone, patient_id, relationship_label)
         conn.execute("COMMIT")
     except BaseException:
@@ -326,7 +373,7 @@ def create_patient_profile(
             pass
         raise
     return {
-        "id": patient_id, "name": name, "age": age, "patient_display_id": display_id,
+        "id": patient_id, "name": name, "age": age, "patient_display_id": display_id, "mrn": mrn,
         "relationship_label": relationship_label,
     }
 
@@ -376,14 +423,13 @@ def set_patient_status(hospital_id: int, patient_id: int, status: str) -> dict |
     unrecognized status."""
     if status not in PATIENT_STATUSES:
         raise ValueError(f"status must be one of {PATIENT_STATUSES}, got {status!r}")
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE patients SET status = ? WHERE hospital_id = ? AND id = ?",
-        (status, hospital_id, patient_id),
-    )
-    if cur.rowcount == 0:
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id).values(status=status)
+    ))
+    session.commit()
+    if result.rowcount == 0:
         return None
-    conn.commit()
     return get_patient(hospital_id, patient_id)
 
 
@@ -395,16 +441,17 @@ def unlink_patient(hospital_id: int, phone: str, patient_id: int) -> bool:
     accident of implementation -- there is no code path here that could
     touch either table). Returns False if no such active link exists (stale
     tap, already unlinked, or a patient_id belonging to a different phone)."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE patient_links SET unlinked_at = ? "
-        "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
-        (datetime.now().isoformat(), hospital_id, phone, patient_id),
-    )
-    if cur.rowcount == 0:
-        return False
-    conn.commit()
-    return True
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientLink)
+        .where(
+            PatientLink.hospital_id == hospital_id, PatientLink.whatsapp_phone == phone,
+            PatientLink.patient_id == patient_id, PatientLink.unlinked_at.is_(None),
+        )
+        .values(unlinked_at=datetime.now().isoformat())
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def get_patient_link_consent(hospital_id: int, phone: str, patient_id: int) -> dict | None:
@@ -412,13 +459,14 @@ def get_patient_link_consent(hospital_id: int, phone: str, patient_id: int) -> d
     20's Consent & Privacy menu item -- reads the active link's own
     service_consent/marketing_consent columns. Returns None if there's no
     active link for this (hospital_id, phone, patient_id) triple."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT service_consent, marketing_consent FROM patient_links "
-        "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
-        (hospital_id, phone, patient_id),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(
+        select(PatientLink.service_consent, PatientLink.marketing_consent).where(
+            PatientLink.hospital_id == hospital_id, PatientLink.whatsapp_phone == phone,
+            PatientLink.patient_id == patient_id, PatientLink.unlinked_at.is_(None),
+        )
+    ).first()
+    return dict(row._mapping) if row else None
 
 
 def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consented: bool) -> bool:
@@ -428,16 +476,17 @@ def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consent
     toggle); marketing_consent is independent, opt-in, and freely
     reversible either direction. Returns False if there's no active link to
     update."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE patient_links SET marketing_consent = ? "
-        "WHERE hospital_id = ? AND whatsapp_phone = ? AND patient_id = ? AND unlinked_at IS NULL",
-        (consented, hospital_id, phone, patient_id),
-    )
-    if cur.rowcount == 0:
-        return False
-    conn.commit()
-    return True
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientLink)
+        .where(
+            PatientLink.hospital_id == hospital_id, PatientLink.whatsapp_phone == phone,
+            PatientLink.patient_id == patient_id, PatientLink.unlinked_at.is_(None),
+        )
+        .values(marketing_consent=consented)
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def update_patient_profile(hospital_id: int, patient_id: int, name: str, age: int | None) -> dict | None:
@@ -445,15 +494,45 @@ def update_patient_profile(hospital_id: int, patient_id: int, name: str, age: in
     profiles, never edits one) -- kept available for a future "edit a linked
     patient" step without needing a second migration. Returns None if
     patient_id doesn't belong to this hospital."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE patients SET name = ?, age = ? WHERE hospital_id = ? AND id = ?",
-        (name, age, hospital_id, patient_id),
-    )
-    if cur.rowcount == 0:
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id).values(name=name, age=age)
+    ))
+    session.commit()
+    if result.rowcount == 0:
         return None
-    conn.commit()
     return get_patient(hospital_id, patient_id)
+
+
+def delete_patient_hard(hospital_id: int, patient_id: int) -> bool:
+    """DEV/TESTING ONLY -- irreversibly removes the patient row plus every
+    row that references it (visit notes, documents, links). Appointments
+    are detached, not deleted: patient_id there is nullable, so booking/
+    scheduling history survives even though the patient it pointed to
+    doesn't. Swap the portal route to delete_patient_soft() before this
+    goes to production -- see that function's docstring."""
+    session = get_session()
+    session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id)
+        .values(patient_id=None)
+    )
+    session.execute(delete(PatientVisitNote).where(PatientVisitNote.hospital_id == hospital_id, PatientVisitNote.patient_id == patient_id))
+    session.execute(delete(PatientDocument).where(PatientDocument.hospital_id == hospital_id, PatientDocument.patient_id == patient_id))
+    session.execute(delete(PatientLink).where(PatientLink.hospital_id == hospital_id, PatientLink.patient_id == patient_id))
+    result = cast(CursorResult, session.execute(
+        delete(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)
+    ))
+    session.commit()
+    return result.rowcount > 0
+
+
+def delete_patient_soft(hospital_id: int, patient_id: int) -> dict | None:
+    """Production-safe alternative to delete_patient_hard() -- reuses the
+    existing PATIENT_STATUSES model (Section 18) instead of removing any
+    row, so appointment/visit history is preserved. Swap the portal route
+    to this once the app is out of dev/testing."""
+    return set_patient_status(hospital_id, patient_id, PATIENT_STATUS_INACTIVE)
 
 
 def update_patient_demographics(
@@ -463,14 +542,15 @@ def update_patient_demographics(
     field rather than being rejected, since none of this was ever required
     at patient creation and staff filling it in gradually is the expected
     path, not an all-at-once form."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE patients SET date_of_birth = ?, gender = ?, address = ? WHERE hospital_id = ? AND id = ?",
-        (date_of_birth or None, gender or None, address or None, hospital_id, patient_id),
-    )
-    if cur.rowcount == 0:
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientRow)
+        .where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)
+        .values(date_of_birth=date_of_birth or None, gender=gender or None, address=address or None)
+    ))
+    session.commit()
+    if result.rowcount == 0:
         return None
-    conn.commit()
     return get_patient(hospital_id, patient_id)
 
 

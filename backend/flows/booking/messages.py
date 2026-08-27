@@ -111,26 +111,21 @@ async def _send_appointment_type_menu(wa: WhatsAppClient, phone: str, hospital_i
     "new", "tele") -- same "use the real id directly as the WA row id, no
     extra prefix" convention _send_department_menu already uses."""
     rows = [{"id": t_["id"], "title": t_["label"]} for t_ in connector.get_appointment_types(hospital_id)]
-    # Booking's own first step -- GOTO_MAIN_MENU (not the department/doctor/
-    # date/time family's own BACK_ID + follow-up button) since it's
-    # intercepted globally in flows/router.py's handle_incoming, BEFORE any
-    # state dispatch, and correctly re-shows the REAL dynamic menu (patient
-    # header, actual hospital name, actual enabled features). This handler's
-    # own module-level _send_main_menu is a fixed 4-row stand-in with no
-    # access to any of that -- it used to be reachable here via BACK_ID
-    # (_handle_awaiting_appointment_type's own branch), which is exactly why
-    # tapping Back after "View Types" showed a generic "Welcome to the
-    # hospital!" menu instead of the real one. That handler branch is now
-    # unreachable from this button (GOTO_MAIN_MENU never reaches it -- see
-    # flows/router.py) but left in place rather than deleted, matching every
-    # other still-there-for-safety fallback in this file.
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
     rows = _cap_rows(rows, "appointment type menu")
     await wa.send_list(
         to=phone,
         body_text=t("select_appointment_type", language),
         button_text=t("view_appointment_types_button", language),
         sections=[{"title": t("appointment_types_section_title", language), "rows": rows}],
+    )
+    # Booking's own first step -- a separate follow-up button (same pattern
+    # as _send_back_button), but GOTO_MAIN_MENU not BACK_ID: intercepted
+    # globally in flows/router.py's handle_incoming, BEFORE any state
+    # dispatch, so it correctly re-shows the REAL dynamic menu (patient
+    # header, actual hospital name, actual enabled features) rather than
+    # this module's own fixed 4-row _send_main_menu stand-in.
+    await wa.send_buttons(
+        to=phone, body_text="​", buttons=[{"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)}],
     )
 
 

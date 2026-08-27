@@ -3,8 +3,13 @@
 Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
 import uuid
 from datetime import date, datetime, timedelta
+from typing import cast
 
-from db.connection import get_connection
+from sqlalchemy import delete, insert, select, update
+from sqlalchemy.engine import CursorResult
+
+from db.connection import get_connection, get_session
+from db.orm_models import Department, DoctorRow, DoctorSlot
 
 _SLOT_DAYS_AHEAD = 14
 
@@ -14,21 +19,19 @@ _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 # --- Departments / doctors ---
 
 def get_departments(hospital_id: int) -> list[dict]:
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT id, name FROM departments WHERE hospital_id = ? ORDER BY name",
-        (hospital_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(Department.id, Department.name).where(Department.hospital_id == hospital_id).order_by(Department.name)
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def find_department(hospital_id: int, department_id: str) -> dict | None:
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id, name FROM departments WHERE hospital_id = ? AND id = ?",
-        (hospital_id, department_id),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(
+        select(Department.id, Department.name).where(Department.hospital_id == hospital_id, Department.id == department_id)
+    ).first()
+    return dict(row._mapping) if row else None
 
 
 def get_doctors(hospital_id: int, department_id: str) -> list[dict]:
@@ -40,21 +43,23 @@ def get_doctors(hospital_id: int, department_id: str) -> list[dict]:
     bot. The portal's own doctor MANAGEMENT list uses
     get_all_doctors_for_hospital() instead, which intentionally still shows
     inactive doctors so staff can toggle them back on."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT id, name FROM doctors WHERE hospital_id = ? AND department_id = ? AND is_active = TRUE ORDER BY name",
-        (hospital_id, department_id),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(DoctorRow.id, DoctorRow.name)
+        .where(DoctorRow.hospital_id == hospital_id, DoctorRow.department_id == department_id, DoctorRow.is_active.is_(True))
+        .order_by(DoctorRow.name)
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def find_doctor(hospital_id: int, department_id: str, doctor_id: str) -> dict | None:
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id, name FROM doctors WHERE hospital_id = ? AND department_id = ? AND id = ?",
-        (hospital_id, department_id, doctor_id),
-    ).fetchone()
-    return dict(row) if row else None
+    session = get_session()
+    row = session.execute(
+        select(DoctorRow.id, DoctorRow.name).where(
+            DoctorRow.hospital_id == hospital_id, DoctorRow.department_id == department_id, DoctorRow.id == doctor_id,
+        )
+    ).first()
+    return dict(row._mapping) if row else None
 
 
 def create_department(hospital_id: int, name: str) -> dict:
@@ -64,12 +69,9 @@ def create_department(hospital_id: int, name: str) -> dict:
     departments.id is globally unique, not (hospital_id, id) composite-unique
     (db/schema.sql's comment on that table)."""
     department_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO departments (id, hospital_id, name) VALUES (?, ?, ?)",
-        (department_id, hospital_id, name),
-    )
-    conn.commit()
+    session = get_session()
+    session.execute(insert(Department).values(id=department_id, hospital_id=hospital_id, name=name))
+    session.commit()
     return {"id": department_id, "name": name}
 
 
@@ -104,27 +106,32 @@ def create_doctor(
     day, not per-specific-day. effective_from has no effect on a brand-new
     doctor (nothing to preserve yet) -- it only matters on update_doctor()."""
     doctor_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO doctors (id, hospital_id, department_id, name, specialization, qualification, "
-        "years_experience, working_days, working_hours, slot_duration_minutes, breaks, "
-        "max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota, "
-        "followup_duration_minutes, effective_from) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (doctor_id, hospital_id, department_id, name, specialization, qualification,
-         years_experience, ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
-         ",".join(breaks or []), max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
-         followup_duration_minutes, effective_from),
+    session = get_session()
+    session.execute(
+        insert(DoctorRow).values(
+            id=doctor_id, hospital_id=hospital_id, department_id=department_id, name=name,
+            specialization=specialization, qualification=qualification, years_experience=years_experience,
+            working_days=",".join(working_days or []), working_hours=",".join(working_hours or []),
+            slot_duration_minutes=slot_duration_minutes, breaks=",".join(breaks or []),
+            max_bookings_per_slot=max_bookings_per_slot, daily_booking_limit=daily_booking_limit,
+            online_quota=online_quota, walkin_quota=walkin_quota,
+            followup_duration_minutes=followup_duration_minutes, effective_from=effective_from,
+        )
     )
-    conn.commit()
-    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    session.commit()
+    # generate_slots_for_doctor() is still raw-SQL/conn-based (see its own
+    # docstring) -- not passed a conn here, same "already-committed, safe to
+    # read from a different autocommit connection" reasoning as leave.py's
+    # calls into it.
+    generate_slots_for_doctor(hospital_id, doctor_id)
     return {"id": doctor_id, "name": name}
 
 
 _DOCTOR_FULL_COLUMNS = (
-    "id, department_id, name, specialization, qualification, years_experience, "
-    "working_days, working_hours, slot_duration_minutes, breaks, max_bookings_per_slot, "
-    "daily_booking_limit, online_quota, walkin_quota, followup_duration_minutes, effective_from, is_active"
+    DoctorRow.id, DoctorRow.department_id, DoctorRow.name, DoctorRow.specialization, DoctorRow.qualification,
+    DoctorRow.years_experience, DoctorRow.working_days, DoctorRow.working_hours, DoctorRow.slot_duration_minutes,
+    DoctorRow.breaks, DoctorRow.max_bookings_per_slot, DoctorRow.daily_booking_limit, DoctorRow.online_quota,
+    DoctorRow.walkin_quota, DoctorRow.followup_duration_minutes, DoctorRow.effective_from, DoctorRow.is_active,
 )
 
 
@@ -134,14 +141,13 @@ def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
     management) needs the full working pattern to pre-fill, and needs
     department_id from the doctor_id alone (the edit URL only carries the
     doctor's id, not which department it's under)."""
-    conn = get_connection()
-    row = conn.execute(
-        f"SELECT {_DOCTOR_FULL_COLUMNS} FROM doctors WHERE hospital_id = ? AND id = ?",
-        (hospital_id, doctor_id),
-    ).fetchone()
+    session = get_session()
+    row = session.execute(
+        select(*_DOCTOR_FULL_COLUMNS).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
+    ).first()
     if row is None:
         return None
-    return _parse_doctor_row(dict(row))
+    return _parse_doctor_row(dict(row._mapping))
 
 
 def _parse_doctor_row(d: dict) -> dict:
@@ -158,14 +164,17 @@ def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
     NOT filtered by is_active -- this is the management view, so an inactive
     doctor must still show up (with its off state) so staff can toggle it
     back on; get_doctors() is the one that hides them from bookable lists."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT doc.id, doc.department_id, d.name AS department_name, doc.name, doc.specialization, doc.is_active "
-        "FROM doctors doc JOIN departments d ON d.id = doc.department_id "
-        "WHERE doc.hospital_id = ? ORDER BY d.name, doc.name",
-        (hospital_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(
+            DoctorRow.id, DoctorRow.department_id, Department.name.label("department_name"),
+            DoctorRow.name, DoctorRow.specialization, DoctorRow.is_active,
+        )
+        .join(Department, Department.id == DoctorRow.department_id)
+        .where(DoctorRow.hospital_id == hospital_id)
+        .order_by(Department.name, DoctorRow.name)
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool:
@@ -173,13 +182,12 @@ def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool
     dates and from editing working hours) -- returns False if no matching
     doctor row exists for this hospital, True on a real update, so callers
     can 404 rather than silently no-op."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE doctors SET is_active = ? WHERE hospital_id = ? AND id = ?",
-        (is_active, hospital_id, doctor_id),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(DoctorRow).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id).values(is_active=is_active)
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def update_doctor(
@@ -219,38 +227,38 @@ def update_doctor(
     rewrite next week's already-offered slots. effective_from=None (the
     default, matching every doctor before this column existed) wipes and
     regenerates the whole window, same as before this change."""
-    conn = get_connection()
-    cur = conn.execute(
-        "UPDATE doctors SET name = ?, specialization = ?, qualification = ?, years_experience = ?, "
-        "working_days = ?, working_hours = ?, slot_duration_minutes = ?, breaks = ?, "
-        "max_bookings_per_slot = ?, daily_booking_limit = ?, online_quota = ?, walkin_quota = ?, "
-        "followup_duration_minutes = ?, effective_from = ? WHERE hospital_id = ? AND id = ?",
-        (name, specialization, qualification, years_experience,
-         ",".join(working_days or []), ",".join(working_hours or []), slot_duration_minutes,
-         ",".join(breaks or []), max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota,
-         followup_duration_minutes, effective_from,
-         hospital_id, doctor_id),
-    )
-    if cur.rowcount == 0:
-        return None
-    if effective_from:
-        conn.execute(
-            "DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ? AND scheduled_at >= ?",
-            (hospital_id, doctor_id, effective_from),
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(DoctorRow)
+        .where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
+        .values(
+            name=name, specialization=specialization, qualification=qualification, years_experience=years_experience,
+            working_days=",".join(working_days or []), working_hours=",".join(working_hours or []),
+            slot_duration_minutes=slot_duration_minutes, breaks=",".join(breaks or []),
+            max_bookings_per_slot=max_bookings_per_slot, daily_booking_limit=daily_booking_limit,
+            online_quota=online_quota, walkin_quota=walkin_quota,
+            followup_duration_minutes=followup_duration_minutes, effective_from=effective_from,
         )
-    else:
-        conn.execute("DELETE FROM doctor_slots WHERE hospital_id = ? AND doctor_id = ?", (hospital_id, doctor_id))
-    conn.commit()
-    generate_slots_for_doctor(hospital_id, doctor_id, conn=conn)
+    ))
+    if result.rowcount == 0:
+        return None
+    slot_delete = delete(DoctorSlot).where(DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id)
+    if effective_from:
+        slot_delete = slot_delete.where(DoctorSlot.scheduled_at >= effective_from)
+    session.execute(slot_delete)
+    session.commit()
+    # generate_slots_for_doctor() is still raw-SQL/conn-based -- see
+    # create_doctor()'s identical comment above.
+    generate_slots_for_doctor(hospital_id, doctor_id)
     return {"id": doctor_id, "name": name}
 
 
 def list_doctor_ids(hospital_id: int) -> list[str]:
     """Used by the slot top-up job (slots/scheduler.py) to loop every doctor
     at a hospital without needing to walk departments first."""
-    conn = get_connection()
-    rows = conn.execute("SELECT id FROM doctors WHERE hospital_id = ?", (hospital_id,)).fetchall()
-    return [r["id"] for r in rows]
+    session = get_session()
+    rows = session.execute(select(DoctorRow.id).where(DoctorRow.hospital_id == hospital_id)).all()
+    return [r.id for r in rows]
 
 
 def _parse_time_range(time_range: str) -> tuple[str, str]:
@@ -300,7 +308,21 @@ def generate_slots_for_doctor(
 
     conn is an optional explicit connection (rather than get_connection())
     because db/seed.py calls this against a connection it's still assembling,
-    before db.connection's shared connection has been repointed to it."""
+    before db.connection's shared connection has been repointed to it.
+
+    Deliberately NOT migrated to get_session()/ORM along with the rest of
+    this file: that conn override is exactly what makes db/seed.py's
+    bootstrap-time call correct (a fresh, not-yet-global raw connection,
+    per that file's own comment) -- get_session() has no equivalent notion
+    of "a session bound to a connection that isn't the global one yet", and
+    bridging a raw psycopg2 connection into a SQLAlchemy engine/session
+    isn't worth the risk for a function this correctness-critical (it
+    directly determines booking availability). create_doctor()/
+    update_doctor() above call this WITHOUT conn=, so it falls back to its
+    own get_connection() -- safe because both that raw connection and the
+    ORM session's engine run in Postgres autocommit, so a write already
+    committed by one is immediately visible to a read from the other, same
+    reasoning verified for leave.py's identical pattern."""
     conn = conn or get_connection()
     doctor_row = conn.execute(
         "SELECT working_days, working_hours, slot_duration_minutes, breaks, daily_booking_limit, effective_from "

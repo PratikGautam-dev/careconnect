@@ -19,6 +19,7 @@ type Patient = {
   phone: string;
   name: string | null;
   patient_display_id: string | null;
+  mrn: string | null;
   date_of_birth: string | null;
   gender: string | null;
   address: string | null;
@@ -235,6 +236,11 @@ export default function PatientDetailPage() {
               {patient.patient_display_id && (
                 <span className="rounded-full bg-brand-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-brand-700">
                   {patient.patient_display_id}
+                </span>
+              )}
+              {patient.mrn && (
+                <span className="rounded-full bg-ink-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-ink-600">
+                  MRN {patient.mrn}
                 </span>
               )}
               {patient.status !== "active" && (

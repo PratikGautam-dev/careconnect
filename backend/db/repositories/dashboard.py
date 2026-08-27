@@ -4,8 +4,12 @@
 ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime, timedelta
 
-from db.connection import get_connection
+from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
+
+from db.connection import get_session
 from db.models import STATUS_BOOKED, STATUS_CANCELLED, STATUS_RESCHEDULED
+from db.orm_models import AppointmentRow, Department, DoctorRow
 
 # --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
 # Every query here is hospital_id-scoped, same discipline as everywhere else
@@ -48,31 +52,38 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
     now = now or datetime.now()
     today = now.date()
     last_week_day = today - timedelta(days=7)
-    conn = get_connection()
+    session = get_session()
 
     def _stats_for_day(day, no_show_cutoff: datetime) -> dict:
         day_start = datetime.combine(day, datetime.min.time()).isoformat()
         day_end = datetime.combine(day, datetime.max.time()).isoformat()
-        total = conn.execute(
-            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ?",
-            (hospital_id, day_start, day_end),
-        ).fetchone()["c"]
-        confirmed = conn.execute(
-            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
-            (hospital_id, day_start, day_end, STATUS_BOOKED),
-        ).fetchone()["c"]
-        new_patients = conn.execute(
-            "SELECT COUNT(DISTINCT a.phone) AS c FROM appointments a "
-            "WHERE a.hospital_id = ? AND a.created_at >= ? AND a.created_at <= ? "
-            "AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.hospital_id = a.hospital_id "
-            "AND a2.phone = a.phone AND a2.created_at < ?)",
-            (hospital_id, day_start, day_end, day_start),
-        ).fetchone()["c"]
-        no_shows = conn.execute(
-            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ? "
-            "AND scheduled_at < ? AND status = ?",
-            (hospital_id, day_start, day_end, no_show_cutoff.isoformat(), STATUS_BOOKED),
-        ).fetchone()["c"]
+        A = AppointmentRow
+        total = session.execute(
+            select(func.count()).select_from(A)
+            .where(A.hospital_id == hospital_id, A.scheduled_at >= day_start, A.scheduled_at <= day_end)
+        ).scalar_one()
+        confirmed = session.execute(
+            select(func.count()).select_from(A)
+            .where(A.hospital_id == hospital_id, A.scheduled_at >= day_start, A.scheduled_at <= day_end,
+                   A.status == STATUS_BOOKED)
+        ).scalar_one()
+        A2 = aliased(AppointmentRow)
+        exists_earlier = (
+            select(1).select_from(A2)
+            .where(A2.hospital_id == A.hospital_id, A2.phone == A.phone, A2.created_at < day_start)
+            .correlate(A)
+            .exists()
+        )
+        new_patients = session.execute(
+            select(func.count(func.distinct(A.phone))).select_from(A)
+            .where(A.hospital_id == hospital_id, A.created_at >= day_start, A.created_at <= day_end,
+                   ~exists_earlier)
+        ).scalar_one()
+        no_shows = session.execute(
+            select(func.count()).select_from(A)
+            .where(A.hospital_id == hospital_id, A.scheduled_at >= day_start, A.scheduled_at <= day_end,
+                   A.scheduled_at < no_show_cutoff.isoformat(), A.status == STATUS_BOOKED)
+        ).scalar_one()
         return {"total": total, "confirmed": confirmed, "new_patients": new_patients, "no_shows": no_shows}
 
     today_stats = _stats_for_day(today, now)
@@ -83,10 +94,11 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
             return None
         return round((today_v - last_week_v) / last_week_v * 100, 1)
 
-    upcoming_row = conn.execute(
-        "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at > ? AND status = ?",
-        (hospital_id, now.isoformat(), STATUS_BOOKED),
-    ).fetchone()
+    upcoming_count = session.execute(
+        select(func.count()).select_from(AppointmentRow)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.scheduled_at > now.isoformat(),
+               AppointmentRow.status == STATUS_BOOKED)
+    ).scalar_one()
 
     return {
         "today_appointments": today_stats["total"],
@@ -103,7 +115,7 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
         # real booking just came in reads as broken. No delta_pct: a plain
         # forward-looking count, not a daily rate, so a week-over-week
         # comparison doesn't mean the same thing here.
-        "upcoming_appointments": upcoming_row["c"],
+        "upcoming_appointments": upcoming_count,
     }
 
 
@@ -116,16 +128,17 @@ def get_weekly_appointment_counts(hospital_id: int, now: datetime | None = None)
     number reading the same way)."""
     now = now or datetime.now()
     today = now.date()
-    conn = get_connection()
+    session = get_session()
     results = []
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
         day_start = datetime.combine(day, datetime.min.time()).isoformat()
         day_end = datetime.combine(day, datetime.max.time()).isoformat()
-        count = conn.execute(
-            "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND scheduled_at >= ? AND scheduled_at <= ?",
-            (hospital_id, day_start, day_end),
-        ).fetchone()["c"]
+        count = session.execute(
+            select(func.count()).select_from(AppointmentRow)
+            .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.scheduled_at >= day_start,
+                   AppointmentRow.scheduled_at <= day_end)
+        ).scalar_one()
         results.append({"date": day.isoformat(), "label": day.strftime("%a"), "count": count})
     return results
 
@@ -142,15 +155,17 @@ def get_appointments_by_department(hospital_id: int, days: int = 30, now: dateti
     now = now or datetime.now()
     window_start = datetime.combine(now.date() - timedelta(days=days - 1), datetime.min.time())
     window_end = datetime.combine(now.date() + timedelta(days=days), datetime.max.time())
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT d.name AS department_name, COUNT(*) AS c FROM appointments a "
-        "JOIN departments d ON d.id = a.department_id "
-        "WHERE a.hospital_id = ? AND a.scheduled_at >= ? AND a.scheduled_at <= ? "
-        "GROUP BY d.name ORDER BY c DESC",
-        (hospital_id, window_start.isoformat(), window_end.isoformat()),
-    ).fetchall()
-    return [{"department_name": r["department_name"], "count": r["c"]} for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(Department.name.label("department_name"), func.count().label("c"))
+        .select_from(AppointmentRow)
+        .join(Department, Department.id == AppointmentRow.department_id)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.scheduled_at >= window_start.isoformat(),
+               AppointmentRow.scheduled_at <= window_end.isoformat())
+        .group_by(Department.name)
+        .order_by(func.count().desc())
+    ).all()
+    return [{"department_name": r.department_name, "count": r.c} for r in rows]
 
 
 def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:
@@ -171,20 +186,20 @@ def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:
     time -- the OLD row's "Rescheduled appointment" and the NEW row's own
     later "Booked appointment" -- which is correct, not a double-count: two
     real, separately-timed things happened."""
-    conn = get_connection()
-    rows = conn.execute(
-        """
-        SELECT a.status, a.phone, doc.name AS doctor_name, d.name AS department_name,
-               a.created_at, a.updated_at
-        FROM appointments a
-        JOIN departments d ON d.id = a.department_id
-        JOIN doctors doc ON doc.id = a.doctor_id
-        WHERE a.hospital_id = ?
-        ORDER BY COALESCE(a.updated_at, a.created_at) DESC
-        LIMIT ?
-        """,
-        (hospital_id, limit),
-    ).fetchall()
+    session = get_session()
+    order_col = func.coalesce(AppointmentRow.updated_at, AppointmentRow.created_at)
+    rows = session.execute(
+        select(
+            AppointmentRow.status, AppointmentRow.phone, DoctorRow.name.label("doctor_name"),
+            Department.name.label("department_name"), AppointmentRow.created_at, AppointmentRow.updated_at,
+        )
+        .select_from(AppointmentRow)
+        .join(Department, Department.id == AppointmentRow.department_id)
+        .join(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
+        .where(AppointmentRow.hospital_id == hospital_id)
+        .order_by(order_col.desc())
+        .limit(limit)
+    ).all()
     labels = {
         STATUS_BOOKED: "Booked appointment",
         STATUS_CANCELLED: "Cancelled appointment",
@@ -192,12 +207,12 @@ def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:
     }
     feed = []
     for r in rows:
-        event_at = r["updated_at"] or r["created_at"]
+        event_at = r.updated_at or r.created_at
         feed.append({
-            "label": labels.get(r["status"], r["status"]),
-            "phone": r["phone"],
-            "doctor_name": r["doctor_name"],
-            "department_name": r["department_name"],
+            "label": labels.get(r.status, r.status),
+            "phone": r.phone,
+            "doctor_name": r.doctor_name,
+            "department_name": r.department_name,
             "at": datetime.fromisoformat(event_at),
         })
     return feed

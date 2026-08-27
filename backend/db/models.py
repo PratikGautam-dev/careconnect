@@ -173,15 +173,27 @@ def _next_patient_display_sequence(conn, hospital_id: int) -> int:
     return row["counter"]
 
 
-def _generate_patient_display_id(conn, hospital_id: int) -> str:
-    """PAT-<hospital short code>-<sequential number>, e.g. PAT-MLH-0001 --
-    zero-padded to 4 digits, sequential PER HOSPITAL (patient_id_counters),
-    not global. Called exactly once per patient, by _upsert_patient() below
-    the moment a `patients` row is first created, and by db/init_db.py's
-    one-time backfill for patients created before this feature existed."""
+def _generate_patient_identifiers(conn, hospital_id: int) -> tuple[str, str]:
+    """Returns (patient_display_id, mrn), generated together and sharing the
+    SAME per-hospital sequence number (patient_id_counters) -- zero-padded
+    to 4 digits, sequential PER HOSPITAL, not global.
+
+    patient_display_id (DCC-PAT-<seq>, e.g. DCC-PAT-0001) is the portal-
+    facing internal id -- hospital-agnostic-looking on purpose, since the
+    portal is always scoped to one hospital's own session anyway.
+
+    mrn (MRN-<hospital short code>-<seq>, e.g. MRN-MLH-0001) is the
+    hospital-specific clinical/legal record number -- same short-code
+    derivation as before.
+
+    Called exactly once per patient, by _upsert_patient()
+    (db/repositories/appointments.py) / create_patient_profile()
+    (db/repositories/patients.py) the moment a `patients` row is first
+    created, and by db/init_db.py's one-time backfill for patients created
+    before this feature existed."""
     code = _get_or_create_hospital_short_code(conn, hospital_id)
     seq = _next_patient_display_sequence(conn, hospital_id)
-    return f"PAT-{code}-{seq:04d}"
+    return f"DCC-PAT-{seq:04d}", f"MRN-{code}-{seq:04d}"
 
 
 @dataclass

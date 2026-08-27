@@ -6,10 +6,30 @@ import hashlib
 import hmac
 import json as json_lib
 import os
+from typing import cast
 
-from db.connection import get_connection
+import sqlalchemy.exc
+from sqlalchemy import insert, select, update
+
+from db.connection import get_session, reraise_as_driver_integrity_error
 from db.models import Hospital
+from db.orm_models import AppointmentType, HospitalRow
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
+
+# Every column _row_to_hospital() below reads, in one place so every SELECT
+# in this file lists the identical set -- matches the original "SELECT *"
+# queries' full-row shape without repeating this 26-column list per function.
+_HOSPITAL_COLUMNS = (
+    HospitalRow.id, HospitalRow.name, HospitalRow.whatsapp_phone_number_id,
+    HospitalRow.meta_access_token_ref, HospitalRow.app_secret_ref, HospitalRow.timezone,
+    HospitalRow.welcome_message_text, HospitalRow.reminder_offsets_hours, HospitalRow.reminder_template_name,
+    HospitalRow.is_active, HospitalRow.data_tier, HospitalRow.external_api_base_url,
+    HospitalRow.external_api_key, HospitalRow.portal_password_hash, HospitalRow.enabled_features,
+    HospitalRow.feature_labels, HospitalRow.closing_message_text, HospitalRow.business_hours_text,
+    HospitalRow.default_language, HospitalRow.language_prompt_enabled, HospitalRow.session_timeout_minutes,
+    HospitalRow.require_patient_confirmation, HospitalRow.privacy_notice_text, HospitalRow.tenant_type,
+    HospitalRow.admin_capabilities, HospitalRow.dpdp_consent_required,
+)
 
 # --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
 
@@ -85,7 +105,12 @@ def _row_to_hospital(row) -> Hospital:
         app_secret=row["app_secret_ref"],
         timezone=row["timezone"],
         welcome_message_text=row["welcome_message_text"],
-        reminder_offsets_hours=offsets,
+        # Values in the stored JSON can be JSON ints (e.g. [24, 1]) as well as
+        # floats -- cast, not converted, since callers format these back to
+        # text for display (portal/routes/settings.py, admin/tenants_api.py)
+        # and str(24) != str(24.0); the Hospital dataclass's list[float]
+        # annotation is a typing convenience, not a runtime guarantee.
+        reminder_offsets_hours=cast(list[float], offsets),
         reminder_template_name=row["reminder_template_name"],
         is_active=bool(row["is_active"]),
         data_tier=row["data_tier"],
@@ -114,20 +139,23 @@ def find_hospital_by_phone_number_id(phone_number_id: str) -> Hospital | None:
     given the phone_number_id from an incoming webhook's `metadata`, resolve which
     hospital received it. Only active hospitals are matched — a deactivated
     hospital's number should be treated the same as an unrecognized one."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM hospitals WHERE whatsapp_phone_number_id = ? AND is_active = 1",
-        (phone_number_id,),
-    ).fetchone()
-    return _row_to_hospital(row) if row else None
+    session = get_session()
+    row = session.execute(
+        select(*_HOSPITAL_COLUMNS).where(
+            HospitalRow.whatsapp_phone_number_id == phone_number_id, HospitalRow.is_active == 1,
+        )
+    ).first()
+    return _row_to_hospital(row._mapping) if row else None
 
 
 def get_active_hospitals() -> list[Hospital]:
     """Used by reminders/scheduler.py's caller (core/main.py) to loop over every
     active hospital rather than a single startup-resolved one."""
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM hospitals WHERE is_active = 1 ORDER BY id").fetchall()
-    return [_row_to_hospital(r) for r in rows]
+    session = get_session()
+    rows = session.execute(
+        select(*_HOSPITAL_COLUMNS).where(HospitalRow.is_active == 1).order_by(HospitalRow.id)
+    ).all()
+    return [_row_to_hospital(r._mapping) for r in rows]
 
 
 def get_all_hospitals() -> list[Hospital]:
@@ -135,15 +163,15 @@ def get_all_hospitals() -> list[Hospital]:
     list page (Section 12.1 follow-up: closing the "onboarding is self-serve,
     correcting it isn't" gap) needs to show every onboarded tenant, not just
     active ones, so there's somewhere to find a deactivated tenant's id too."""
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM hospitals ORDER BY id").fetchall()
-    return [_row_to_hospital(r) for r in rows]
+    session = get_session()
+    rows = session.execute(select(*_HOSPITAL_COLUMNS).order_by(HospitalRow.id)).all()
+    return [_row_to_hospital(r._mapping) for r in rows]
 
 
 def get_hospital(hospital_id: int) -> Hospital | None:
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,)).fetchone()
-    return _row_to_hospital(row) if row else None
+    session = get_session()
+    row = session.execute(select(*_HOSPITAL_COLUMNS).where(HospitalRow.id == hospital_id)).first()
+    return _row_to_hospital(row._mapping) if row else None
 
 
 def find_hospital_by_portal_password(password: str) -> Hospital | None:
@@ -229,29 +257,38 @@ def create_hospital(
     precedent enabled_features already sets. None stores NULL (falls back
     to the type default at read time, backend/portal/capabilities.py's
     get_capabilities())."""
-    conn = get_connection()
+    session = get_session()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
     feature_labels_json = json_lib.dumps(feature_labels or {})
     admin_capabilities_json = json_lib.dumps(admin_capabilities) if admin_capabilities is not None else None
     portal_password_hash = hash_portal_password(portal_password) if portal_password else None
-    cur = conn.execute(
-        "INSERT INTO hospitals (name, whatsapp_phone_number_id, meta_access_token_ref, app_secret_ref, "
-        "timezone, welcome_message_text, reminder_offsets_hours, reminder_template_name, "
-        "data_tier, external_api_base_url, external_api_key, portal_password_hash, enabled_features, "
-        "feature_labels, closing_message_text, business_hours_text, default_language, "
-        "language_prompt_enabled, session_timeout_minutes, require_patient_confirmation, privacy_notice_text, "
-        "tenant_type, admin_capabilities, dpdp_consent_required) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
-         welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
-         feature_labels_json, closing_message_text, business_hours_text, default_language,
-         int(language_prompt_enabled), session_timeout_minutes,
-         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json,
-         bool(dpdp_consent_required)),
-    )
-    new_id = cur.fetchone()["id"]
+    try:
+        new_id = session.execute(
+            insert(HospitalRow)
+            .values(
+                name=name, whatsapp_phone_number_id=whatsapp_phone_number_id,
+                meta_access_token_ref=access_token, app_secret_ref=app_secret, timezone=timezone,
+                welcome_message_text=welcome_message_text, reminder_offsets_hours=offsets_json,
+                reminder_template_name=reminder_template_name, data_tier=data_tier,
+                external_api_base_url=external_api_base_url, external_api_key=external_api_key,
+                portal_password_hash=portal_password_hash, enabled_features=features_json,
+                feature_labels=feature_labels_json, closing_message_text=closing_message_text,
+                business_hours_text=business_hours_text, default_language=default_language,
+                language_prompt_enabled=int(language_prompt_enabled), session_timeout_minutes=session_timeout_minutes,
+                require_patient_confirmation=bool(require_patient_confirmation), privacy_notice_text=privacy_notice_text,
+                tenant_type=tenant_type, admin_capabilities=admin_capabilities_json,
+                dpdp_consent_required=bool(dpdp_consent_required),
+            )
+            .returning(HospitalRow.id)
+        ).scalar_one()
+    except sqlalchemy.exc.IntegrityError as e:
+        # Raised when whatsapp_phone_number_id already belongs to another
+        # hospital (db/schema.sql's UNIQUE constraint) -- admin/onboarding_api.py
+        # catches this as db.connection.IntegrityError (psycopg2's), so it
+        # must be re-raised as that same type, not SQLAlchemy's wrapper.
+        session.rollback()
+        reraise_as_driver_integrity_error(e)
     # Appointment type step (WhatsApp flow alignment): every new hospital
     # gets the same fixed catalog db/init_db.py's own startup backfill seeds
     # for pre-existing hospitals (DEFAULT_APPOINTMENT_TYPES is the single
@@ -260,17 +297,17 @@ def create_hospital(
     # test that creates a hospital mid-run) would have ZERO appointment
     # types and booking would have nothing to offer at that step.
     for sort_order, appt_type in enumerate(DEFAULT_APPOINTMENT_TYPES):
-        conn.execute(
-            "INSERT INTO appointment_types "
-            "(id, hospital_id, label, requires_consent, requires_doctor_selection, sort_order) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                appt_type["id"], new_id, appt_type["label"], appt_type["requires_consent"],
-                appt_type["requires_doctor_selection"], sort_order,
-            ),
+        session.execute(
+            insert(AppointmentType).values(
+                id=appt_type["id"], hospital_id=new_id, label=appt_type["label"],
+                requires_consent=appt_type["requires_consent"],
+                requires_doctor_selection=appt_type["requires_doctor_selection"], sort_order=sort_order,
+            )
         )
-    conn.commit()
-    return get_hospital(new_id)
+    session.commit()
+    created = get_hospital(new_id)
+    assert created is not None  # the row was just committed above
+    return created
 
 
 def update_hospital(
@@ -342,28 +379,40 @@ def update_hospital(
     endpoint actually changes these (the tenant/platform admin flipping a
     clinic's capability set); every other caller passes the hospital's
     existing tenant_type/admin_capabilities straight through."""
-    conn = get_connection()
+    session = get_session()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
     feature_labels_json = json_lib.dumps(feature_labels or {})
     admin_capabilities_json = json_lib.dumps(admin_capabilities) if admin_capabilities is not None else None
-    conn.execute(
-        "UPDATE hospitals SET name = ?, whatsapp_phone_number_id = ?, meta_access_token_ref = ?, "
-        "app_secret_ref = ?, timezone = ?, welcome_message_text = ?, reminder_offsets_hours = ?, "
-        "reminder_template_name = ?, data_tier = ?, external_api_base_url = ?, external_api_key = ?, "
-        "portal_password_hash = ?, enabled_features = ?, feature_labels = ?, closing_message_text = ?, "
-        "business_hours_text = ?, default_language = ?, language_prompt_enabled = ?, "
-        "session_timeout_minutes = ?, require_patient_confirmation = ?, privacy_notice_text = ?, "
-        "tenant_type = ?, admin_capabilities = ?, dpdp_consent_required = ? WHERE id = ?",
-        (name, whatsapp_phone_number_id, access_token, app_secret, timezone,
-         welcome_message_text, offsets_json, reminder_template_name,
-         data_tier, external_api_base_url, external_api_key, portal_password_hash, features_json,
-         feature_labels_json, closing_message_text, business_hours_text, default_language,
-         int(language_prompt_enabled), session_timeout_minutes,
-         bool(require_patient_confirmation), privacy_notice_text, tenant_type, admin_capabilities_json,
-         bool(dpdp_consent_required), hospital_id),
-    )
-    conn.commit()
-    return get_hospital(hospital_id)
+    try:
+        session.execute(
+            update(HospitalRow)
+            .where(HospitalRow.id == hospital_id)
+            .values(
+                name=name, whatsapp_phone_number_id=whatsapp_phone_number_id,
+                meta_access_token_ref=access_token, app_secret_ref=app_secret, timezone=timezone,
+                welcome_message_text=welcome_message_text, reminder_offsets_hours=offsets_json,
+                reminder_template_name=reminder_template_name, data_tier=data_tier,
+                external_api_base_url=external_api_base_url, external_api_key=external_api_key,
+                portal_password_hash=portal_password_hash, enabled_features=features_json,
+                feature_labels=feature_labels_json, closing_message_text=closing_message_text,
+                business_hours_text=business_hours_text, default_language=default_language,
+                language_prompt_enabled=int(language_prompt_enabled), session_timeout_minutes=session_timeout_minutes,
+                require_patient_confirmation=bool(require_patient_confirmation), privacy_notice_text=privacy_notice_text,
+                tenant_type=tenant_type, admin_capabilities=admin_capabilities_json,
+                dpdp_consent_required=bool(dpdp_consent_required),
+            )
+        )
+    except sqlalchemy.exc.IntegrityError as e:
+        # Raised when whatsapp_phone_number_id is changed to a value another
+        # hospital already uses -- admin/tenants_api.py catches this as
+        # db.connection.IntegrityError (psycopg2's), same reasoning as
+        # create_hospital()'s own try/except above.
+        session.rollback()
+        reraise_as_driver_integrity_error(e)
+    session.commit()
+    updated = get_hospital(hospital_id)
+    assert updated is not None  # caller has already resolved hospital_id to an existing row
+    return updated
 
 

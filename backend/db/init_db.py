@@ -1,6 +1,8 @@
 # db/init_db.py
 """
-Creates the schema (db/schema.sql, SPEC Section 4) and seeds the default
+Creates the schema (SPEC Section 4 -- see db/migrations/versions/
+0001_baseline_schema.py's frozen SQL, or db/schema.sql for the same content
+kept as a human-readable, no-longer-executed reference) and seeds the default
 hospital (db/seed.py). Safe to re-run — every CREATE is IF NOT EXISTS and
 seed_default_hospital() no-ops if that hospital already exists.
 
@@ -9,16 +11,53 @@ Run directly to set up (or update) the on-disk database:
 core/main.py also calls init_db() once at startup, so a fresh clone works
 without a manual step.
 """
+import importlib
 import re
 from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 
 from core.config import get_settings
 from db import seed
 from db.connection import get_connection, get_database_url
+from db.repositories.accounts import _get_or_create_account_in_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
-from db.repository import _generate_patient_display_id
+from db.repository import _generate_patient_identifiers, _get_or_create_hospital_short_code
 
-_SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+# SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+_ALEMBIC_INI_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+# db/schema.sql is retired as a runtime dependency -- kept on disk purely as
+# a human-readable reference (SPEC Section 4's own schema documentation).
+# db/migrations/versions/0001_baseline_schema.py's _BASELINE_SQL is a frozen,
+# byte-for-byte snapshot of it taken at the moment Alembic was adopted, and is
+# now the actual source this module applies -- importlib, not a normal
+# `import`, because "0001_baseline_schema" isn't a valid Python identifier.
+_baseline_schema = importlib.import_module("db.migrations.versions.0001_baseline_schema")
+
+
+def run_alembic_migrations() -> None:
+    """Establishes schema version tracking (alembic_version table) going
+    forward -- production/dev only, deliberately NOT called by
+    init_db_on_connection() below, so the per-test fixture in
+    tests/conftest.py (which calls init_db_on_connection() directly, hundreds
+    of times per run) is completely unaffected by this addition.
+
+    Safe to run every time this process starts, including against a database
+    the baseline schema is already fully applied to: migration 0001
+    (db/migrations/versions/0001_baseline_schema.py) is entirely IF NOT
+    EXISTS/IF EXISTS-guarded, so replaying it is a verified no-op.
+    init_db_on_connection() below still separately applies that same frozen
+    baseline SQL too, for the same reason -- redundant but harmless."""
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+    # alembic.ini's script_location is the relative path "db/migrations",
+    # which Alembic resolves against the process's CWD, not the ini file's
+    # own directory -- overridden here to an absolute path so this works
+    # regardless of where this process was started from (e.g. Docker's
+    # CMD/WORKDIR, or `python -m db.init_db` run from an unexpected cwd).
+    alembic_cfg.set_main_option("script_location", str(_ALEMBIC_INI_PATH.parent / "db" / "migrations"))
+    command.upgrade(alembic_cfg, "head")
 
 
 def _backfill_enabled_features(conn) -> None:
@@ -106,17 +145,19 @@ def _backfill_appointment_patient_age(conn) -> None:
 
 def _backfill_patient_display_ids(conn) -> None:
     """Patient identity system (Spec.md Section 0): every patient created
-    before this feature existed has patient_display_id still NULL --
-    assigned here, in CREATION ORDER per hospital (created_at, then id as a
-    tiebreak for same-instant rows), via the exact same
-    _generate_patient_display_id() (short-code derivation + the
+    before this feature existed has patient_display_id (and mrn) still
+    NULL -- assigned here, in CREATION ORDER per hospital (created_at, then
+    id as a tiebreak for same-instant rows), via the exact same
+    _generate_patient_identifiers() (short-code derivation + the
     patient_id_counters atomic sequence) that create_appointment()'s
     _upsert_patient() uses for every NEW patient going forward -- so the
     counter this backfill leaves behind is exactly where the next real
     patient's id continues from, no gap or collision. Only ever touches
     patient_display_id IS NULL rows, so re-running this on every startup is
     a safe no-op once every hospital is caught up (each hospital's counter
-    only advances while there's still a NULL row left for it)."""
+    only advances while there's still a NULL row left for it). See
+    _backfill_patient_mrns() below for the separate case of a patient that
+    already has a patient_display_id but predates the mrn column."""
     hospital_ids = [
         row["hospital_id"] for row in conn.execute(
             "SELECT DISTINCT hospital_id FROM patients WHERE patient_display_id IS NULL ORDER BY hospital_id"
@@ -131,8 +172,32 @@ def _backfill_patient_display_ids(conn) -> None:
             ).fetchall()
         ]
         for patient_id in patient_ids:
-            display_id = _generate_patient_display_id(conn, hospital_id)
-            conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, patient_id))
+            display_id, mrn = _generate_patient_identifiers(conn, hospital_id)
+            conn.execute(
+                "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, patient_id),
+            )
+    conn.commit()
+
+
+def _backfill_patient_mrns(conn) -> None:
+    """mrn is a NEWER column than patient_display_id -- a patient that
+    already got a patient_display_id before mrn existed needs an mrn too,
+    but WITHOUT consuming a fresh patient_id_counters number (that would
+    break the "same sequence number" pairing _generate_patient_identifiers()
+    guarantees for every patient created after this column existed).
+    Instead, reuses the number already embedded in that patient's own
+    patient_display_id suffix (e.g. ...-0007 -> MRN-<code>-0007). Only
+    touches mrn IS NULL rows, so re-running this on every startup is a
+    no-op once every hospital is caught up."""
+    rows = conn.execute(
+        "SELECT id, hospital_id, patient_display_id FROM patients "
+        "WHERE mrn IS NULL AND patient_display_id IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        code = _get_or_create_hospital_short_code(conn, row["hospital_id"])
+        seq_part = row["patient_display_id"].rsplit("-", 1)[1]
+        mrn = f"MRN-{code}-{seq_part}"
+        conn.execute("UPDATE patients SET mrn = ? WHERE id = ?", (mrn, row["id"]))
     conn.commit()
 
 
@@ -149,6 +214,14 @@ def _backfill_patient_links(conn) -> None:
     the old UNIQUE(hospital_id, phone) constraint, but this keeps the
     backfill correct even in that edge case rather than assuming it away).
 
+    care_connect_account_id is resolved/created inline via the same raw-conn
+    helper _link_patient_under_cap() uses (patients.py) -- patient_links.
+    care_connect_account_id is NOT NULL, so the row has to be stamped with a
+    real account at INSERT time; there's no later pass that goes back and
+    fills it in. Deliberately collapses onto ONE shared account per distinct
+    whatsapp_phone across ALL hospitals (not one per hospital), matching
+    get_or_create_account()'s own global-identity resolution.
+
     Gated on NOT EXISTS (one link per patient, not per phone -- a patient
     with two links from a bad prior run would break this gate, but nothing
     in this codebase ever creates more than one link per patient), so
@@ -156,53 +229,17 @@ def _backfill_patient_links(conn) -> None:
     patient is linked. Does not touch `patients` or `appointments` at all --
     purely additive rows in the new table, zero risk to existing booking
     history or Patient IDs."""
-    conn.execute(
-        "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label, linked_at) "
-        "SELECT p.hospital_id, p.phone, p.id, 'Self', p.created_at FROM patients p "
+    rows = conn.execute(
+        "SELECT p.hospital_id, p.phone, p.id AS patient_id, p.created_at FROM patients p "
         "WHERE NOT EXISTS (SELECT 1 FROM patient_links pl WHERE pl.patient_id = p.id)"
-    )
-    conn.commit()
-
-
-def _backfill_care_connect_accounts(conn) -> None:
-    """CareConnect account/identity layer (db/schema.sql's own comment on
-    care_connect_accounts/whatsapp_identities): every patient_links row that
-    predates this feature (i.e. every one that currently exists, since this
-    migration ships alongside the feature itself) needs a care_connect_account_id.
-    Deliberately collapses onto ONE shared account per distinct whatsapp_phone
-    across ALL hospitals (not one per hospital) -- the account layer is global
-    by design (see schema comment), so if the same phone already has links at
-    two different hospitals today, this is exactly the case that should
-    resolve to a single account, matching how a real person's identity
-    actually works.
-
-    provider_user_id is set to the phone itself -- the practical fallback
-    since historical rows never captured a real WhatsApp wa_id distinct from
-    the phone string. Gated on care_connect_account_id IS NULL, so re-running
-    this on every startup is a safe no-op once every phone is caught up."""
-    phones = [
-        row["whatsapp_phone"] for row in conn.execute(
-            "SELECT DISTINCT whatsapp_phone FROM patient_links WHERE care_connect_account_id IS NULL"
-        ).fetchall()
-    ]
-    for phone in phones:
-        account_row = conn.execute(
-            "SELECT care_connect_account_id FROM whatsapp_identities WHERE provider_user_id = ?", (phone,),
-        ).fetchone()
-        if account_row is not None:
-            account_id = account_row["care_connect_account_id"]
-        else:
-            new_account = conn.execute("INSERT INTO care_connect_accounts DEFAULT VALUES RETURNING id").fetchone()
-            account_id = new_account["id"]
-            conn.execute(
-                "INSERT INTO whatsapp_identities (care_connect_account_id, provider_user_id, phone_number) "
-                "VALUES (?, ?, ?)",
-                (account_id, phone, phone),
-            )
+    ).fetchall()
+    for row in rows:
+        account = _get_or_create_account_in_conn(conn, row["phone"], phone_number=row["phone"])
         conn.execute(
-            "UPDATE patient_links SET care_connect_account_id = ? "
-            "WHERE whatsapp_phone = ? AND care_connect_account_id IS NULL",
-            (account_id, phone),
+            "INSERT INTO patient_links "
+            "(hospital_id, whatsapp_phone, patient_id, relationship_label, linked_at, care_connect_account_id) "
+            "VALUES (?, ?, ?, 'Self', ?, ?)",
+            (row["hospital_id"], row["phone"], row["patient_id"], row["created_at"], account["id"]),
         )
     conn.commit()
 
@@ -318,9 +355,29 @@ def _backfill_handoff_messages(conn) -> None:
 
 def init_db_on_connection(conn) -> int:
     """Apply schema + seed data to an already-open connection. Used directly by
-    tests (against an in-memory DB) and internally by init_db() below."""
-    schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
-    conn.executescript(schema_sql)
+    tests (against an in-memory DB) and internally by init_db() below.
+
+    run_alembic_migrations() is deliberately NOT called here (see its own
+    docstring) -- the per-test fixture in tests/conftest.py calls this
+    function directly, hundreds of times per run, and never runs Alembic at
+    all. So every schema DELTA added after the 0001 baseline (migrations
+    0002+) needs its own idempotent statement here too, same
+    "ALTER TABLE ... ADD COLUMN IF NOT EXISTS" pattern schema.sql used for
+    years before Alembic adoption -- redundant against a DB that already
+    got there via `alembic upgrade head` (prod), but the only way it
+    reaches a test's freshly-recreated schema at all."""
+    # schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+    # conn.executescript(schema_sql)
+    conn.executescript(_baseline_schema._BASELINE_SQL)
+    # Migration 0002: patient_links.care_connect_account_id NOT NULL.
+    conn.execute("ALTER TABLE patient_links ALTER COLUMN care_connect_account_id SET NOT NULL")
+    # Migration 0003: patients.mrn.
+    conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS mrn TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_mrn "
+        "ON patients(hospital_id, mrn) WHERE mrn IS NOT NULL"
+    )
+    conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
     phone_number_id = _settings.WHATSAPP_PHONE_NUMBER_ID
@@ -339,8 +396,8 @@ def init_db_on_connection(conn) -> int:
     _backfill_appointment_patient_denorm(conn)
     _backfill_appointment_patient_age(conn)
     _backfill_patient_display_ids(conn)
+    _backfill_patient_mrns(conn)
     _backfill_patient_links(conn)
-    _backfill_care_connect_accounts(conn)
     _backfill_appointment_types(conn)
     _backfill_reports_prescriptions_feature(conn)
     _backfill_admin_capabilities(conn)
@@ -357,6 +414,7 @@ def init_db() -> int:
     connection object.
     Returns the seeded hospital's id.
     """
+    run_alembic_migrations()
     conn = get_connection()
     return init_db_on_connection(conn)
 

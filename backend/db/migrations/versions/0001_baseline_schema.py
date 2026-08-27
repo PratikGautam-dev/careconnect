@@ -1,3 +1,35 @@
+"""baseline schema snapshot
+
+Revision ID: 0001
+Revises:
+Create Date: 2026-08-27
+
+Captures db/schema.sql byte-for-byte, frozen at the moment Alembic was
+adopted -- this is what makes it a *baseline*, not a live mirror: db/schema.sql
+is still read by db/init_db.py today (unchanged in this migration), and this
+revision's SQL will NOT be updated if schema.sql changes later. Every future
+schema change becomes its own new Alembic revision instead.
+
+Safe to run against an already-migrated production database: every statement
+below is IF NOT EXISTS / IF EXISTS-guarded (schema.sql's own long-standing
+"safe to re-run" convention -- see its own header comment), so replaying it
+is a no-op there. On a brand-new database it produces the exact schema
+db/init_db.py's `conn.executescript(schema_sql)` path already produces.
+
+No downgrade: this is a snapshot of everything that existed before Alembic
+was adopted, not one incremental step -- there is no well-defined "previous
+state" to revert to.
+"""
+from typing import Sequence, Union
+
+from alembic import op
+
+revision: str = "0001"
+down_revision: Union[str, None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+_BASELINE_SQL = r"""
 -- db/schema.sql
 -- SPEC Section 4 data model. Postgres (Neon), per Section 6/12.6 -- migrated
 -- off SQLite before real production load; db/repository.py is the only module
@@ -406,16 +438,6 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_display_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_display_id
     ON patients(hospital_id, patient_display_id) WHERE patient_display_id IS NOT NULL;
 
--- Clinical/legal record number, separate from the portal-facing
--- patient_display_id above -- see migration 0003. Generated together with
--- patient_display_id (same per-hospital sequence number,
--- db/models.py's _generate_patient_identifiers()): patient_display_id is
--- DCC-PAT-<seq> (hospital-agnostic-looking, for internal/portal display),
--- mrn is MRN-<hospital short code>-<seq> (hospital-specific).
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS mrn TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_mrn
-    ON patients(hospital_id, mrn) WHERE mrn IS NOT NULL;
-
 -- Patient identity SEPARATION (Spec.md Section 0, confirmed with the user via a
 -- reviewed plan before this touched production data): one WhatsApp number can
 -- now link up to 5 patient profiles (a shared family phone), so `patients` is no
@@ -545,15 +567,6 @@ CREATE TABLE IF NOT EXISTS appointment_types (
 
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_type_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS consent_given_at TEXT;
--- Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md): a
--- per-booking Jitsi Meet URL (https://meet.jit.si/CareConnect-<random-token>),
--- generated at confirmation time by flows/booking/types/tele_consultation.py
--- via TypeFlow.on_booking_confirmed -- the room name IS the access control
--- (Jitsi has no auth of its own), so the token must stay high-entropy
--- (secrets.token_urlsafe, never a predictable/sequential value) and this
--- column is the only place it's persisted. NULL for every appointment type
--- other than tele, and for any tele booking that predates this column.
-ALTER TABLE appointments ADD COLUMN IF NOT EXISTS video_link TEXT;
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
@@ -682,17 +695,14 @@ CREATE TABLE IF NOT EXISTS whatsapp_identities (
 );
 
 -- Informational link from a patient_links row back to the account that
--- created/owns it -- NOT NULL, stamped at INSERT time by every write path
--- (create_patient_profile()/link_existing_patient() in
--- db/repositories/patients.py, and db/init_db.py's own backfill for
--- pre-existing rows, both via the shared _get_or_create_account_in_conn()
--- helper). Not yet the join key any hospital-scoped lookup relies on
--- (whatsapp_phone still is, exactly as before) -- this column exists so the
--- account/identity layer is fully wired up and ready for a future portal/ERP
--- read to use, without rewriting every existing phone-keyed query in this
--- pass. See migration 0002 for the NOT NULL constraint (added after this
--- column existed as nullable for one release).
-ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER NOT NULL REFERENCES care_connect_accounts(id);
+-- created/owns it -- NULLable and populated going forward by
+-- create_patient_profile()/link_existing_patient() (db/repositories/patients.py),
+-- with a one-time backfill (db/init_db.py) for pre-existing rows. Not yet the
+-- join key any hospital-scoped lookup relies on (whatsapp_phone still is,
+-- exactly as before) -- this column exists so the account/identity layer is
+-- fully wired up and ready for a future portal/ERP read to use, without
+-- rewriting every existing phone-keyed query in this pass.
+ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER REFERENCES care_connect_accounts(id);
 
 -- DPDP Act consent gate (hospitals.dpdp_consent_required above): recorded
 -- once per (hospital, phone), right after language selection and BEFORE
@@ -908,3 +918,16 @@ CREATE TABLE IF NOT EXISTS hospital_users (
     created_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(hospital_id, user_id)
 );
+
+"""
+
+
+def upgrade() -> None:
+    op.execute(_BASELINE_SQL)
+
+
+def downgrade() -> None:
+    raise NotImplementedError(
+        "0001 is a frozen baseline snapshot, not a reversible incremental "
+        "migration -- see this module's docstring."
+    )

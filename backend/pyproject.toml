@@ -19,6 +19,8 @@ dependencies = [
     "itsdangerous==2.2.0",  # Starlette's SessionMiddleware (needed by Authlib's OAuth state/nonce handshake)
     "mercadopago==2.3.0",
     "pytz==2024.2",
+    "alembic>=1.19.1",
+    "sqlalchemy>=2.0.52",
 ]
 
 [dependency-groups]

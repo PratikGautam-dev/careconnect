@@ -391,14 +391,19 @@ def test_init_db_on_connection_is_idempotent(hospital_id):
 def test_execute_reconnects_when_connection_already_closed(hospital_id):
     """Covers db/connection.py's pre-check path: if .closed is already known
     True (e.g. a previous statement on this connection already discovered it
-    was dead) the next query must transparently reconnect, not raise."""
+    was dead) the next query must transparently reconnect, not raise.
+
+    Exercises _PGConnection.execute() directly (not a db.repositories.*
+    function) -- db.get_departments() used to be the trigger here, but it's
+    since migrated to the SQLAlchemy ORM path (get_session()), which
+    doesn't touch this raw connection at all anymore."""
     conn = db_connection.get_connection()
     conn._conn.close()
     assert conn._conn.closed
 
-    depts = db.get_departments(hospital_id)
+    row = conn.execute("SELECT COUNT(*) AS count FROM departments WHERE hospital_id = ?", (hospital_id,)).fetchone()
 
-    assert len(depts) == 4
+    assert row["count"] == 4
     assert not conn._conn.closed  # a fresh connection is in place afterward
 
 
@@ -409,7 +414,10 @@ def test_execute_reconnects_when_connection_dies_server_side_mid_session(hospita
     connection, standing in for it) leaves psycopg2's .closed attribute at 0
     until the client actually tries to use the connection and the query
     itself fails -- so this specifically proves the retry-after-exception
-    path, not just the "already known closed" pre-check."""
+    path, not just the "already known closed" pre-check.
+
+    Exercises _PGConnection.execute() directly -- same reasoning as
+    test_execute_reconnects_when_connection_already_closed above."""
     import psycopg2
 
     conn = db_connection.get_connection()
@@ -422,6 +430,8 @@ def test_execute_reconnects_when_connection_dies_server_side_mid_session(hospita
 
     assert conn._conn.closed == 0  # not yet detected -- this is the point
 
-    depts = db.get_departments(hospital_id)  # must reconnect transparently, not raise
+    row = conn.execute(  # must reconnect transparently, not raise
+        "SELECT COUNT(*) AS count FROM departments WHERE hospital_id = ?", (hospital_id,)
+    ).fetchone()
 
-    assert len(depts) == 4
+    assert row["count"] == 4
