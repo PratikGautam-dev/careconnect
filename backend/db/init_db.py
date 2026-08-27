@@ -179,6 +179,52 @@ def _backfill_patient_display_ids(conn) -> None:
     conn.commit()
 
 
+def _backfill_patient_link_accounts(conn) -> None:
+    """CareConnect account/identity layer (db/schema.sql's own comment on
+    care_connect_accounts/whatsapp_identities): catches any patient_links
+    row still missing a care_connect_account_id -- either a genuinely
+    legacy row (from before this layer existed) or one from a startup that
+    ran between this feature's rollout and this backfill catching up.
+    _link_patient_under_cap() (db/repositories/patients.py) stamps every
+    NEW row inline now, so this is a safety net, not the main write path --
+    but it MUST run before the ALTER ... SET NOT NULL below, or that
+    statement fails outright on any database with a row this hasn't caught
+    yet (see migration 0002's own docstring for how that broke in prod).
+
+    Deliberately collapses onto ONE shared account per distinct
+    whatsapp_phone across ALL hospitals (not one per hospital) -- the
+    account layer is global by design. provider_user_id is set to the
+    phone itself -- the practical fallback since historical rows never
+    captured a real WhatsApp wa_id distinct from the phone string. Gated on
+    care_connect_account_id IS NULL, so re-running this on every startup is
+    a safe no-op once every phone is caught up."""
+    phones = [
+        row["whatsapp_phone"] for row in conn.execute(
+            "SELECT DISTINCT whatsapp_phone FROM patient_links WHERE care_connect_account_id IS NULL"
+        ).fetchall()
+    ]
+    for phone in phones:
+        account_row = conn.execute(
+            "SELECT care_connect_account_id FROM whatsapp_identities WHERE provider_user_id = ?", (phone,),
+        ).fetchone()
+        if account_row is not None:
+            account_id = account_row["care_connect_account_id"]
+        else:
+            new_account = conn.execute("INSERT INTO care_connect_accounts DEFAULT VALUES RETURNING id").fetchone()
+            account_id = new_account["id"]
+            conn.execute(
+                "INSERT INTO whatsapp_identities (care_connect_account_id, provider_user_id, phone_number) "
+                "VALUES (?, ?, ?)",
+                (account_id, phone, phone),
+            )
+        conn.execute(
+            "UPDATE patient_links SET care_connect_account_id = ? "
+            "WHERE whatsapp_phone = ? AND care_connect_account_id IS NULL",
+            (account_id, phone),
+        )
+    conn.commit()
+
+
 def _backfill_patient_mrns(conn) -> None:
     """mrn is a NEWER column than patient_display_id -- a patient that
     already got a patient_display_id before mrn existed needs an mrn too,
@@ -369,7 +415,14 @@ def init_db_on_connection(conn) -> int:
     # schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     # conn.executescript(schema_sql)
     conn.executescript(_baseline_schema._BASELINE_SQL)
-    # Migration 0002: patient_links.care_connect_account_id NOT NULL.
+    # Migration 0002: patient_links.care_connect_account_id NOT NULL. Must
+    # backfill any legacy NULL row FIRST -- this ALTER runs unconditionally
+    # on every startup (prod included), and Postgres refuses to add a NOT
+    # NULL constraint while a NULL value still exists, which would crash
+    # init_db() (and the whole app, since main.py calls it at import time)
+    # on any database old enough to have a row that predates the
+    # CareConnect account layer.
+    _backfill_patient_link_accounts(conn)
     conn.execute("ALTER TABLE patient_links ALTER COLUMN care_connect_account_id SET NOT NULL")
     # Migration 0003: patients.mrn.
     conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS mrn TEXT")
