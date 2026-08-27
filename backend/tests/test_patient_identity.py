@@ -1,9 +1,12 @@
 # tests/test_patient_identity.py
 """
-Patient identity system (Spec.md Section 0): a permanent, human-readable
-Patient ID (PAT-<hospital short code>-<sequential number>, e.g. PAT-DEF-0001)
-generated ONCE per patient, at the moment a `patients` row is first created
-for a (hospital_id, phone) pair -- never regenerated on a later booking.
+Patient identity system (Spec.md Section 0): two permanent, human-readable
+ids generated ONCE per patient, together, sharing the same per-hospital
+sequence number -- patient_display_id (DCC-PAT-<sequential number>, e.g.
+DCC-PAT-0001, portal-facing) and mrn (MRN-<hospital short code>-<sequential
+number>, e.g. MRN-DEF-0001, the clinical/legal record number) -- assigned at
+the moment a `patients` row is first created for a (hospital_id, phone)
+pair, never regenerated on a later booking.
 
 Covers:
   - sequential + hospital-scoped generation (two hospitals both start at
@@ -12,7 +15,8 @@ Covers:
   - the one-time backfill assigns ids to pre-existing patients in creation
     order, no duplicates/gaps, and is idempotent
   - the hospital short code is derived once from the hospital's own name and
-    stored permanently (not recomputed on a later lookup)
+    stored permanently (not recomputed on a later lookup) -- visible in mrn,
+    not patient_display_id, which is hospital-agnostic-looking on purpose
 """
 from datetime import datetime, timedelta
 
@@ -59,10 +63,16 @@ def test_ids_are_sequential_and_hospital_scoped(hospital_id, second_hospital_id)
     # Hospital B's sequence starts independently at 0001, even though PHONE_A
     # already has a hospital-A record -- patients are hospital-scoped.
     assert patient_b1["patient_display_id"].endswith("-0001")
-    # Different hospitals -> different derived short codes ("Default
-    # Hospital" -> DEF, "Test Hospital 2" -> TH2).
-    assert patient_a1["patient_display_id"] == "PAT-DEF-0001"
-    assert patient_b1["patient_display_id"] == "PAT-TH2-0001"
+    # patient_display_id is hospital-agnostic-looking on purpose (portal-
+    # facing internal id) -- both hospitals' first patient get the exact
+    # same string.
+    assert patient_a1["patient_display_id"] == "DCC-PAT-0001"
+    assert patient_b1["patient_display_id"] == "DCC-PAT-0001"
+    # mrn is where the derived short code shows up ("Default Hospital" ->
+    # DEF, "Test Hospital 2" -> TH2), same sequence number as the paired
+    # patient_display_id.
+    assert patient_a1["mrn"] == "MRN-DEF-0001"
+    assert patient_b1["mrn"] == "MRN-TH2-0001"
 
 
 def test_id_is_never_regenerated_on_a_second_booking(hospital_id):
@@ -132,20 +142,23 @@ def test_backfill_assigns_ids_in_creation_order_with_no_duplicates_or_gaps(hospi
     _backfill_patient_display_ids(conn)
 
     rows = {
-        r["phone"]: r["patient_display_id"] for r in conn.execute(
-            "SELECT phone, patient_display_id FROM patients WHERE hospital_id = ? AND phone LIKE ?",
+        r["phone"]: (r["patient_display_id"], r["mrn"]) for r in conn.execute(
+            "SELECT phone, patient_display_id, mrn FROM patients WHERE hospital_id = ? AND phone LIKE ?",
             (hospital_id, "legacy-%"),
         ).fetchall()
     }
-    assert rows["legacy-1"] is not None and rows["legacy-2"] is not None and rows["legacy-3"] is not None
+    assert rows["legacy-1"][0] is not None and rows["legacy-2"][0] is not None and rows["legacy-3"][0] is not None
+    assert rows["legacy-1"][1] is not None and rows["legacy-2"][1] is not None and rows["legacy-3"][1] is not None
     # Assigned in CREATED_AT order, not insertion/id order.
-    seq1 = int(rows["legacy-1"].rsplit("-", 1)[1])
-    seq2 = int(rows["legacy-2"].rsplit("-", 1)[1])
-    seq3 = int(rows["legacy-3"].rsplit("-", 1)[1])
+    seq1 = int(rows["legacy-1"][0].rsplit("-", 1)[1])
+    seq2 = int(rows["legacy-2"][0].rsplit("-", 1)[1])
+    seq3 = int(rows["legacy-3"][0].rsplit("-", 1)[1])
     assert seq1 < seq2 < seq3
     # No gaps: consecutive.
     assert seq2 == seq1 + 1
     assert seq3 == seq2 + 1
+    # mrn shares the exact same sequence number as its paired patient_display_id.
+    assert rows["legacy-1"][1].rsplit("-", 1)[1] == rows["legacy-1"][0].rsplit("-", 1)[1]
     # No duplicates across the whole hospital.
     all_ids = [
         r["patient_display_id"] for r in conn.execute(

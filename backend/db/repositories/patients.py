@@ -5,12 +5,12 @@ see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime
 from typing import cast
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_connection, get_session
-from db.models import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError, _generate_patient_display_id
-from db.orm_models import AppointmentRow, PatientLink, PatientRow
+from db.models import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError, _generate_patient_identifiers
+from db.orm_models import AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
 from db.repositories.accounts import _get_or_create_account_in_conn
 
 # --- Patients (Section 12.9 -- staff-created bookings need to search by name,
@@ -67,7 +67,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     visit_count = func.count(AppointmentRow.id)
     stmt = (
         select(
-            PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id,
+            PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
             last_visit.label("last_visit"), visit_count.label("visit_count"),
         )
         .select_from(PatientRow)
@@ -76,7 +76,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
             and_(AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.phone == PatientRow.phone),
         )
         .where(PatientRow.hospital_id == hospital_id)
-        .group_by(PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id)
+        .group_by(PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn)
         .order_by(last_visit.desc().nulls_last(), PatientRow.name.nulls_last(), PatientRow.phone)
     )
     if search:
@@ -97,7 +97,7 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
     return [
         {
             "id": r.id, "phone": r.phone, "name": r.name, "patient_display_id": r.patient_display_id,
-            "last_visit": r.last_visit, "visit_count": r.visit_count,
+            "mrn": r.mrn, "last_visit": r.last_visit, "visit_count": r.visit_count,
         }
         for r in rows
     ]
@@ -114,7 +114,7 @@ def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
 
 _PATIENT_COLUMNS = (
     PatientRow.id, PatientRow.hospital_id, PatientRow.phone, PatientRow.name, PatientRow.date_of_birth,
-    PatientRow.gender, PatientRow.address, PatientRow.age, PatientRow.patient_display_id,
+    PatientRow.gender, PatientRow.address, PatientRow.age, PatientRow.patient_display_id, PatientRow.mrn,
     PatientRow.status, PatientRow.created_at,
 )
 
@@ -360,8 +360,10 @@ def create_patient_profile(
         ).fetchone()
         assert patient_row is not None  # INSERT ... RETURNING always returns the inserted row
         patient_id = patient_row["id"]
-        display_id = _generate_patient_display_id(conn, hospital_id)
-        conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, patient_id))
+        display_id, mrn = _generate_patient_identifiers(conn, hospital_id)
+        conn.execute(
+            "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, patient_id),
+        )
         _link_patient_under_cap(conn, hospital_id, phone, patient_id, relationship_label)
         conn.execute("COMMIT")
     except BaseException:
@@ -371,7 +373,7 @@ def create_patient_profile(
             pass
         raise
     return {
-        "id": patient_id, "name": name, "age": age, "patient_display_id": display_id,
+        "id": patient_id, "name": name, "age": age, "patient_display_id": display_id, "mrn": mrn,
         "relationship_label": relationship_label,
     }
 
@@ -500,6 +502,37 @@ def update_patient_profile(hospital_id: int, patient_id: int, name: str, age: in
     if result.rowcount == 0:
         return None
     return get_patient(hospital_id, patient_id)
+
+
+def delete_patient_hard(hospital_id: int, patient_id: int) -> bool:
+    """DEV/TESTING ONLY -- irreversibly removes the patient row plus every
+    row that references it (visit notes, documents, links). Appointments
+    are detached, not deleted: patient_id there is nullable, so booking/
+    scheduling history survives even though the patient it pointed to
+    doesn't. Swap the portal route to delete_patient_soft() before this
+    goes to production -- see that function's docstring."""
+    session = get_session()
+    session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id)
+        .values(patient_id=None)
+    )
+    session.execute(delete(PatientVisitNote).where(PatientVisitNote.hospital_id == hospital_id, PatientVisitNote.patient_id == patient_id))
+    session.execute(delete(PatientDocument).where(PatientDocument.hospital_id == hospital_id, PatientDocument.patient_id == patient_id))
+    session.execute(delete(PatientLink).where(PatientLink.hospital_id == hospital_id, PatientLink.patient_id == patient_id))
+    result = cast(CursorResult, session.execute(
+        delete(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)
+    ))
+    session.commit()
+    return result.rowcount > 0
+
+
+def delete_patient_soft(hospital_id: int, patient_id: int) -> dict | None:
+    """Production-safe alternative to delete_patient_hard() -- reuses the
+    existing PATIENT_STATUSES model (Section 18) instead of removing any
+    row, so appointment/visit history is preserved. Swap the portal route
+    to this once the app is out of dev/testing."""
+    return set_patient_status(hospital_id, patient_id, PATIENT_STATUS_INACTIVE)
 
 
 def update_patient_demographics(

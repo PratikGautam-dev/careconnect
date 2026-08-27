@@ -17,7 +17,10 @@ plan's migration-verification step).
 from db.connection import IntegrityError, get_connection
 
 from db.models import *  # noqa: F401,F403
-from db.models import _generate_patient_display_id  # noqa: F401 -- db/init_db.py imports this directly
+from db.models import (  # noqa: F401 -- db/init_db.py imports these directly
+    _generate_patient_identifiers,
+    _get_or_create_hospital_short_code,
+)
 
 from db.repositories.hospitals import *  # noqa: F401,F403
 from db.repositories.users import *  # noqa: F401,F403

@@ -100,6 +100,9 @@ async def receive_message(request: Request):
         # message content, sends anything, or touches booking/session state; that
         # all happens further down, strictly after signature verification passes.
         incoming_phone_number_id = extract_phone_number_id(change)
+        if incoming_phone_number_id is None:
+            logger.warning("Webhook payload missing metadata.phone_number_id, ignoring: %s", body[:500])
+            return Response(status_code=200)
         hospital = db.find_hospital_by_phone_number_id(incoming_phone_number_id)
         if hospital is None:
             logger.warning(

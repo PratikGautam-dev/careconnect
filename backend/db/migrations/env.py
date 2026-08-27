@@ -23,7 +23,12 @@ from db.connection import get_database_url  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=True (the default) would silently kill every
+    # logger already alive when this runs -- including uvicorn's own access/
+    # error loggers, since init_db() (and this migration run) happens at
+    # main.py import time, before uvicorn.Server gets a chance to configure
+    # (and re-enable) its own loggers.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 config.set_main_option("sqlalchemy.url", get_database_url())
 

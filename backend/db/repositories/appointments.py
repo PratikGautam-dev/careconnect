@@ -13,7 +13,7 @@ from db.connection import IntegrityError, get_connection, get_session
 from db.models import (
     Appointment, DuplicateBookingError, QuotaExceededError,
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
-    _generate_patient_display_id, _generate_reference_id, _row_to_appointment,
+    _generate_patient_identifiers, _generate_reference_id, _row_to_appointment,
 )
 from db.orm_models import AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientRow
 
@@ -73,7 +73,7 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
     conn.execute("SELECT pg_advisory_lock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
     try:
         existing = conn.execute(
-            "SELECT id, name, age, patient_display_id FROM patients "
+            "SELECT id, name, age, patient_display_id, mrn FROM patients "
             "WHERE hospital_id = ? AND phone = ? ORDER BY id LIMIT 1",
             (hospital_id, phone),
         ).fetchone()
@@ -86,16 +86,18 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
             )
             return {
                 "id": existing["id"], "name": resolved_name, "age": resolved_age,
-                "patient_display_id": existing["patient_display_id"],
+                "patient_display_id": existing["patient_display_id"], "mrn": existing["mrn"],
             }
         row = conn.execute(
             "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id, name, age",
             (hospital_id, phone, name, age),
         ).fetchone()
         assert row is not None  # INSERT ... RETURNING always returns the inserted row
-        display_id = _generate_patient_display_id(conn, hospital_id)
-        conn.execute("UPDATE patients SET patient_display_id = ? WHERE id = ?", (display_id, row["id"]))
-        return {"id": row["id"], "name": row["name"], "age": row["age"], "patient_display_id": display_id}
+        display_id, mrn = _generate_patient_identifiers(conn, hospital_id)
+        conn.execute(
+            "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, row["id"]),
+        )
+        return {"id": row["id"], "name": row["name"], "age": row["age"], "patient_display_id": display_id, "mrn": mrn}
     finally:
         conn.execute("SELECT pg_advisory_unlock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
 

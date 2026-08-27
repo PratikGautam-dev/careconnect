@@ -11,7 +11,15 @@ schema is stored as ISO-8601 TEXT (db/schema.sql's own header comment
 explains why), not a native Postgres TIMESTAMP -- mapping them as DateTime
 here would silently change how SQLAlchemy binds/reads these columns from
 what every existing raw-SQL repository function already does.
-"""
+
+ForeignKey() below mirrors constraints db/schema.sql already enforces in
+Postgres -- it's metadata only (documents cardinality/relations so they're
+visible by reading this file), not a behavior change: no relationship()
+pairs, no cascade, no lazy-loading. A column only gets ForeignKey() here if
+the table actually has that REFERENCES clause in schema.sql; a few TEXT
+columns that look like foreign keys (e.g. appointments.appointment_type_id)
+aren't DB-enforced and are deliberately left plain to match."""
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -39,11 +47,14 @@ class CareConnectAccount(Base):
 
 class WhatsappIdentity(Base):
     """db/schema.sql's whatsapp_identities table. Same Core-insert-only
-    caveat as CareConnectAccount above applies to created_at."""
+    caveat as CareConnectAccount above applies to created_at.
+    care_connect_account_id is UNIQUE in the DB -- genuinely 1:1 with
+    CareConnectAccount today, not 1:M (modeled as a separate table anyway to
+    leave room for a future second channel identity per account)."""
     __tablename__ = "whatsapp_identities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    care_connect_account_id: Mapped[int]
+    care_connect_account_id: Mapped[int] = mapped_column(ForeignKey("care_connect_accounts.id"), unique=True)
     provider_user_id: Mapped[str]
     username: Mapped[str | None]
     phone_number: Mapped[str | None]
@@ -64,7 +75,7 @@ class AppointmentType(Base):
     __tablename__ = "appointment_types"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), primary_key=True)
     label: Mapped[str]
     requires_consent: Mapped[bool]
     requires_doctor_selection: Mapped[bool]
@@ -78,7 +89,7 @@ class FaqTopic(Base):
     __tablename__ = "faq_topics"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     topic_label: Mapped[str]
     answer_text: Mapped[str]
     display_order: Mapped[int]
@@ -90,8 +101,8 @@ class DoctorLeave(Base):
     __tablename__ = "doctor_leave"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    doctor_id: Mapped[str]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
     date: Mapped[str]
     reason: Mapped[str | None]
 
@@ -103,8 +114,8 @@ class DoctorSlot(Base):
     __tablename__ = "doctor_slots"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    doctor_id: Mapped[str]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
     scheduled_at: Mapped[str]
     blocked: Mapped[bool]
     block_reason: Mapped[str | None]
@@ -117,7 +128,7 @@ class Department(Base):
     __tablename__ = "departments"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     name: Mapped[str]
 
 
@@ -132,8 +143,8 @@ class DoctorRow(Base):
     __tablename__ = "doctors"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    department_id: Mapped[str]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
     name: Mapped[str]
     specialization: Mapped[str | None]
     qualification: Mapped[str | None]
@@ -164,14 +175,16 @@ class AppointmentRow(Base):
     do NOT use this model for their writes -- see those functions' own
     docstrings (advisory-lock + multi-statement-transaction code stays raw
     SQL permanently, same reasoning as patients.py's create_patient_profile()
-    trio)."""
+    trio). appointment_type_id is deliberately plain (no ForeignKey()) --
+    schema.sql adds that column with no REFERENCES clause, so it isn't
+    DB-enforced against appointment_types' composite (hospital_id, id) key."""
     __tablename__ = "appointments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     phone: Mapped[str]
-    department_id: Mapped[str]
-    doctor_id: Mapped[str]
+    department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
     scheduled_at: Mapped[str]
     status: Mapped[str]
     source: Mapped[str]
@@ -179,7 +192,7 @@ class AppointmentRow(Base):
     reference_id: Mapped[str | None]
     created_at: Mapped[str]
     updated_at: Mapped[str | None]
-    patient_id: Mapped[int | None]
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"))
     patient_name: Mapped[str | None]
     patient_phone: Mapped[str | None]
     patient_age: Mapped[int | None]
@@ -193,8 +206,8 @@ class AppointmentReminder(Base):
     __tablename__ = "appointment_reminders"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    appointment_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"))
     offset_hours: Mapped[float]
     sent_at: Mapped[str]
 
@@ -220,8 +233,8 @@ class HospitalUser(Base):
     __tablename__ = "hospital_users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    user_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     role: Mapped[str]
     created_at: Mapped[str]
 
@@ -233,7 +246,7 @@ class HandoffRequest(Base):
     __tablename__ = "handoff_requests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     phone: Mapped[str]
     reason: Mapped[str]
     message_text: Mapped[str | None]
@@ -249,8 +262,8 @@ class HandoffMessage(Base):
     __tablename__ = "handoff_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    handoff_request_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    handoff_request_id: Mapped[int] = mapped_column(ForeignKey("handoff_requests.id"))
     direction: Mapped[str]
     message_text: Mapped[str]
     created_at: Mapped[str]
@@ -308,10 +321,10 @@ class PatientVisitNote(Base):
     __tablename__ = "patient_visit_notes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    patient_id: Mapped[int]
-    appointment_id: Mapped[int | None]
-    doctor_id: Mapped[str | None]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"))
+    appointment_id: Mapped[int | None] = mapped_column(ForeignKey("appointments.id"))
+    doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id"))
     note_text: Mapped[str]
     created_at: Mapped[str]
     created_by_session_id: Mapped[str | None]
@@ -322,9 +335,9 @@ class PatientDocument(Base):
     __tablename__ = "patient_documents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
-    patient_id: Mapped[int]
-    appointment_id: Mapped[int | None]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"))
+    appointment_id: Mapped[int | None] = mapped_column(ForeignKey("appointments.id"))
     file_name: Mapped[str]
     file_url: Mapped[str]
     uploaded_at: Mapped[str]
@@ -333,17 +346,20 @@ class PatientDocument(Base):
 
 
 class PatientRow(Base):
-    """db/schema.sql's patients table -- the full mapping (11 columns, matches
+    """db/schema.sql's patients table -- the full mapping (12 columns, matches
     the table exactly). Named PatientRow, not Patient, to leave that name
     free for a future dataclass -- see UserAccount's docstring for the same
     naming precedent. create_patient_profile()/link_existing_patient()/
     _link_patient_under_cap() (db/repositories/patients.py) do NOT use this
     model -- see those functions' own docstrings for why (advisory-lock +
-    multi-statement-transaction code stays raw SQL permanently)."""
+    multi-statement-transaction code stays raw SQL permanently).
+    patient_display_id (DCC-PAT-<seq>) and mrn (MRN-<hospital short code>
+    -<seq>) are generated together, same sequence number, by
+    db/models.py's _generate_patient_identifiers() -- see migration 0003."""
     __tablename__ = "patients"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     phone: Mapped[str]
     name: Mapped[str | None]
     date_of_birth: Mapped[str | None]
@@ -353,24 +369,34 @@ class PatientRow(Base):
     created_at: Mapped[str]
     status: Mapped[str]
     patient_display_id: Mapped[str | None]
+    mrn: Mapped[str | None]
 
 
 class PatientLink(Base):
     """db/schema.sql's patient_links table -- the full mapping. See
     PatientRow's docstring for the same "advisory-lock code stays raw"
-    caveat on the write path (_link_patient_under_cap)."""
+    caveat on the write path (_link_patient_under_cap). patient_id has no
+    unique constraint here (unlike WhatsappIdentity.care_connect_account_id
+    above) -- this is the genuine M:M join between whatsapp_phone and
+    patients: one phone can hold up to MAX_ACTIVE_PATIENT_LINKS active
+    links, and nothing stops the same patient being linked from a second
+    phone. care_connect_account_id is NOT NULL (migration 0002) -- every
+    write path (patients.py's _link_patient_under_cap(), init_db.py's
+    _backfill_patient_links()) stamps it via _get_or_create_account_in_conn()
+    at INSERT time; whatsapp_phone remains the actual join key, this column
+    is not yet read by any lookup."""
     __tablename__ = "patient_links"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     whatsapp_phone: Mapped[str]
-    patient_id: Mapped[int]
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"))
     relationship_label: Mapped[str | None]
     linked_at: Mapped[str]
     unlinked_at: Mapped[str | None]
     service_consent: Mapped[bool]
     marketing_consent: Mapped[bool]
-    care_connect_account_id: Mapped[int | None]
+    care_connect_account_id: Mapped[int] = mapped_column(ForeignKey("care_connect_accounts.id"))
 
 
 class DpdpConsent(Base):
@@ -382,7 +408,7 @@ class DpdpConsent(Base):
     __tablename__ = "dpdp_consents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int]
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     whatsapp_phone: Mapped[str]
-    care_connect_account_id: Mapped[int | None]
+    care_connect_account_id: Mapped[int | None] = mapped_column(ForeignKey("care_connect_accounts.id"))
     consented_at: Mapped[str]

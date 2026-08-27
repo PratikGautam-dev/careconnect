@@ -1,23 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Search, UserRound } from "lucide-react";
+import { ChevronRight, Search, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
-import { portalFetch } from "@/lib/portalAuth";
-
-type Patient = {
-  id: number;
-  phone: string;
-  name: string | null;
-  patient_display_id: string | null;
-  last_visit: string | null;
-  visit_count: number;
-};
+import { usePatients } from "@/hooks/usePatients";
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -27,42 +19,29 @@ function formatDate(iso: string | null) {
 export default function PortalPatientsPage() {
   const router = useRouter();
   const { hospital, ready } = usePortalGuard();
-  const [patients, setPatients] = useState<Patient[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-
-  const load = useCallback(
-    async (query: string) => {
-      const result = await portalFetch(`/api/portal/patients?search=${encodeURIComponent(query)}`);
-      if (!result.ok) {
-        if (result.unauthorized) router.push("/portal/login");
-        else setError(result.error);
-        return;
-      }
-      setPatients((result.data as { patients: Patient[] }).patients);
-    },
-    [router],
-  );
-
-  useEffect(() => {
-    if (ready) load(search);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, load]);
-
-  useEffect(() => {
-    if (!ready) return;
-    const t = setTimeout(() => load(search), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  const {
+    patients,
+    error,
+    search,
+    setSearch,
+    selected,
+    toggleSelected,
+    toggleSelectAll,
+    selectedPatients,
+    allSelected,
+    pendingDelete,
+    setPendingDelete,
+    deleting,
+    runDelete,
+  } = usePatients(ready);
 
   return (
     <PortalShell hospital={hospital} active="patients">
         <h1 className="text-display mb-space-5">Patients</h1>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
-        <div className="mb-space-4 max-w-[360px]">
-          <div className="relative">
+        <div className="mb-space-4 flex items-center justify-between gap-space-4">
+          <div className="relative max-w-[360px] flex-1">
             <Search size={15} className="absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
             <Input
               placeholder="Search by name or phone"
@@ -71,6 +50,17 @@ export default function PortalPatientsPage() {
               className="pl-9"
             />
           </div>
+          {selectedPatients.length > 0 && (
+            <Button
+              variant="secondary"
+              size="md"
+              className="border-error/30 text-error hover:border-error hover:bg-error/10"
+              onClick={() => setPendingDelete(selectedPatients)}
+            >
+              <Trash2 size={15} />
+              Delete selected ({selectedPatients.length})
+            </Button>
+          )}
         </div>
 
         <Card className="p-space-4">
@@ -88,11 +78,23 @@ export default function PortalPatientsPage() {
               <table className="w-full text-left text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
+                    <th className="w-8 pb-space-2 font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={(e) => toggleSelectAll(e.target.checked)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 accent-brand-600"
+                        aria-label="Select all patients"
+                      />
+                    </th>
                     <th className="pb-space-2 font-semibold">Patient ID</th>
+                    <th className="pb-space-2 font-semibold">MRN</th>
                     <th className="pb-space-2 font-semibold">Name</th>
                     <th className="pb-space-2 font-semibold">Phone</th>
                     <th className="pb-space-2 font-semibold">Last visit</th>
                     <th className="pb-space-2 font-semibold">Visits</th>
+                    <th className="pb-space-2 font-semibold"></th>
                     <th className="pb-space-2 font-semibold"></th>
                   </tr>
                 </thead>
@@ -103,8 +105,20 @@ export default function PortalPatientsPage() {
                       onClick={() => router.push(`/portal/patients/${p.id}`)}
                       className="cursor-pointer border-b border-line last:border-0 hover:bg-black/[0.02]"
                     >
+                      <td className="py-space-2" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          onChange={(e) => toggleSelected(p.id, e.target.checked)}
+                          className="h-4 w-4 accent-brand-600"
+                          aria-label={`Select ${p.name || p.phone}`}
+                        />
+                      </td>
                       <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-600">
                         {p.patient_display_id || `#${p.id}`}
+                      </td>
+                      <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-600">
+                        {p.mrn || "—"}
                       </td>
                       <td className="py-space-2 font-semibold text-ink-900">
                         <Link href={`/portal/patients/${p.id}`} className="hover:underline">
@@ -119,6 +133,16 @@ export default function PortalPatientsPage() {
                           View <ChevronRight size={14} />
                         </span>
                       </td>
+                      <td className="py-space-2 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete([p])}
+                          className="rounded p-1 text-ink-400 hover:bg-error/10 hover:text-error"
+                          aria-label={`Delete ${p.name || p.phone}`}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -126,6 +150,23 @@ export default function PortalPatientsPage() {
             </div>
           )}
         </Card>
+
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          title={pendingDelete && pendingDelete.length > 1 ? `Delete ${pendingDelete.length} patients?` : "Delete patient?"}
+          message={
+            pendingDelete
+              ? `This will permanently delete ${
+                  pendingDelete.length > 1 ? `${pendingDelete.length} patient records` : pendingDelete[0].name || pendingDelete[0].phone
+                }. This action is irreversible.`
+              : ""
+          }
+          confirmLabel="Delete"
+          destructive
+          busy={deleting}
+          onConfirm={() => pendingDelete && runDelete(pendingDelete)}
+          onCancel={() => setPendingDelete(null)}
+        />
     </PortalShell>
   );
 }

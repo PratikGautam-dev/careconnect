@@ -406,6 +406,16 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_display_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_display_id
     ON patients(hospital_id, patient_display_id) WHERE patient_display_id IS NOT NULL;
 
+-- Clinical/legal record number, separate from the portal-facing
+-- patient_display_id above -- see migration 0003. Generated together with
+-- patient_display_id (same per-hospital sequence number,
+-- db/models.py's _generate_patient_identifiers()): patient_display_id is
+-- DCC-PAT-<seq> (hospital-agnostic-looking, for internal/portal display),
+-- mrn is MRN-<hospital short code>-<seq> (hospital-specific).
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS mrn TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_mrn
+    ON patients(hospital_id, mrn) WHERE mrn IS NOT NULL;
+
 -- Patient identity SEPARATION (Spec.md Section 0, confirmed with the user via a
 -- reviewed plan before this touched production data): one WhatsApp number can
 -- now link up to 5 patient profiles (a shared family phone), so `patients` is no
@@ -663,14 +673,17 @@ CREATE TABLE IF NOT EXISTS whatsapp_identities (
 );
 
 -- Informational link from a patient_links row back to the account that
--- created/owns it -- NULLable and populated going forward by
--- create_patient_profile()/link_existing_patient() (db/repositories/patients.py),
--- with a one-time backfill (db/init_db.py) for pre-existing rows. Not yet the
--- join key any hospital-scoped lookup relies on (whatsapp_phone still is,
--- exactly as before) -- this column exists so the account/identity layer is
--- fully wired up and ready for a future portal/ERP read to use, without
--- rewriting every existing phone-keyed query in this pass.
-ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER REFERENCES care_connect_accounts(id);
+-- created/owns it -- NOT NULL, stamped at INSERT time by every write path
+-- (create_patient_profile()/link_existing_patient() in
+-- db/repositories/patients.py, and db/init_db.py's own backfill for
+-- pre-existing rows, both via the shared _get_or_create_account_in_conn()
+-- helper). Not yet the join key any hospital-scoped lookup relies on
+-- (whatsapp_phone still is, exactly as before) -- this column exists so the
+-- account/identity layer is fully wired up and ready for a future portal/ERP
+-- read to use, without rewriting every existing phone-keyed query in this
+-- pass. See migration 0002 for the NOT NULL constraint (added after this
+-- column existed as nullable for one release).
+ALTER TABLE patient_links ADD COLUMN IF NOT EXISTS care_connect_account_id INTEGER NOT NULL REFERENCES care_connect_accounts(id);
 
 -- DPDP Act consent gate (hospitals.dpdp_consent_required above): recorded
 -- once per (hospital, phone), right after language selection and BEFORE

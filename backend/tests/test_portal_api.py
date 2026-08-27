@@ -1109,7 +1109,9 @@ def test_patient_list_and_detail_surface_the_same_patient_display_id(two_hospita
     list_resp = client.get("/api/portal/patients", headers=_auth(a["token"]))
     listed = next(p for p in list_resp.json()["patients"] if p["phone"] == "5491112223333")
     assert listed["patient_display_id"] is not None
-    assert listed["patient_display_id"].startswith("PAT-")
+    assert listed["patient_display_id"].startswith("DCC-PAT-")
+    assert listed["mrn"] is not None
+    assert listed["mrn"].startswith("MRN-")
 
     detail_resp = client.get(f"/api/portal/patients/{listed['id']}", headers=_auth(a["token"]))
     assert detail_resp.json()["patient"]["patient_display_id"] == listed["patient_display_id"]
@@ -1142,16 +1144,21 @@ def test_patient_display_id_never_regenerates_on_a_second_booking_via_the_portal
 
 def test_patient_display_id_sequences_are_isolated_per_hospital(two_hospitals):
     """Two DIFFERENT hospitals' own first-ever patient both get sequence
-    0001 -- cross-tenant isolation of the counter itself, not just of reads."""
+    0001 -- cross-tenant isolation of the counter itself, not just of reads.
+    patient_display_id is hospital-agnostic-looking on purpose (portal-
+    facing internal id), so both hospitals' first patient share the exact
+    same string -- mrn is where the per-hospital short code shows up."""
     a, b = two_hospitals["a"], two_hospitals["b"]
     _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5491110000001", patient_name="Patient A")
     _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5491110000001", patient_name="Patient B")
 
-    id_a = db.get_patient_by_phone(a["id"], "5491110000001")["patient_display_id"]
-    id_b = db.get_patient_by_phone(b["id"], "5491110000001")["patient_display_id"]
-    assert id_a.endswith("-0001")
-    assert id_b.endswith("-0001")
-    assert id_a != id_b  # different hospital short codes
+    patient_a = db.get_patient_by_phone(a["id"], "5491110000001")
+    patient_b = db.get_patient_by_phone(b["id"], "5491110000001")
+    assert patient_a["patient_display_id"].endswith("-0001")
+    assert patient_b["patient_display_id"].endswith("-0001")
+    assert patient_a["mrn"].endswith("-0001")
+    assert patient_b["mrn"].endswith("-0001")
+    assert patient_a["mrn"] != patient_b["mrn"]  # different hospital short codes
 
 
 def test_recent_patients_on_dashboard_reflects_last_visit(two_hospitals):
