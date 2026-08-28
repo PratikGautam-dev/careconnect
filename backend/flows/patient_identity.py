@@ -241,16 +241,22 @@ async def get_or_prompt_for_active_patient(
     whichever completion path was triggered calls back into this function
     once it's done. A phone linked to more than one patient always confirms
     (via _send_single_patient_confirm) rather than silently reusing whichever
-    patient happened to be active before, or listing all of them here."""
+    patient happened to be active before, or listing all of them here --
+    EXCEPT right after the user just confirmed/picked one this same turn
+    (context["just_confirmed_patient"], set by _handle_awaiting_single_patient_
+    confirm): router.py re-enters this function in the same handle_incoming
+    call once state becomes IDLE, and without this flag that re-entry would
+    immediately re-show the very confirm screen the user just answered."""
     session = sessions.get(hospital_id, phone)
     active_patient_id = session.get("active_patient_id")
+    just_confirmed = session.get("context", {}).get("just_confirmed_patient", False)
     patients = connector.list_active_patients(hospital_id, phone)
 
     if active_patient_id is not None:
         if connector.validate_active_patient_link(hospital_id, phone, active_patient_id):
             match = next((p for p in patients if p["id"] == active_patient_id), None)
             if match is not None:
-                if len(patients) > 1:
+                if len(patients) > 1 and not just_confirmed:
                     await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, match, language)
                     return None
                 sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=match["id"])
@@ -458,7 +464,10 @@ async def _create_or_link_patient(
         await wa.send_text(phone, t("patient_added", language, patient_name=patient["name"]))
         await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
         return
-    sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patient["id"])
+    sessions.set(
+        hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
+        active_patient_id=patient["id"],
+    )
 
 
 # --- Single-linked-patient confirmation (hospital-configurable) ---
@@ -513,7 +522,8 @@ async def _handle_awaiting_single_patient_confirm(
     if reply["type"] == "interactive_reply":
         if reply["id"] == CONFIRM_YES:
             sessions.set(
-                hospital_id, phone, "IDLE", {}, language=language, active_patient_id=context["candidate_patient_id"],
+                hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
+                active_patient_id=context["candidate_patient_id"],
             )
             return
         if reply["id"] == ADD_PATIENT_ENTRY_ID:
@@ -526,7 +536,10 @@ async def _handle_awaiting_single_patient_confirm(
         if patient_id is not None:
             patients = connector.list_active_patients(hospital_id, phone)
             if any(p["id"] == patient_id for p in patients):
-                sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patient_id)
+                sessions.set(
+                    hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
+                    active_patient_id=patient_id,
+                )
                 return
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) == 1:
@@ -619,8 +632,14 @@ async def _handle_awaiting_patient_action_choice(
     if reply["type"] == "interactive_reply" and patient_id is not None:
         if reply["id"] == PATIENT_ACTION_USE_ID:
             # Switching to an already-linked patient needs no confirmation
-            # (unlike unlinking, it's trivially reversible).
-            sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patient_id)
+            # (unlike unlinking, it's trivially reversible). just_confirmed_
+            # patient prevents router.py's same-turn IDLE re-entry from
+            # immediately re-showing a single-patient-confirm screen (see
+            # get_or_prompt_for_active_patient's own docstring).
+            sessions.set(
+                hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
+                active_patient_id=patient_id,
+            )
             return
         if reply["id"] == PATIENT_ACTION_UNLINK_ID:
             sessions.set(
