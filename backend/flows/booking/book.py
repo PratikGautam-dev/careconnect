@@ -324,8 +324,18 @@ async def _handle_awaiting_time_slot(
             # exact state (_handle_slot_taken re-sets STATE_AWAITING_TIME_SLOT
             # with context unchanged) -- straight to confirmation, no mid-flow
             # name/age ask needed anymore.
-            sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-            await _send_confirmation(wa, phone, new_context, language=language)
+            #
+            # Daycare Phase 2: the one type with a step after time-slot
+            # (STATE_AWAITING_DAYCARE_DURATION) -- flow.next_step() resolves
+            # to STATE_AWAITING_CONFIRMATION for every other type, unchanged.
+            flow = get_type_flow(context.get("appointment_type_id"))
+            next_state = flow.next_step(STATE_AWAITING_TIME_SLOT)
+            sessions.set(hospital_id, phone, next_state, new_context)
+            if next_state == STATE_AWAITING_CONFIRMATION:
+                await _send_confirmation(wa, phone, new_context, language=language)
+            else:
+                from flows.booking.types.daycare import _send_daycare_duration_menu
+                await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)
             return
     # Times are dynamic for the same reason dates are above -- recheck this
     # exact date's availability rather than blindly re-sending a stale list.
@@ -485,7 +495,7 @@ async def _create_booking_and_notify(
     # call site (this one, or reschedule.py's own) now that neither
     # notification shows the link directly.
     if flow.on_booking_confirmed is not None:
-        await flow.on_booking_confirmed(appointment.id, hospital_id, context.get("active_patient_id"), connector)
+        await flow.on_booking_confirmed(appointment.id, hospital_id, context.get("active_patient_id"), connector, context)
     summary = _append_closing_message(summary, closing_message_text)
     # Item 3: quick-action buttons attached to the success message --
     # tapping any of them, even long after this session has expired,

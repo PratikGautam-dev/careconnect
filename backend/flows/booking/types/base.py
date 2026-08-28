@@ -25,11 +25,13 @@ DepartmentValidator = Callable[[object, int, "int | None", str], "str | None"]
 # Fully replaces the default "go to flow.first_step()" behavior.
 OnSelectedHook = Callable[..., Awaitable[Any]]
 
-# (appointment_id, hospital_id, patient_id, connector) -> an optional dict of
-# extra context to merge into the confirmation notification (e.g.
-# {"video_link": "..."}), or None. Run right after connector.create_booking()
-# succeeds, before the confirmation message is built -- None (the default)
-# means the notification is byte-identical to every type without this hook.
+# (appointment_id, hospital_id, patient_id, connector, context) -> an
+# optional dict of extra context (e.g. {"video_link": "..."}), or None. Run
+# right after connector.create_booking() succeeds, before the confirmation
+# message is built -- None (the default) means the notification is
+# byte-identical to every type without this hook. `context` is the booking
+# session context at that exact point (e.g. daycare's chosen duration
+# lives at context["daycare_duration_hours"]) -- most hooks (tele's) ignore it.
 OnBookingConfirmedHook = Callable[..., Awaitable["dict[str, Any] | None"]]
 
 
@@ -53,6 +55,22 @@ class TypeFlow:
 
     def has_step(self, state: str) -> bool:
         return state in self.steps
+
+    def next_step(self, current: str) -> str:
+        """Walks `steps` forward from `current` -- used at the one shared
+        transition point (time-slot completion, book.py) that isn't already
+        hooked/branched per-type, so a type can insert an extra step there
+        (daycare's duration pick) without book.py needing an
+        `if appointment_type_id == "daycare"` branch. `current` not found, or
+        already the last step, both resolve to STATE_AWAITING_CONFIRMATION --
+        every step list ends there, so this is never actually "off the end"
+        in practice."""
+        if current not in self.steps:
+            return STATE_AWAITING_CONFIRMATION
+        idx = self.steps.index(current)
+        if idx + 1 >= len(self.steps):
+            return STATE_AWAITING_CONFIRMATION
+        return self.steps[idx + 1]
 
 
 # The original pipeline: new, followup, tele, second_opinion, daycare.

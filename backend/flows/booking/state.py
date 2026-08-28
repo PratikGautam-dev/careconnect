@@ -34,6 +34,13 @@ STATE_AWAITING_DATE = "AWAITING_DATE"
 STATE_AWAITING_TIME_SLOT = "AWAITING_TIME_SLOT"
 
 
+# Daycare Phase 2: the one type with a step after time-slot and before
+# confirmation -- picking how long the stay is (hospital-configurable
+# options, e.g. "4-6 hrs" / "Full day" / "Overnight"). See
+# flows/booking/types/daycare.py.
+STATE_AWAITING_DAYCARE_DURATION = "AWAITING_DAYCARE_DURATION"
+
+
 STATE_AWAITING_PATIENT_NAME = "AWAITING_PATIENT_NAME"
 
 
@@ -67,12 +74,16 @@ CHANGE_DATE = "change_date"
 CHANGE_TIME = "change_time"
 
 
+CHANGE_DURATION = "change_duration"
+
+
 _CHANGE_TARGETS = {
     CHANGE_APPOINTMENT_TYPE: STATE_AWAITING_APPOINTMENT_TYPE,
     CHANGE_DEPARTMENT: STATE_AWAITING_DEPARTMENT,
     CHANGE_DOCTOR: STATE_AWAITING_DOCTOR,
     CHANGE_DATE: STATE_AWAITING_DATE,
     CHANGE_TIME: STATE_AWAITING_TIME_SLOT,
+    CHANGE_DURATION: STATE_AWAITING_DAYCARE_DURATION,
 }
 
 

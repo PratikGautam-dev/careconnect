@@ -23,7 +23,8 @@ from db import seed
 from db.connection import get_connection, get_database_url
 from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, generate_id_derived_display_id
 from db.repositories.accounts import _get_or_create_account_in_conn
-from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
+from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
+from db.repositories.daycare_duration_options import DEFAULT_DAYCARE_DURATION_OPTIONS
 from db.repository import _generate_patient_identifiers, _get_or_create_hospital_short_code
 
 # SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -305,19 +306,52 @@ def _backfill_appointment_types(conn) -> None:
     a second migration. Gated per (hospital_id, type id), so re-running this
     on every startup is a safe no-op once every hospital is caught up, and a
     hospital that's already relabeled/deactivated a type is never touched
-    again."""
-    hospital_ids = [row["id"] for row in conn.execute("SELECT id FROM hospitals").fetchall()]
-    for hospital_id in hospital_ids:
+    again. is_active for a newly-inserted row is resolved from the hospital's
+    own tenant_type (default_is_active(), appointment_types.py's single
+    source of truth), so a pre-existing hospital gets the same
+    tenant-appropriate default a freshly-onboarded one would."""
+    hospitals = conn.execute("SELECT id, tenant_type FROM hospitals").fetchall()
+    for hospital in hospitals:
+        hospital_id, tenant_type = hospital["id"], hospital["tenant_type"]
         for sort_order, appt_type in enumerate(DEFAULT_APPOINTMENT_TYPES):
             conn.execute(
                 "INSERT INTO appointment_types "
-                "(id, hospital_id, label, requires_consent, requires_doctor_selection, sort_order) "
-                "SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS "
+                "(id, hospital_id, label, requires_consent, requires_doctor_selection, is_active, sort_order) "
+                "SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS "
                 "(SELECT 1 FROM appointment_types WHERE hospital_id = ? AND id = ?)",
                 (
                     appt_type["id"], hospital_id, appt_type["label"], appt_type["requires_consent"],
-                    appt_type["requires_doctor_selection"], sort_order, hospital_id, appt_type["id"],
+                    appt_type["requires_doctor_selection"], default_is_active(tenant_type, appt_type["id"]),
+                    sort_order, hospital_id, appt_type["id"],
                 ),
+            )
+    conn.commit()
+
+
+def _backfill_daycare_duration_options(conn) -> None:
+    """Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): seeds
+    DEFAULT_DAYCARE_DURATION_OPTIONS (db/repositories/daycare_duration_
+    options.py) for every hospital that doesn't already have ANY row --
+    unlike _backfill_appointment_types above, a hospital that's already
+    added/removed/relabeled its own options (a genuinely open catalog, not a
+    fixed one re-keyed by id) is left alone entirely rather than gated per
+    option, since there's no stable id to gate on until a row already
+    exists. Every hospital gets these regardless of tenant_type, same as
+    appointment_types rows -- daycare being hospital-only is enforced by
+    that type's own is_active, not by withholding its duration options."""
+    hospitals = conn.execute("SELECT id FROM hospitals").fetchall()
+    for hospital in hospitals:
+        hospital_id = hospital["id"]
+        has_any = conn.execute(
+            "SELECT 1 FROM daycare_duration_options WHERE hospital_id = ? LIMIT 1", (hospital_id,),
+        ).fetchone()
+        if has_any:
+            continue
+        for sort_order, option in enumerate(DEFAULT_DAYCARE_DURATION_OPTIONS):
+            conn.execute(
+                "INSERT INTO daycare_duration_options (hospital_id, label, hours, is_active, sort_order) "
+                "VALUES (?, ?, ?, TRUE, ?)",
+                (hospital_id, option["label"], option["hours"], sort_order),
             )
     conn.commit()
 
@@ -461,6 +495,45 @@ def init_db_on_connection(conn) -> int:
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitals_display_id "
         "ON hospitals(display_id) WHERE display_id IS NOT NULL"
     )
+    # Migration 0007: audit_logs (two-level audit trail, tenant-capability-
+    # gating-plan.md's follow-up).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS audit_logs ("
+        "id BIGSERIAL PRIMARY KEY, "
+        "actor_level TEXT NOT NULL CHECK (actor_level IN ('platform_admin', 'portal')), "
+        "hospital_id INTEGER REFERENCES hospitals(id), "
+        "actor_label TEXT NOT NULL, "
+        "action TEXT NOT NULL, "
+        "entity_type TEXT, "
+        "entity_id TEXT, "
+        "before_value TEXT, "
+        "after_value TEXT, "
+        "created_at TEXT NOT NULL DEFAULT (now()::text)"
+        ")"
+    )
+    # Self-healing: an environment that ran an interim draft of this
+    # migration (created_at as a native timestamp type, before it was
+    # corrected to TEXT to match this schema's own "every timestamp is
+    # ISO-8601 TEXT" convention) already has the table, so the CREATE TABLE
+    # IF NOT EXISTS above is a no-op there and never picks up the fix --
+    # this ALTER converges it on every startup regardless of which shape it
+    # currently has (a column already TEXT casts to itself, a no-op).
+    conn.execute("ALTER TABLE audit_logs ALTER COLUMN created_at TYPE TEXT USING created_at::text")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_hospital_created ON audit_logs (hospital_id, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_level_created ON audit_logs (actor_level, created_at)")
+    # Migration 0008: daycare_duration_options table + appointments.duration_hours
+    # (Daycare Phase 2, docs/per-appointment-type-flow-plan.md).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS daycare_duration_options ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "label TEXT NOT NULL, "
+        "hours INTEGER NOT NULL CHECK (hours > 0), "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "sort_order INTEGER NOT NULL DEFAULT 0"
+        ")"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
@@ -483,6 +556,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_patient_mrns(conn)
     _backfill_patient_links(conn)
     _backfill_appointment_types(conn)
+    _backfill_daycare_duration_options(conn)
     _backfill_reports_prescriptions_feature(conn)
     _backfill_admin_capabilities(conn)
     _backfill_handoff_messages(conn)

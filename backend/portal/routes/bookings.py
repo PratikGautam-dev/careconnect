@@ -88,6 +88,11 @@ async def portal_mark_attendance(
     ok = db.mark_attendance(hospital.id, appointment_id, attended)
     if not ok:
         return JSONResponse({"error": "No such booked appointment to update."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.attendance",
+        entity_type="appointment", entity_id=str(appointment_id),
+        after={"status": "attended" if attended else "no_show"},
+    )
     return JSONResponse({"ok": True, "status": "attended" if attended else "no_show"})
 
 
@@ -108,6 +113,10 @@ async def portal_delete_booking(appointment_id: int, authorization: str | None =
     ok = db.soft_delete_appointment(hospital.id, appointment_id)
     if not ok:
         return JSONResponse({"error": "No such appointment."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.delete",
+        entity_type="appointment", entity_id=str(appointment_id),
+    )
     return JSONResponse({"ok": True})
 
 
@@ -140,6 +149,11 @@ async def portal_cancel_booking(
         connector.cancel_booking(hospital.id, appointment_id)
     except connectors.ConnectorNotImplementedError as e:
         return JSONResponse({"error": str(e)}, status_code=501)
+
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.cancel",
+        entity_type="appointment", entity_id=str(appointment_id),
+    )
 
     message = ((payload or {}).get("message") or "").strip()
     if message and hospital.whatsapp_phone_number_id and hospital.access_token:
@@ -222,6 +236,13 @@ async def portal_reschedule_booking(
     except IntegrityError:
         return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
 
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.reschedule",
+        entity_type="appointment", entity_id=str(appointment_id),
+        before={"scheduled_at": appointment.scheduled_at.isoformat()},
+        after={"scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id},
+    )
+
     message = ((payload or {}).get("message") or "").strip()
     if message and hospital.whatsapp_phone_number_id and hospital.access_token:
         try:
@@ -287,7 +308,7 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
 
     connector = connectors.get_connector_for_hospital(hospital)
     try:
-        connector.create_booking(
+        created = connector.create_booking(
             hospital.id, patient_phone, department_id, doctor_id, scheduled_at,
             source=db.SOURCE_STAFF, patient_name=patient_name or None,
         )
@@ -295,5 +316,11 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
         return JSONResponse({"errors": [str(e)]}, status_code=400)
     except IntegrityError:
         return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
+
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.create",
+        entity_type="appointment", entity_id=str(created.id),
+        after={"department_id": department_id, "doctor_id": doctor_id, "scheduled_at": scheduled_at.isoformat()},
+    )
 
     return JSONResponse({"ok": True})

@@ -63,6 +63,16 @@ STRINGS: dict[str, dict[Language, str]] = {
     "view_times_button": {"en": "View Times", "hi": "समय देखें"},
     "available_times_section_title": {"en": "Available Times", "hi": "उपलब्ध समय"},
 
+    # --- Booking: daycare duration (Phase 2, docs/per-appointment-type-
+    # flow-plan.md) -- shown right after time-slot selection, daycare only ---
+    "select_daycare_duration": {
+        "en": "Please select how long the daycare stay will be:",
+        "hi": "कृपया बताएं कि डेकेयर में ठहराव कितने समय का होगा:",
+    },
+    "view_durations_button": {"en": "View Durations", "hi": "अवधि देखें"},
+    "daycare_durations_section_title": {"en": "Duration", "hi": "अवधि"},
+    "confirm_daycare_duration_line": {"en": "⏱ *Duration:* {duration_label}", "hi": "⏱ *अवधि:* {duration_label}"},
+
     "select_slot": {
         "en": "Please select a time slot with {doctor_name}:",
         "hi": "कृपया {doctor_name} के साथ एक समय स्लॉट चुनें:",
@@ -175,6 +185,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     "change_doctor_option": {"en": "Doctor", "hi": "डॉक्टर"},
     "change_date_option": {"en": "Date", "hi": "तारीख"},
     "change_time_option": {"en": "Time", "hi": "समय"},
+    "change_duration_option": {"en": "Duration", "hi": "अवधि"},
     "booking_confirmed": {
         "en": "✅ *Consulting Booked successfully!*\n\n"
               "Reference ID: *{reference_id}*\n"

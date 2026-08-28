@@ -32,6 +32,10 @@ async def portal_delete_handoff(handoff_id: int, authorization: str | None = Hea
     ok = db.soft_delete_handoff(hospital.id, handoff_id)
     if not ok:
         return JSONResponse({"error": "No such handoff request."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "handoffs.delete",
+        entity_type="handoff", entity_id=str(handoff_id),
+    )
     return JSONResponse({"ok": True})
 
 
@@ -43,6 +47,10 @@ async def portal_resolve_handoff(handoff_id: int, authorization: str | None = He
     ok = db.resolve_handoff_request(hospital.id, handoff_id)
     if not ok:
         return JSONResponse({"error": "No such open handoff request."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "handoffs.resolve",
+        entity_type="handoff", entity_id=str(handoff_id),
+    )
     return JSONResponse({"ok": True})
 
 

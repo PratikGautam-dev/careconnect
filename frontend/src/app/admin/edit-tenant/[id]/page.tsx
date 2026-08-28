@@ -29,6 +29,7 @@ type TenantDetail = {
   tenant_type: string;
   admin_capabilities: string[];
   all_capabilities: string[];
+  default_capabilities_by_type: Record<string, string[]>;
 };
 
 type FormState = {
@@ -48,6 +49,40 @@ type FormState = {
   admin_capabilities: string[];
 };
 
+function capabilitiesMatch(a: string[], b: string[]): boolean {
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.length === sortedB.length && sortedA.every((v, i) => v === sortedB[i]);
+}
+
+type AuditEntry = {
+  id: number;
+  actor_level: string;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  before_value: Record<string, unknown> | null;
+  after_value: Record<string, unknown> | null;
+  created_at: string;
+};
+
+function formatAuditChanges(entry: AuditEntry): string {
+  const keys = new Set([
+    ...Object.keys(entry.before_value || {}),
+    ...Object.keys(entry.after_value || {}),
+  ]);
+  if (keys.size === 0) return "";
+  return Array.from(keys)
+    .map((key) => {
+      const before = entry.before_value?.[key];
+      const after = entry.after_value?.[key];
+      if (before !== undefined && after !== undefined) return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
+      if (after !== undefined) return `${key}: ${JSON.stringify(after)}`;
+      return `${key}: ${JSON.stringify(before)}`;
+    })
+    .join(", ");
+}
+
 function titleCaseCapability(key: string): string {
   return key
     .split("_")
@@ -62,6 +97,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
 
   const load = useCallback(async () => {
     const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
@@ -99,6 +135,12 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     });
   }
 
+  function resetCapabilitiesToDefaults() {
+    if (!form || !tenant) return;
+    const defaults = tenant.default_capabilities_by_type[form.tenant_type] ?? [];
+    setForm({ ...form, admin_capabilities: defaults });
+  }
+
   function toggleCapability(key: string, checked: boolean) {
     if (!form) return;
     setForm({
@@ -109,9 +151,16 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     });
   }
 
+  const loadAuditLog = useCallback(async () => {
+    const result = await adminFetch(`/api/admin/tenants/${tenantId}/audit-log`);
+    if (!result.ok) return;
+    setAuditEntries((result.data as { entries: AuditEntry[] }).entries);
+  }, [tenantId]);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadAuditLog();
+  }, [load, loadAuditLog]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -137,6 +186,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     }
     setSaved(true);
     load();
+    loadAuditLog();
   }
 
   return (
@@ -225,8 +275,18 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
             <Field
               label="Admin capabilities"
               htmlFor="admin_capabilities"
-              hint="Controls which staff-portal management screens this tenant can use."
+              hint="Controls which staff-portal management screens this tenant can use. Changing tenant type above does NOT change these automatically — use Reset to defaults if you want them to match."
             >
+              <div className="mb-space-2 flex items-center gap-space-2">
+                <Button type="button" variant="secondary" onClick={resetCapabilitiesToDefaults}>
+                  Reset to {form.tenant_type} defaults
+                </Button>
+                {!capabilitiesMatch(form.admin_capabilities, tenant.default_capabilities_by_type[form.tenant_type] ?? []) && (
+                  <span className="text-[13px] text-error">
+                    Custom — doesn&apos;t match the {form.tenant_type} default set.
+                  </span>
+                )}
+              </div>
               <div id="admin_capabilities" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
                 {tenant.all_capabilities.map((key) => (
                   <CheckboxRow
@@ -297,6 +357,40 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </form>
+        </Card>
+      )}
+
+      {tenant && auditEntries.length > 0 && (
+        <Card className="mt-space-4 p-space-5">
+          <div className="mb-space-1 flex items-center justify-between">
+            <h2 className="text-[15px] font-bold text-ink-900">Audit log</h2>
+            <Link
+              href={`/admin/audit-log?hospital_id=${tenant.id}`}
+              className="text-[12.5px] font-semibold text-brand-600 hover:underline"
+            >
+              View full history →
+            </Link>
+          </div>
+          <p className="mb-space-3 text-[12.5px] text-ink-400">
+            Most recent activity only — both platform-level changes (made here, by an operator) and this
+            tenant&apos;s own staff-portal activity (doctor/department edits, feature toggles, settings updates).
+          </p>
+          <ul className="divide-y divide-line">
+            {auditEntries.map((entry) => (
+              <li key={entry.id} className="py-space-2 text-[12.5px]">
+                <div className="flex items-center justify-between gap-space-3">
+                  <span className="font-medium text-ink-900">
+                    {entry.action}
+                    <span className="ml-space-2 rounded-full bg-brand-50 px-space-2 py-0.5 text-[11px] font-semibold text-brand-700">
+                      {entry.actor_level === "platform_admin" ? "Platform" : "Portal"}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-ink-400">{entry.created_at}</span>
+                </div>
+                {formatAuditChanges(entry) && <p className="mt-space-1 text-ink-600">{formatAuditChanges(entry)}</p>}
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
     </div>

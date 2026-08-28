@@ -543,6 +543,26 @@ CREATE TABLE IF NOT EXISTS appointment_types (
     PRIMARY KEY (hospital_id, id)
 );
 
+-- Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): the duration
+-- options shown at STATE_AWAITING_DAYCARE_DURATION, hospital-configurable
+-- (confirmed with the user -- not a fixed list, since a same-day 6-hour stay
+-- and a multi-night admission both need to be expressible and hospitals
+-- price/label these differently), same "seeded fixed catalog, editable via
+-- the portal" shape as appointment_types above. hours is the stay length in
+-- whole hours (24 for "1 night", 48 for "2 nights", etc.) -- kept as a single
+-- number rather than a separate nights/hours pair, since the booking flow
+-- only ever needs it to compute an end time, never to render "nights" vs
+-- "hours" specifically (the label string already carries that distinction
+-- for display).
+CREATE TABLE IF NOT EXISTS daycare_duration_options (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    label TEXT NOT NULL,
+    hours INTEGER NOT NULL CHECK (hours > 0),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_type_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS consent_given_at TEXT;
 -- Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md): a
@@ -554,6 +574,11 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS consent_given_at TEXT;
 -- column is the only place it's persisted. NULL for every appointment type
 -- other than tele, and for any tele booking that predates this column.
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS video_link TEXT;
+-- Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): the stay length
+-- chosen at the STATE_AWAITING_DAYCARE_DURATION step (flows/booking/types/
+-- daycare.py), in hours -- persisted via TypeFlow.on_booking_confirmed, same
+-- shape as video_link above. NULL for every non-daycare appointment.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER;
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
@@ -908,3 +933,29 @@ CREATE TABLE IF NOT EXISTS hospital_users (
     created_at TEXT NOT NULL DEFAULT (now()::text),
     UNIQUE(hospital_id, user_id)
 );
+
+-- Two-level audit trail (tenant-capability-gating-plan.md's follow-up):
+-- 'platform_admin' rows record TENANTS_ADMIN_SECRET-gated tenant edits
+-- (tenant_type, admin_capabilities, enabled_features, ...); 'portal' rows
+-- record an authenticated tenant's own staff-portal mutations (doctor/
+-- department CRUD, appointment-type toggles, settings updates). actor_label
+-- is free text, not a FK -- neither level has a real per-individual identity
+-- today (platform-admin is one shared secret; portal auth resolves to a
+-- Hospital, not a named staff member, per hospital_users.role's own
+-- "unused" note above) -- so a real per-user identity later is a
+-- value-population change, not a schema migration. before_value/after_value
+-- are JSON of the changed fields only, secrets redacted, never full rows.
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    actor_level TEXT NOT NULL CHECK (actor_level IN ('platform_admin', 'portal')),
+    hospital_id INTEGER REFERENCES hospitals(id),
+    actor_label TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    before_value TEXT,
+    after_value TEXT,
+    created_at TEXT NOT NULL DEFAULT (now()::text)
+);
+CREATE INDEX IF NOT EXISTS ix_audit_logs_hospital_created ON audit_logs (hospital_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_audit_logs_level_created ON audit_logs (actor_level, created_at);

@@ -67,6 +67,9 @@ class Connector(abc.ABC):
     def get_appointment_types(self, hospital_id: int) -> list[dict]: ...
 
     @abc.abstractmethod
+    def get_daycare_duration_options(self, hospital_id: int) -> list[dict]: ...
+
+    @abc.abstractmethod
     def get_departments(self, hospital_id: int) -> list[dict]: ...
 
     @abc.abstractmethod
@@ -128,6 +131,9 @@ class Connector(abc.ABC):
     def set_appointment_video_link(self, hospital_id: int, appointment_id: int, video_link: str) -> None: ...
 
     @abc.abstractmethod
+    def set_appointment_duration(self, hospital_id: int, appointment_id: int, duration_hours: int) -> None: ...
+
+    @abc.abstractmethod
     def reschedule_booking(
         self,
         hospital_id: int,
@@ -174,6 +180,9 @@ class _UnimplementedTierConnector(Connector):
 
     def get_appointment_types(self, hospital_id):
         self._not_implemented("get_appointment_types")
+
+    def get_daycare_duration_options(self, hospital_id):
+        self._not_implemented("get_daycare_duration_options")
 
     def get_departments(self, hospital_id):
         self._not_implemented("get_departments")
@@ -225,6 +234,9 @@ class _UnimplementedTierConnector(Connector):
 
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         self._not_implemented("set_appointment_video_link")
+
+    def set_appointment_duration(self, hospital_id, appointment_id, duration_hours):
+        self._not_implemented("set_appointment_duration")
 
     def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
         self._not_implemented("reschedule_booking")

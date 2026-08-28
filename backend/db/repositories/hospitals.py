@@ -15,7 +15,7 @@ from db.connection import get_session, reraise_as_driver_integrity_error
 from db.display_ids import HOSPITAL_PREFIX, generate_id_derived_display_id
 from db.models import Hospital
 from db.orm_models import AppointmentType, HospitalRow
-from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
+from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
 
 # Every column _row_to_hospital() below reads, in one place so every SELECT
 # in this file lists the identical set -- matches the original "SELECT *"
@@ -312,6 +312,7 @@ def create_hospital(
                 id=appt_type["id"], hospital_id=new_id, label=appt_type["label"],
                 requires_consent=appt_type["requires_consent"],
                 requires_doctor_selection=appt_type["requires_doctor_selection"], sort_order=sort_order,
+                is_active=default_is_active(tenant_type, appt_type["id"]),
             )
         )
     session.commit()

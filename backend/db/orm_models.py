@@ -89,6 +89,22 @@ class AppointmentType(Base):
     sort_order: Mapped[int]
 
 
+class DaycareDurationOption(Base):
+    """db/schema.sql's daycare_duration_options table -- the hospital-
+    configurable list shown at STATE_AWAITING_DAYCARE_DURATION (Daycare
+    Phase 2, docs/per-appointment-type-flow-plan.md). Plain integer PK
+    (unlike AppointmentType's composite key) since a hospital can add/remove
+    its own options over time, not just relabel a fixed seeded set."""
+    __tablename__ = "daycare_duration_options"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    label: Mapped[str]
+    hours: Mapped[int]
+    is_active: Mapped[bool]
+    sort_order: Mapped[int]
+
+
 class FaqTopic(Base):
     """db/schema.sql's faq_topics table -- the faq_flow_type's entire data
     model (SPEC Section 14.2)."""
@@ -206,6 +222,7 @@ class AppointmentRow(Base):
     appointment_type_id: Mapped[str | None]
     consent_given_at: Mapped[str | None]
     video_link: Mapped[str | None]
+    duration_hours: Mapped[int | None]
 
 
 class AppointmentReminder(Base):
@@ -424,3 +441,24 @@ class DpdpConsent(Base):
     whatsapp_phone: Mapped[str]
     care_connect_account_id: Mapped[int | None] = mapped_column(ForeignKey("care_connect_accounts.id"))
     consented_at: Mapped[str]
+
+
+class AuditLog(Base):
+    """db/schema.sql's audit_logs table -- two-level audit trail
+    (tenant-capability-gating-plan.md's follow-up). actor_level is
+    'platform_admin' or 'portal' (see db/repositories/audit_logs.py for the
+    single source of truth on valid actions/redaction). hospital_id is
+    nullable only for a hypothetical cross-tenant platform action; every row
+    written today sets it."""
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_level: Mapped[str]
+    hospital_id: Mapped[int | None] = mapped_column(ForeignKey("hospitals.id"))
+    actor_label: Mapped[str]
+    action: Mapped[str]
+    entity_type: Mapped[str | None]
+    entity_id: Mapped[str | None]
+    before_value: Mapped[str | None]
+    after_value: Mapped[str | None]
+    created_at: Mapped[str]

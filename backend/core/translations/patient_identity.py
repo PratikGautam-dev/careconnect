@@ -52,7 +52,6 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "आप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
     },
     "manage_patients_short": {"en": "Manage Patients", "hi": "मरीज़ प्रबंधित करें"},
-    "patient_list_short": {"en": "Patient List", "hi": "मरीज़ सूची"},
     "add_patient_short": {"en": "Add Patient", "hi": "मरीज़ जोड़ें"},
     "back_to_menu_option": {"en": "Back to Menu", "hi": "मेनू पर वापस"},
     "registration_blocked_contact_hospital": {

@@ -4,7 +4,7 @@ node between patient resolution and department selection. Hospital-
 configurable set, same "toggle a fixed catalog" shape as
 hospitals.enabled_features -- see db/schema.sql's own comment on
 appointment_types for why this isn't hardcoded in the flow itself."""
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from db.connection import get_session
 from db.orm_models import AppointmentType
@@ -23,6 +23,25 @@ DEFAULT_APPOINTMENT_TYPES = (
     {"id": "lab", "label": "Lab Test", "requires_consent": False, "requires_doctor_selection": False},
     {"id": "daycare", "label": "Daycare", "requires_consent": False, "requires_doctor_selection": True},
 )
+
+# Which of the fixed catalog's types are ACTIVE by default per tenant_type
+# (tenant-capability-gating-plan.md's same "default-by-type, editable later"
+# shape as DEFAULT_CAPABILITIES_BY_TYPE in portal/capabilities.py). A row is
+# still created for every type on every tenant regardless -- only is_active
+# differs -- so a clinic that later upgrades to hospital (or just wants one
+# hospital-only type turned on) is a pure is_active flip via the portal, never
+# a re-seed/backfill. "daycare" is the one hospital-only type today; unknown
+# tenant types fall back to the (fully-active) hospital default, same
+# fallback DEFAULT_CAPABILITIES_BY_TYPE uses.
+DEFAULT_ACTIVE_TYPES_BY_TENANT_TYPE: dict[str, set[str]] = {
+    "hospital": {t["id"] for t in DEFAULT_APPOINTMENT_TYPES},
+    "clinic": {t["id"] for t in DEFAULT_APPOINTMENT_TYPES if t["id"] != "daycare"},
+}
+
+
+def default_is_active(tenant_type: str, appointment_type_id: str) -> bool:
+    active_ids = DEFAULT_ACTIVE_TYPES_BY_TENANT_TYPE.get(tenant_type, DEFAULT_ACTIVE_TYPES_BY_TENANT_TYPE["hospital"])
+    return appointment_type_id in active_ids
 
 
 def get_appointment_types(hospital_id: int) -> list[dict]:
@@ -55,5 +74,47 @@ def get_appointment_type(hospital_id: int, appointment_type_id: str) -> dict | N
             AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id,
             AppointmentType.is_active.is_(True),
         )
+    ).first()
+    return dict(row._mapping) if row else None
+
+
+def get_all_appointment_types_for_hospital(hospital_id: int) -> list[dict]:
+    """Active AND inactive types, for the portal's own management screen (a
+    staff admin needs to see what's currently off in order to turn it back
+    on) -- unlike get_appointment_types() above, which only ever surfaces the
+    active subset to the WhatsApp booking flow."""
+    session = get_session()
+    rows = session.execute(
+        select(
+            AppointmentType.id, AppointmentType.label, AppointmentType.is_active,
+            AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
+        )
+        .where(AppointmentType.hospital_id == hospital_id)
+        .order_by(AppointmentType.sort_order, AppointmentType.id)
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def set_appointment_type_active(hospital_id: int, appointment_type_id: str, is_active: bool) -> dict | None:
+    """Portal toggle (manage_appointment_types capability) -- the one-line
+    is_active flip that lets a clinic turn on a hospital-only type (e.g.
+    daycare) after upgrading, or a hospital turn one off, without touching
+    any other data. Returns None if the type doesn't exist for this hospital
+    (an unrecognized/stale id), else the updated row."""
+    session = get_session()
+    result = session.execute(
+        update(AppointmentType)
+        .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
+        .values(is_active=is_active)
+    )
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    row = session.execute(
+        select(
+            AppointmentType.id, AppointmentType.label, AppointmentType.is_active,
+            AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
+        )
+        .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
     ).first()
     return dict(row._mapping) if row else None

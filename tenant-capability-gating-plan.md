@@ -109,3 +109,55 @@ Both are already "contact the tenant manager" workflows described above — this
 - Unit test `get_capabilities`/`has_capability` against both a hospital and clinic row (with and without an explicit `admin_capabilities` override).
 - Integration test: clinic-tenant portal session hits `POST /portal/doctors` → expect 403; hospital-tenant session hits same route → expect success (reuse existing session-mocking test setup near `backend/portal/routes/doctors.py`).
 - Manually onboard a clinic via `POST /api/onboarding` with `tenant_type: "clinic"`, confirm `admin_capabilities` is set to the reduced default set in the DB, then confirm doctor-management portal routes 403 for that tenant while booking/settings routes still work.
+
+## Follow-up: tenant-shaped features (appointment types) and audit logging
+
+Once a hospital-only clinical *feature* (not just an admin route) needs
+gating — the running example is `appointment_types`' `"daycare"` type, seeded
+for every tenant but only active by default for `tenant_type='hospital'` —
+the same two-track pattern above extends cleanly:
+
+- **Patient-facing** (a WhatsApp-visible feature): gate via the resource's own
+  `is_active`/`enabled_features` membership, never a `tenant_type` check in
+  flow code. `db/repositories/appointment_types.py`'s
+  `DEFAULT_ACTIVE_TYPES_BY_TENANT_TYPE` is the concrete instance: every
+  tenant gets a row for every type at seed time (`create_hospital()` /
+  `init_db.py::_backfill_appointment_types()`), only `is_active` differs by
+  tenant type, so upgrading a clinic later is a one-line `is_active` flip
+  (`PATCH /api/portal/appointment-types/{id}/active`, gated by the
+  `manage_appointment_types` capability — now a real, exercised capability,
+  not a dead registry entry) — never a re-seed or re-onboard.
+- **Staff-portal-facing** (an admin management screen): gate via
+  `admin_capabilities` + `require_capability()`, exactly as doctors/
+  departments already do.
+
+**Audit trail**: `audit_logs` (new table, `db/migrations/versions/
+0007_audit_logs.py`) records two levels — `platform_admin` (changes via
+`admin/tenants_api.py`'s `TENANTS_ADMIN_SECRET`-gated tenant edit: `tenant.
+update`, `tenant.assign_owner`) and `portal` (an authenticated tenant's own
+staff-portal mutations: department/doctor create/update/active-toggle,
+appointment-type toggle, settings update). `db/repositories/audit_logs.py`'s
+`record_audit_log()` redacts secret fields unconditionally
+(`access_token`/`app_secret`/`portal_password_hash`/`external_api_key` never
+appear in `before_value`/`after_value`, even if a caller passes them by
+mistake). Exposed via `GET /api/admin/tenants/{id}/audit-log` (both levels,
+platform-admin only) and `GET /api/portal/audit-log` (that tenant's own
+`portal`-level rows only, gated by `manage_settings`).
+
+`actor_label` is free text rather than a foreign key to a real user, because
+neither level has individual per-person identity yet (platform-admin is one
+shared secret; portal auth resolves to a `Hospital`, not a named staff
+member — `hospital_users.role` stays unused, per this doc's own original
+"What this deliberately does NOT do" section). Adding real per-user identity
+later — an admin login, or per-staff portal accounts — is a
+value-population change against the existing column, not a schema
+migration.
+
+**Frontend**: `frontend/src/app/admin/edit-tenant/[id]/page.tsx` now exposes
+a "Reset to {type} defaults" action next to the capability checkboxes
+(backed by a new `default_capabilities_by_type` field on the tenant-detail
+API response) plus an inline warning when the current capability set
+doesn't match either type's default — since flipping the "Tenant type"
+dropdown never auto-changes the capability checkboxes (an operator must
+still act deliberately), this makes an accidental hospital-with-clinic-
+capabilities (or vice versa) visible instead of a silent trap.

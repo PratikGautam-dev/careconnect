@@ -32,8 +32,10 @@ from db.repositories.consent import *  # noqa: F401,F403
 from db.repositories.patients import *  # noqa: F401,F403
 from db.repositories.patient_records import *  # noqa: F401,F403
 from db.repositories.appointment_types import *  # noqa: F401,F403
+from db.repositories.daycare_duration_options import *  # noqa: F401,F403
 from db.repositories.appointments import *  # noqa: F401,F403
 from db.repositories.appointments import _upsert_patient  # noqa: F401 -- some tests import this directly
 from db.repositories.dashboard import *  # noqa: F401,F403
 from db.repositories.faq import *  # noqa: F401,F403
 from db.repositories.handoffs import *  # noqa: F401,F403
+from db.repositories.audit_logs import *  # noqa: F401,F403

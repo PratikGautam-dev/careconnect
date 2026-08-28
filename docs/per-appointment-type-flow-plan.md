@@ -174,15 +174,135 @@ one. `None` (the default) leaves every other type's existing behavior untouched.
   `tests/test_appointment_type_flows.py` for `followup`'s new `steps`/`on_selected` shape.
 - Full backend suite passing except the same pre-existing, unrelated reception-handoff failures.
 
-### Step 3+ — remaining types (not started, one at a time, each awaiting confirmation first)
+### Step 3 — Tele Consultation (`tele_consultation.py`) — ✅ DONE
+
+Confirmed with the user: a tele-consultation booking gets a real video-call room generated and
+attached, without touching its step list at all (`steps=FULL_FLOW`, unchanged). Revised mid-build
+per the user's own explicit "soft-gate" call: the link is generated and persisted at booking time,
+but deliberately **not shown** in the immediate booking-confirmation message — it's surfaced later,
+close to the actual slot, via the reminder message instead, so a patient can't casually share or
+join a "live" room hours or days early.
+
+**How it was built** — a new `TypeFlow.on_booking_confirmed` hook (`flows/booking/types/base.py`):
+an optional async `(appointment_id, hospital_id, patient_id, connector) -> dict | None` callable
+run right after `connector.create_booking()` succeeds. `None` (the default) leaves every other
+type's notification untouched.
+- `db/orm_models.py` / `db/schema.sql` / `db/migrations/versions/0004_appointment_video_link.py` /
+  `db/init_db.py` — new `appointments.video_link` column (nullable, `TEXT`), non-tele rows always
+  `NULL`.
+- `db/repositories/appointments.py` — new `set_appointment_video_link(hospital_id, appointment_id,
+  video_link)`; existing appointment-read query/`db/models.py`'s `Appointment` now carry
+  `video_link` through.
+- `connectors/base.py` / `connectors/tier1.py` — `set_appointment_video_link` added to the
+  `Connector` protocol and `Tier1Connector` implementation.
+- `flows/booking/types/tele_consultation.py` — `_on_tele_booking_confirmed` (the
+  `on_booking_confirmed` hook): builds a Jitsi Meet URL (`https://meet.jit.si/CareConnect-<token>`)
+  with a fresh `secrets.token_urlsafe(24)` CSPRNG token per booking (never derived from appointment
+  id/timestamp/patient info, so it can't be guessed or enumerated — Jitsi has no auth, the room
+  name itself is the access control), persists it via `set_appointment_video_link`, and returns
+  `{"video_link": ...}`. `FLOW = TypeFlow(type_id="tele", steps=FULL_FLOW,
+  on_booking_confirmed=_on_tele_booking_confirmed)`.
+- `flows/booking/book.py` — `_create_booking_and_notify` calls `flow.on_booking_confirmed(...)`
+  right after `create_appointment()` succeeds, before building the confirmation summary; per the
+  soft-gate revision, the returned dict is no longer consulted here (the confirmation text is
+  identical to every other type).
+- `flows/booking/reschedule.py` — rescheduling creates a genuinely new appointment row that
+  inherits the old row's `appointment_type_id` but not its `video_link` (a room is tied to a
+  specific slot, not carried across a date/time change), so the reschedule success path
+  re-resolves `get_type_flow(new_appointment.appointment_type_id)` and re-runs
+  `on_booking_confirmed` for the new row — otherwise a rescheduled tele-consultation's reminder
+  would have no link.
+- `reminders/scheduler.py` — the reminder builder appends the video link line only when
+  `appointment_type_id == "tele"` and `video_link` is set (handles the gap between booking and the
+  hook actually persisting it, and any pre-existing row from before this migration).
+- `portal/routes/bookings.py` — surfaces `video_link` in the admin/portal booking payload (`None`
+  for every non-tele row).
+- Tests: `tests/test_booking_flow.py`'s `test_tele_consultation_booking_generates_and_stores_a_video_link`,
+  `test_tele_consultation_video_link_token_is_not_predictable`,
+  `test_non_tele_types_get_no_video_link_in_their_confirmation`,
+  `test_rescheduling_a_tele_consultation_generates_a_fresh_video_link`; `tests/test_reminders.py`'s
+  `test_tele_appointment_reminder_includes_video_link`,
+  `test_non_tele_appointment_reminder_has_no_video_link`,
+  `test_tele_appointment_with_no_video_link_yet_gets_plain_reminder`.
+- Full backend suite passing except the same pre-existing, unrelated reception-handoff failures.
+
+### Step 4 — Daycare (`daycare.py`) — ✅ DONE
+
+Confirmed with the user directly (a short design discussion, not assumed): the original Phase-1
+placeholder plan ("replace time-slot with a date-range step") was revised once the user raised that
+some daycare stays are only a few hours, not a multi-day range. Final shape: the existing
+department→doctor→date→time-slot pickers are kept completely unchanged (a daycare patient still
+needs a real arrival slot), and exactly ONE new step is inserted after time-slot and before
+confirmation — picking a stay-length option from a **hospital-configurable** list (not a fixed
+enum — confirmed with the user: a same-day 6-hour stay and a 2-night admission both need to be
+expressible, and hospitals price/label these differently).
+
+**How it was built**:
+- `flows/booking/state.py` — new `STATE_AWAITING_DAYCARE_DURATION` state; new
+  `CHANGE_DURATION`/`_CHANGE_TARGETS` entry so the confirmation screen's "what would you like to
+  change?" menu can jump straight back to it.
+- `flows/booking/types/base.py` — new `TypeFlow.next_step(current) -> str` method (walks `steps`,
+  falls back to `STATE_AWAITING_CONFIRMATION` past the end or for an unrecognized state) — the one
+  shared transition point (time-slot completion, `book.py`) that previously hardcoded its next
+  state directly now calls this, so daycare can insert an extra step there with no
+  `if appointment_type_id == "daycare"` branch in shared code. `OnBookingConfirmedHook` extended to
+  also receive the live booking `context` (tele's hook ignores it; daycare's needs
+  `context["daycare_duration_hours"]`).
+- `flows/booking/types/daycare.py` — its own `steps` tuple (`FULL_FLOW` with
+  `STATE_AWAITING_DAYCARE_DURATION` inserted before confirmation, kept local rather than in
+  `base.py` since no other type reuses it), `_send_daycare_duration_menu` +
+  `_handle_awaiting_daycare_duration` (the new state's own handler, registered in
+  `dispatch.py`'s `_HANDLERS`), and `_on_daycare_duration_confirmed` (the `on_booking_confirmed`
+  hook) which persists the chosen duration via `connector.set_appointment_duration`.
+- `db/repositories/daycare_duration_options.py` (new) + `daycare_duration_options` table
+  (migration `0008`) — hospital-configurable list (`get_daycare_duration_options` for the active
+  subset the WhatsApp flow shows; `get_all_daycare_duration_options_for_hospital` plus
+  create/update/toggle/delete for the portal), seeded with 3 defaults ("4-6 hours", "Full day",
+  "Overnight (1 night)") per hospital by `db/init_db.py`'s `_backfill_daycare_duration_options`.
+  Unlike `appointment_types` (a closed, id-keyed catalog), this is a genuinely open one — a
+  hospital can add/relabel/remove its own options, so the backfill only seeds hospitals with zero
+  existing rows rather than gating per-row.
+- `appointments.duration_hours` (migration `0008`, alongside the new table) — the chosen option's
+  `hours`, persisted onto the booking itself so it survives the option later being relabeled or
+  deactivated. `db/repositories/appointments.py`'s `create_appointment()` gained an optional
+  `duration_hours` param (used only by reschedule's carry-forward below — a fresh booking always
+  starts NULL and gets set via the hook after creation, same as tele's `video_link`); new
+  `set_appointment_duration(hospital_id, appointment_id, duration_hours)`. `db/models.py`'s
+  `Appointment` dataclass and the ORM `AppointmentRow` both carry the new column through.
+- `connectors/base.py` / `connectors/tier1.py` — `get_daycare_duration_options` and
+  `set_appointment_duration` added to the `Connector` protocol.
+- Reschedule handling: unlike tele's video link (deliberately regenerated fresh per slot, since the
+  room is tied to a specific booking), daycare's duration isn't slot-specific and the reschedule
+  flow never re-asks it. `connectors/tier1.py`'s `reschedule_booking()` carries the ORIGINAL
+  appointment's `duration_hours` onto the new row at creation time (same pattern as
+  `appointment_type_id`), and `_on_daycare_duration_confirmed` is a no-op when
+  `context["daycare_duration_hours"]` is absent (the reschedule call site's context never has it) —
+  so the hook only ever acts on a genuinely fresh booking.
+- `flows/booking/messages.py` — `_send_confirmation` appends a `⏱ Duration:` line when
+  `context["daycare_duration_label"]` is set (shown immediately, unlike tele's link — there's no
+  "don't reveal early" concern for a duration choice); `_resend_menu_for_state` and
+  `_send_change_selection_menu` both gained the new state/row (lazy-imported, same
+  cycle-avoidance as `followup.py`'s case).
+- `portal/routes/daycare_duration_options.py` (new) — full CRUD (list/create/update/toggle/delete),
+  reusing the existing `manage_appointment_types` capability rather than adding a new one, since
+  it's the same portal screen area. No frontend admin page yet — backend-only for this pass, same
+  scope boundary Phase 2 has kept type-by-type; flagged here for a follow-up.
+- `core/translations.py` — `select_daycare_duration` / `view_durations_button` /
+  `daycare_durations_section_title` / `change_duration_option` / `confirm_daycare_duration_line`
+  (en/hi).
+- Tests: `tests/test_appointment_type_flows.py`'s updated `test_known_types_resolve_to_their_own_flow`
+  (daycare's actual step tuple, not `FULL_FLOW`) and new `test_next_step`;
+  `tests/test_booking_flow.py`'s `test_daycare_booking_asks_for_duration_and_stores_it`,
+  `test_rescheduling_a_daycare_appointment_carries_the_same_duration_forward`, and the shared
+  `_book_through_confirmation` helper updated to drive through the new step for every type that has
+  it.
+- Full backend suite passing (674 tests, no regressions).
+
+### Step 5+ — remaining types (not started, one at a time, each awaiting confirmation first)
 
 Concrete hooks the Phase-1 structure sets up for these, per type file:
-- `daycare.py`: replace `STATE_AWAITING_TIME_SLOT` in its `steps` with a new
-  `STATE_AWAITING_DATE_RANGE` + its own handler (duration/date-range instead of single slot).
 - `lab.py` / `diagnostic.py`: insert a new `STATE_AWAITING_TEST_SELECTION` step before
   `STATE_AWAITING_DATE` (pick which test/panel, if the hospital wants that granularity).
-- `tele_consultation.py`: post-confirmation hook to attach a video-call link to the booking
-  notification, without changing its step list at all.
 - `second_opinion.py`: an optional document-upload step before confirmation.
 
 None of this is implemented yet — listed only so the Phase-1 file layout is judged against where

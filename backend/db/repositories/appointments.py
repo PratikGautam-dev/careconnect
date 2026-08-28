@@ -35,6 +35,7 @@ def _appointment_select_stmt():
             AppointmentRow.scheduled_at, AppointmentRow.status, AppointmentRow.source, AppointmentRow.reference_id,
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
+            AppointmentRow.duration_hours,
         )
         .select_from(AppointmentRow)
         .join(Department, Department.id == AppointmentRow.department_id)
@@ -116,6 +117,7 @@ def create_appointment(
     exclude_appointment_id: int | None = None,
     appointment_type_id: str | None = None,
     consent_given_at: str | None = None,
+    duration_hours: int | None = None,
 ) -> Appointment:
     """Raises IntegrityError if the doctor's slot capacity (max_bookings_per_slot)
     is full at scheduled_at, or the more specific QuotaExceededError if the
@@ -264,11 +266,11 @@ def create_appointment(
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
-            "appointment_type_id, consent_given_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "appointment_type_id, consent_given_at, duration_hours) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
              _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
-             appointment_type_id, consent_given_at),
+             appointment_type_id, consent_given_at, duration_hours),
         )
         new_id_row = cur.fetchone()
         assert new_id_row is not None  # INSERT ... RETURNING always returns the inserted row
@@ -297,6 +299,19 @@ def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link
     conn.execute(
         "UPDATE appointments SET video_link = ? WHERE id = ? AND hospital_id = ?",
         (video_link, appointment_id, hospital_id),
+    )
+    conn.commit()
+
+
+def set_appointment_duration(hospital_id: int, appointment_id: int, duration_hours: int) -> None:
+    """Daycare Phase 2: called once, right after create_appointment() succeeds,
+    by flows/booking/types/daycare.py's on_booking_confirmed hook -- every
+    other appointment type never calls this, so their rows keep
+    duration_hours NULL. Same shape as set_appointment_video_link() above."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE appointments SET duration_hours = ? WHERE id = ? AND hospital_id = ?",
+        (duration_hours, appointment_id, hospital_id),
     )
     conn.commit()
 

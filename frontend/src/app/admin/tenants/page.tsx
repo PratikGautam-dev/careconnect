@@ -60,9 +60,14 @@ function TenantsList() {
           <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">All tenants</h1>
         </div>
-        <Button href="/admin/onboard-hospital" variant="secondary">
-          Onboard a hospital
-        </Button>
+        <div className="flex items-center gap-space-3">
+          <Button href="/admin/audit-log" variant="ghost">
+            Audit log
+          </Button>
+          <Button href="/admin/onboard-hospital" variant="secondary">
+            Onboard a hospital
+          </Button>
+        </div>
       </div>
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}

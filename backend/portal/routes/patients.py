@@ -32,6 +32,11 @@ async def portal_delete_patients(payload: dict, authorization: str | None = Head
     if not isinstance(patient_ids, list) or not patient_ids:
         return JSONResponse({"error": "patient_ids is required."}, status_code=400)
     deleted = [pid for pid in patient_ids if db.delete_patient_hard(hospital.id, pid)]
+    for pid in deleted:
+        db.record_audit_log(
+            "portal", hospital.id, "tenant portal", "patient.delete",
+            entity_type="patient", entity_id=str(pid),
+        )
     return JSONResponse({"deleted": deleted})
 
 
@@ -90,6 +95,15 @@ async def portal_update_patient(patient_id: int, payload: dict, authorization: s
     )
     if updated is None:
         return JSONResponse({"error": "No such patient."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "patient.update",
+        entity_type="patient", entity_id=str(patient_id),
+        after={
+            "date_of_birth": updated.get("date_of_birth"),
+            "gender": updated.get("gender"),
+            "address": updated.get("address"),
+        },
+    )
     return JSONResponse({"patient": _patient_json(updated)})
 
 
@@ -108,6 +122,10 @@ async def portal_set_patient_status(patient_id: int, payload: dict, authorizatio
     updated = db.set_patient_status(hospital.id, patient_id, status)
     if updated is None:
         return JSONResponse({"error": "No such patient."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "patient.status_change",
+        entity_type="patient", entity_id=str(patient_id), after={"status": status},
+    )
     return JSONResponse({"patient": _patient_json(updated)})
 
 

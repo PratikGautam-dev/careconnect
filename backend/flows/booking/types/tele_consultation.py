@@ -21,7 +21,9 @@ _JITSI_BASE_URL = "https://meet.jit.si/CareConnect-"
 _TOKEN_BYTES = 24  # secrets.token_urlsafe(24) -> 32 URL-safe characters
 
 
-async def _on_tele_booking_confirmed(appointment_id: int, hospital_id: int, patient_id: int | None, connector) -> dict:
+async def _on_tele_booking_confirmed(
+    appointment_id: int, hospital_id: int, patient_id: int | None, connector, context: dict,
+) -> dict:
     video_link = f"{_JITSI_BASE_URL}{secrets.token_urlsafe(_TOKEN_BYTES)}"
     connector.set_appointment_video_link(hospital_id, appointment_id, video_link)
     return {"video_link": video_link}

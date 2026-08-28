@@ -15,6 +15,9 @@ class Tier1Connector(Connector):
     def get_appointment_types(self, hospital_id):
         return repo.get_appointment_types(hospital_id)
 
+    def get_daycare_duration_options(self, hospital_id):
+        return repo.get_daycare_duration_options(hospital_id)
+
     def get_departments(self, hospital_id):
         return repo.get_departments(hospital_id)
 
@@ -72,6 +75,9 @@ class Tier1Connector(Connector):
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         repo.set_appointment_video_link(hospital_id, appointment_id, video_link)
 
+    def set_appointment_duration(self, hospital_id, appointment_id, duration_hours):
+        repo.set_appointment_duration(hospital_id, appointment_id, duration_hours)
+
     def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
         """Books the new slot BEFORE marking the old appointment rescheduled:
         if someone else grabbed this exact doctor+slot first (IntegrityError,
@@ -93,12 +99,21 @@ class Tier1Connector(Connector):
         is read straight off the old row rather than asked again. Any
         consent already given at original booking time does NOT carry
         forward (consent_given_at stays unset on the new row) -- it was
-        given for that specific visit, not a standing grant."""
+        given for that specific visit, not a standing grant.
+
+        Daycare Phase 2: duration_hours carries forward the same way --
+        rescheduling moves the arrival slot, not the stay length, and the
+        booking flow doesn't re-ask the duration question during reschedule
+        (unlike tele's video_link, which IS deliberately regenerated fresh
+        per slot -- see flows/booking/types/tele_consultation.py -- daycare's
+        chosen duration isn't slot-specific, so there's nothing to
+        regenerate)."""
         old_appointment = repo.get_appointment(hospital_id, old_appointment_id)
         new_appointment = repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
             exclude_appointment_id=old_appointment_id,
             appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
+            duration_hours=old_appointment.duration_hours if old_appointment else None,
         )
         repo.mark_rescheduled(hospital_id, old_appointment_id)
         return new_appointment

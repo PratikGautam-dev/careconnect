@@ -227,7 +227,7 @@ async def _handle_awaiting_reschedule_confirm(
             flow = get_type_flow(new_appointment.appointment_type_id)
             if flow.on_booking_confirmed is not None:
                 await flow.on_booking_confirmed(
-                    new_appointment.id, hospital_id, context.get("active_patient_id"), connector,
+                    new_appointment.id, hospital_id, context.get("active_patient_id"), connector, context,
                 )
             summary = t(
                 "appointment_rescheduled", language,

@@ -34,6 +34,10 @@ async def portal_create_department(payload: dict, authorization: str | None = He
     if not name:
         return JSONResponse({"error": "Department name is required."}, status_code=400)
     department = db.create_department(hospital.id, name)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "department.create",
+        entity_type="department", entity_id=department["id"], after={"name": name},
+    )
     return JSONResponse({"department": department})
 
 
@@ -93,6 +97,10 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
         followup_duration_minutes=doctor_data["followup_duration_minutes"],
         effective_from=doctor_data["effective_from"],
     )
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.create",
+        entity_type="doctor", entity_id=doctor["id"], after={"name": doctor_data["name"]},
+    )
     return JSONResponse({"doctor": doctor, "warnings": warnings})
 
 
@@ -108,6 +116,10 @@ async def portal_set_doctor_active(doctor_id: str, payload: dict, authorization:
     ok = db.set_doctor_active(hospital.id, doctor_id, is_active)
     if not ok:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.active_toggle",
+        entity_type="doctor", entity_id=doctor_id, after={"is_active": is_active},
+    )
     return JSONResponse({"ok": True, "is_active": is_active})
 
 
@@ -441,4 +453,8 @@ async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authoriza
     )
     if doctor is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.update",
+        entity_type="doctor", entity_id=doctor_id, after={"name": doctor_data["name"]},
+    )
     return JSONResponse({"doctor": doctor, "warnings": warnings})

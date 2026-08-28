@@ -106,6 +106,15 @@ def _tenant_detail(h) -> dict:
         "tenant_type": h.tenant_type,
         "admin_capabilities": sorted(get_capabilities(h)),
         "all_capabilities": sorted(ALL_CAPABILITIES),
+        # Lets the edit-tenant frontend offer a "reset to {type} defaults"
+        # action when the operator flips tenant_type, instead of leaving the
+        # capability checkboxes stale until manually rechecked (the map
+        # itself is the same one resolve_default_capabilities()/
+        # get_capabilities() already use, just shaped for the frontend to
+        # read rather than hardcoding a second copy of it in TypeScript).
+        "default_capabilities_by_type": {
+            k: sorted(v) for k, v in DEFAULT_CAPABILITIES_BY_TYPE.items()
+        },
     }
 
 
@@ -296,6 +305,29 @@ async def update_tenant(
             ]
         }, status_code=400)
 
+    # Audit trail (tenant-capability-gating-plan.md's follow-up): only the
+    # access/billing-relevant fields that actually changed, not the full
+    # before/after row (name/phone_number_id churn isn't interesting; secrets
+    # are handled by db.repositories.audit_logs' own redaction regardless of
+    # whether they show up here). One entry per PATCH call, not one per
+    # field, so an operator's single "edit this tenant" action reads back as
+    # one event.
+    _audit_fields = {
+        "name": (hospital.name, name),
+        "data_tier": (hospital.data_tier, payload.data_tier),
+        "tenant_type": (hospital.tenant_type, tenant_type),
+        "admin_capabilities": (sorted(get_capabilities(hospital)), sorted(admin_capabilities or [])),
+        "enabled_features": (hospital.enabled_features, enabled_features),
+    }
+    changed = {k: (old, new) for k, (old, new) in _audit_fields.items() if old != new}
+    if changed:
+        db.record_audit_log(
+            "platform_admin", tenant_id, "platform admin", "tenant.update",
+            entity_type="hospital", entity_id=str(tenant_id),
+            before={k: old for k, (old, new) in changed.items()},
+            after={k: new for k, (old, new) in changed.items()},
+        )
+
     return JSONResponse({"tenant": _tenant_detail(updated)})
 
 
@@ -330,4 +362,53 @@ async def assign_tenant_owner(
         return JSONResponse({"error": "A valid email address is required."}, status_code=400)
 
     owner = db.assign_hospital_owner_by_email(tenant_id, email)
+    db.record_audit_log(
+        "platform_admin", tenant_id, "platform admin", "tenant.assign_owner",
+        entity_type="hospital_owner", entity_id=str(owner.id), after={"email": email},
+    )
     return JSONResponse({"tenant": _tenant_detail(hospital), "owner": {"id": owner.id, "email": owner.email}})
+
+
+@router.get("/api/admin/tenants/{tenant_id}/audit-log")
+async def get_tenant_audit_log(
+    tenant_id: int, request: Request, x_admin_secret: str | None = Header(default=None)
+):
+    """Platform-admin view of both audit levels for one tenant -- the portal-
+    facing GET /api/portal/audit-log (portal/routes/settings.py) only ever
+    shows that tenant's own 'portal'-level rows, never platform_admin ones
+    (data_tier/API-key changes are operator-only concerns), so this is the
+    only place both levels for a tenant are visible together."""
+    if not _check_secret(x_admin_secret, request):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if db.get_hospital(tenant_id) is None:
+        return JSONResponse({"error": f"No tenant with id {tenant_id}."}, status_code=404)
+    return JSONResponse({"entries": db.get_audit_logs(hospital_id=tenant_id)})
+
+
+@router.get("/api/admin/audit-log")
+async def get_platform_audit_log(
+    request: Request,
+    x_admin_secret: str | None = Header(default=None),
+    hospital_id: int | None = None,
+    actor_level: str | None = None,
+):
+    """Cross-tenant view -- unlike the per-tenant route above (only useful
+    once you're already looking at one tenant), this is the "what's
+    happening across the whole platform" view, so a platform admin doesn't
+    have to open every tenant's edit page one at a time to spot activity.
+    Optional hospital_id/actor_level query params narrow it down to what the
+    per-tenant route already shows, for a "view this tenant's history from
+    here" link back out of this page. Enriches each entry with hospital_name
+    (a lookup dict built once, not a query per row) since these entries span
+    tenants and an id alone isn't identifying enough here the way it is on
+    the single-tenant route."""
+    if not _check_secret(x_admin_secret, request):
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if actor_level is not None and actor_level not in ("platform_admin", "portal"):
+        return JSONResponse({"error": f'Unrecognized actor_level "{actor_level}".'}, status_code=400)
+
+    entries = db.get_audit_logs(hospital_id=hospital_id, actor_level=actor_level, limit=200)
+    hospital_names = {h.id: h.name for h in db.get_all_hospitals()}
+    for entry in entries:
+        entry["hospital_name"] = hospital_names.get(entry["hospital_id"])
+    return JSONResponse({"entries": entries})

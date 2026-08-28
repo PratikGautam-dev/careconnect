@@ -5,7 +5,7 @@ from admin.validation import _parse_offsets
 import db.repository as db
 from core.translations import SUPPORTED_LANGUAGES, t
 from flows import REAL_FEATURES
-from portal.deps import _authenticate
+from portal.deps import _authenticate, require_capability
 
 router = APIRouter()
 
@@ -130,4 +130,35 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         admin_capabilities=hospital.admin_capabilities,
         dpdp_consent_required=bool(payload.get("dpdp_consent_required", False)),
     )
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "settings.update",
+        entity_type="hospital", entity_id=str(hospital.id),
+        before={
+            "default_language": hospital.default_language,
+            "session_timeout_minutes": hospital.session_timeout_minutes,
+            "dpdp_consent_required": hospital.dpdp_consent_required,
+        },
+        after={
+            "default_language": default_language,
+            "session_timeout_minutes": session_timeout_minutes,
+            "dpdp_consent_required": bool(payload.get("dpdp_consent_required", False)),
+        },
+    )
     return JSONResponse({"ok": True})
+
+
+@router.get("/api/portal/audit-log")
+async def portal_audit_log(authorization: str | None = Header(default=None)):
+    """This tenant's own 'portal'-level audit rows only -- never
+    'platform_admin' rows (data_tier/API-key/tenant_type changes stay
+    operator-only, visible through admin/tenants_api.py's own audit-log
+    route instead). Gated by manage_settings, same capability that already
+    gates this file's own settings-update route, rather than inventing a
+    new one just for reading history."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_settings")
+    if forbidden:
+        return forbidden
+    return JSONResponse({"entries": db.get_audit_logs(hospital_id=hospital.id, actor_level="portal")})

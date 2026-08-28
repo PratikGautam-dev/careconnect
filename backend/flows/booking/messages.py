@@ -20,8 +20,9 @@ from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
     ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
-    CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
-    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DEPARTMENT,
+    CHANGE_DOCTOR, CHANGE_DURATION, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
+    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DAYCARE_DURATION,
+    STATE_AWAITING_DEPARTMENT,
     STATE_AWAITING_FOLLOWUP_CONFIRM,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -428,6 +429,12 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
     )
+    # Daycare Phase 2: the chosen stay length, appended after the fixed
+    # template above rather than folded into confirm_booking_summary itself
+    # -- every other type has nothing to show here, and confirm_booking_
+    # summary's placeholders are all unconditional fields every type has.
+    if context.get("daycare_duration_label"):
+        summary += "\n" + t("confirm_daycare_duration_line", language, duration_label=context["daycare_duration_label"])
     await wa.send_buttons(
         to=phone,
         body_text=summary,
@@ -465,6 +472,8 @@ async def _send_change_selection_menu(
         rows.append({"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)})
     rows.append({"id": CHANGE_DATE, "title": t("change_date_option", language)})
     rows.append({"id": CHANGE_TIME, "title": t("change_time_option", language)})
+    if flow.has_step(STATE_AWAITING_DAYCARE_DURATION):
+        rows.append({"id": CHANGE_DURATION, "title": t("change_duration_option", language)})
     # Previously a dead end -- every row here picked a field to change, with
     # no way out except actually picking one. GOTO_MAIN_MENU is intercepted
     # globally (flows/router.py's handle_incoming, before any state
@@ -509,6 +518,11 @@ async def _resend_menu_for_state(
         await _send_time_menu(
             wa, phone, hospital_id, context["doctor_id"], context["date"], connector, language=language,
         )
+    elif state == STATE_AWAITING_DAYCARE_DURATION:
+        # Lazy import: avoids this module -> types.registry -> daycare cycle,
+        # same reason STATE_AWAITING_FOLLOWUP_CONFIRM's case above does.
+        from flows.booking.types.daycare import _send_daycare_duration_menu
+        await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)
 
 
 async def _handle_back_navigation(

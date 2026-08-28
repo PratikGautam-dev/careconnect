@@ -21,6 +21,7 @@ from flows.booking.book import (
 from flows.booking.cancel import _handle_awaiting_cancel_confirm, _handle_awaiting_cancel_selection, _start_cancel_flow
 from flows.booking.manage_patients import _handle_awaiting_manage_patients_action, _handle_awaiting_unlink_confirm
 from flows.booking.messages import _handle_awaiting_patient_selection, _send_main_menu
+from flows.booking.types.daycare import _handle_awaiting_daycare_duration
 from flows.booking.types.followup import _handle_awaiting_followup_confirm
 from flows.booking.reschedule import (
     _handle_awaiting_reschedule_confirm, _handle_awaiting_reschedule_date, _handle_awaiting_reschedule_selection,
@@ -30,6 +31,7 @@ from flows.booking.state import (
     FREE_TEXT_INPUT_STATES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ, MAIN_MENU_RESCHEDULE,
     STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_CANCEL_CONFIRM, STATE_AWAITING_CANCEL_SELECTION,
     STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
+    STATE_AWAITING_DAYCARE_DURATION,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_FOLLOWUP_CONFIRM,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
@@ -75,6 +77,7 @@ _HANDLERS = {
     STATE_AWAITING_DOCTOR: _handle_awaiting_doctor,
     STATE_AWAITING_DATE: _handle_awaiting_date,
     STATE_AWAITING_TIME_SLOT: _handle_awaiting_time_slot,
+    STATE_AWAITING_DAYCARE_DURATION: _handle_awaiting_daycare_duration,
     STATE_AWAITING_PATIENT_NAME: _handle_awaiting_patient_name,
     STATE_AWAITING_PATIENT_AGE: _handle_awaiting_patient_age,
     STATE_AWAITING_CONFIRMATION: _handle_awaiting_confirmation,
