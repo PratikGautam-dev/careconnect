@@ -12,6 +12,7 @@ import sqlalchemy.exc
 from sqlalchemy import insert, select, update
 
 from db.connection import get_session, reraise_as_driver_integrity_error
+from db.display_ids import HOSPITAL_PREFIX, generate_id_derived_display_id
 from db.models import Hospital
 from db.orm_models import AppointmentType, HospitalRow
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
@@ -28,7 +29,7 @@ _HOSPITAL_COLUMNS = (
     HospitalRow.feature_labels, HospitalRow.closing_message_text, HospitalRow.business_hours_text,
     HospitalRow.default_language, HospitalRow.language_prompt_enabled, HospitalRow.session_timeout_minutes,
     HospitalRow.require_patient_confirmation, HospitalRow.privacy_notice_text, HospitalRow.tenant_type,
-    HospitalRow.admin_capabilities, HospitalRow.dpdp_consent_required,
+    HospitalRow.admin_capabilities, HospitalRow.dpdp_consent_required, HospitalRow.display_id,
 )
 
 # --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
@@ -131,6 +132,7 @@ def _row_to_hospital(row) -> Hospital:
         tenant_type=row["tenant_type"] or "hospital",
         admin_capabilities=admin_capabilities,
         dpdp_consent_required=bool(row["dpdp_consent_required"]),
+        display_id=row["display_id"],
     )
 
 
@@ -289,6 +291,14 @@ def create_hospital(
         # must be re-raised as that same type, not SQLAlchemy's wrapper.
         session.rollback()
         reraise_as_driver_integrity_error(e)
+    # db/display_ids.py -- global, id-derived (see that module's docstring);
+    # shown to hospital users the same way patients.patient_display_id is
+    # shown to patients.
+    session.execute(
+        update(HospitalRow)
+        .where(HospitalRow.id == new_id)
+        .values(display_id=generate_id_derived_display_id(HOSPITAL_PREFIX, new_id, 4))
+    )
     # Appointment type step (WhatsApp flow alignment): every new hospital
     # gets the same fixed catalog db/init_db.py's own startup backfill seeds
     # for pre-existing hospitals (DEFAULT_APPOINTMENT_TYPES is the single

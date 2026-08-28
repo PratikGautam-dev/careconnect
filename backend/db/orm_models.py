@@ -43,6 +43,12 @@ class CareConnectAccount(Base):
     status: Mapped[str]
     created_at: Mapped[str]
     updated_at: Mapped[str | None]
+    # migration 0006 -- global, id-derived (db/display_ids.py), not yet
+    # surfaced in any UI; see patients.patient_display_id for the precedent.
+    # Nullable at the DB level only for the same "INSERT can't know its own
+    # id yet" reason patient_display_id is -- always set in practice by the
+    # time any caller reads the row (see that migration's own docstring).
+    display_id: Mapped[str | None]
 
 
 class WhatsappIdentity(Base):
@@ -315,6 +321,11 @@ class HospitalRow(Base):
     dpdp_consent_required: Mapped[bool]
     tenant_type: Mapped[str]
     admin_capabilities: Mapped[str | None]
+    # migration 0006 -- global, id-derived (db/display_ids.py); shown to
+    # hospital users the same way patients.patient_display_id is shown to
+    # patients. Nullable at the DB level for the same reason
+    # CareConnectAccount.display_id is -- see that model's own comment.
+    display_id: Mapped[str | None]
 
 
 class PatientVisitNote(Base):

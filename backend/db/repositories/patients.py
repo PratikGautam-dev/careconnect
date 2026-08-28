@@ -247,7 +247,18 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     link row" sequence -- must run under `conn`'s already-open transaction
     (both callers wrap this in BEGIN/COMMIT/ROLLBACK) so the count-then-
     insert is atomic against a genuine concurrent "add/link a patient" tap
-    from the same phone.
+    from the same identity.
+
+    The cap and its lock are keyed on care_connect_account_id (the durable
+    global identity -- db/schema.sql's own comment on care_connect_accounts),
+    not the raw phone string, so the account is resolved FIRST, before the
+    lock/count. In the common case this is identical to keying on phone,
+    since one WhatsApp number is 1:1 with one account today -- but the
+    account is the correct identity to enforce "up to
+    MAX_ACTIVE_PATIENT_LINKS per hospital" against, robust to a person's
+    phone number changing while their account persists (or the reverse).
+    Still per-hospital: a second hospital's own patient_links rows are
+    counted separately, same as before.
 
     Deliberately NOT migrated to get_session()/ORM, permanently, along with
     create_patient_profile()/link_existing_patient() below: pg_advisory_xact_lock
@@ -268,24 +279,21 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     _get_or_create_account_in_conn() (accounts.py's raw-conn helper) inside
     this same transaction -- see consent.py's docstring for that
     dependency's own status."""
-    conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"patient_links|{hospital_id}|{phone}",))
+    # CareConnect account/identity layer: resolved up front (not just for the
+    # INSERT below) since the cap/lock now key on it, not on `phone`. Cheap
+    # on the common path where webhook/dispatch.py's own per-message
+    # identify_contact() call already created the account earlier in this
+    # same conversation.
+    account = _get_or_create_account_in_conn(conn, phone, phone_number=phone)
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"patient_links|{hospital_id}|{account['id']}",))
     active_count = conn.execute(
-        "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND whatsapp_phone = ? AND unlinked_at IS NULL",
-        (hospital_id, phone),
+        "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND care_connect_account_id = ? AND unlinked_at IS NULL",
+        (hospital_id, account["id"]),
     ).fetchone()["c"]
     if active_count >= MAX_ACTIVE_PATIENT_LINKS:
         raise TooManyLinkedPatientsError(
             f"This phone number already has {MAX_ACTIVE_PATIENT_LINKS} linked patients -- unlink one first."
         )
-    # CareConnect account/identity layer (db/schema.sql's own comment on
-    # care_connect_accounts): stamps every new link with the GLOBAL account
-    # this phone resolves to. Uses the transaction-agnostic helper (not
-    # get_or_create_account()) since this already runs inside the caller's
-    # own BEGIN/COMMIT -- idempotent either way, so this is a cheap lookup on
-    # the common path where webhook/dispatch.py's own per-message
-    # identify_contact() call already created the account earlier in this
-    # same conversation.
-    account = _get_or_create_account_in_conn(conn, phone, phone_number=phone)
     conn.execute(
         "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label, care_connect_account_id) "
         "VALUES (?, ?, ?, ?, ?)",

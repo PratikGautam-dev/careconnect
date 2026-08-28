@@ -18,6 +18,7 @@ db.repository.get_slots() keeps returning the same "10:00"/"15:00" slots
 existing tests already expect, now sourced from real generated doctor_slots
 rows (Section 12.1.1) instead of computed on the fly.
 """
+from db.display_ids import HOSPITAL_PREFIX, generate_id_derived_display_id
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 from db.repository import generate_slots_for_doctor
 
@@ -92,6 +93,10 @@ def seed_default_hospital(
         (hospital_name, whatsapp_phone_number_id, access_token, app_secret),
     )
     hospital_id = cur.fetchone()["id"]
+    conn.execute(
+        "UPDATE hospitals SET display_id = ? WHERE id = ?",
+        (generate_id_derived_display_id(HOSPITAL_PREFIX, hospital_id, 4), hospital_id),
+    )
 
     for dept in DEPARTMENTS:
         conn.execute(
@@ -149,6 +154,10 @@ def seed_test_hospital(
         (hospital_name, whatsapp_phone_number_id),
     )
     hospital_id = cur.fetchone()["id"]
+    conn.execute(
+        "UPDATE hospitals SET display_id = ? WHERE id = ?",
+        (generate_id_derived_display_id(HOSPITAL_PREFIX, hospital_id, 4), hospital_id),
+    )
 
     for dept in TEST_HOSPITAL_2_DEPARTMENTS:
         conn.execute(

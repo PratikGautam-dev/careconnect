@@ -21,6 +21,7 @@ from alembic.config import Config
 from core.config import get_settings
 from db import seed
 from db.connection import get_connection, get_database_url
+from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, generate_id_derived_display_id
 from db.repositories.accounts import _get_or_create_account_in_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 from db.repository import _generate_patient_identifiers, _get_or_create_hospital_short_code
@@ -212,6 +213,10 @@ def _backfill_patient_link_accounts(conn) -> None:
         else:
             new_account = conn.execute("INSERT INTO care_connect_accounts DEFAULT VALUES RETURNING id").fetchone()
             account_id = new_account["id"]
+            conn.execute(
+                "UPDATE care_connect_accounts SET display_id = ? WHERE id = ?",
+                (generate_id_derived_display_id(CARE_CONNECT_ACCOUNT_PREFIX, account_id, 6), account_id),
+            )
             conn.execute(
                 "INSERT INTO whatsapp_identities (care_connect_account_id, provider_user_id, phone_number) "
                 "VALUES (?, ?, ?)",
@@ -435,6 +440,27 @@ def init_db_on_connection(conn) -> int:
     # any numbered migration, so it silently didn't exist anywhere that
     # only ever ran `alembic upgrade head`).
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS video_link TEXT")
+    # Migration 0005: partial index supporting _link_patient_under_cap()'s
+    # (db/repositories/patients.py) account-scoped active-link count.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_patient_links_active_account "
+        "ON patient_links(hospital_id, care_connect_account_id) WHERE unlinked_at IS NULL"
+    )
+    # Migration 0006: care_connect_accounts.display_id / hospitals.display_id
+    # (db/display_ids.py). Must run BEFORE seed_default_hospital() below --
+    # that function now stamps display_id on the row it creates.
+    conn.execute("ALTER TABLE care_connect_accounts ADD COLUMN IF NOT EXISTS display_id TEXT")
+    conn.execute("ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS display_id TEXT")
+    conn.execute("UPDATE care_connect_accounts SET display_id = 'DCC-ACC-' || lpad(id::text, 6, '0') WHERE display_id IS NULL")
+    conn.execute("UPDATE hospitals SET display_id = 'DCC-HOS-' || lpad(id::text, 4, '0') WHERE display_id IS NULL")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_care_connect_accounts_display_id "
+        "ON care_connect_accounts(display_id) WHERE display_id IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitals_display_id "
+        "ON hospitals(display_id) WHERE display_id IS NOT NULL"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

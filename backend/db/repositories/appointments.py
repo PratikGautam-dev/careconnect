@@ -10,10 +10,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 
 from db.connection import IntegrityError, get_connection, get_session
+from db.display_ids import _generate_reference_id
 from db.models import (
     Appointment, DuplicateBookingError, QuotaExceededError,
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
-    _generate_patient_identifiers, _generate_reference_id, _row_to_appointment,
+    _generate_patient_identifiers, _row_to_appointment,
 )
 from db.orm_models import AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientRow
 

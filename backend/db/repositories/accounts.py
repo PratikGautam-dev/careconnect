@@ -11,6 +11,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from db.connection import get_session
+from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, generate_id_derived_display_id
 from db.orm_models import CareConnectAccount, WhatsappIdentity
 
 
@@ -55,6 +56,13 @@ def _get_or_create_account_in_session(
     result = cast(CursorResult, session.execute(insert(CareConnectAccount).values()))
     assert result.inserted_primary_key is not None  # INSERT always yields the new primary key
     account_id = result.inserted_primary_key[0]
+    # db/display_ids.py -- global, id-derived (see that module's docstring);
+    # not yet surfaced in any UI, stored for later use.
+    session.execute(
+        update(CareConnectAccount)
+        .where(CareConnectAccount.id == account_id)
+        .values(display_id=generate_id_derived_display_id(CARE_CONNECT_ACCOUNT_PREFIX, account_id, 6))
+    )
     session.execute(
         insert(WhatsappIdentity).values(
             care_connect_account_id=account_id, provider_user_id=provider_user_id,
@@ -99,6 +107,12 @@ def _get_or_create_account_in_conn(
     account_row = conn.execute("INSERT INTO care_connect_accounts DEFAULT VALUES RETURNING id").fetchone()
     assert account_row is not None  # INSERT ... RETURNING always returns the inserted row
     account_id = account_row["id"]
+    # db/display_ids.py -- global, id-derived (see that module's docstring);
+    # not yet surfaced in any UI, stored for later use.
+    conn.execute(
+        "UPDATE care_connect_accounts SET display_id = ? WHERE id = ?",
+        (generate_id_derived_display_id(CARE_CONNECT_ACCOUNT_PREFIX, account_id, 6), account_id),
+    )
     conn.execute(
         "INSERT INTO whatsapp_identities (care_connect_account_id, provider_user_id, username, phone_number) "
         "VALUES (?, ?, ?, ?)",

@@ -94,39 +94,6 @@ _APPOINTMENT_SELECT = """
 
 
 
-def _next_daily_reference_sequence(conn, hospital_id: int, day: str) -> int:
-    """Atomic per-(hospital, day) increment -- INSERT...ON CONFLICT DO UPDATE
-    is a single statement, so this is race-safe under real concurrent
-    bookings (unlike a read-then-increment-then-write pair)."""
-    row = conn.execute(
-        "INSERT INTO reference_id_counters (hospital_id, day, counter) VALUES (?, ?, 1) "
-        "ON CONFLICT (hospital_id, day) DO UPDATE SET counter = reference_id_counters.counter + 1 "
-        "RETURNING counter",
-        (hospital_id, day),
-    ).fetchone()
-    return row["counter"]
-
-
-def _generate_reference_id(conn, hospital_id: int, now: datetime | None = None) -> str:
-    """Item 8 (Spec.md Section 0): structured, human-readable format --
-    APT-<DDMMYY>-<NNN>, e.g. APT-130826-001 -- replacing the old
-    apt_<millisecond-epoch> format (Section 12.12). A later Item 2 follow-up
-    (Spec.md Section 0) switched the date part from a month-ABBREVIATION
-    (DDMMMYY, e.g. 13AUG26) to fully numeric DDMMYY (e.g. 130826), confirmed
-    with the user directly rather than assumed. Sequence is PER HOSPITAL PER
-    DAY (reference_id_counters' composite PK), not globally sequential across
-    tenants, and resets to 001 each new calendar day. Based on the booking's
-    CREATION time (when create_appointment() runs), not the appointment's
-    scheduled visit date -- same convention a receipt/invoice number uses
-    (the transaction date), and matches the OLD format's own basis
-    (time.time() at creation, not scheduled_at)."""
-    now = now or datetime.now()
-    day_key = now.strftime("%Y-%m-%d")
-    seq = _next_daily_reference_sequence(conn, hospital_id, day_key)
-    date_part = now.strftime("%d%m%y")
-    return f"APT-{date_part}-{seq:03d}"
-
-
 def _derive_hospital_short_code(name: str) -> str:
     """Patient identity system (Spec.md Section 0), confirmed with the user:
     auto-derived from the hospital's own `name`, not a new onboarding field.
@@ -308,6 +275,13 @@ class Hospital:
     # of the three with a default value -- a dataclass field with a default
     # can't precede one without.
     dpdp_consent_required: bool = False
+    # migration 0006 -- global, id-derived (db/display_ids.py); shown to
+    # hospital users the same way patients.patient_display_id is shown to
+    # patients. Nullable at the DB level only for the "INSERT can't know its
+    # own id yet" reason that migration's docstring explains -- always set
+    # in practice. Defaulted here (not a real "unset" state) only because
+    # it's declared after dpdp_consent_required above, which itself needs one.
+    display_id: str | None = None
 
 
 @dataclass
