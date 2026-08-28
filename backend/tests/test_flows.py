@@ -112,10 +112,10 @@ class FakeConnector:
     def list_active_patients(self, hospital_id, phone):
         return self._patients
 
-    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None):
         next_id = (max((p["id"] for p in self._patients), default=0)) + 1
         patient = {
-            "id": next_id, "name": name, "age": age, "relationship_label": relationship_label,
+            "id": next_id, "name": name, "age": age, "gender": gender, "relationship_label": relationship_label,
             "patient_display_id": f"PAT-TEST-{next_id:04d}",
         }
         self._patients.append(patient)
@@ -734,8 +734,8 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 
     # CareConnect architecture doc alignment (Spec.md Section 0): a
     # genuinely fresh phone (0 linked patients) is now resolved BEFORE the
-    # main menu is ever shown -- name/age/relationship registration happens
-    # right after language selection, not after tapping "Book Appointment".
+    # main menu is ever shown -- name/age/gender registration happens right
+    # after language selection, not after tapping "Book Appointment".
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
@@ -748,11 +748,14 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert kwargs["text"] == translate("ask_patient_age", "hi", patient_name="Ravi Kumar")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_RELATIONSHIP
-    kwargs = _last_list(wa)
-    assert kwargs["body_text"] == translate("ask_relationship", "hi")
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert kwargs["body_text"] == translate("ask_patient_gender", "hi")
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("idrel_self"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+    )
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"

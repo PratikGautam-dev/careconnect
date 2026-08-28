@@ -69,6 +69,8 @@ async def portal_reply_handoff(handoff_id: int, payload: dict, authorization: st
         return JSONResponse({"error": "No such handoff request."}, status_code=404)
     phone = matches[0]["phone"]
 
+    if not (hospital.whatsapp_phone_number_id and hospital.access_token):
+        return JSONResponse({"error": "WhatsApp is not configured for this hospital yet."}, status_code=400)
     wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
     await wa.send_text(phone, text)
     message = db.add_handoff_message(hospital.id, handoff_id, "outbound", text)

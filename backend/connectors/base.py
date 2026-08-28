@@ -98,6 +98,7 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_patient_profile(
         self, hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
+        gender: str | None = None,
     ) -> dict: ...
 
     @abc.abstractmethod

@@ -142,7 +142,7 @@ async def portal_cancel_booking(
         return JSONResponse({"error": str(e)}, status_code=501)
 
     message = ((payload or {}).get("message") or "").strip()
-    if message:
+    if message and hospital.whatsapp_phone_number_id and hospital.access_token:
         try:
             wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
             await wa.send_text(appointment.phone, message)
@@ -151,6 +151,11 @@ async def portal_cancel_booking(
             # failure (expired token, patient number issue, ...) must not turn
             # a successful cancel into a 500 that makes staff think it failed.
             logger.exception("Failed to send cancellation message for appointment %s", appointment_id)
+    elif message:
+        logger.warning(
+            "Hospital %s has no WhatsApp credentials configured -- skipping cancellation message for appointment %s",
+            hospital.id, appointment_id,
+        )
 
     return JSONResponse({"ok": True})
 
@@ -200,6 +205,7 @@ async def portal_reschedule_booking(
             errors.append("That slot is no longer valid — pick another.")
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
+    assert scheduled_at is not None  # only left None when "Choose an available slot." was added above
 
     connector = connectors.get_connector_for_hospital(hospital)
     try:
@@ -217,12 +223,17 @@ async def portal_reschedule_booking(
         return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
 
     message = ((payload or {}).get("message") or "").strip()
-    if message:
+    if message and hospital.whatsapp_phone_number_id and hospital.access_token:
         try:
             wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
             await wa.send_text(appointment.phone, message)
         except Exception:
             logger.exception("Failed to send reschedule message for appointment %s", appointment_id)
+    elif message:
+        logger.warning(
+            "Hospital %s has no WhatsApp credentials configured -- skipping reschedule message for appointment %s",
+            hospital.id, appointment_id,
+        )
 
     return JSONResponse({"ok": True})
 
@@ -272,6 +283,7 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
 
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
+    assert scheduled_at is not None  # only left None when "Choose an available slot." was added above
 
     connector = connectors.get_connector_for_hospital(hospital)
     try:

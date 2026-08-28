@@ -12,7 +12,7 @@ This module re-exports the public surface so every existing call site
 unchanged.
 """
 from db.models import Appointment, DuplicateBookingError, Hospital, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError
-from db.repositories.patients import RELATIONSHIP_OPTIONS  # noqa: F401 -- re-exported, see module docstring below
+from db.repositories.patients import GENDER_OPTIONS, RELATIONSHIP_OPTIONS  # noqa: F401 -- re-exported, see module docstring below
 # Re-exported (Appointment/DuplicateBookingError/Hospital/MAX_ACTIVE_PATIENT_LINKS/
 # RELATIONSHIP_OPTIONS/TooManyLinkedPatientsError above) so core/booking_flow.py
 # and core/patient_identity.py can import them from here without importing

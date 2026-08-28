@@ -104,6 +104,10 @@ async def test_duplicate_match_offers_link_existing_or_different_patient(hospita
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+    )
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_DUPLICATE_DECISION
     kwargs = _last_buttons(wa)
@@ -124,10 +128,12 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+    )
+    await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_LINK_ID), connector=connector, enabled_features=["booking"],
     )
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_RELATIONSHIP
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("idrel_self"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
     linked = connector.list_active_patients(hospital_id, PHONE)
     assert len(linked) == 1
@@ -152,9 +158,11 @@ async def test_different_patient_creates_a_genuinely_new_profile(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+    )
+    await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_DIFFERENT_ID), connector=connector, enabled_features=["booking"],
     )
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("idrel_self"), connector=connector, enabled_features=["booking"])
 
     linked = connector.list_active_patients(hospital_id, PHONE)
     assert len(linked) == 1
@@ -163,7 +171,7 @@ async def test_different_patient_creates_a_genuinely_new_profile(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_no_match_skips_straight_to_relationship_picker(hospital_id):
+async def test_no_match_creates_the_patient_directly_once_gender_is_collected(hospital_id):
     connector = flows._DEFAULT_CONNECTOR
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
@@ -171,8 +179,14 @@ async def test_no_match_skips_straight_to_relationship_picker(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Someone Unique"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("52"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
 
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_RELATIONSHIP
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    linked = connector.list_active_patients(hospital_id, PHONE)
+    assert linked[0]["name"] == "Someone Unique"
 
 
 # --- 3. Structured relationship field ---
@@ -450,7 +464,7 @@ async def test_dpdp_consent_agree_proceeds_and_is_remembered(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_dpdp_consent_decline_stops_without_recording_anything(hospital_id):
+async def test_dpdp_consent_decline_restarts_from_language_selection(hospital_id):
     connector = flows._DEFAULT_CONNECTOR
     db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
     wa = FakeWhatsAppClient()
@@ -465,12 +479,16 @@ async def test_dpdp_consent_decline_stops_without_recording_anything(hospital_id
         dpdp_consent_required=True,
     )
     assert db.has_agreed_to_dpdp_consent(hospital_id, PHONE) is False
-    kind, kwargs = wa.sent[-1]
-    assert kind == "text"
+    # Two messages: the decline explanation, then the language picker --
+    # declining restarts the whole conversation rather than just being asked
+    # again silently, and isn't a permanent refusal.
+    kinds = [kind for kind, kwargs in wa.sent[-2:]]
+    assert kinds == ["text", "buttons"]
+    assert sessions.get(hospital_id, PHONE)["state"] == flows.STATE_AWAITING_LANGUAGE
 
-    # Messaging again later re-asks -- declining isn't a permanent refusal.
+    # Picking a language again re-asks for DPDP consent.
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(flows.LANGUAGE_ROW_EN), connector=connector, enabled_features=["booking"],
         dpdp_consent_required=True,
     )
     assert sessions.get(hospital_id, PHONE)["state"] == flows.STATE_AWAITING_DPDP_CONSENT

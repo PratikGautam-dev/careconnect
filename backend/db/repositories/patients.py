@@ -164,6 +164,13 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
 # migration for no functional gain (confirmed with the user).
 RELATIONSHIP_OPTIONS = ("Self", "Mother", "Father", "Son", "Daughter", "Spouse", "Guardian", "Other")
 
+# Chat-flow registration (flows/patient_identity.py) now collects this as a
+# required step, but the column itself stays nullable at the DB level --
+# other write paths (portal demographics edit, the pre-existing appointment-
+# driven patient backfill in db/init_db.py) still legitimately leave/set it
+# NULL, same reasoning as patient_links.relationship_label above.
+GENDER_OPTIONS = ("Male", "Female", "Other")
+
 # CareConnect architecture doc alignment, Section 18's Patient Master state
 # model (CREATED collapsed into ACTIVE, confirmed with the user -- see
 # db/schema.sql's own comment on patients.status for why).
@@ -239,6 +246,11 @@ def count_active_links_for_phone(hospital_id: int, phone: str) -> int:
 def _check_relationship_label(relationship_label: str | None) -> None:
     if relationship_label is not None and relationship_label not in RELATIONSHIP_OPTIONS:
         raise ValueError(f"relationship_label must be one of {RELATIONSHIP_OPTIONS} or None, got {relationship_label!r}")
+
+
+def _check_gender(gender: str | None) -> None:
+    if gender is not None and gender not in GENDER_OPTIONS:
+        raise ValueError(f"gender must be one of {GENDER_OPTIONS} or None, got {gender!r}")
 
 
 def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int, relationship_label: str | None) -> None:
@@ -339,12 +351,20 @@ def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, ag
 
 def create_patient_profile(
     hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
+    gender: str | None = None,
 ) -> dict:
     """Creates a brand-new `patients` row (NEVER an upsert-by-phone -- multiple
     profiles are the whole point now) and links it to `phone` via a new
     patient_links row. Raises TooManyLinkedPatientsError if this phone already
     has MAX_ACTIVE_PATIENT_LINKS active links, or ValueError if
-    relationship_label isn't one of RELATIONSHIP_OPTIONS (or None).
+    relationship_label isn't one of RELATIONSHIP_OPTIONS (or None), or gender
+    isn't one of GENDER_OPTIONS (or None).
+
+    `gender` stays Optional here (like relationship_label) so other callers
+    (dead-code core/booking_flow.py path, direct test fixtures) that never
+    collected it keep working unchanged -- it's flows/patient_identity.py's
+    own live registration flow that makes it effectively required, by never
+    reaching this call until a valid gender has been picked.
 
     Callers are expected to have already checked
     find_potential_duplicate_patient() and confirmed with the patient that
@@ -359,12 +379,13 @@ def create_patient_profile(
     reasoning, unchanged from before this was extracted into a shared
     helper."""
     _check_relationship_label(relationship_label)
+    _check_gender(gender)
     conn = get_connection()
     conn.execute("BEGIN")
     try:
         patient_row = conn.execute(
-            "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id",
-            (hospital_id, phone, name, age),
+            "INSERT INTO patients (hospital_id, phone, name, age, gender) VALUES (?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, name, age, gender),
         ).fetchone()
         assert patient_row is not None  # INSERT ... RETURNING always returns the inserted row
         patient_id = patient_row["id"]
@@ -381,7 +402,7 @@ def create_patient_profile(
             pass
         raise
     return {
-        "id": patient_id, "name": name, "age": age, "patient_display_id": display_id, "mrn": mrn,
+        "id": patient_id, "name": name, "age": age, "gender": gender, "patient_display_id": display_id, "mrn": mrn,
         "relationship_label": relationship_label,
     }
 

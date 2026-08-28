@@ -63,6 +63,9 @@ async def portal_send_patient_document(
     if document is None or document["patient_id"] != patient_id:
         return JSONResponse({"error": "No such document."}, status_code=404)
 
+    if not (hospital.whatsapp_phone_number_id and hospital.access_token):
+        return JSONResponse({"error": "WhatsApp is not configured for this hospital yet."}, status_code=400)
+
     storage = get_storage()
     document_url = storage.get_signed_url(document["file_url"], expires_in=3600)
 

@@ -239,10 +239,19 @@ async def _handle_awaiting_dpdp_consent(
 ) -> None:
     if reply["type"] == "interactive_reply" and reply["id"] == DPDP_DECLINE_ID:
         await wa.send_text(phone, t("dpdp_declined_message", language))
-        # reset() preserves language (its own default) so a later message
-        # from this same phone doesn't have to re-pick a language too --
-        # only this consent decision gets asked again.
-        sessions.reset(hospital_id, phone)
+        # Declining isn't a soft "ask again later" -- the whole conversation
+        # restarts from language selection (keep_language=False, unlike
+        # every other reset() call site) so agreeing to DPDP terms is a real
+        # gate the patient must clear before using any part of the bot, not
+        # something they can silently skip past.
+        sessions.reset(hospital_id, phone, keep_language=False)
+        await _enter_idle(
+            wa, sessions, phone, hospital_id, hospital_name, enabled_features, None, connector,
+            feature_labels=feature_labels, default_language=default_language,
+            language_prompt_enabled=language_prompt_enabled,
+            require_patient_confirmation=require_patient_confirmation,
+            dpdp_consent_required=dpdp_consent_required,
+        )
         return
     if reply["type"] == "interactive_reply" and reply["id"] == DPDP_AGREE_ID:
         db.record_dpdp_consent(hospital_id, phone)
