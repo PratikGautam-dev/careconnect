@@ -4,7 +4,7 @@ linked to several patient profiles (family members), so this module figures
 out WHICH patient the current conversation is acting on before anything else
 runs -- registration for a first-time phone, duplicate-patient detection,
 switching between already-linked patients, and the Main Menu itself (with
-its "Patient: X / MRN: Y" header).
+its "Patient: X / Patient Code: Y" header).
 
 flows.py's `_enter_idle()` calls `get_or_prompt_for_active_patient()` right
 after language is settled, before the main menu is shown, for every
@@ -23,7 +23,7 @@ state machine test.
 """
 import logging
 
-from connectors import Connector, GENDER_OPTIONS, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError
+from connectors import Connector, GENDER_OPTIONS, TooManyLinkedPatientsError
 from flows.common import cap_rows
 from core.translations import t
 from core.translations.menu import (
@@ -62,6 +62,9 @@ from core.translations.patient_identity import (
     DUPLICATE_LINK_BUTTON,
     DUPLICATE_PATIENT_FOUND,
     MANAGE_PATIENTS_SHORT,
+    MULTI_PATIENT_SELECTOR_PROMPT,
+    PATIENT_CODE_LABEL,
+    PATIENT_HEADER_LABEL,
     PATIENT_SELECTOR_BUTTON,
     PATIENT_SELECTOR_PROMPT,
     PATIENT_SELECTOR_SECTION_TITLE,
@@ -131,12 +134,15 @@ MAIN_MENU_BACK_ROW = "menu_back_manage_patients"
 
 
 def _patient_header(active_patient: dict | None, language: str) -> str:
-    """"Patient: {name}\\nMRN: {id}" header shown above the main menu once a
-    patient has been resolved. Empty string if none resolved yet."""
+    """"Patient: {name}\\nPatient Code: {patient_display_id}" header shown
+    above the main menu once a patient has been resolved -- the real
+    clinical mrn (db/models.py's _generate_patient_identifiers) is never
+    shown here, only the patient-facing patient_display_id. Empty string if
+    none resolved yet."""
     if active_patient is None:
         return ""
-    mrn = active_patient.get("patient_display_id") or "—"
-    return f"*{t('patient_header_label', language)}* {active_patient['name']}\n*MRN:* {mrn}\n\n"
+    patient_code = active_patient.get("patient_display_id") or "—"
+    return f"*{t(PATIENT_HEADER_LABEL, language)}* {active_patient['name']}\n*{t(PATIENT_CODE_LABEL, language)}* {patient_code}\n\n"
 
 
 async def _send_dynamic_menu(
@@ -260,7 +266,7 @@ FREE_TEXT_INPUT_STATES = {STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_AG
 MIN_PATIENT_AGE = 0
 MAX_PATIENT_AGE = 120
 
-MIN_PATIENT_NAME_LENGTH = 4  # ">3 characters" per spec
+MIN_PATIENT_NAME_LENGTH = 3  # ">=3 characters" per spec
 MAX_PATIENT_NAME_LENGTH = 50
 
 
@@ -299,12 +305,12 @@ async def get_or_prompt_for_active_patient(
     """Called once per conversation, before the main menu is ever shown.
     Returns the resolved active patient immediately for the already-resolved
     or exactly-one-linked-patient case; otherwise sends a registration or
-    confirmation prompt and returns None -- the caller must stop, and
+    selection prompt and returns None -- the caller must stop, and
     whichever completion path was triggered calls back into this function
-    once it's done. A phone linked to more than one patient always confirms
-    (via _send_single_patient_confirm) rather than silently reusing whichever
-    patient happened to be active before, or listing all of them here --
-    EXCEPT right after the user just confirmed/picked one this same turn
+    once it's done. A phone linked to more than one patient always re-prompts
+    (via _send_patient_selector_for_resolution) rather than silently reusing
+    whichever patient happened to be active before -- EXCEPT right after the
+    user just confirmed/picked one this same turn
     (context["just_confirmed_patient"], set by _handle_awaiting_single_patient_
     confirm): router.py re-enters this function in the same handle_incoming
     call once state becomes IDLE, and without this flag that re-entry would
@@ -319,7 +325,7 @@ async def get_or_prompt_for_active_patient(
             match = next((p for p in patients if p["id"] == active_patient_id), None)
             if match is not None:
                 if len(patients) > 1 and not just_confirmed:
-                    await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, match, language)
+                    await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
                     return None
                 sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=match["id"])
                 return match
@@ -333,7 +339,10 @@ async def get_or_prompt_for_active_patient(
     if len(patients) == 1 and not require_patient_confirmation:
         sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patients[0]["id"])
         return patients[0]
-    await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, patients[0], language)
+    if len(patients) == 1:
+        await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, patients[0], language)
+    else:
+        await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
     return None
 
 
@@ -448,7 +457,7 @@ async def _handle_awaiting_patient_gender(
         sessions.set(hospital_id, phone, STATE_AWAITING_DUPLICATE_DECISION, new_context, language=language)
         await wa.send_buttons(
             to=phone,
-            body_text=t(DUPLICATE_PATIENT_FOUND, language, name=match["name"], mrn=match["patient_display_id"] or "—"),
+            body_text=t(DUPLICATE_PATIENT_FOUND, language, name=match["name"], patient_code=match["patient_display_id"] or "—"),
             buttons=[
                 {"id": DUPLICATE_LINK_ID, "title": t(DUPLICATE_LINK_BUTTON, language)},
                 {"id": DUPLICATE_DIFFERENT_ID, "title": t(DUPLICATE_DIFFERENT_BUTTON, language)},
@@ -486,7 +495,7 @@ async def _handle_awaiting_duplicate_decision(
     await wa.send_buttons(
         to=phone,
         body_text=t(DUPLICATE_PATIENT_FOUND, language,
-            name=context.get("duplicate_patient_name", ""), mrn=context.get("duplicate_patient_display_id") or "—",
+            name=context.get("duplicate_patient_name", ""), patient_code=context.get("duplicate_patient_display_id") or "—",
         ),
         buttons=[
             {"id": DUPLICATE_LINK_ID, "title": t(DUPLICATE_LINK_BUTTON, language)},
@@ -545,14 +554,18 @@ async def _send_single_patient_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, patient: dict, language: str,
 ) -> None:
     """Sends the "Continue as X?" buttons, then the patient-list message
-    right after, both under STATE_AWAITING_SINGLE_PATIENT_CONFIRM."""
+    right after, both under STATE_AWAITING_SINGLE_PATIENT_CONFIRM. Only
+    reached today with exactly one linked patient and
+    hospitals.require_patient_confirmation on -- the 2+ patient case goes
+    through _send_patient_selector_for_resolution below instead, which has
+    no single candidate to name in a "Continue as X?" card."""
     sessions.set(
         hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM, {"candidate_patient_id": patient["id"]},
         language=language,
     )
     await wa.send_buttons(
         to=phone,
-        body_text=t(SINGLE_PATIENT_CONFIRM, language, patient_name=patient["name"], mrn=patient["patient_display_id"] or "—",
+        body_text=t(SINGLE_PATIENT_CONFIRM, language, patient_name=patient["name"], patient_code=patient["patient_display_id"] or "—",
         ),
         buttons=[
             {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
@@ -568,6 +581,37 @@ async def _send_single_patient_confirm(
         body_text=t(PATIENT_SELECTOR_PROMPT, language),
         button_text=t(PATIENT_SELECTOR_BUTTON, language),
         sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
+    )
+
+
+async def _send_patient_selector_for_resolution(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str,
+) -> None:
+    """2+ linked patients: no default/candidate patient is auto-picked, so
+    there's no single name for a "Continue as X?" card -- the list itself
+    (welcome text folded straight into its body, MULTI_PATIENT_SELECTOR_
+    PROMPT) is the only prompt, and tapping a row activates that patient
+    directly via the same STATE_AWAITING_SINGLE_PATIENT_CONFIRM row-tap
+    handling _handle_awaiting_single_patient_confirm already has (no
+    candidate_patient_id in context here, so its CONFIRM_YES branch is simply
+    never reached -- there's no Confirm button offered). A separate
+    "Add Patient" follow-up button matches _send_single_patient_confirm's own,
+    minus the "Confirm" option it has no candidate to confirm."""
+    sessions.set(hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM, {}, language=language)
+    patients = connector.list_active_patients(hospital_id, phone)
+    rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
+    rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t(MANAGE_PATIENTS_SHORT, language)})
+    rows = cap_rows(rows, "patient selector")
+    await wa.send_list(
+        to=phone,
+        body_text=t(MULTI_PATIENT_SELECTOR_PROMPT, language),
+        button_text=t(PATIENT_SELECTOR_BUTTON, language),
+        sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
+    )
+    await wa.send_buttons(
+        to=phone,
+        body_text="​",
+        buttons=[{"id": ADD_PATIENT_ENTRY_ID, "title": t(ADD_PATIENT_SHORT, language)}],
     )
 
 
@@ -604,6 +648,8 @@ async def _handle_awaiting_single_patient_confirm(
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) == 1:
         await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, patients[0], language)
+    elif len(patients) > 1:
+        await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
     else:
         sessions.clear_active_patient(hospital_id, phone)
         sessions.reset(hospital_id, phone)
@@ -620,7 +666,7 @@ async def _start_manage_patients(
     Patient" row if under the cap, and "Back to Menu"."""
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    if len(patients) < MAX_ACTIVE_PATIENT_LINKS:
+    if len(patients) < connector.get_max_active_patient_links():
         rows.append({"id": MANAGE_ADD_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
     rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = cap_rows(rows, "manage patients list")
@@ -643,7 +689,7 @@ async def _handle_awaiting_manage_patients_action(
         rid = reply["id"]
         if rid == MANAGE_ADD_ROW_ID:
             patients = connector.list_active_patients(hospital_id, phone)
-            if len(patients) >= MAX_ACTIVE_PATIENT_LINKS:
+            if len(patients) >= connector.get_max_active_patient_links():
                 await wa.send_text(phone, t(TOO_MANY_LINKED_PATIENTS, language))
                 await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
                 return

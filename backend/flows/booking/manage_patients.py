@@ -4,7 +4,7 @@ phone (Spec.md Section 0) -- split out of the former single
 core/booking_flow.py module. Add reuses STATE_AWAITING_PATIENT_NAME/AGE
 (patient_flow_next="manage_patients"), handled by flows.booking.book, same
 as booking's implicit-first-profile and selector "+ Add Patient" paths."""
-from connectors import Connector, MAX_ACTIVE_PATIENT_LINKS
+from connectors import Connector
 from core.translations import t
 from core.translations.patient_identity import (
     ADD_PATIENT_OPTION,
@@ -36,7 +36,7 @@ async def _start_manage_patients_flow(
 ) -> None:
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    if len(patients) < MAX_ACTIVE_PATIENT_LINKS:
+    if len(patients) < connector.get_max_active_patient_links():
         rows.append({"id": MANAGE_PATIENTS_ADD_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
     rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = _cap_rows(rows, "manage patients list")
@@ -57,7 +57,7 @@ async def _handle_awaiting_manage_patients_action(
         rid = reply["id"]
         if rid == MANAGE_PATIENTS_ADD_ROW_ID:
             patients = connector.list_active_patients(hospital_id, phone)
-            if len(patients) >= MAX_ACTIVE_PATIENT_LINKS:
+            if len(patients) >= connector.get_max_active_patient_links():
                 await wa.send_text(phone, t(TOO_MANY_LINKED_PATIENTS, language))
                 await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
                 return

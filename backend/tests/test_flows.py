@@ -108,6 +108,9 @@ class FakeConnector:
     def identify_contact(self, provider_user_id, phone_number=None, username=None):
         return {"id": 1, "provider_user_id": provider_user_id, "phone_number": phone_number, "username": username}
 
+    def get_max_active_patient_links(self):
+        return 5
+
     def get_appointment_types(self, hospital_id):
         return [{"id": "new", "label": "New Consultation", "requires_consent": False, "requires_doctor_selection": True}]
 
@@ -115,6 +118,9 @@ class FakeConnector:
         return self._departments
 
     def get_upcoming_appointments(self, hospital_id, phone=None, offset_hours=None, now=None):
+        return self._appointments
+
+    def get_appointments_in_range(self, hospital_id, care_connect_account_id, range_start, range_end, statuses=None):
         return self._appointments
 
     def get_patient_info(self, hospital_id, phone):
@@ -338,9 +344,15 @@ async def test_view_appointments_feature(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
 
+    connector = FakeConnector(appointments=[appt])
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
-        connector=FakeConnector(appointments=[appt]), enabled_features=["view_appointments"],
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_VIEW_APPOINTMENTS_RANGE"
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
+        connector=connector, enabled_features=["view_appointments"],
     )
 
     kwargs = _last_list(wa)
@@ -360,9 +372,14 @@ async def test_view_appointments_no_upcoming_sends_plain_text(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_english_chosen(hospital_id)
 
+    connector = FakeConnector(appointments=[])
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
-        connector=FakeConnector(appointments=[]), enabled_features=["view_appointments"],
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
+        connector=connector, enabled_features=["view_appointments"],
     )
 
     assert wa.sent[-2][0] == "text"
@@ -389,6 +406,10 @@ async def test_tapping_an_appointment_in_my_appointments_shows_quick_actions(hos
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
         connector=connector, enabled_features=["view_appointments"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_VIEW_APPOINTMENT_ACTION"

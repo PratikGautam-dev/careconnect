@@ -11,7 +11,7 @@ import pytest
 
 import db.repository as db
 from db.init_db import _backfill_patient_links
-from db.repository import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError
+from db.repository import TooManyLinkedPatientsError, get_max_active_patient_links
 
 PHONE = "5491112345678"
 
@@ -51,30 +51,32 @@ def test_count_active_links_for_phone(hospital_id):
 
 
 def test_fifth_patient_link_is_allowed_sixth_is_blocked(hospital_id):
-    for i in range(MAX_ACTIVE_PATIENT_LINKS):
+    cap = get_max_active_patient_links()
+    for i in range(cap):
         db.create_patient_profile(hospital_id, PHONE, f"Family Member {i}", 20 + i)
-    assert db.count_active_links_for_phone(hospital_id, PHONE) == MAX_ACTIVE_PATIENT_LINKS
+    assert db.count_active_links_for_phone(hospital_id, PHONE) == cap
 
     with pytest.raises(TooManyLinkedPatientsError):
         db.create_patient_profile(hospital_id, PHONE, "One Too Many", 99)
 
     # The blocked attempt created neither a patients row nor a link.
-    assert db.count_active_links_for_phone(hospital_id, PHONE) == MAX_ACTIVE_PATIENT_LINKS
+    assert db.count_active_links_for_phone(hospital_id, PHONE) == cap
 
 
 def test_unlinking_a_patient_frees_a_slot_for_a_new_one(hospital_id):
+    cap = get_max_active_patient_links()
     patients = [
         db.create_patient_profile(hospital_id, PHONE, f"Family Member {i}", 20 + i)
-        for i in range(MAX_ACTIVE_PATIENT_LINKS)
+        for i in range(cap)
     ]
     with pytest.raises(TooManyLinkedPatientsError):
         db.create_patient_profile(hospital_id, PHONE, "Blocked", 99)
 
     assert db.unlink_patient(hospital_id, PHONE, patients[0]["id"]) is True
-    assert db.count_active_links_for_phone(hospital_id, PHONE) == MAX_ACTIVE_PATIENT_LINKS - 1
+    assert db.count_active_links_for_phone(hospital_id, PHONE) == cap - 1
 
     new_patient = db.create_patient_profile(hospital_id, PHONE, "Now Fits", 5)
-    assert db.count_active_links_for_phone(hospital_id, PHONE) == MAX_ACTIVE_PATIENT_LINKS
+    assert db.count_active_links_for_phone(hospital_id, PHONE) == cap
     assert new_patient["id"] in {p["id"] for p in db.get_active_patients_for_phone(hospital_id, PHONE)}
 
 

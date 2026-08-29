@@ -1,12 +1,13 @@
 # tests/test_patient_identity.py
 """
 Patient identity system (Spec.md Section 0): two permanent, human-readable
-ids generated ONCE per patient, together, sharing the same per-hospital
-sequence number -- patient_display_id (DCC-PAT-<sequential number>, e.g.
-DCC-PAT-0001, portal-facing) and mrn (MRN-<hospital short code>-<sequential
-number>, e.g. MRN-DEF-0001, the clinical/legal record number) -- assigned at
-the moment a `patients` row is first created for a (hospital_id, phone)
-pair, never regenerated on a later booking.
+ids generated ONCE per patient, together, sharing the same per-(hospital,
+year) sequence number (db/display_ids.py's shared code_sequences table) --
+patient_display_id (DCCP-<year>-<sequential number>, e.g. DCCP-2026-00001,
+portal-facing) and mrn (MRN-<hospital short code>-<year>-<sequential
+number>, e.g. MRN-DEF-2026-00001, the clinical/legal record number) --
+assigned at the moment a `patients` row is first created for a
+(hospital_id, phone) pair, never regenerated on a later booking.
 
 Covers:
   - sequential + hospital-scoped generation (two hospitals both start at
@@ -37,7 +38,7 @@ def _book(hospital_id, phone, doctor_id, slot, **kwargs):
 
 def test_ids_are_sequential_and_hospital_scoped(hospital_id, second_hospital_id):
     """Two DIFFERENT hospitals each booking their own first-ever patient both
-    get 0001 -- the sequence is per-hospital (patient_id_counters), not a
+    get 00001 -- the sequence is per-(hospital, year) (code_sequences), not a
     single global counter."""
     doctor_a = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slots_a = db.get_slots(hospital_id, doctor_a)
@@ -57,22 +58,23 @@ def test_ids_are_sequential_and_hospital_scoped(hospital_id, second_hospital_id)
     patient_a2 = db.get_patient_by_phone(hospital_id, PHONE_B)
     patient_b1 = db.get_patient_by_phone(second_hospital_id, PHONE_A)
 
-    # Hospital A's own sequence: 0001 then 0002.
-    assert patient_a1["patient_display_id"].endswith("-0001")
-    assert patient_a2["patient_display_id"].endswith("-0002")
-    # Hospital B's sequence starts independently at 0001, even though PHONE_A
-    # already has a hospital-A record -- patients are hospital-scoped.
-    assert patient_b1["patient_display_id"].endswith("-0001")
+    # Hospital A's own sequence: 00001 then 00002.
+    assert patient_a1["patient_display_id"].endswith("-00001")
+    assert patient_a2["patient_display_id"].endswith("-00002")
+    # Hospital B's sequence starts independently at 00001, even though
+    # PHONE_A already has a hospital-A record -- patients are hospital-scoped.
+    assert patient_b1["patient_display_id"].endswith("-00001")
     # patient_display_id is hospital-agnostic-looking on purpose (portal-
     # facing internal id) -- both hospitals' first patient get the exact
-    # same string.
-    assert patient_a1["patient_display_id"] == "DCC-PAT-0001"
-    assert patient_b1["patient_display_id"] == "DCC-PAT-0001"
+    # same string (same current year too, both minted in this test run).
+    year = datetime.now().year
+    assert patient_a1["patient_display_id"] == f"DCCP-{year}-00001"
+    assert patient_b1["patient_display_id"] == f"DCCP-{year}-00001"
     # mrn is where the derived short code shows up ("Default Hospital" ->
     # DEF, "Test Hospital 2" -> TH2), same sequence number as the paired
     # patient_display_id.
-    assert patient_a1["mrn"] == "MRN-DEF-0001"
-    assert patient_b1["mrn"] == "MRN-TH2-0001"
+    assert patient_a1["mrn"] == f"MRN-DEF-{year}-00001"
+    assert patient_b1["mrn"] == f"MRN-TH2-{year}-00001"
 
 
 def test_id_is_never_regenerated_on_a_second_booking(hospital_id):

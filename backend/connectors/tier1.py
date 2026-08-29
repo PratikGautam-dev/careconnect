@@ -12,6 +12,9 @@ class Tier1Connector(Connector):
     def identify_contact(self, provider_user_id, phone_number=None, username=None):
         return repo.get_or_create_account(provider_user_id, phone_number=phone_number, username=username)
 
+    def get_max_active_patient_links(self):
+        return repo.get_max_active_patient_links()
+
     def get_appointment_types(self, hospital_id):
         return repo.get_appointment_types(hospital_id)
 
@@ -127,3 +130,8 @@ class Tier1Connector(Connector):
 
     def mark_reminder_sent(self, hospital_id, appointment_id, offset_hours):
         repo.mark_reminded(hospital_id, appointment_id, offset_hours)
+
+    def get_appointments_in_range(self, hospital_id, care_connect_account_id, range_start, range_end, statuses=None):
+        return repo.get_appointments_for_account_in_range(
+            hospital_id, care_connect_account_id, range_start, range_end, statuses=statuses,
+        )

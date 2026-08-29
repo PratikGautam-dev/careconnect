@@ -338,3 +338,12 @@ def _parse_manage_id(row_id: str, prefix: str) -> int | None:
 
 
 STATE_AWAITING_VIEW_APPOINTMENT_ACTION = "AWAITING_VIEW_APPOINTMENT_ACTION"
+
+
+STATE_AWAITING_VIEW_APPOINTMENTS_RANGE = "AWAITING_VIEW_APPOINTMENTS_RANGE"
+
+
+VIEW_APPOINTMENTS_RANGE_PREVIOUS_ID = "view_appointments_range_previous"
+
+
+VIEW_APPOINTMENTS_RANGE_UPCOMING_ID = "view_appointments_range_upcoming"

@@ -21,10 +21,11 @@ from alembic.config import Config
 from core.config import get_settings
 from db import seed
 from db.connection import get_connection, get_database_url
-from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, generate_id_derived_display_id
+from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, GLOBAL_SCOPE_KEY, generate_yearly_display_id_conn
 from db.repositories.accounts import _get_or_create_account_in_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
 from db.repositories.daycare_duration_options import DEFAULT_DAYCARE_DURATION_OPTIONS
+from db.models import DEFAULT_MAX_ACTIVE_PATIENT_LINKS
 from db.repository import _generate_patient_identifiers, _get_or_create_hospital_short_code
 
 # SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -216,7 +217,7 @@ def _backfill_patient_link_accounts(conn) -> None:
             account_id = new_account["id"]
             conn.execute(
                 "UPDATE care_connect_accounts SET display_id = ? WHERE id = ?",
-                (generate_id_derived_display_id(CARE_CONNECT_ACCOUNT_PREFIX, account_id, 6), account_id),
+                (generate_yearly_display_id_conn(conn, CARE_CONNECT_ACCOUNT_PREFIX, GLOBAL_SCOPE_KEY), account_id),
             )
             conn.execute(
                 "INSERT INTO whatsapp_identities (care_connect_account_id, provider_user_id, phone_number) "
@@ -534,6 +535,39 @@ def init_db_on_connection(conn) -> int:
         ")"
     )
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER")
+    # Migration 0010: code_sequences (db/display_ids.py's shared, yearly-
+    # resetting counter table for DCCG/DCCH/DCCC/DCCP -- see that module's
+    # own docstring). Must run before seed_default_hospital()/
+    # _backfill_patient_link_accounts() below, both of which now mint a
+    # display_id through this table.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS code_sequences ("
+        "id SERIAL PRIMARY KEY, "
+        "prefix TEXT NOT NULL, "
+        "scope_key TEXT NOT NULL, "
+        "period_key TEXT NOT NULL, "
+        "last_value INTEGER NOT NULL DEFAULT 0, "
+        "UNIQUE (prefix, scope_key, period_key)"
+        ")"
+    )
+    # Migration 0011: platform_settings (db/repositories/platform_settings.py)
+    # -- a SINGLETON row (id=1, CHECK-enforced) for cross-tenant values only a
+    # platform/super admin can change, starting with max_active_patient_links.
+    # Seeded from db/models.py's DEFAULT_MAX_ACTIVE_PATIENT_LINKS exactly
+    # once; ON CONFLICT DO NOTHING makes re-running this on every startup a
+    # no-op once the row exists, so a later admin edit (admin/
+    # platform_settings_api.py) is never silently reset back to the default.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS platform_settings ("
+        "id INTEGER PRIMARY KEY CHECK (id = 1), "
+        "max_active_patient_links INTEGER NOT NULL DEFAULT 5"
+        ")"
+    )
+    conn.execute(
+        "INSERT INTO platform_settings (id, max_active_patient_links) VALUES (1, ?) "
+        "ON CONFLICT (id) DO NOTHING",
+        (DEFAULT_MAX_ACTIVE_PATIENT_LINKS,),
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

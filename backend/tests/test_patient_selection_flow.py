@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+import db.connection as db_connection
 import db.repository as db
 import flows
 import flows.patient_identity as patient_identity
@@ -226,6 +227,11 @@ async def test_patient_selection_scopes_my_appointments_to_the_chosen_patient(ho
         wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
         connector=connector, enabled_features=["view_appointments"],
     )
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_VIEW_APPOINTMENTS_RANGE"
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_SELECTION"
 
     await flows.handle_incoming(
@@ -260,6 +266,10 @@ async def test_all_patients_view_shows_every_linked_patients_appointments_labele
         connector=connector, enabled_features=["view_appointments"],
     )
     await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap("all_patients"),
         connector=connector, enabled_features=["view_appointments"],
     )
@@ -269,6 +279,124 @@ async def test_all_patients_view_shows_every_linked_patients_appointments_labele
     titles = {r["id"]: r["title"] for r in rows}
     assert "Ravi Kumar" in titles[f"appt_{parent_appt.id}"]
     assert "Priya Kumar" in titles[f"appt_{child_appt.id}"]
+
+
+@pytest.mark.asyncio
+async def test_view_appointments_upcoming_range_excludes_cancelled_and_out_of_window(hospital_id):
+    """"My Appointments" -> Upcoming 1 Month: booked-only, [now, now+30d]."""
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    cardiology_doctors = db.get_doctors(hospital_id, "cardiology")
+    ortho_doctor = db.get_doctors(hospital_id, "orthopedics")[0]["id"]
+    # 3 distinct doctors -- the duplicate-booking guard blocks a second
+    # active (booked) appointment with the SAME doctor for the same patient.
+    in_window = db.create_appointment(
+        hospital_id, PHONE, "cardiology", cardiology_doctors[0]["id"], datetime.now() + timedelta(days=5),
+        patient_id=patient["id"],
+    )
+    out_of_window = db.create_appointment(
+        hospital_id, PHONE, "cardiology", cardiology_doctors[1]["id"], datetime.now() + timedelta(days=45),
+        patient_id=patient["id"],
+    )
+    cancelled = db.create_appointment(
+        hospital_id, PHONE, "orthopedics", ortho_doctor, datetime.now() + timedelta(days=10),
+        patient_id=patient["id"],
+    )
+    db.cancel_appointment(hospital_id, cancelled.id)
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    connector = flows._DEFAULT_CONNECTOR
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+
+    row_ids = _row_ids(_last_list(wa))
+    assert row_ids == [f"appt_{in_window.id}", "goto_main_menu"]
+    assert f"appt_{out_of_window.id}" not in row_ids
+    assert f"appt_{cancelled.id}" not in row_ids
+
+
+@pytest.mark.asyncio
+async def test_view_appointments_previous_range_shows_past_appointments_any_status(hospital_id):
+    """"My Appointments" -> Previous 1 Month: any status, [now-30d, now) --
+    a history view, so a cancelled past appointment still shows (labeled
+    with its status), unlike the upcoming range above."""
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    conn = db_connection.get_connection()
+
+    def _insert_past_appointment(days_ago, status):
+        scheduled_at = (datetime.now() - timedelta(days=days_ago)).isoformat()
+        conn.execute(
+            "INSERT INTO appointments "
+            "(hospital_id, phone, department_id, doctor_id, scheduled_at, status, source, booking_ordinal, "
+            "patient_id, created_at) "
+            "VALUES (?, ?, 'cardiology', ?, ?, ?, 'whatsapp', 1, ?, ?) RETURNING id",
+            (hospital_id, PHONE, doctor_id, scheduled_at, status, patient["id"], datetime.now().isoformat()),
+        )
+        conn.commit()
+        return conn.execute("SELECT id FROM appointments WHERE scheduled_at = ?", (scheduled_at,)).fetchone()["id"]
+
+    attended_id = _insert_past_appointment(10, db.STATUS_ATTENDED)
+    cancelled_id = _insert_past_appointment(20, db.STATUS_CANCELLED)
+    too_old = db.create_appointment(  # outside the 30-day window -- shouldn't show either
+        hospital_id, PHONE, "cardiology", doctor_id, datetime.now() + timedelta(days=5), patient_id=patient["id"],
+    )
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    connector = flows._DEFAULT_CONNECTOR
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_previous"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+
+    row_ids = _row_ids(_last_list(wa))
+    assert set(row_ids) == {f"appt_{attended_id}", f"appt_{cancelled_id}", "goto_main_menu"}
+    assert f"appt_{too_old.id}" not in row_ids
+
+
+@pytest.mark.asyncio
+async def test_view_appointments_is_scoped_to_the_account_not_the_booking_time_phone_string(hospital_id):
+    """Confirmed design (not appointments.phone-keyed): a phone number can
+    change while the care_connect_account persists, so "My Appointments"
+    must resolve by care_connect_account_id via patient_links, not by
+    matching appointments.phone against the CURRENT phone. Simulated here
+    by directly drifting the stored appointments.phone away from PHONE --
+    the appointment must still show, because the join is on patient_id/
+    account, never on appointments.phone."""
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    appt = db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id, datetime.now() + timedelta(days=5), patient_id=patient["id"],
+    )
+    conn = db_connection.get_connection()
+    conn.execute("UPDATE appointments SET phone = ? WHERE id = ?", ("5490001111_STALE", appt.id))
+    conn.commit()
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    connector = flows._DEFAULT_CONNECTOR
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_view_appointments"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("view_appointments_range_upcoming"),
+        connector=connector, enabled_features=["view_appointments"],
+    )
+
+    row_ids = _row_ids(_last_list(wa))
+    assert f"appt_{appt.id}" in row_ids
 
 
 @pytest.mark.asyncio

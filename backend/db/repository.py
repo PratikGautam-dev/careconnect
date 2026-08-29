@@ -39,3 +39,4 @@ from db.repositories.dashboard import *  # noqa: F401,F403
 from db.repositories.faq import *  # noqa: F401,F403
 from db.repositories.handoffs import *  # noqa: F401,F403
 from db.repositories.audit_logs import *  # noqa: F401,F403
+from db.repositories.platform_settings import *  # noqa: F401,F403

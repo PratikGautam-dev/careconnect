@@ -45,6 +45,17 @@ FAQ_SHORT = "faq_short"
 
 VIEW_APPOINTMENTS_LIST = "view_appointments_list"
 VIEW_APPOINTMENTS_HEADER = "view_appointments_header"
+
+# "My Appointments" -> Previous/Upcoming 1 Month range choice, shown before
+# the list itself. VIEW_APPOINTMENTS_HEADER/VIEW_APPOINTMENTS_LIST above stay
+# the upcoming-range header/empty-state text (unchanged copy); these are the
+# previous-range equivalents plus the range-choice prompt/buttons.
+VIEW_APPOINTMENTS_RANGE_PROMPT = "view_appointments_range_prompt"
+VIEW_APPOINTMENTS_RANGE_PREVIOUS_BUTTON = "view_appointments_range_previous_button"
+VIEW_APPOINTMENTS_RANGE_UPCOMING_BUTTON = "view_appointments_range_upcoming_button"
+VIEW_APPOINTMENTS_HEADER_PREVIOUS = "view_appointments_header_previous"
+VIEW_APPOINTMENTS_LIST_PREVIOUS = "view_appointments_list_previous"
+
 RECEPTION_HANDOFF_TEXT = "reception_handoff_text"
 
 # --- Hospital info (booking_flow.py's _FAQ_TEXT, reused by flows.py as
@@ -105,6 +116,20 @@ STRINGS: dict[str, dict[Language, str]] = {
     VIEW_APPOINTMENTS_HEADER: {
         "en": "Your upcoming appointments:\n\n",
         "hi": "आपकी आगामी अपॉइंटमेंट:\n\n",
+    },
+    VIEW_APPOINTMENTS_RANGE_PROMPT: {
+        "en": "Which appointments would you like to see?",
+        "hi": "आप कौन सी अपॉइंटमेंट देखना चाहते हैं?",
+    },
+    VIEW_APPOINTMENTS_RANGE_PREVIOUS_BUTTON: {"en": "Previous 1 Month", "hi": "पिछला 1 महीना"},
+    VIEW_APPOINTMENTS_RANGE_UPCOMING_BUTTON: {"en": "Upcoming 1 Month", "hi": "आगामी 1 महीना"},
+    VIEW_APPOINTMENTS_HEADER_PREVIOUS: {
+        "en": "Your appointments from the last month:\n\n",
+        "hi": "पिछले एक महीने की आपकी अपॉइंटमेंट:\n\n",
+    },
+    VIEW_APPOINTMENTS_LIST_PREVIOUS: {
+        "en": "You don't have any appointments from the last month.",
+        "hi": "पिछले एक महीने में आपकी कोई अपॉइंटमेंट नहीं है।",
     },
     RECEPTION_HANDOFF_TEXT: {
         "en": "We've let our reception team know — they'll reach out to you here shortly. "

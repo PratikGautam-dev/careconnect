@@ -14,7 +14,7 @@ top-level import here would be circular.
 """
 import logging
 
-from connectors import Connector, MAX_ACTIVE_PATIENT_LINKS
+from connectors import Connector
 from core.translations import t
 from core.translations.menu import (
     BOOK_APPOINTMENT_SHORT,
@@ -269,8 +269,11 @@ async def _select_patient_and_continue(
         await _start_cancel_flow_for_patient(wa, sessions, phone, hospital_id, connector, patient["id"], language=language)
     elif next_action == "reschedule":
         await _start_reschedule_flow_for_patient(wa, sessions, phone, hospital_id, connector, patient["id"], language=language)
-    elif next_action == "view_appointments":
-        await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=patient["id"])
+    elif next_action.startswith("view_appointments_"):
+        range_ = next_action[len("view_appointments_"):]
+        await _send_view_appointments(
+            wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=patient["id"], range_=range_,
+        )
     elif next_action == "manage_patients":
         await wa.send_text(phone, t(PATIENT_ADDED, language, patient_name=patient["name"]))
         await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
@@ -295,7 +298,7 @@ async def _send_patient_selector(
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
     if next_action != "booking":
         rows.append({"id": ALL_PATIENTS_ROW_ID, "title": t(ALL_PATIENTS_OPTION, language)})
-    if next_action == "booking" and len(patients) < MAX_ACTIVE_PATIENT_LINKS:
+    if next_action == "booking" and len(patients) < connector.get_max_active_patient_links():
         rows.append({"id": ADD_PATIENT_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
     # Reached right from the main menu (Book/Cancel/Reschedule/View
     # Appointments) -- unlike core/patient_identity.py's own patient

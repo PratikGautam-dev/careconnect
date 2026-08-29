@@ -6,7 +6,7 @@ split out of the former single core/booking_flow.py module.
 """
 from datetime import datetime
 
-from connectors import Connector, DuplicateBookingError, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError
+from connectors import Connector, DuplicateBookingError, TooManyLinkedPatientsError
 from core.translations import t
 from core.translations.menu import MAIN_MENU_BUTTON, RESCHEDULE_SHORT
 from core.translations.booking import (

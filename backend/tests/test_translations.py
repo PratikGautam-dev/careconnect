@@ -54,6 +54,7 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         "view_departments_button", "view_doctors_button", "view_slots_button",
         "view_dates_button", "view_times_button",
         "confirm_button", "cancel_button", "view_appointments_button", "view_topics_button",
+        "view_appointments_range_previous_button", "view_appointments_range_upcoming_button",
         # "Go back" navigation: back_option is a button ONLY now (the
         # confirmation card's 3rd button, and the department/doctor/date/time
         # menus' own follow-up Back-button message, Spec.md Section 0's UX

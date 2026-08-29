@@ -208,6 +208,39 @@ async def test_date_and_time_menus_capped_to_whatsapp_list_limit(hospital_id):
 
 
 @pytest.mark.asyncio
+async def test_select_date_menu_never_offers_a_stale_past_only_date(hospital_id):
+    """get_slots() (db/repositories/slots.py) filters out already-past slots,
+    but generate_slots_for_doctor() never deletes old rows once their date
+    has passed -- a manually-seeded past-only date must not appear as a row
+    in the Select Date list, since _send_date_menu derives its rows purely
+    from get_available_slots()'s own output (no separate date query)."""
+    import db.connection as db_connection
+
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    department = db.get_departments(hospital_id)[0]
+    doctor = db.create_doctor(
+        hospital_id, department["id"], "Dr. Stale Date",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-10:00"], slot_duration_minutes=60,
+    )
+    yesterday = (datetime.now() - timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    conn = db_connection.get_connection()
+    conn.execute(
+        "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?)",
+        (hospital_id, doctor["id"], yesterday.isoformat()),
+    )
+    conn.commit()
+
+    sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": department["id"], "department_name": department["name"]})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor["id"]))
+
+    date_kwargs = _last_list(wa)
+    date_rows = date_kwargs["sections"][0]["rows"]
+    assert yesterday.date().isoformat() not in {r["id"] for r in date_rows}
+
+
+@pytest.mark.asyncio
 async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
     """A patient stuck mid-flow (e.g. from the list-limit bug above, or just
     confusion) must be able to type a common greeting/reset word and get back

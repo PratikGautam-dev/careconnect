@@ -25,6 +25,7 @@ from contextlib import asynccontextmanager
 
 from admin.onboarding import router as onboarding_router
 from admin.onboarding_api import router as onboarding_api_router
+from admin.platform_settings_api import router as platform_settings_api_router
 from admin.tenants_api import router as tenants_api_router
 from portal.routes import router as portal_api_router
 from auth.google_oauth import AUTH_SECRET, router as user_auth_router
@@ -119,6 +120,7 @@ app.add_middleware(SessionMiddleware, secret_key=AUTH_SECRET or "insecure-dev-on
 app.include_router(onboarding_router)
 app.include_router(onboarding_api_router)
 app.include_router(tenants_api_router)
+app.include_router(platform_settings_api_router)
 app.include_router(portal_api_router)
 app.include_router(user_auth_router)
 app.include_router(webhook_router)

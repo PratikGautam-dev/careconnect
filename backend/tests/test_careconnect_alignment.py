@@ -264,6 +264,64 @@ async def test_single_patient_confirmation_shown_when_hospital_requires_it(hospi
     assert session["active_patient_id"] == patient["id"]
 
 
+@pytest.mark.asyncio
+async def test_multi_patient_resolution_shows_list_directly_with_no_default(hospital_id):
+    """2+ linked patients: no candidate is auto-picked and no "Continue as
+    X?" card is shown -- just the list (welcome text folded into its body)
+    plus a separate Add Patient button, and tapping any row activates that
+    patient directly."""
+    connector = flows._DEFAULT_CONNECTOR
+    abhi = db.create_patient_profile(hospital_id, PHONE, "Abhi", 30, relationship_label="Self")
+    raj = db.create_patient_profile(hospital_id, PHONE, "Raj", 28, relationship_label="Son")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
+    list_kwargs = _last_list(wa)
+    assert "Welcome to CareConnect" in list_kwargs["body_text"]
+    assert "Who are you accessing CareConnect for?" in list_kwargs["body_text"]
+    row_ids = {row["id"] for row in list_kwargs["sections"][0]["rows"]}
+    assert patient_identity._patient_row_id(abhi["id"]) in row_ids
+    assert patient_identity._patient_row_id(raj["id"]) in row_ids
+    buttons_kwargs = _last_buttons(wa)
+    button_ids = {b["id"] for b in buttons_kwargs["buttons"]}
+    assert button_ids == {patient_identity.ADD_PATIENT_ENTRY_ID}
+    assert patient_identity.CONFIRM_YES not in button_ids
+
+    # Tapping a row activates that patient directly, no intermediate confirm.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity._patient_row_id(raj["id"])),
+        connector=connector, enabled_features=["booking"],
+    )
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "IDLE"
+    assert session["active_patient_id"] == raj["id"]
+
+
+@pytest.mark.asyncio
+async def test_multi_patient_returning_to_menu_reprompts_instead_of_defaulting(hospital_id):
+    """Once a patient is active, going back to the menu (e.g. after
+    completing a booking) re-prompts with the list again rather than
+    silently reusing whichever patient was active before -- the scenario
+    that motivated this whole redesign."""
+    connector = flows._DEFAULT_CONNECTOR
+    abhi = db.create_patient_profile(hospital_id, PHONE, "Abhi", 30, relationship_label="Self")
+    db.create_patient_profile(hospital_id, PHONE, "Raj", 28, relationship_label="Son")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id, active_patient_id=abhi["id"])
+    sessions.set(hospital_id, PHONE, "IDLE", {}, language="en", active_patient_id=abhi["id"])
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(flows.GOTO_MAIN_MENU), connector=connector, enabled_features=["booking"],
+    )
+
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
+    list_kwargs = _last_list(wa)
+    assert "Welcome to CareConnect" in list_kwargs["body_text"]
+
+
 # --- 5. Patient status BLOCKED ---
 
 def test_blocked_patient_is_excluded_from_active_patients_but_link_untouched(hospital_id):

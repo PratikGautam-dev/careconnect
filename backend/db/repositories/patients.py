@@ -9,7 +9,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_connection, get_session
-from db.models import MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError, _generate_patient_identifiers
+from db.models import TooManyLinkedPatientsError, _generate_patient_identifiers
 from db.orm_models import AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
 from db.repositories.accounts import _get_or_create_account_in_conn
 
@@ -150,7 +150,7 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
 
 
 # --- Patient identity SEPARATION (Spec.md Section 0): one WhatsApp phone can
-# link up to MAX_ACTIVE_PATIENT_LINKS patient profiles (a shared family phone).
+# link up to platform_settings.max_active_patient_links patient profiles (a shared family phone).
 # patient_links is the source of truth for phone<->patient associations;
 # `patients` itself no longer implies "one row per phone" (db/schema.sql's own
 # comment on the dropped UNIQUE(hospital_id, phone) constraint explains why). ---
@@ -267,7 +267,7 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     lock/count. In the common case this is identical to keying on phone,
     since one WhatsApp number is 1:1 with one account today -- but the
     account is the correct identity to enforce "up to
-    MAX_ACTIVE_PATIENT_LINKS per hospital" against, robust to a person's
+    platform_settings.max_active_patient_links per hospital" against, robust to a person's
     phone number changing while their account persists (or the reverse).
     Still per-hospital: a second hospital's own patient_links rows are
     counted separately, same as before.
@@ -302,9 +302,15 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
         "SELECT COUNT(*) AS c FROM patient_links WHERE hospital_id = ? AND care_connect_account_id = ? AND unlinked_at IS NULL",
         (hospital_id, account["id"]),
     ).fetchone()["c"]
-    if active_count >= MAX_ACTIVE_PATIENT_LINKS:
+    # Global platform-admin-editable cap (db/repositories/platform_settings.py),
+    # NOT a per-hospital value -- read fresh here rather than a cached/
+    # imported constant, since a platform admin can change it at any time.
+    max_active_patient_links = conn.execute(
+        "SELECT max_active_patient_links FROM platform_settings WHERE id = 1"
+    ).fetchone()["max_active_patient_links"]
+    if active_count >= max_active_patient_links:
         raise TooManyLinkedPatientsError(
-            f"This phone number already has {MAX_ACTIVE_PATIENT_LINKS} linked patients -- unlink one first."
+            f"This phone number already has {max_active_patient_links} linked patients -- unlink one first."
         )
     conn.execute(
         "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label, care_connect_account_id) "

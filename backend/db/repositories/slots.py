@@ -15,13 +15,20 @@ from db.orm_models import AppointmentRow, DoctorRow, DoctorSlot
 
 # --- Slots (real, persisted rows — see module docstring) ---
 
-def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
+def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[dict]:
     """This doctor's generated doctor_slots rows, minus any that have already
     reached this doctor's max_bookings_per_slot worth of *booked* appointments
     at that exact time (Phase 8, extended by Section 14.7: the default
     max_bookings_per_slot=1 means "any booked appointment at all," exactly
     Phase 8's original behavior; >1 keeps offering the slot until that many
-    patients have booked it)."""
+    patients have booked it), AND already in the past relative to `now`
+    (defaults to the real current time) -- generate_slots_for_doctor() never
+    deletes old rows once their date has passed, so without this filter a
+    doctor's date/time menus would keep offering yesterday's (or last week's)
+    now-unbookable slots forever. Same `scheduled_at >= now` filter
+    get_doctor_slots_for_admin() already applies for its own "from now
+    onward" mode -- this is the bot/staff-booking-facing equivalent that was
+    missing it."""
     session = get_session()
     doctor_row = session.execute(
         select(DoctorRow.max_bookings_per_slot).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
@@ -40,7 +47,10 @@ def get_slots(hospital_id: int, doctor_id: str) -> list[dict]:
 
     slot_rows = session.execute(
         select(DoctorSlot.scheduled_at)
-        .where(DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id, DoctorSlot.blocked.is_(False))
+        .where(
+            DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id, DoctorSlot.blocked.is_(False),
+            DoctorSlot.scheduled_at >= (now or datetime.now()).isoformat(),
+        )
         .order_by(DoctorSlot.scheduled_at)
     ).all()
 

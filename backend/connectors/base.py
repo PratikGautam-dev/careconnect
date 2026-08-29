@@ -63,6 +63,14 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def identify_contact(self, provider_user_id: str, phone_number: str | None = None, username: str | None = None) -> dict: ...
 
+    # Same "deliberately no hospital_id param" reasoning as identify_contact
+    # above -- db/repositories/platform_settings.py's max_active_patient_links
+    # is a single GLOBAL value (a platform/super admin setting, confirmed
+    # NOT per-hospital), not something that varies by which hospital's
+    # patient-linking cap is being checked.
+    @abc.abstractmethod
+    def get_max_active_patient_links(self) -> int: ...
+
     @abc.abstractmethod
     def get_appointment_types(self, hospital_id: int) -> list[dict]: ...
 
@@ -157,6 +165,23 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def mark_reminder_sent(self, hospital_id: int, appointment_id: int, offset_hours: float) -> None: ...
 
+    @abc.abstractmethod
+    def get_appointments_in_range(
+        self,
+        hospital_id: int,
+        care_connect_account_id: int,
+        range_start: datetime,
+        range_end: datetime,
+        statuses: list[str] | None = None,
+    ) -> list[Appointment]:
+        """"My Appointments" -> Previous/Upcoming 1 Month range view.
+        Deliberately keyed on care_connect_account_id, not phone -- see
+        db/repositories/appointments.py's get_appointments_for_account_in_range
+        for why (a person's WhatsApp number can change while their account
+        persists; appointments.phone only records what was used at booking
+        time). Callers resolve the account first via identify_contact()."""
+        ...
+
 
 class _UnimplementedTierConnector(Connector):
     """Shared stub base for tiers with no real connector yet — every method
@@ -177,6 +202,9 @@ class _UnimplementedTierConnector(Connector):
 
     def identify_contact(self, provider_user_id, phone_number=None, username=None):
         self._not_implemented("identify_contact")
+
+    def get_max_active_patient_links(self):
+        self._not_implemented("get_max_active_patient_links")
 
     def get_appointment_types(self, hospital_id):
         self._not_implemented("get_appointment_types")
@@ -246,3 +274,6 @@ class _UnimplementedTierConnector(Connector):
 
     def mark_reminder_sent(self, hospital_id, appointment_id, offset_hours):
         self._not_implemented("mark_reminder_sent")
+
+    def get_appointments_in_range(self, hospital_id, care_connect_account_id, range_start, range_end, statuses=None):
+        self._not_implemented("get_appointments_in_range")

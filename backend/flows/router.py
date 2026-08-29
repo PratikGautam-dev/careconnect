@@ -203,8 +203,8 @@ async def _enter_idle(
     which features are enabled (confirmed with the user). Only once
     core/patient_identity.py returns an actual resolved patient (not None --
     None means it already sent its own message and this call must stop) does
-    the menu itself get shown, now with that patient's "Patient: X / MRN: Y"
-    header (Section 20)."""
+    the menu itself get shown, now with that patient's "Patient: X / Patient
+    Code: Y" header (Section 20)."""
     if not language_prompt_enabled:
         resolved_language = default_language
     elif language is None:
@@ -327,7 +327,7 @@ async def _send_reports_prescriptions(
     """CareConnect architecture doc alignment (Spec.md Section 0), Section
     20's "Reports & Prescriptions" menu item -- the same self-service
     "fetch my own record" reply the earlier "My Details" feature already
-    built (Patient ID/MRN, name, age, a short summary, then any documents on
+    built (Patient ID/Code, name, age, a short summary, then any documents on
     file), just renamed/repositioned to match the doc's exact menu item and
     now genuinely scoped to the ACTIVE patient (`db.get_patient()`, by id)
     rather than `get_patient_by_phone()` -- now that multiple patients can

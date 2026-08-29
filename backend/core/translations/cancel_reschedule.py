@@ -37,8 +37,12 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "क्या आप वाकई {doctor_name} के साथ {when} की अपनी अपॉइंटमेंट रद्द करना चाहते हैं?",
     },
     APPOINTMENT_CANCELLED: {
-        "en": "Your appointment with {doctor_name} on {when} has been cancelled.",
-        "hi": "{doctor_name} के साथ {when} की आपकी अपॉइंटमेंट रद्द कर दी गई है।",
+        "en": "✅ *Appointment Cancelled*\n\n"
+              "Doctor: {doctor_name}\nDate: {when}\n\n"
+              "Your appointment has been cancelled successfully.",
+        "hi": "✅ *अपॉइंटमेंट रद्द*\n\n"
+              "डॉक्टर: {doctor_name}\nतारीख: {when}\n\n"
+              "आपकी अपॉइंटमेंट सफलतापूर्वक रद्द कर दी गई है।",
     },
     CANCELLATION_ABORTED: {
         "en": "Okay, your appointment was not cancelled.",
@@ -59,9 +63,11 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "कृपया अपनी नई अपॉइंटमेंट का समय की पुष्टि करें:\n\nडॉक्टर: {doctor_name}\nनया स्लॉट: {slot_label}",
     },
     APPOINTMENT_RESCHEDULED: {
-        "en": "Your appointment has been rescheduled!\n\nDoctor: {doctor_name}\nNew Slot: {slot_label}\n\n"
+        "en": "✅ *Appointment Rescheduled!*\n\n"
+              "Doctor: {doctor_name}\nNew Slot: {slot_label}\n\n"
               "We look forward to seeing you.",
-        "hi": "आपकी अपॉइंटमेंट का समय बदल दिया गया है!\n\nडॉक्टर: {doctor_name}\nनया स्लॉट: {slot_label}\n\n"
+        "hi": "✅ *अपॉइंटमेंट का समय बदला गया!*\n\n"
+              "डॉक्टर: {doctor_name}\nनया स्लॉट: {slot_label}\n\n"
               "हम आपसे मिलने के लिए उत्सुक हैं।",
     },
     RESCHEDULE_ABORTED: {

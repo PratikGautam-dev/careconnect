@@ -12,7 +12,7 @@ import sqlalchemy.exc
 from sqlalchemy import insert, select, update
 
 from db.connection import get_session, reraise_as_driver_integrity_error
-from db.display_ids import HOSPITAL_PREFIX, generate_id_derived_display_id
+from db.display_ids import GLOBAL_SCOPE_KEY, generate_yearly_display_id_session, hospital_display_prefix
 from db.models import Hospital
 from db.orm_models import AppointmentType, HospitalRow
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
@@ -291,13 +291,16 @@ def create_hospital(
         # must be re-raised as that same type, not SQLAlchemy's wrapper.
         session.rollback()
         reraise_as_driver_integrity_error(e)
-    # db/display_ids.py -- global, id-derived (see that module's docstring);
-    # shown to hospital users the same way patients.patient_display_id is
-    # shown to patients.
+    # db/display_ids.py -- global, yearly-resetting (see that module's
+    # docstring); shown to hospital users the same way patients.
+    # patient_display_id is shown to patients. Prefix branches on THIS
+    # hospital's own tenant_type (DCCH for "hospital", DCCC for "clinic"),
+    # decided once here at creation time -- never recomputed even if
+    # tenant_type is changed later.
     session.execute(
         update(HospitalRow)
         .where(HospitalRow.id == new_id)
-        .values(display_id=generate_id_derived_display_id(HOSPITAL_PREFIX, new_id, 4))
+        .values(display_id=generate_yearly_display_id_session(session, hospital_display_prefix(tenant_type), GLOBAL_SCOPE_KEY))
     )
     # Appointment type step (WhatsApp flow alignment): every new hospital
     # gets the same fixed catalog db/init_db.py's own startup backfill seeds

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from db.connection import IntegrityError
+from db.display_ids import PATIENT_DISPLAY_ID_PREFIX, PATIENT_MRN_PREFIX, _next_sequence_conn
 
 STATUS_BOOKED = "booked"
 STATUS_CANCELLED = "cancelled"
@@ -28,10 +29,14 @@ SOURCE_WHATSAPP = "whatsapp"
 SOURCE_STAFF = "staff"
 
 # Patient identity SEPARATION (Spec.md Section 0): max ACTIVE (not unlinked)
-# patient_links rows one WhatsApp phone number may have per hospital at once --
-# confirmed with the user before building. Enforced in create_patient_profile(),
+# patient_links rows one WhatsApp phone number may have per hospital at once.
+# This is now only the SEED default for platform_settings.max_active_patient_
+# links (db/repositories/platform_settings.py) -- a single global value a
+# platform admin can change afterward (confirmed with the user: NOT a
+# per-hospital setting), not the enforced value itself. Enforced in
+# create_patient_profile() by reading platform_settings at the point of use,
 # not a DB constraint (a COUNT-based cap can't be expressed as a plain CHECK).
-MAX_ACTIVE_PATIENT_LINKS = 5
+DEFAULT_MAX_ACTIVE_PATIENT_LINKS = 5
 
 
 
@@ -128,40 +133,42 @@ def _get_or_create_hospital_short_code(conn, hospital_id: int) -> str:
     return code
 
 
-def _next_patient_display_sequence(conn, hospital_id: int) -> int:
-    """Same atomic INSERT ... ON CONFLICT DO UPDATE pattern as
-    _next_daily_reference_sequence above, one row per hospital (no `day`
-    dimension -- a lifetime count, not a daily-resetting one)."""
-    row = conn.execute(
-        "INSERT INTO patient_id_counters (hospital_id, counter) VALUES (?, 1) "
-        "ON CONFLICT (hospital_id) DO UPDATE SET counter = patient_id_counters.counter + 1 "
-        "RETURNING counter",
-        (hospital_id,),
-    ).fetchone()
-    return row["counter"]
-
-
-def _generate_patient_identifiers(conn, hospital_id: int) -> tuple[str, str]:
+def _generate_patient_identifiers(conn, hospital_id: int, now: datetime | None = None) -> tuple[str, str]:
     """Returns (patient_display_id, mrn), generated together and sharing the
-    SAME per-hospital sequence number (patient_id_counters) -- zero-padded
-    to 4 digits, sequential PER HOSPITAL, not global.
+    SAME per-(hospital, year) sequence number -- both draw from the shared
+    code_sequences table (db/display_ids.py's _next_sequence_conn(), keyed
+    on prefix="DCCP"/scope_key=str(hospital_id)/period_key=str(year)), which
+    retired this function's own former patient_id_counters-based lifetime
+    counter -- see db/display_ids.py's module docstring for why the
+    sequence now resets every calendar year and why the year is embedded
+    directly in both returned strings.
 
-    patient_display_id (DCC-PAT-<seq>, e.g. DCC-PAT-0001) is the portal-
-    facing internal id -- hospital-agnostic-looking on purpose, since the
-    portal is always scoped to one hospital's own session anyway.
+    patient_display_id (DCCP-<year>-<seq>, e.g. DCCP-2026-00001) is the
+    portal-facing internal id -- hospital-agnostic-looking on purpose, since
+    the portal is always scoped to one hospital's own session anyway.
 
-    mrn (MRN-<hospital short code>-<seq>, e.g. MRN-MLH-0001) is the
-    hospital-specific clinical/legal record number -- same short-code
-    derivation as before.
+    mrn (MRN-<hospital short code>-<year>-<seq>, e.g. MRN-MLH-2026-00001) is
+    the hospital-specific clinical/legal record number -- same short-code
+    derivation as before, now with the same year segment patient_display_id
+    carries (they share one sequence number, so keeping both dated the same
+    way avoids a display_id/mrn pair that look like they belong to different
+    years).
 
     Called exactly once per patient, by _upsert_patient()
     (db/repositories/appointments.py) / create_patient_profile()
     (db/repositories/patients.py) the moment a `patients` row is first
     created, and by db/init_db.py's one-time backfill for patients created
-    before this feature existed."""
+    before this feature existed. Already-issued ids (patient_id_counters-era,
+    no year segment) are never rewritten -- only a brand-new id, minted
+    after this shipped, gets the new dated format."""
     code = _get_or_create_hospital_short_code(conn, hospital_id)
-    seq = _next_patient_display_sequence(conn, hospital_id)
-    return f"DCC-PAT-{seq:04d}", f"MRN-{code}-{seq:04d}"
+    now = now or datetime.now()
+    seq = _next_sequence_conn(conn, PATIENT_DISPLAY_ID_PREFIX, str(hospital_id), str(now.year))
+    width = 5
+    return (
+        f"{PATIENT_DISPLAY_ID_PREFIX}-{now.year}-{seq:0{width}d}",
+        f"{PATIENT_MRN_PREFIX}-{code}-{now.year}-{seq:0{width}d}",
+    )
 
 
 @dataclass

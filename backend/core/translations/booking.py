@@ -67,8 +67,8 @@ STRINGS: dict[str, dict[Language, str]] = {
     # --- Booking: appointment type (shown right after patient resolution,
     # before department selection) ---
     SELECT_APPOINTMENT_TYPE: {
-        "en": "What type of appointment would you like to book?",
-        "hi": "आप किस प्रकार की अपॉइंटमेंट बुक करना चाहेंगे?",
+        "en": "Please select what type of appointment you would like to book:",
+        "hi": "कृपया चुनें कि आप किस प्रकार की अपॉइंटमेंट बुक करना चाहेंगे:",
     },
     VIEW_APPOINTMENT_TYPES_BUTTON: {"en": "View Types", "hi": "प्रकार देखें"},
     APPOINTMENT_TYPES_SECTION_TITLE: {"en": "Appointment Type", "hi": "अपॉइंटमेंट प्रकार"},

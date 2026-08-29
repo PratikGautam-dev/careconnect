@@ -12,12 +12,21 @@ PATIENT_SELECTOR_PROMPT_BOOKING = "patient_selector_prompt_booking"
 PATIENT_SELECTOR_PROMPT_CANCEL = "patient_selector_prompt_cancel"
 PATIENT_SELECTOR_PROMPT_RESCHEDULE = "patient_selector_prompt_reschedule"
 PATIENT_SELECTOR_PROMPT_VIEW_APPOINTMENTS = "patient_selector_prompt_view_appointments"
+# messages.py's _send_patient_selector builds its lookup key dynamically as
+# f"patient_selector_prompt_{next_action}" -- view_appointments.py passes
+# "view_appointments_previous"/"view_appointments_upcoming" as next_action
+# (not the bare "view_appointments" above) so the Previous/Upcoming range
+# choice survives through the multi-patient selector. Two keys, not a
+# constant, since nothing else needs to import these by name.
+PATIENT_SELECTOR_PROMPT_VIEW_APPOINTMENTS_PREVIOUS = "patient_selector_prompt_view_appointments_previous"
+PATIENT_SELECTOR_PROMPT_VIEW_APPOINTMENTS_UPCOMING = "patient_selector_prompt_view_appointments_upcoming"
 PATIENT_SELECTOR_BUTTON = "patient_selector_button"
 PATIENT_SELECTOR_SECTION_TITLE = "patient_selector_section_title"
 ADD_PATIENT_OPTION = "add_patient_option"
 ALL_PATIENTS_OPTION = "all_patients_option"
 TOO_MANY_LINKED_PATIENTS = "too_many_linked_patients"
 PATIENT_HEADER_LABEL = "patient_header_label"
+PATIENT_CODE_LABEL = "patient_code_label"
 PATIENT_SELECTOR_PROMPT = "patient_selector_prompt"
 MANAGE_PATIENTS_SHORT = "manage_patients_short"
 ADD_PATIENT_SHORT = "add_patient_short"
@@ -39,6 +48,7 @@ RELATIONSHIP_SPOUSE = "relationship_spouse"
 RELATIONSHIP_GUARDIAN = "relationship_guardian"
 RELATIONSHIP_OTHER = "relationship_other"
 SINGLE_PATIENT_CONFIRM = "single_patient_confirm"
+MULTI_PATIENT_SELECTOR_PROMPT = "multi_patient_selector_prompt"
 
 STRINGS: dict[str, dict[Language, str]] = {
     # The shared "who is this for" selector, shown whenever a phone has >1
@@ -62,6 +72,14 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "Whose appointments would you like to see?",
         "hi": "आप किसकी अपॉइंटमेंट देखना चाहते हैं?",
     },
+    PATIENT_SELECTOR_PROMPT_VIEW_APPOINTMENTS_PREVIOUS: {
+        "en": "Whose previous appointments would you like to see?",
+        "hi": "आप किसकी पिछली अपॉइंटमेंट देखना चाहते हैं?",
+    },
+    PATIENT_SELECTOR_PROMPT_VIEW_APPOINTMENTS_UPCOMING: {
+        "en": "Whose upcoming appointments would you like to see?",
+        "hi": "आप किसकी आगामी अपॉइंटमेंट देखना चाहते हैं?",
+    },
     PATIENT_SELECTOR_BUTTON: {"en": "Select Patient", "hi": "मरीज़ चुनें"},
     PATIENT_SELECTOR_SECTION_TITLE: {"en": "Patients", "hi": "मरीज़"},
     ADD_PATIENT_OPTION: {"en": "+ Add Patient", "hi": "+ मरीज़ जोड़ें"},
@@ -80,6 +98,14 @@ STRINGS: dict[str, dict[Language, str]] = {
     # but harmless, same "orphaned key" precedent CHANGE_LANGUAGE_ROW's own
     # comment already established).
     PATIENT_HEADER_LABEL: {"en": "Patient:", "hi": "मरीज़:"},
+    # patient_display_id (e.g. DCCP-2026-00003) shown to the patient -- NEVER
+    # the real clinical mrn (db/models.py's _generate_patient_identifiers,
+    # MRN-<hospital short code>-<seq>), which is an internal hospital record
+    # never surfaced over WhatsApp. "mrn" was previously used as both the
+    # label text AND the kwarg name at every call site below even though the
+    # value passed was always patient_display_id -- renamed throughout to
+    # avoid that confusion.
+    PATIENT_CODE_LABEL: {"en": "Patient Code:", "hi": "पेशेंट कोड:"},
     PATIENT_SELECTOR_PROMPT: {
         "en": "Who are you accessing CareConnect for?",
         "hi": "आप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
@@ -98,9 +124,9 @@ STRINGS: dict[str, dict[Language, str]] = {
 
     # --- Sections 8-10: duplicate-patient detection before creating a new profile ---
     DUPLICATE_PATIENT_FOUND: {
-        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nMRN: {mrn}\n\n"
+        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nPatient Code: {patient_code}\n\n"
               "Would you like to link this profile, or is this a different patient?",
-        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nMRN: {mrn}\n\n"
+        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nपेशेंट कोड: {patient_code}\n\n"
               "क्या आप इस प्रोफ़ाइल को लिंक करना चाहेंगे, या यह एक अलग मरीज़ है?",
     },
     DUPLICATE_LINK_BUTTON: {"en": "Link Existing", "hi": "लिंक करें"},
@@ -126,7 +152,15 @@ STRINGS: dict[str, dict[Language, str]] = {
     # --- Section 11: optional single-linked-patient confirmation
     # (hospitals.require_patient_confirmation, default off) ---
     SINGLE_PATIENT_CONFIRM: {
-        "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nMRN: {mrn}\n\nContinue?",
-        "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nMRN: {mrn}\n\nजारी रखें?",
+        "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nPatient Code: {patient_code}\n\nContinue?",
+        "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nपेशेंट कोड: {patient_code}\n\nजारी रखें?",
+    },
+
+    # 2+ linked patients: no default candidate is picked (unlike
+    # single_patient_confirm above), so the welcome text is folded directly
+    # into the list prompt itself instead of a separate "Continue as X?" card.
+    MULTI_PATIENT_SELECTOR_PROMPT: {
+        "en": "Welcome to CareConnect.\n\nWho are you accessing CareConnect for?",
+        "hi": "CareConnect में आपका स्वागत है।\n\nआप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
     },
 }

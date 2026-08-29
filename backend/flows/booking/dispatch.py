@@ -37,9 +37,12 @@ from flows.booking.state import (
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
-    STATE_AWAITING_UNLINK_CONFIRM, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, STATE_IDLE,
+    STATE_AWAITING_UNLINK_CONFIRM, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, STATE_AWAITING_VIEW_APPOINTMENTS_RANGE,
+    STATE_IDLE,
 )
-from flows.booking.view_appointments import _handle_awaiting_view_appointment_action
+from flows.booking.view_appointments import (
+    _handle_awaiting_view_appointment_action, _handle_awaiting_view_appointments_range,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,7 @@ _HANDLERS = {
     STATE_AWAITING_RESCHEDULE_DATE: _handle_awaiting_reschedule_date,
     STATE_AWAITING_RESCHEDULE_SLOT: _handle_awaiting_reschedule_slot,
     STATE_AWAITING_RESCHEDULE_CONFIRM: _handle_awaiting_reschedule_confirm,
+    STATE_AWAITING_VIEW_APPOINTMENTS_RANGE: _handle_awaiting_view_appointments_range,
     STATE_AWAITING_VIEW_APPOINTMENT_ACTION: _handle_awaiting_view_appointment_action,
     STATE_AWAITING_PATIENT_SELECTION: _handle_awaiting_patient_selection,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION: _handle_awaiting_manage_patients_action,

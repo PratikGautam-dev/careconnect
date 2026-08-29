@@ -166,6 +166,7 @@ def test_tier1_mark_reminder_sent_prevents_double_send(hospital_id):
     ("reschedule_booking", (1, 1, "555", "dept", "doc", datetime.now())),
     ("get_upcoming_appointments", (1,)),
     ("mark_reminder_sent", (1, 1, 24)),
+    ("get_appointments_in_range", (1, 1, datetime.now(), datetime.now())),
 ])
 def test_unimplemented_tier_connectors_raise_clear_error_for_every_method(connector_cls, method_name, args):
     connector = connector_cls()

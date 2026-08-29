@@ -382,9 +382,10 @@ class PatientRow(Base):
     _link_patient_under_cap() (db/repositories/patients.py) do NOT use this
     model -- see those functions' own docstrings for why (advisory-lock +
     multi-statement-transaction code stays raw SQL permanently).
-    patient_display_id (DCC-PAT-<seq>) and mrn (MRN-<hospital short code>
-    -<seq>) are generated together, same sequence number, by
-    db/models.py's _generate_patient_identifiers() -- see migration 0003."""
+    patient_display_id (DCCP-<year>-<seq>) and mrn (MRN-<hospital short
+    code>-<year>-<seq>) are generated together, same sequence number, by
+    db/models.py's _generate_patient_identifiers() -- see migration 0003
+    (original format) and db/display_ids.py (yearly-resetting format)."""
     __tablename__ = "patients"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -462,3 +463,37 @@ class AuditLog(Base):
     before_value: Mapped[str | None]
     after_value: Mapped[str | None]
     created_at: Mapped[str]
+
+
+class CodeSequence(Base):
+    """db/schema.sql's code_sequences table -- the single shared atomic
+    counter every yearly-resetting display id (DCCG/DCCH/DCCC/DCCP, see
+    db/display_ids.py's module docstring) increments through, keyed on
+    (prefix, scope_key, period_key). scope_key is "global" for CareConnect
+    account/hospital/clinic ids, or str(hospital_id) for patient ids;
+    period_key is str(year) for all of them today. Deliberately NOT used by
+    APT (appointment reference ids) -- that one predates this table and
+    resets daily, not yearly, via its own reference_id_counters table."""
+    __tablename__ = "code_sequences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prefix: Mapped[str]
+    scope_key: Mapped[str]
+    period_key: Mapped[str]
+    last_value: Mapped[int]
+
+
+class PlatformSettings(Base):
+    """db/schema.sql's platform_settings table -- a SINGLETON row (id is
+    always 1, enforced by a CHECK constraint, not per-hospital) holding
+    cross-tenant values only a platform/super admin can change, as opposed
+    to hospitals' own self-serve settings (business_hours_text,
+    session_timeout_minutes, ...). max_active_patient_links starts as
+    db/models.py's former MAX_ACTIVE_PATIENT_LINKS=5 hardcoded constant --
+    see db/repositories/platform_settings.py for the read/update API and
+    admin/platform_settings_api.py for the TENANTS_ADMIN_SECRET-gated
+    endpoint that edits it."""
+    __tablename__ = "platform_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    max_active_patient_links: Mapped[int]

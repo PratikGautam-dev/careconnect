@@ -16,7 +16,7 @@ from db.models import (
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
     _generate_patient_identifiers, _row_to_appointment,
 )
-from db.orm_models import AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientRow
+from db.orm_models import AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientLink, PatientRow
 
 
 def _appointment_select_stmt():
@@ -338,6 +338,52 @@ def get_upcoming_appointments_for_phone(hospital_id: int, phone: str, now: datet
         )
         .order_by(AppointmentRow.scheduled_at.asc())
     ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def get_appointments_for_account_in_range(
+    hospital_id: int, care_connect_account_id: int, range_start: datetime, range_end: datetime,
+    statuses: list[str] | None = None,
+) -> list[Appointment]:
+    """"My Appointments" -> Previous/Upcoming 1 Month range view -- scoped to
+    the durable care_connect_account_id (via patient_links), NOT
+    appointments.phone. appointments.phone only records whatever number was
+    used at booking time; if a person's WhatsApp number later changes but
+    their account persists (e.g. an admin re-links the same identity to a
+    new number), phone-keyed lookups would silently drop their older
+    appointments. Joining through patient_links instead shows every
+    appointment for every patient CURRENTLY linked to this account at this
+    hospital, regardless of which phone booked it.
+
+    Two deliberate consequences of the join, confirmed acceptable: (1) a
+    handful of legacy pre-multi-patient-identity appointments with NULL
+    patient_id can't match this join and are excluded (they showed up under
+    the old phone-keyed query; negligible/historical); (2) unlinking a
+    patient from the account also drops their appointments from this view,
+    matching "who is currently under this account" (same framing as Manage
+    Patients), not "who was ever linked".
+
+    `statuses` narrows to specific statuses (e.g. upcoming callers pass
+    [STATUS_BOOKED] so a cancelled future-dated row doesn't show as
+    "upcoming"); None (the default, used for "previous") means any status,
+    so a history view still shows cancelled appointments, not just
+    completed ones."""
+    session = get_session()
+    stmt = (
+        _appointment_select_stmt()
+        .join(
+            PatientLink,
+            (PatientLink.patient_id == AppointmentRow.patient_id) & (PatientLink.hospital_id == AppointmentRow.hospital_id),
+        )
+        .where(
+            AppointmentRow.hospital_id == hospital_id, PatientLink.care_connect_account_id == care_connect_account_id,
+            PatientLink.unlinked_at.is_(None),
+            AppointmentRow.scheduled_at >= range_start.isoformat(), AppointmentRow.scheduled_at < range_end.isoformat(),
+        )
+    )
+    if statuses is not None:
+        stmt = stmt.where(AppointmentRow.status.in_(statuses))
+    rows = session.execute(stmt.order_by(AppointmentRow.scheduled_at.asc())).all()
     return [_row_to_appointment(r._mapping) for r in rows]
 
 

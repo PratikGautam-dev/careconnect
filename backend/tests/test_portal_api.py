@@ -1109,7 +1109,7 @@ def test_patient_list_and_detail_surface_the_same_patient_display_id(two_hospita
     list_resp = client.get("/api/portal/patients", headers=_auth(a["token"]))
     listed = next(p for p in list_resp.json()["patients"] if p["phone"] == "5491112223333")
     assert listed["patient_display_id"] is not None
-    assert listed["patient_display_id"].startswith("DCC-PAT-")
+    assert listed["patient_display_id"].startswith("DCCP-")
     assert listed["mrn"] is not None
     assert listed["mrn"].startswith("MRN-")
 
@@ -1154,10 +1154,10 @@ def test_patient_display_id_sequences_are_isolated_per_hospital(two_hospitals):
 
     patient_a = db.get_patient_by_phone(a["id"], "5491110000001")
     patient_b = db.get_patient_by_phone(b["id"], "5491110000001")
-    assert patient_a["patient_display_id"].endswith("-0001")
-    assert patient_b["patient_display_id"].endswith("-0001")
-    assert patient_a["mrn"].endswith("-0001")
-    assert patient_b["mrn"].endswith("-0001")
+    assert patient_a["patient_display_id"].endswith("-00001")
+    assert patient_b["patient_display_id"].endswith("-00001")
+    assert patient_a["mrn"].endswith("-00001")
+    assert patient_b["mrn"].endswith("-00001")
     assert patient_a["mrn"] != patient_b["mrn"]  # different hospital short codes
 
 
