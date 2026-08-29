@@ -3,12 +3,27 @@
 sub-flow, split out of the former single core/booking_flow.py module."""
 from connectors import Connector
 from core.translations import t
+from core.translations.menu import (
+    MAIN_MENU_BUTTON,
+    RESCHEDULE_SHORT,
+    VIEW_APPOINTMENTS_HEADER,
+    VIEW_APPOINTMENTS_LIST,
+)
+from core.translations.patient_identity import BACK_TO_MENU_OPTION
+from core.translations.cancel_reschedule import (
+    VIEW_APPOINTMENTS_BUTTON,
+    YOUR_APPOINTMENTS_SECTION_TITLE,
+)
+from core.translations.booking import (
+    CANCEL_BUTTON,
+    MANAGE_APPOINTMENT_PROMPT,
+)
 from core.whatsapp import WhatsAppClient
 
-from flows.booking.messages import _send_patient_selector
+from flows.booking.messages import _send_patient_selector, _send_post_action_menu
 from flows.booking.state import (
-    GOTO_MAIN_MENU, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, _appointment_row_id, _cap_rows, _manage_cancel_id,
-    _manage_reschedule_id, _parse_appointment_row_id,
+    GOTO_MAIN_MENU, MAIN_MENU_CANCEL, MAIN_MENU_RESCHEDULE, STATE_AWAITING_VIEW_APPOINTMENT_ACTION,
+    _appointment_row_id, _cap_rows, _manage_cancel_id, _manage_reschedule_id, _parse_appointment_row_id,
 )
 
 async def _start_view_appointments_flow(
@@ -59,7 +74,8 @@ async def _send_view_appointments(
             patient_names = {p["id"]: p["name"] for p in patients}
     if not appointments:
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("view_appointments_list", language))
+        await wa.send_text(phone, t(VIEW_APPOINTMENTS_LIST, language))
+        await _send_post_action_menu(wa, phone, language=language)
         return
     rows = []
     for a in appointments:
@@ -71,21 +87,44 @@ async def _send_view_appointments(
             "title": title,
             "description": f"{a.department_name} — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}",
         })
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = _cap_rows(rows, "view appointments menu")
     sessions.set(hospital_id, phone, STATE_AWAITING_VIEW_APPOINTMENT_ACTION, {"active_patient_id": active_patient_id})
     await wa.send_list(
         to=phone,
-        body_text=t("view_appointments_header", language),
-        button_text=t("view_appointments_button", language),
-        sections=[{"title": t("your_appointments_section_title", language), "rows": rows}],
+        body_text=t(VIEW_APPOINTMENTS_HEADER, language),
+        button_text=t(VIEW_APPOINTMENTS_BUTTON, language),
+        sections=[{"title": t(YOUR_APPOINTMENTS_SECTION_TITLE, language), "rows": rows}],
     )
+    await _send_post_action_menu(wa, phone, language=language)
 
 
 async def _handle_awaiting_view_appointment_action(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
+    if reply["type"] == "interactive_reply":
+        # The generic post-action buttons sent right under the list
+        # (_send_post_action_menu) -- NOT one of the per-appointment rows
+        # above them, so handled here rather than falling through to the
+        # "stale/unrecognized tap" branch below. Imported lazily (see
+        # flows/booking/messages.py's own module docstring on why cancel.py/
+        # reschedule.py import back from here, making a top-level import
+        # circular).
+        if reply["id"] == MAIN_MENU_CANCEL:
+            from flows.booking.cancel import _start_cancel_flow
+            await _start_cancel_flow(
+                wa, sessions, phone, hospital_id, connector, language=language,
+                active_patient_id=context.get("active_patient_id"),
+            )
+            return
+        if reply["id"] == MAIN_MENU_RESCHEDULE:
+            from flows.booking.reschedule import _start_reschedule_flow
+            await _start_reschedule_flow(
+                wa, sessions, phone, hospital_id, connector, language=language,
+                active_patient_id=context.get("active_patient_id"),
+            )
+            return
     appt_id = _parse_appointment_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
     appt = None
     if appt_id is not None:
@@ -104,10 +143,10 @@ async def _handle_awaiting_view_appointment_action(
     sessions.reset(hospital_id, phone)
     await wa.send_buttons(
         to=phone,
-        body_text=t("manage_appointment_prompt", language, doctor_name=appt.doctor_name),
+        body_text=t(MANAGE_APPOINTMENT_PROMPT, language, doctor_name=appt.doctor_name),
         buttons=[
-            {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
-            {"id": _manage_cancel_id(appt.id), "title": t("cancel_button", language)},
-            {"id": _manage_reschedule_id(appt.id), "title": t("reschedule_short", language)},
+            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
+            {"id": _manage_cancel_id(appt.id), "title": t(CANCEL_BUTTON, language)},
+            {"id": _manage_reschedule_id(appt.id), "title": t(RESCHEDULE_SHORT, language)},
         ],
     )

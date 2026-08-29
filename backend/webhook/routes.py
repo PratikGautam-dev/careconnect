@@ -17,6 +17,10 @@ from admin.theme import STYLE as _STYLE
 from connectors import ConnectorNotImplementedError
 from core.config import get_settings
 from core.translations import t
+from core.translations.common import (
+    AUDIO_NOT_SUPPORTED,
+    SYSTEM_ERROR_NOTIFY,
+)
 from core.whatsapp import extract_phone_number_id, parse_incoming_message, validate_webhook_signature
 from webhook.dispatch import SESSIONS, _acquire_message_lock, _get_whatsapp_client, _process_message, _release_message_lock
 
@@ -164,7 +168,7 @@ async def receive_message(request: Request):
             # flows.py's normal dispatch, so language is looked up directly off
             # the session here rather than threaded in as a parameter.
             language = SESSIONS.get(hospital.id, phone).get("language")
-            await wa.send_text(phone, t("audio_not_supported", language))
+            await wa.send_text(phone, t(AUDIO_NOT_SUPPORTED, language))
             return Response(status_code=200)
 
     except (KeyError, IndexError, TypeError, ValueError):
@@ -209,7 +213,7 @@ async def receive_message(request: Request):
             # session-store hiccup on top of the original failure still can't
             # escape this handler.
             language = SESSIONS.get(hospital.id, phone).get("language")
-            await wa.send_text(phone, t("system_error_notify", language))
+            await wa.send_text(phone, t(SYSTEM_ERROR_NOTIFY, language))
         except Exception:
             logger.exception("Also failed to record/notify the handoff for %s (hospital %s)", phone, hospital.id)
     finally:

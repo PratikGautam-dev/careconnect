@@ -8,6 +8,19 @@ from datetime import datetime
 
 from connectors import Connector, DuplicateBookingError, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError
 from core.translations import t
+from core.translations.menu import MAIN_MENU_BUTTON, RESCHEDULE_SHORT
+from core.translations.booking import (
+    ASK_PATIENT_AGE,
+    ASK_PATIENT_NAME,
+    BOOKING_CONFIRMED,
+    BOOKING_NOT_CONFIRMED,
+    CANCEL_BUTTON,
+    CONSENT_DECLINED,
+    DUPLICATE_BOOKING_TEXT,
+    INVALID_PATIENT_AGE,
+    INVALID_PATIENT_NAME,
+)
+from core.translations.patient_identity import TOO_MANY_LINKED_PATIENTS
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 
@@ -91,7 +104,7 @@ async def _start_booking_flow(
     patients = connector.list_active_patients(hospital_id, phone)
     if not patients:
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": "booking"})
-        await wa.send_text(phone, t("ask_patient_name", language))
+        await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
         return
     if len(patients) == 1:
         await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patients[0], "booking", language=language)
@@ -363,11 +376,11 @@ async def _handle_awaiting_patient_name(
         name = reply["text"].strip()
         new_context = {**context, "patient_name": name}
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context)
-        await wa.send_text(phone, t("ask_patient_age", language, patient_name=name))
+        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=name))
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, context)
-    await wa.send_text(phone, t("invalid_patient_name", language))
-    await wa.send_text(phone, t("ask_patient_name", language))
+    await wa.send_text(phone, t(INVALID_PATIENT_NAME, language))
+    await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
 
 
 async def _handle_awaiting_patient_age(
@@ -392,14 +405,14 @@ async def _handle_awaiting_patient_age(
     age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
     if age is None:
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context)
-        await wa.send_text(phone, t("invalid_patient_age", language))
-        await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("patient_name", "")))
+        await wa.send_text(phone, t(INVALID_PATIENT_AGE, language))
+        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("patient_name", "")))
         return
     next_action = context.get("patient_flow_next", "booking")
     try:
         patient = connector.create_patient_profile(hospital_id, phone, context["patient_name"], age)
     except TooManyLinkedPatientsError:
-        await wa.send_text(phone, t("too_many_linked_patients", language))
+        await wa.send_text(phone, t(TOO_MANY_LINKED_PATIENTS, language))
         if next_action == "manage_patients":
             await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
         else:
@@ -464,11 +477,11 @@ async def _create_booking_and_notify(
         doctor_name = existing.doctor_name if existing else context.get("doctor_name", "")
         await wa.send_buttons(
             to=phone,
-            body_text=t("duplicate_booking_text", language, doctor_name=doctor_name),
+            body_text=t(DUPLICATE_BOOKING_TEXT, language, doctor_name=doctor_name),
             buttons=[
-                {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
-                {"id": _manage_cancel_id(exc.existing_appointment_id), "title": t("cancel_button", language)},
-                {"id": _manage_reschedule_id(exc.existing_appointment_id), "title": t("reschedule_short", language)},
+                {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
+                {"id": _manage_cancel_id(exc.existing_appointment_id), "title": t(CANCEL_BUTTON, language)},
+                {"id": _manage_reschedule_id(exc.existing_appointment_id), "title": t(RESCHEDULE_SHORT, language)},
             ],
         )
         return
@@ -483,7 +496,7 @@ async def _create_booking_and_notify(
     # create_appointment() itself (db/repository.py) -- read back off
     # the returned Appointment rather than regenerated here, so the
     # id shown to the patient is the exact one actually stored.
-    summary = t("booking_confirmed", language, reference_id=appointment.reference_id)
+    summary = t(BOOKING_CONFIRMED, language, reference_id=appointment.reference_id)
     # Tele-consultation Phase 2, revised per the user's own explicit
     # "soft-gate" call: the video link is generated and persisted right here
     # (needs appointment.id to attach it to), but deliberately NOT shown in
@@ -505,9 +518,9 @@ async def _create_booking_and_notify(
         to=phone,
         body_text=summary,
         buttons=[
-            {"id": GOTO_MAIN_MENU, "title": t("main_menu_button", language)},
-            {"id": _manage_cancel_id(appointment.id), "title": t("cancel_button", language)},
-            {"id": _manage_reschedule_id(appointment.id), "title": t("reschedule_short", language)},
+            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
+            {"id": _manage_cancel_id(appointment.id), "title": t(CANCEL_BUTTON, language)},
+            {"id": _manage_reschedule_id(appointment.id), "title": t(RESCHEDULE_SHORT, language)},
         ],
     )
     # STATE_BOOKED is terminal and resets to IDLE immediately, never written
@@ -544,7 +557,7 @@ async def _handle_awaiting_confirmation(
             )
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, t("booking_not_confirmed", language))
+            await wa.send_text(phone, t(BOOKING_NOT_CONFIRMED, language))
             sessions.reset(hospital_id, phone)
             return
         if rid == BACK_ID:
@@ -576,7 +589,7 @@ async def _handle_awaiting_consent(
             )
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, t("consent_declined", language))
+            await wa.send_text(phone, t(CONSENT_DECLINED, language))
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONSENT, context)

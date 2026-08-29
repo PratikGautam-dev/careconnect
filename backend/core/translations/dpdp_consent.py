@@ -14,8 +14,20 @@ shown/controlled separately, never bundled, per the doc's own explicit
 instruction."""
 from core.translations._common import Language
 
+
+DPDP_CONSENT_BODY = "dpdp_consent_body"
+DPDP_AGREE_BUTTON = "dpdp_agree_button"
+DPDP_DECLINE_BUTTON = "dpdp_decline_button"
+DPDP_DECLINED_MESSAGE = "dpdp_declined_message"
+PRIVACY_NOTICE_DEFAULT = "privacy_notice_default"
+CONSENT_PRIVACY_BODY = "consent_privacy_body"
+CONSENT_ON = "consent_on"
+CONSENT_OFF = "consent_off"
+CONSENT_MARKETING_ENABLE = "consent_marketing_enable"
+CONSENT_MARKETING_DISABLE = "consent_marketing_disable"
+
 STRINGS: dict[str, dict[Language, str]] = {
-    "dpdp_consent_body": {
+    DPDP_CONSENT_BODY: {
         "en": (
             "Welcome to the {hospital_name} Booking Bot!\n\n"
             "Your privacy is important to us. In compliance with the Digital Personal Data Protection (DPDP) Act, "
@@ -37,9 +49,9 @@ STRINGS: dict[str, dict[Language, str]] = {
             "आगे बढ़ने के लिए कृपया नीचे दिए गए विकल्पों में से एक चुनें:"
         ),
     },
-    "dpdp_agree_button": {"en": "I Agree", "hi": "मैं सहमत हूँ"},
-    "dpdp_decline_button": {"en": "I Do Not Agree", "hi": "मैं सहमत नहीं हूँ"},
-    "dpdp_declined_message": {
+    DPDP_AGREE_BUTTON: {"en": "I Agree", "hi": "मैं सहमत हूँ"},
+    DPDP_DECLINE_BUTTON: {"en": "I Do Not Agree", "hi": "मैं सहमत नहीं हूँ"},
+    DPDP_DECLINED_MESSAGE: {
         "en": "We understand — but to keep your information safe, we do need your consent to our data privacy "
               "(DPDP) terms before we can continue. Let's start over: please pick your language below whenever "
               "you're ready to agree.",
@@ -47,7 +59,7 @@ STRINGS: dict[str, dict[Language, str]] = {
               "शर्तों पर आपकी सहमति चाहिए। आइए फिर से शुरू करें: जब आप सहमत होने के लिए तैयार हों, तो नीचे अपनी भाषा चुनें।",
     },
 
-    "privacy_notice_default": {
+    PRIVACY_NOTICE_DEFAULT: {
         "en": "We use WhatsApp to help manage your appointments and hospital communication. "
               "Your information is used only for the services you request and is not shared with third parties "
               "without your consent.",
@@ -55,12 +67,12 @@ STRINGS: dict[str, dict[Language, str]] = {
               "आपकी जानकारी केवल आपके अनुरोध की गई सेवाओं के लिए उपयोग की जाती है और आपकी सहमति के बिना "
               "किसी तीसरे पक्ष के साथ साझा नहीं की जाती।",
     },
-    "consent_privacy_body": {
+    CONSENT_PRIVACY_BODY: {
         "en": "*Privacy Notice*\n{notice}\n\n*Consent Status*\nMarketing messages: {marketing_status}",
         "hi": "*गोपनीयता सूचना*\n{notice}\n\n*सहमति की स्थिति*\nमार्केटिंग संदेश: {marketing_status}",
     },
-    "consent_on": {"en": "Enabled", "hi": "सक्षम"},
-    "consent_off": {"en": "Disabled", "hi": "अक्षम"},
-    "consent_marketing_enable": {"en": "Enable Marketing", "hi": "मार्केटिंग चालू करें"},
-    "consent_marketing_disable": {"en": "Disable Marketing", "hi": "मार्केटिंग बंद करें"},
+    CONSENT_ON: {"en": "Enabled", "hi": "सक्षम"},
+    CONSENT_OFF: {"en": "Disabled", "hi": "अक्षम"},
+    CONSENT_MARKETING_ENABLE: {"en": "Enable Marketing", "hi": "मार्केटिंग चालू करें"},
+    CONSENT_MARKETING_DISABLE: {"en": "Disable Marketing", "hi": "मार्केटिंग बंद करें"},
 }

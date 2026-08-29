@@ -26,6 +26,68 @@ import logging
 from connectors import Connector, GENDER_OPTIONS, MAX_ACTIVE_PATIENT_LINKS, TooManyLinkedPatientsError
 from flows.common import cap_rows
 from core.translations import t
+from core.translations.menu import (
+    FEATURE_BOOKING,
+    FEATURE_CANCEL,
+    FEATURE_CONSENT_PRIVACY,
+    FEATURE_FAQ,
+    FEATURE_HOSPITAL_INFO,
+    FEATURE_MENU_UNAVAILABLE,
+    FEATURE_RECEPTION_HANDOFF,
+    FEATURE_REPORTS_PRESCRIPTIONS,
+    FEATURE_RESCHEDULE,
+    FEATURE_VIEW_APPOINTMENTS,
+    MAIN_MENU_BUTTON,
+    MAIN_MENU_SECTION_TITLE,
+    WELCOME_MENU,
+)
+from core.translations.common import BACK_OPTION
+from core.translations.booking import (
+    ASK_PATIENT_AGE,
+    ASK_PATIENT_GENDER,
+    ASK_PATIENT_NAME,
+    CANCEL_BUTTON,
+    CONFIRM_BUTTON,
+    GENDER_FEMALE,
+    GENDER_MALE,
+    GENDER_OTHER,
+    INVALID_PATIENT_AGE,
+    INVALID_PATIENT_NAME,
+)
+from core.translations.patient_identity import (
+    ADD_PATIENT_OPTION,
+    ADD_PATIENT_SHORT,
+    BACK_TO_MENU_OPTION,
+    DUPLICATE_DIFFERENT_BUTTON,
+    DUPLICATE_LINK_BUTTON,
+    DUPLICATE_PATIENT_FOUND,
+    MANAGE_PATIENTS_SHORT,
+    PATIENT_SELECTOR_BUTTON,
+    PATIENT_SELECTOR_PROMPT,
+    PATIENT_SELECTOR_SECTION_TITLE,
+    REGISTRATION_BLOCKED_CONTACT_HOSPITAL,
+    SINGLE_PATIENT_CONFIRM,
+    TOO_MANY_LINKED_PATIENTS,
+)
+from core.translations.manage_patients import (
+    MANAGE_PATIENTS_BUTTON,
+    MANAGE_PATIENTS_HEADER,
+    MANAGE_PATIENTS_SECTION_TITLE,
+    PATIENT_ACTION_PROMPT,
+    PATIENT_ADDED,
+    PATIENT_UNLINKED,
+    UNLINK_OPTION,
+    UNLINK_PATIENT_CONFIRM,
+    USE_THIS_PATIENT_OPTION,
+)
+from core.translations.dpdp_consent import (
+    CONSENT_MARKETING_DISABLE,
+    CONSENT_MARKETING_ENABLE,
+    CONSENT_OFF,
+    CONSENT_ON,
+    CONSENT_PRIVACY_BODY,
+    PRIVACY_NOTICE_DEFAULT,
+)
 from core.whatsapp import WhatsAppClient
 
 logger = logging.getLogger(__name__)
@@ -35,16 +97,16 @@ logger = logging.getLogger(__name__)
 # feature key -> (menu row id, menu row title translation key). Order here is
 # the order rows appear in the main menu.
 _FEATURE_MENU = {
-    "booking": ("menu_book", "feature_booking"),
-    "reschedule": ("menu_reschedule", "feature_reschedule"),
-    "cancel": ("menu_cancel", "feature_cancel"),
-    "view_appointments": ("menu_view_appointments", "feature_view_appointments"),
-    "reports_prescriptions": ("menu_reports_prescriptions", "feature_reports_prescriptions"),
+    "booking": ("menu_book", FEATURE_BOOKING),
+    "reschedule": ("menu_reschedule", FEATURE_RESCHEDULE),
+    "cancel": ("menu_cancel", FEATURE_CANCEL),
+    "view_appointments": ("menu_view_appointments", FEATURE_VIEW_APPOINTMENTS),
+    "reports_prescriptions": ("menu_reports_prescriptions", FEATURE_REPORTS_PRESCRIPTIONS),
     "manage_patients": ("menu_manage_patients", "feature_manage_patients"),
-    "consent_privacy": ("menu_consent_privacy", "feature_consent_privacy"),
-    "hospital_info": ("menu_hospital_info", "feature_hospital_info"),
-    "reception_handoff": ("menu_reception", "feature_reception_handoff"),
-    "faq": ("menu_faq_bot", "feature_faq"),
+    "consent_privacy": ("menu_consent_privacy", FEATURE_CONSENT_PRIVACY),
+    "hospital_info": ("menu_hospital_info", FEATURE_HOSPITAL_INFO),
+    "reception_handoff": ("menu_reception", FEATURE_RECEPTION_HANDOFF),
+    "faq": ("menu_faq_bot", FEATURE_FAQ),
 }
 _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title_key) in _FEATURE_MENU.items()}
 
@@ -92,21 +154,21 @@ async def _send_dynamic_menu(
         if key in enabled_features
     ]
     if not rows:
-        await wa.send_text(phone, t("feature_menu_unavailable", language, hospital_name=hospital_name))
+        await wa.send_text(phone, t(FEATURE_MENU_UNAVAILABLE, language, hospital_name=hospital_name))
         return
     rows = cap_rows(rows, f"main menu for {hospital_name}")
-    body_text = _patient_header(active_patient, language) + t("welcome_menu", language, hospital_name=hospital_name)
+    body_text = _patient_header(active_patient, language) + t(WELCOME_MENU, language, hospital_name=hospital_name)
     await wa.send_list(
         to=phone,
         body_text=body_text,
-        button_text=t("main_menu_button", language),
-        sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
+        button_text=t(MAIN_MENU_BUTTON, language),
+        sections=[{"title": t(MAIN_MENU_SECTION_TITLE, language), "rows": rows}],
     )
     # Its own follow-up buttons message right under the list, not a row
     # hidden inside it (WhatsApp collapses a list to just its button_text
     # until tapped).
     await wa.send_buttons(
-        to=phone, body_text="​", buttons=[{"id": MAIN_MENU_BACK_ROW, "title": t("back_option", language)}],
+        to=phone, body_text="​", buttons=[{"id": MAIN_MENU_BACK_ROW, "title": t(BACK_OPTION, language)}],
     )
 
 
@@ -140,7 +202,7 @@ async def _send_back_button(wa: WhatsAppClient, phone: str, language: str = "en"
     """Sends a standalone "Back" buttons message (zero-width-space body,
     since Meta rejects a truly empty one) -- duplicated from flows/booking's
     own helper rather than imported, per this module's own boundary."""
-    await wa.send_buttons(to=phone, body_text="​", buttons=[{"id": BACK_ID, "title": t("back_option", language)}])
+    await wa.send_buttons(to=phone, body_text="​", buttons=[{"id": BACK_ID, "title": t(BACK_OPTION, language)}])
 
 
 def _patient_row_id(patient_id: int) -> str:
@@ -280,7 +342,7 @@ async def get_or_prompt_for_active_patient(
 async def _start_registration(wa: WhatsAppClient, sessions, phone: str, hospital_id: int, language: str) -> None:
     """Kicks off registration by asking for the patient's name."""
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"identity_flow_next": "resolve"}, language=language)
-    await wa.send_text(phone, t("ask_patient_name", language))
+    await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
 
 
 async def _handle_awaiting_patient_name(
@@ -301,13 +363,13 @@ async def _handle_awaiting_patient_name(
     if name is not None:
         new_context = {**context, "pending_name": name}
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context, language=language)
-        await wa.send_text(phone, t("ask_patient_age", language, patient_name=name))
+        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=name))
         if context.get("identity_flow_next") == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, context, language=language)
-    await wa.send_text(phone, t("invalid_patient_name", language))
-    await wa.send_text(phone, t("ask_patient_name", language))
+    await wa.send_text(phone, t(INVALID_PATIENT_NAME, language))
+    await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
     if context.get("identity_flow_next") == "manage_patients":
         await _send_back_button(wa, phone, language=language)
 
@@ -321,15 +383,15 @@ async def _handle_awaiting_patient_age(
     if reply["type"] == "interactive_reply" and reply["id"] == BACK_ID:
         identity_flow_next = context.get("identity_flow_next", "resolve")
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"identity_flow_next": identity_flow_next}, language=language)
-        await wa.send_text(phone, t("ask_patient_name", language))
+        await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
         if identity_flow_next == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
     age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
     if age is None:
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context, language=language)
-        await wa.send_text(phone, t("invalid_patient_age", language))
-        await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("pending_name", "")))
+        await wa.send_text(phone, t(INVALID_PATIENT_AGE, language))
+        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("pending_name", "")))
         if context.get("identity_flow_next") == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
@@ -345,11 +407,11 @@ async def _send_gender_prompt(
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_GENDER, context, language=language)
     await wa.send_buttons(
         to=phone,
-        body_text=t("ask_patient_gender", language),
+        body_text=t(ASK_PATIENT_GENDER, language),
         buttons=[
-            {"id": GENDER_MALE_ID, "title": t("gender_male", language)},
-            {"id": GENDER_FEMALE_ID, "title": t("gender_female", language)},
-            {"id": GENDER_OTHER_ID, "title": t("gender_other", language)},
+            {"id": GENDER_MALE_ID, "title": t(GENDER_MALE, language)},
+            {"id": GENDER_FEMALE_ID, "title": t(GENDER_FEMALE, language)},
+            {"id": GENDER_OTHER_ID, "title": t(GENDER_OTHER, language)},
         ],
     )
     if context.get("identity_flow_next") == "manage_patients":
@@ -366,7 +428,7 @@ async def _handle_awaiting_patient_gender(
     Re-prompts on an unrecognized tap; BACK returns to the age question."""
     if reply["type"] == "interactive_reply" and reply["id"] == BACK_ID:
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context, language=language)
-        await wa.send_text(phone, t("ask_patient_age", language, patient_name=context.get("pending_name", "")))
+        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("pending_name", "")))
         if context.get("identity_flow_next") == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
@@ -386,11 +448,11 @@ async def _handle_awaiting_patient_gender(
         sessions.set(hospital_id, phone, STATE_AWAITING_DUPLICATE_DECISION, new_context, language=language)
         await wa.send_buttons(
             to=phone,
-            body_text=t("duplicate_patient_found", language, name=match["name"], mrn=match["patient_display_id"] or "—"),
+            body_text=t(DUPLICATE_PATIENT_FOUND, language, name=match["name"], mrn=match["patient_display_id"] or "—"),
             buttons=[
-                {"id": DUPLICATE_LINK_ID, "title": t("duplicate_link_button", language)},
-                {"id": DUPLICATE_DIFFERENT_ID, "title": t("duplicate_different_button", language)},
-                {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+                {"id": DUPLICATE_LINK_ID, "title": t(DUPLICATE_LINK_BUTTON, language)},
+                {"id": DUPLICATE_DIFFERENT_ID, "title": t(DUPLICATE_DIFFERENT_BUTTON, language)},
+                {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
             ],
         )
         return
@@ -423,14 +485,13 @@ async def _handle_awaiting_duplicate_decision(
     sessions.set(hospital_id, phone, STATE_AWAITING_DUPLICATE_DECISION, context, language=language)
     await wa.send_buttons(
         to=phone,
-        body_text=t(
-            "duplicate_patient_found", language,
+        body_text=t(DUPLICATE_PATIENT_FOUND, language,
             name=context.get("duplicate_patient_name", ""), mrn=context.get("duplicate_patient_display_id") or "—",
         ),
         buttons=[
-            {"id": DUPLICATE_LINK_ID, "title": t("duplicate_link_button", language)},
-            {"id": DUPLICATE_DIFFERENT_ID, "title": t("duplicate_different_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": DUPLICATE_LINK_ID, "title": t(DUPLICATE_LINK_BUTTON, language)},
+            {"id": DUPLICATE_DIFFERENT_ID, "title": t(DUPLICATE_DIFFERENT_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
 
@@ -452,16 +513,16 @@ async def _create_or_link_patient(
                 gender=context.get("pending_gender"),
             )
     except TooManyLinkedPatientsError:
-        await wa.send_text(phone, t("too_many_linked_patients", language))
+        await wa.send_text(phone, t(TOO_MANY_LINKED_PATIENTS, language))
         if identity_flow_next == "manage_patients":
             await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
         else:
             sessions.reset(hospital_id, phone)
-            await wa.send_text(phone, t("registration_blocked_contact_hospital", language))
+            await wa.send_text(phone, t(REGISTRATION_BLOCKED_CONTACT_HOSPITAL, language))
         return
 
     if identity_flow_next == "manage_patients":
-        await wa.send_text(phone, t("patient_added", language, patient_name=patient["name"]))
+        await wa.send_text(phone, t(PATIENT_ADDED, language, patient_name=patient["name"]))
         await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
         return
     sessions.set(
@@ -491,23 +552,22 @@ async def _send_single_patient_confirm(
     )
     await wa.send_buttons(
         to=phone,
-        body_text=t(
-            "single_patient_confirm", language, patient_name=patient["name"], mrn=patient["patient_display_id"] or "—",
+        body_text=t(SINGLE_PATIENT_CONFIRM, language, patient_name=patient["name"], mrn=patient["patient_display_id"] or "—",
         ),
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": ADD_PATIENT_ENTRY_ID, "title": t("add_patient_short", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": ADD_PATIENT_ENTRY_ID, "title": t(ADD_PATIENT_SHORT, language)},
         ],
     )
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t("manage_patients_short", language)})
+    rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t(MANAGE_PATIENTS_SHORT, language)})
     rows = cap_rows(rows, "patient selector")
     await wa.send_list(
         to=phone,
-        body_text=t("patient_selector_prompt", language),
-        button_text=t("patient_selector_button", language),
-        sections=[{"title": t("patient_selector_section_title", language), "rows": rows}],
+        body_text=t(PATIENT_SELECTOR_PROMPT, language),
+        button_text=t(PATIENT_SELECTOR_BUTTON, language),
+        sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -561,15 +621,15 @@ async def _start_manage_patients(
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
     if len(patients) < MAX_ACTIVE_PATIENT_LINKS:
-        rows.append({"id": MANAGE_ADD_ROW_ID, "title": t("add_patient_option", language)})
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+        rows.append({"id": MANAGE_ADD_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = cap_rows(rows, "manage patients list")
     sessions.set(hospital_id, phone, STATE_AWAITING_MANAGE_PATIENTS_ACTION, {}, language=language)
     await wa.send_list(
         to=phone,
-        body_text=t("manage_patients_header", language),
-        button_text=t("manage_patients_button", language),
-        sections=[{"title": t("manage_patients_section_title", language), "rows": rows}],
+        body_text=t(MANAGE_PATIENTS_HEADER, language),
+        button_text=t(MANAGE_PATIENTS_BUTTON, language),
+        sections=[{"title": t(MANAGE_PATIENTS_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -584,11 +644,11 @@ async def _handle_awaiting_manage_patients_action(
         if rid == MANAGE_ADD_ROW_ID:
             patients = connector.list_active_patients(hospital_id, phone)
             if len(patients) >= MAX_ACTIVE_PATIENT_LINKS:
-                await wa.send_text(phone, t("too_many_linked_patients", language))
+                await wa.send_text(phone, t(TOO_MANY_LINKED_PATIENTS, language))
                 await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
                 return
             sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"identity_flow_next": "manage_patients"}, language=language)
-            await wa.send_text(phone, t("ask_patient_name", language))
+            await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
             await _send_back_button(wa, phone, language=language)
             return
         patient_id = _parse_patient_row_id(rid)
@@ -612,11 +672,11 @@ async def _send_patient_action_choice(
     )
     await wa.send_buttons(
         to=phone,
-        body_text=t("patient_action_prompt", language, patient_name=patient_name),
+        body_text=t(PATIENT_ACTION_PROMPT, language, patient_name=patient_name),
         buttons=[
-            {"id": PATIENT_ACTION_USE_ID, "title": t("use_this_patient_option", language)},
-            {"id": PATIENT_ACTION_UNLINK_ID, "title": t("unlink_option", language)},
-            {"id": PATIENT_ACTION_BACK_ID, "title": t("back_option", language)},
+            {"id": PATIENT_ACTION_USE_ID, "title": t(USE_THIS_PATIENT_OPTION, language)},
+            {"id": PATIENT_ACTION_UNLINK_ID, "title": t(UNLINK_OPTION, language)},
+            {"id": PATIENT_ACTION_BACK_ID, "title": t(BACK_OPTION, language)},
         ],
     )
 
@@ -648,10 +708,10 @@ async def _handle_awaiting_patient_action_choice(
             )
             await wa.send_buttons(
                 to=phone,
-                body_text=t("unlink_patient_confirm", language, patient_name=patient_name),
+                body_text=t(UNLINK_PATIENT_CONFIRM, language, patient_name=patient_name),
                 buttons=[
-                    {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-                    {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+                    {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+                    {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
                 ],
             )
             return
@@ -680,7 +740,7 @@ async def _handle_awaiting_unlink_confirm(
                 # Unlinked the currently-active patient -- force
                 # re-resolution rather than keep using a stale reference.
                 sessions.clear_active_patient(hospital_id, phone)
-            await wa.send_text(phone, t("patient_unlinked", language, patient_name=patient_name))
+            await wa.send_text(phone, t(PATIENT_UNLINKED, language, patient_name=patient_name))
             await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
             return
         if reply["id"] == CONFIRM_NO:
@@ -689,10 +749,10 @@ async def _handle_awaiting_unlink_confirm(
     sessions.set(hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM, context, language=language)
     await wa.send_buttons(
         to=phone,
-        body_text=t("unlink_patient_confirm", language, patient_name=patient_name),
+        body_text=t(UNLINK_PATIENT_CONFIRM, language, patient_name=patient_name),
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
 
@@ -713,10 +773,9 @@ async def start_consent_privacy(
         sessions.clear_active_patient(hospital_id, phone)
         sessions.reset(hospital_id, phone)
         return
-    notice = privacy_notice_text or t("privacy_notice_default", language)
-    marketing_status = t("consent_on", language) if consent["marketing_consent"] else t("consent_off", language)
-    body = t(
-        "consent_privacy_body", language, notice=notice,
+    notice = privacy_notice_text or t(PRIVACY_NOTICE_DEFAULT, language)
+    marketing_status = t(CONSENT_ON, language) if consent["marketing_consent"] else t(CONSENT_OFF, language)
+    body = t(CONSENT_PRIVACY_BODY, language, notice=notice,
         marketing_status=marketing_status,
     )
     sessions.set(hospital_id, phone, STATE_AWAITING_CONSENT_ACTION, {}, language=language)
@@ -726,9 +785,9 @@ async def start_consent_privacy(
         buttons=[
             {
                 "id": CONSENT_TOGGLE_MARKETING_ID,
-                "title": t("consent_marketing_disable", language) if consent["marketing_consent"] else t("consent_marketing_enable", language),
+                "title": t(CONSENT_MARKETING_DISABLE, language) if consent["marketing_consent"] else t(CONSENT_MARKETING_ENABLE, language),
             },
-            {"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)},
+            {"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)},
         ],
     )
 

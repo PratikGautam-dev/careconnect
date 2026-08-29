@@ -1,6 +1,12 @@
 import pytest
 
 from core.translations import STRINGS, SUPPORTED_LANGUAGES, t
+from core.translations.booking import (
+    BOOKING_CONFIRMED,
+    CONFIRM_BOOKING_SUMMARY,
+    CONFIRM_BUTTON,
+)
+from core.translations.common import PLEASE_CHOOSE
 
 
 def test_every_key_has_every_supported_language():
@@ -9,33 +15,33 @@ def test_every_key_has_every_supported_language():
 
 
 def test_t_returns_english_for_english():
-    assert t("confirm_button", "en") == "Confirm"
+    assert t(CONFIRM_BUTTON, "en") == "Confirm"
 
 
 def test_t_returns_hindi_for_hindi():
-    assert t("confirm_button", "hi") == "पुष्टि करें"
+    assert t(CONFIRM_BUTTON, "hi") == "पुष्टि करें"
 
 
 def test_t_falls_back_to_english_for_unset_language():
-    assert t("confirm_button", None) == "Confirm"
+    assert t(CONFIRM_BUTTON, None) == "Confirm"
 
 
 def test_t_falls_back_to_english_for_unsupported_language():
-    assert t("confirm_button", "fr") == "Confirm"
+    assert t(CONFIRM_BUTTON, "fr") == "Confirm"
 
 
 def test_t_formats_kwargs_in_both_languages():
-    assert t("welcome_menu", "en", hospital_name="City Hospital") == (
-        "Welcome to City Hospital! 🏥\nHow can we assist you today? Please select an option:"
+    assert t("feature_menu_unavailable", "en", hospital_name="City Hospital") == (
+        "Sorry, City Hospital hasn't finished setting up WhatsApp yet. Please check back later."
     )
-    assert "City Hospital" in t("welcome_menu", "hi", hospital_name="City Hospital")
+    assert "City Hospital" in t("feature_menu_unavailable", "hi", hospital_name="City Hospital")
 
 
 def test_t_without_kwargs_does_not_attempt_formatting():
     # A template with no {placeholders} must round-trip untouched even if it
     # contains literal braces or percent signs some day -- str.format() is
     # only invoked when kwargs are actually passed.
-    assert t("please_choose", "en") == "Please choose an option from the list above"
+    assert t(PLEASE_CHOOSE, "en") == "Please choose an option from the list above"
 
 
 def test_button_and_row_title_strings_respect_whatsapp_length_limits():
@@ -92,8 +98,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     """Section 12.12: the confirm_booking_summary/booking_confirmed cards --
     fixed emoji, WhatsApp *bold* markers, and every field interpolated --
     must render correctly (and identically in shape) in both languages."""
-    summary_en = t(
-        "confirm_booking_summary", "en",
+    summary_en = t(CONFIRM_BOOKING_SUMMARY, "en",
         appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
@@ -110,8 +115,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     assert summary_en.index("👤 *Patient:*") < summary_en.index("🏥 *Dept:*")
     assert summary_en.index("🎂 *Age:*") < summary_en.index("👨‍⚕️ *Doctor:*")
 
-    summary_hi = t(
-        "confirm_booking_summary", "hi",
+    summary_hi = t(CONFIRM_BOOKING_SUMMARY, "hi",
         appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
@@ -120,9 +124,9 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
         assert emoji in summary_hi
     assert "Cardiology" in summary_hi and "Ravi Kumar" in summary_hi
 
-    confirmed_en = t("booking_confirmed", "en", reference_id="apt_1754650184123")
+    confirmed_en = t(BOOKING_CONFIRMED, "en", reference_id="apt_1754650184123")
     assert "✅ *Consulting Booked successfully!*" in confirmed_en
     assert "Reference ID: *apt_1754650184123*" in confirmed_en
 
-    confirmed_hi = t("booking_confirmed", "hi", reference_id="apt_1754650184123")
+    confirmed_hi = t(BOOKING_CONFIRMED, "hi", reference_id="apt_1754650184123")
     assert "✅" in confirmed_hi and "apt_1754650184123" in confirmed_hi

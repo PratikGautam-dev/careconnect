@@ -16,6 +16,70 @@ import logging
 
 from connectors import Connector, MAX_ACTIVE_PATIENT_LINKS
 from core.translations import t
+from core.translations.menu import (
+    BOOK_APPOINTMENT_SHORT,
+    CANCEL_SHORT,
+    FAQ_SHORT,
+    MAIN_MENU_BUTTON,
+    MAIN_MENU_SECTION_TITLE,
+    RESCHEDULE_SHORT,
+    WELCOME_MENU,
+)
+from core.translations.common import BACK_OPTION
+from core.translations.patient_identity import (
+    ADD_PATIENT_OPTION,
+    ALL_PATIENTS_OPTION,
+    BACK_TO_MENU_OPTION,
+    PATIENT_CONTEXT_INVALID,
+    PATIENT_SELECTOR_BUTTON,
+    PATIENT_SELECTOR_SECTION_TITLE,
+)
+from core.translations.booking import (
+    APPOINTMENT_TYPES_SECTION_TITLE,
+    ASK_PATIENT_NAME,
+    AVAILABLE_DATES_SECTION_TITLE,
+    AVAILABLE_SLOTS_SECTION_TITLE,
+    AVAILABLE_TIMES_SECTION_TITLE,
+    CANCEL_BUTTON,
+    CHANGE_APPOINTMENT_TYPE_OPTION,
+    CHANGE_DATE_OPTION,
+    CHANGE_DEPARTMENT_OPTION,
+    CHANGE_DOCTOR_OPTION,
+    CHANGE_DURATION_OPTION,
+    CHANGE_OPTIONS_SECTION_TITLE,
+    CHANGE_TIME_OPTION,
+    CONFIRM_BOOKING_SUMMARY,
+    CONFIRM_BUTTON,
+    CONFIRM_DAYCARE_DURATION_LINE,
+    CONSENT_AGREE_BUTTON,
+    CONSENT_PROMPT,
+    DEPARTMENTS_SECTION_TITLE,
+    DOCTOR_SELECTED_ASK_DATE,
+    NO_DOCTORS_AVAILABLE,
+    NO_SLOTS_AVAILABLE,
+    SELECT_APPOINTMENT_TYPE,
+    SELECT_DEPARTMENT,
+    SELECT_DOCTOR,
+    SELECT_SLOT,
+    SELECT_TIME_SLOT,
+    SLOT_TAKEN_CHOOSE_ANOTHER,
+    SLOT_TAKEN_NO_ALTERNATIVES,
+    VIEW_APPOINTMENT_TYPES_BUTTON,
+    VIEW_CHANGE_OPTIONS_BUTTON,
+    VIEW_DATES_BUTTON,
+    VIEW_DEPARTMENTS_BUTTON,
+    VIEW_DOCTORS_BUTTON,
+    VIEW_SLOTS_BUTTON,
+    VIEW_TIMES_BUTTON,
+    WHAT_WOULD_YOU_LIKE_TO_CHANGE,
+)
+from core.translations.manage_patients import PATIENT_ADDED
+from core.translations.cancel_reschedule import (
+    CANCEL_CONFIRM_QUESTION,
+    RESCHEDULE_CONFIRM_SUMMARY,
+    VIEW_APPOINTMENTS_BUTTON,
+    YOUR_APPOINTMENTS_SECTION_TITLE,
+)
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
@@ -51,7 +115,7 @@ async def _send_back_button(wa: WhatsAppClient, phone: str, language: str = "en"
     a zero-width space is used instead of reusing the word "Back" -- renders
     as a blank line, satisfies the API, and leaves only the button itself
     visibly saying "Back"."""
-    await wa.send_buttons(to=phone, body_text="​", buttons=[{"id": BACK_ID, "title": t("back_option", language)}])
+    await wa.send_buttons(to=phone, body_text="​", buttons=[{"id": BACK_ID, "title": t(BACK_OPTION, language)}])
 
 
 async def _reject_if_patient_link_invalid(
@@ -86,22 +150,42 @@ async def _reject_if_patient_link_invalid(
         return False
     sessions.clear_active_patient(hospital_id, phone)
     sessions.reset(hospital_id, phone)
-    await wa.send_text(phone, t("patient_context_invalid", language))
+    await wa.send_text(phone, t(PATIENT_CONTEXT_INVALID, language))
     return True
+
+
+async def _send_post_action_menu(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
+    """Generic follow-up quick-menu sent after cancel/reschedule confirms and
+    after the My Appointments list -- NOT scoped to any one appointment
+    (unlike book.py's own booking-confirmed buttons, which target the
+    appointment just booked): Cancel/Reschedule here are the same row ids
+    the real dynamic main menu uses (MAIN_MENU_CANCEL/MAIN_MENU_RESCHEDULE),
+    so router.py's own IDLE dispatch (_ROW_ID_TO_FEATURE) picks them up and
+    starts that feature fresh, scoped to whichever patient is active, same
+    as tapping it from the main menu itself."""
+    await wa.send_buttons(
+        to=phone,
+        body_text="​",
+        buttons=[
+            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
+            {"id": MAIN_MENU_CANCEL, "title": t(CANCEL_BUTTON, language)},
+            {"id": MAIN_MENU_RESCHEDULE, "title": t(RESCHEDULE_SHORT, language)},
+        ],
+    )
 
 
 async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, language: str = "en") -> None:
     rows = [
-        {"id": MAIN_MENU_BOOK, "title": t("book_appointment_short", language)},
-        {"id": MAIN_MENU_RESCHEDULE, "title": t("reschedule_short", language)},
-        {"id": MAIN_MENU_CANCEL, "title": t("cancel_short", language)},
-        {"id": MAIN_MENU_FAQ, "title": t("faq_short", language)},
+        {"id": MAIN_MENU_BOOK, "title": t(BOOK_APPOINTMENT_SHORT, language)},
+        {"id": MAIN_MENU_RESCHEDULE, "title": t(RESCHEDULE_SHORT, language)},
+        {"id": MAIN_MENU_CANCEL, "title": t(CANCEL_SHORT, language)},
+        {"id": MAIN_MENU_FAQ, "title": t(FAQ_SHORT, language)},
     ]
     await wa.send_list(
         to=phone,
-        body_text=t("welcome_menu", language, hospital_name=hospital_name),
-        button_text=t("main_menu_button", language),
-        sections=[{"title": t("main_menu_section_title", language), "rows": rows}],
+        body_text=t(WELCOME_MENU, language, hospital_name=hospital_name),
+        button_text=t(MAIN_MENU_BUTTON, language),
+        sections=[{"title": t(MAIN_MENU_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -115,9 +199,9 @@ async def _send_appointment_type_menu(wa: WhatsAppClient, phone: str, hospital_i
     rows = _cap_rows(rows, "appointment type menu")
     await wa.send_list(
         to=phone,
-        body_text=t("select_appointment_type", language),
-        button_text=t("view_appointment_types_button", language),
-        sections=[{"title": t("appointment_types_section_title", language), "rows": rows}],
+        body_text=t(SELECT_APPOINTMENT_TYPE, language),
+        button_text=t(VIEW_APPOINTMENT_TYPES_BUTTON, language),
+        sections=[{"title": t(APPOINTMENT_TYPES_SECTION_TITLE, language), "rows": rows}],
     )
     # Booking's own first step -- a separate follow-up button (same pattern
     # as _send_back_button), but GOTO_MAIN_MENU not BACK_ID: intercepted
@@ -126,7 +210,7 @@ async def _send_appointment_type_menu(wa: WhatsAppClient, phone: str, hospital_i
     # header, actual hospital name, actual enabled features) rather than
     # this module's own fixed 4-row _send_main_menu stand-in.
     await wa.send_buttons(
-        to=phone, body_text="​", buttons=[{"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)}],
+        to=phone, body_text="​", buttons=[{"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)}],
     )
 
 
@@ -137,10 +221,10 @@ async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_
     appointment_types.requires_consent."""
     await wa.send_buttons(
         to=phone,
-        body_text=t("consent_prompt", language, appointment_type_label=appointment_type_label),
+        body_text=t(CONSENT_PROMPT, language, appointment_type_label=appointment_type_label),
         buttons=[
-            {"id": CONFIRM_YES, "title": t("consent_agree_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": CONFIRM_YES, "title": t(CONSENT_AGREE_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
 
@@ -150,9 +234,9 @@ async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int
     rows = _cap_rows(rows, "department menu")
     await wa.send_list(
         to=phone,
-        body_text=t("select_department", language),
-        button_text=t("view_departments_button", language),
-        sections=[{"title": t("departments_section_title", language), "rows": rows}],
+        body_text=t(SELECT_DEPARTMENT, language),
+        button_text=t(VIEW_DEPARTMENTS_BUTTON, language),
+        sections=[{"title": t(DEPARTMENTS_SECTION_TITLE, language), "rows": rows}],
     )
     await _send_back_button(wa, phone, language=language)
 
@@ -188,7 +272,7 @@ async def _select_patient_and_continue(
     elif next_action == "view_appointments":
         await _send_view_appointments(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=patient["id"])
     elif next_action == "manage_patients":
-        await wa.send_text(phone, t("patient_added", language, patient_name=patient["name"]))
+        await wa.send_text(phone, t(PATIENT_ADDED, language, patient_name=patient["name"]))
         await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
     else:
         logger.warning("No _select_patient_and_continue branch for next_action %r -- falling back to main menu", next_action)
@@ -210,21 +294,21 @@ async def _send_patient_selector(
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
     if next_action != "booking":
-        rows.append({"id": ALL_PATIENTS_ROW_ID, "title": t("all_patients_option", language)})
+        rows.append({"id": ALL_PATIENTS_ROW_ID, "title": t(ALL_PATIENTS_OPTION, language)})
     if next_action == "booking" and len(patients) < MAX_ACTIVE_PATIENT_LINKS:
-        rows.append({"id": ADD_PATIENT_ROW_ID, "title": t("add_patient_option", language)})
+        rows.append({"id": ADD_PATIENT_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
     # Reached right from the main menu (Book/Cancel/Reschedule/View
     # Appointments) -- unlike core/patient_identity.py's own patient
     # selector (shown BEFORE the main menu exists at all, so it has nothing
     # to go back to), this one always has a real main menu behind it.
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = _cap_rows(rows, "patient selector")
     sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_SELECTION, {"patient_flow_next": next_action})
     await wa.send_list(
         to=phone,
         body_text=t(f"patient_selector_prompt_{next_action}", language),
-        button_text=t("patient_selector_button", language),
-        sections=[{"title": t("patient_selector_section_title", language), "rows": rows}],
+        button_text=t(PATIENT_SELECTOR_BUTTON, language),
+        sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -237,7 +321,7 @@ async def _handle_awaiting_patient_selection(
         rid = reply["id"]
         if rid == ADD_PATIENT_ROW_ID and next_action == "booking":
             sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": next_action})
-            await wa.send_text(phone, t("ask_patient_name", language))
+            await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
             return
         if rid == ALL_PATIENTS_ROW_ID and next_action != "booking":
             await _select_patient_and_continue(
@@ -279,8 +363,8 @@ async def _send_doctor_menu(
     rows = _cap_rows(rows, "doctor menu")
     await wa.send_list(
         to=phone,
-        body_text=t("select_doctor", language, department_name=department_name),
-        button_text=t("view_doctors_button", language),
+        body_text=t(SELECT_DOCTOR, language, department_name=department_name),
+        button_text=t(VIEW_DOCTORS_BUTTON, language),
         sections=[{"title": department_name, "rows": rows}],
     )
     await _send_back_button(wa, phone, language=language)
@@ -300,9 +384,9 @@ async def _send_slot_menu(
     rows = _cap_rows(rows, f"slot menu for doctor {doctor_id}")
     await wa.send_list(
         to=phone,
-        body_text=t("select_slot", language, doctor_name=doctor_name),
-        button_text=t("view_slots_button", language),
-        sections=[{"title": t("available_slots_section_title", language), "rows": rows}],
+        body_text=t(SELECT_SLOT, language, doctor_name=doctor_name),
+        button_text=t(VIEW_SLOTS_BUTTON, language),
+        sections=[{"title": t(AVAILABLE_SLOTS_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -325,9 +409,9 @@ async def _send_date_menu(
     rows = _cap_rows(rows, f"date menu for doctor {doctor_id}")
     await wa.send_list(
         to=phone,
-        body_text=t("doctor_selected_ask_date", language, doctor_name=doctor_name),
-        button_text=t("view_dates_button", language),
-        sections=[{"title": t("available_dates_section_title", language), "rows": rows}],
+        body_text=t(DOCTOR_SELECTED_ASK_DATE, language, doctor_name=doctor_name),
+        button_text=t(VIEW_DATES_BUTTON, language),
+        sections=[{"title": t(AVAILABLE_DATES_SECTION_TITLE, language), "rows": rows}],
     )
     await _send_back_button(wa, phone, language=language)
 
@@ -350,9 +434,9 @@ async def _send_time_menu(
     rows = _cap_rows(rows, f"time menu for doctor {doctor_id} on {date_str}")
     await wa.send_list(
         to=phone,
-        body_text=t("select_time_slot", language),
-        button_text=t("view_times_button", language),
-        sections=[{"title": t("available_times_section_title", language), "rows": rows}],
+        body_text=t(SELECT_TIME_SLOT, language),
+        button_text=t(VIEW_TIMES_BUTTON, language),
+        sections=[{"title": t(AVAILABLE_TIMES_SECTION_TITLE, language), "rows": rows}],
     )
     await _send_back_button(wa, phone, language=language)
 
@@ -361,7 +445,7 @@ async def _notify_no_doctors_available(
     wa: WhatsAppClient, sessions, hospital_id: int, phone: str, department_name: str, language: str = "en",
 ) -> None:
     sessions.reset(hospital_id, phone)
-    await wa.send_text(phone, t("no_doctors_available", language, department_name=department_name))
+    await wa.send_text(phone, t(NO_DOCTORS_AVAILABLE, language, department_name=department_name))
     # Item 9 (Spec.md Section 0): a genuine dead end (this department has no
     # doctors) previously left the patient with nothing to do next but
     # message again from scratch -- the main menu is the recovery path for
@@ -378,7 +462,7 @@ async def _notify_no_slots_available(
     wa: WhatsAppClient, sessions, hospital_id: int, phone: str, doctor_name: str, language: str = "en",
 ) -> None:
     sessions.reset(hospital_id, phone)
-    await wa.send_text(phone, t("no_slots_available", language, doctor_name=doctor_name))
+    await wa.send_text(phone, t(NO_SLOTS_AVAILABLE, language, doctor_name=doctor_name))
     await _send_main_menu(wa, phone, "the hospital", language=language)
 
 
@@ -399,19 +483,29 @@ async def _handle_slot_taken(
     that date's times via _send_time_menu."""
     doctor_id = context.get("doctor_id")
     doctor_name = context.get("doctor_name", "")
+    if doctor_id is None:
+        # Corrupted/stale context -- nothing to recover a slot list for.
+        sessions.reset(hospital_id, phone)
+        await _send_main_menu(wa, phone, "the hospital", language=language)
+        return
     logger.info("Double-booking race: hospital=%s doctor=%s slot=%s already taken", hospital_id, doctor_id, context.get("slot_id"))
     if not connector.get_available_slots(hospital_id, doctor_id):
         # Item 9: a genuine dead end, not the "pick another slot" case item 1
         # covers (there's nothing left to pick) -- same recovery as
         # _notify_no_slots_available above.
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("slot_taken_no_alternatives", language, doctor_name=doctor_name))
+        await wa.send_text(phone, t(SLOT_TAKEN_NO_ALTERNATIVES, language, doctor_name=doctor_name))
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, target_state, context)
-    await wa.send_text(phone, t("slot_taken_choose_another", language))
+    await wa.send_text(phone, t(SLOT_TAKEN_CHOOSE_ANOTHER, language))
     if target_state in (STATE_AWAITING_TIME_SLOT, STATE_AWAITING_RESCHEDULE_SLOT):
         date_str = context.get("date") or context.get("slot_date")
+        if date_str is None:
+            # Corrupted/stale context -- nothing to recover a time list for.
+            sessions.reset(hospital_id, phone)
+            await _send_main_menu(wa, phone, "the hospital", language=language)
+            return
         await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
         return
     await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
@@ -422,8 +516,7 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
     screenshot -- see core/translations.py's confirm_booking_summary. Age
     (Section 12.13 follow-up) is included too, even though the original
     reference screenshot didn't have it -- explicitly requested."""
-    summary = t(
-        "confirm_booking_summary", language,
+    summary = t(CONFIRM_BOOKING_SUMMARY, language,
         appointment_type_label=context.get("appointment_type_label"),
         department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
@@ -434,14 +527,14 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, lang
     # -- every other type has nothing to show here, and confirm_booking_
     # summary's placeholders are all unconditional fields every type has.
     if context.get("daycare_duration_label"):
-        summary += "\n" + t("confirm_daycare_duration_line", language, duration_label=context["daycare_duration_label"])
+        summary += "\n" + t(CONFIRM_DAYCARE_DURATION_LINE, language, duration_label=context["daycare_duration_label"])
     await wa.send_buttons(
         to=phone,
         body_text=summary,
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
-            {"id": BACK_ID, "title": t("back_option", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
+            {"id": BACK_ID, "title": t(BACK_OPTION, language)},
         ],
     )
 
@@ -466,26 +559,26 @@ async def _send_change_selection_menu(
     single_choice = len(departments) == 1 and len(connector.get_doctors(hospital_id, departments[0]["id"])) == 1
     flow = get_type_flow((context or {}).get("appointment_type_id"))
     single_choice = single_choice or not flow.has_step(STATE_AWAITING_DEPARTMENT)
-    rows = [{"id": CHANGE_APPOINTMENT_TYPE, "title": t("change_appointment_type_option", language)}]
+    rows = [{"id": CHANGE_APPOINTMENT_TYPE, "title": t(CHANGE_APPOINTMENT_TYPE_OPTION, language)}]
     if not single_choice:
-        rows.append({"id": CHANGE_DEPARTMENT, "title": t("change_department_option", language)})
-        rows.append({"id": CHANGE_DOCTOR, "title": t("change_doctor_option", language)})
-    rows.append({"id": CHANGE_DATE, "title": t("change_date_option", language)})
-    rows.append({"id": CHANGE_TIME, "title": t("change_time_option", language)})
+        rows.append({"id": CHANGE_DEPARTMENT, "title": t(CHANGE_DEPARTMENT_OPTION, language)})
+        rows.append({"id": CHANGE_DOCTOR, "title": t(CHANGE_DOCTOR_OPTION, language)})
+    rows.append({"id": CHANGE_DATE, "title": t(CHANGE_DATE_OPTION, language)})
+    rows.append({"id": CHANGE_TIME, "title": t(CHANGE_TIME_OPTION, language)})
     if flow.has_step(STATE_AWAITING_DAYCARE_DURATION):
-        rows.append({"id": CHANGE_DURATION, "title": t("change_duration_option", language)})
+        rows.append({"id": CHANGE_DURATION, "title": t(CHANGE_DURATION_OPTION, language)})
     # Previously a dead end -- every row here picked a field to change, with
     # no way out except actually picking one. GOTO_MAIN_MENU is intercepted
     # globally (flows/router.py's handle_incoming, before any state
     # dispatch), so this abandons the in-progress booking rather than
     # returning to the confirmation card underneath -- same trade-off
     # _send_patient_selector's own back row above makes.
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     await wa.send_list(
         to=phone,
-        body_text=t("what_would_you_like_to_change", language),
-        button_text=t("view_change_options_button", language),
-        sections=[{"title": t("change_options_section_title", language), "rows": rows}],
+        body_text=t(WHAT_WOULD_YOU_LIKE_TO_CHANGE, language),
+        button_text=t(VIEW_CHANGE_OPTIONS_BUTTON, language),
+        sections=[{"title": t(CHANGE_OPTIONS_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -568,13 +661,13 @@ async def _send_appointment_selection_menu(
     # after the patient selector above for a multi-patient phone) -- a real
     # main menu always exists behind it, unlike identity's pre-resolution
     # screens.
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = _cap_rows(rows, "appointment selection menu")
     await wa.send_list(
         to=phone,
         body_text=t(body_key, language),
-        button_text=t("view_appointments_button", language),
-        sections=[{"title": t("your_appointments_section_title", language), "rows": rows}],
+        button_text=t(VIEW_APPOINTMENTS_BUTTON, language),
+        sections=[{"title": t(YOUR_APPOINTMENTS_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -582,25 +675,24 @@ async def _send_cancel_confirm(wa: WhatsAppClient, phone: str, appointment, lang
     when = appointment.scheduled_at.strftime("%A, %d %B at %H:%M")
     await wa.send_buttons(
         to=phone,
-        body_text=t("cancel_confirm_question", language, doctor_name=appointment.doctor_name, when=when),
+        body_text=t(CANCEL_CONFIRM_QUESTION, language, doctor_name=appointment.doctor_name, when=when),
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
 
 
 async def _send_reschedule_confirm(wa: WhatsAppClient, phone: str, context: dict, language: str = "en") -> None:
-    summary = t(
-        "reschedule_confirm_summary", language,
+    summary = t(RESCHEDULE_CONFIRM_SUMMARY, language,
         doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),
     )
     await wa.send_buttons(
         to=phone,
         body_text=summary,
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
 

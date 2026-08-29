@@ -10,6 +10,7 @@ import logging
 
 from connectors import Connector, Tier1Connector
 from core.translations import t
+from core.translations.menu import HOSPITAL_INFO_TEXT
 from core.whatsapp import WhatsAppClient
 
 from flows.common import is_reset_keyword
@@ -61,7 +62,7 @@ async def _handle_idle(
             return
         if rid == MAIN_MENU_FAQ:
             sessions.reset(hospital_id, phone)
-            await wa.send_text(phone, t("hospital_info_text", language))
+            await wa.send_text(phone, t(HOSPITAL_INFO_TEXT, language))
             return
     # Any other message while IDLE (first contact, free text, stale/unknown id):
     # per spec, IDLE always responds with the welcome message + main menu.

@@ -12,13 +12,18 @@ from flows.booking.state import (
 )
 from flows.booking.types.base import NO_DOCTOR_FLOW, TypeFlow
 from core.translations import t
+from core.translations.booking import (
+    CONFIRM_BUTTON,
+    FOLLOWUP_CONFIRM_PROMPT,
+    NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP,
+)
+from core.translations.common import BACK_OPTION
 
 
 async def _send_followup_confirm_prompt(wa, phone: str, context: dict, language: str = "en") -> None:
     """Built entirely from `context` -- never re-queried, so a re-prompt
     (stale tap, Back-navigation) needs no DB round-trip."""
-    body = t(
-        "followup_confirm_prompt", language,
+    body = t(FOLLOWUP_CONFIRM_PROMPT, language,
         doctor_name=context.get("doctor_name"), department_name=context.get("department_name"),
         last_visit_label=context.get("followup_last_visit_label"),
     )
@@ -26,8 +31,8 @@ async def _send_followup_confirm_prompt(wa, phone: str, context: dict, language:
         to=phone,
         body_text=body,
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": BACK_ID, "title": t("back_option", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": BACK_ID, "title": t(BACK_OPTION, language)},
         ],
     )
 
@@ -42,7 +47,7 @@ async def _on_followup_selected(
     patient_id = context.get("active_patient_id")
     last = connector.get_last_attended_appointment(hospital_id, patient_id) if patient_id is not None else None
     if last is None:
-        await wa.send_text(phone, t("no_previous_appointment_for_followup", language))
+        await wa.send_text(phone, t(NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP, language))
         sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
         await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
         return

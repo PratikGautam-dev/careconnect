@@ -93,6 +93,31 @@ from flows.patient_identity import (
 from flows.common import cap_rows, is_reset_keyword
 from core.storage import get_storage
 from core.translations import SUPPORTED_LANGUAGES, t
+from core.translations.menu import (
+    HOSPITAL_INFO_TEXT,
+    LANGUAGE_PICKER_BODY,
+    LANGUAGE_PICKER_BUTTON_EN,
+    LANGUAGE_PICKER_BUTTON_HI,
+    RECEPTION_HANDOFF_TEXT,
+)
+from core.translations.dpdp_consent import (
+    DPDP_AGREE_BUTTON,
+    DPDP_CONSENT_BODY,
+    DPDP_DECLINED_MESSAGE,
+    DPDP_DECLINE_BUTTON,
+)
+from core.translations.my_details import (
+    DOCUMENTS_SECTION_TITLE,
+    MY_DETAILS_DOCUMENTS_HEADER,
+    MY_DETAILS_DOCUMENT_SEND_FAILED,
+    MY_DETAILS_DOCUMENT_SENT,
+    MY_DETAILS_NOT_FOUND,
+    MY_DETAILS_NOT_PROVIDED,
+    MY_DETAILS_NO_APPOINTMENTS_YET,
+    MY_DETAILS_SUMMARY,
+    VIEW_DOCUMENTS_BUTTON,
+)
+from core.translations.patient_identity import BACK_TO_MENU_OPTION
 from core.whatsapp import WhatsAppClient
 from connectors import Connector, Tier1Connector
 import flows.faq as faq_flow
@@ -119,12 +144,12 @@ async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language
     "pre-selected" option, so leading with the hospital's preferred language
     is the only real way to "default to" it."""
     buttons = [
-        {"id": LANGUAGE_ROW_EN, "title": t("language_picker_button_en", None)},
-        {"id": LANGUAGE_ROW_HI, "title": t("language_picker_button_hi", None)},
+        {"id": LANGUAGE_ROW_EN, "title": t(LANGUAGE_PICKER_BUTTON_EN, None)},
+        {"id": LANGUAGE_ROW_HI, "title": t(LANGUAGE_PICKER_BUTTON_HI, None)},
     ]
     if default_language == "hi":
         buttons.reverse()
-    await wa.send_buttons(to=phone, body_text=t("language_picker_body", None), buttons=buttons)
+    await wa.send_buttons(to=phone, body_text=t(LANGUAGE_PICKER_BODY, None), buttons=buttons)
 
 
 STATE_AWAITING_DPDP_CONSENT = "AWAITING_DPDP_CONSENT"
@@ -144,10 +169,10 @@ async def _send_dpdp_consent_prompt(
     sessions.set(hospital_id, phone, STATE_AWAITING_DPDP_CONSENT, {}, language=language)
     await wa.send_buttons(
         to=phone,
-        body_text=t("dpdp_consent_body", language, hospital_name=hospital_name),
+        body_text=t(DPDP_CONSENT_BODY, language, hospital_name=hospital_name),
         buttons=[
-            {"id": DPDP_AGREE_ID, "title": t("dpdp_agree_button", language)},
-            {"id": DPDP_DECLINE_ID, "title": t("dpdp_decline_button", language)},
+            {"id": DPDP_AGREE_ID, "title": t(DPDP_AGREE_BUTTON, language)},
+            {"id": DPDP_DECLINE_ID, "title": t(DPDP_DECLINE_BUTTON, language)},
         ],
     )
 
@@ -238,7 +263,7 @@ async def _handle_awaiting_dpdp_consent(
     require_patient_confirmation: bool = False, dpdp_consent_required: bool = False,
 ) -> None:
     if reply["type"] == "interactive_reply" and reply["id"] == DPDP_DECLINE_ID:
-        await wa.send_text(phone, t("dpdp_declined_message", language))
+        await wa.send_text(phone, t(DPDP_DECLINED_MESSAGE, language))
         # Declining isn't a soft "ask again later" -- the whole conversation
         # restarts from language selection (keep_language=False, unlike
         # every other reset() call site) so agreeing to DPDP terms is a real
@@ -315,7 +340,7 @@ async def _send_reports_prescriptions(
     patient = db.get_patient(hospital_id, active_patient_id)
     if patient is None:
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("my_details_not_found", language))
+        await wa.send_text(phone, t(MY_DETAILS_NOT_FOUND, language))
         return
 
     visits = db.get_patient_visit_history(hospital_id, patient["id"])
@@ -326,10 +351,10 @@ async def _send_reports_prescriptions(
             f"{t(status_key, language)} — {most_recent.doctor_name}, {most_recent.scheduled_at.strftime('%d %b %Y')}"
         )
     else:
-        most_recent_line = t("my_details_no_appointments_yet", language)
+        most_recent_line = t(MY_DETAILS_NO_APPOINTMENTS_YET, language)
 
-    age_display = str(patient["age"]) if patient.get("age") is not None else t("my_details_not_provided", language)
-    name_display = patient["name"] or t("my_details_not_provided", language)
+    age_display = str(patient["age"]) if patient.get("age") is not None else t(MY_DETAILS_NOT_PROVIDED, language)
+    name_display = patient["name"] or t(MY_DETAILS_NOT_PROVIDED, language)
     summary_lines = "\n".join([
         f"*{t('my_details_field_patient_id', language)}:* {patient['patient_display_id'] or '—'}",
         f"*{t('my_details_field_name', language)}:* {name_display}",
@@ -337,7 +362,7 @@ async def _send_reports_prescriptions(
         f"*{t('my_details_field_total_appointments', language)}:* {len(visits)}",
         f"*{t('my_details_field_most_recent', language)}:* {most_recent_line}",
     ])
-    await wa.send_text(phone, t("my_details_summary", language, summary_lines=summary_lines))
+    await wa.send_text(phone, t(MY_DETAILS_SUMMARY, language, summary_lines=summary_lines))
 
     documents = db.get_patient_documents(hospital_id, patient["id"])
     if not documents:
@@ -345,14 +370,14 @@ async def _send_reports_prescriptions(
         return
 
     rows = [{"id": _reports_document_row_id(d["id"]), "title": d["file_name"]} for d in documents]
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = cap_rows(rows, f"reports & prescriptions documents for patient {patient['id']}")
     sessions.set(hospital_id, phone, STATE_AWAITING_REPORTS_DOCUMENT, {"patient_id": patient["id"]})
     await wa.send_list(
         to=phone,
-        body_text=t("my_details_documents_header", language),
-        button_text=t("view_documents_button", language),
-        sections=[{"title": t("documents_section_title", language), "rows": rows}],
+        body_text=t(MY_DETAILS_DOCUMENTS_HEADER, language),
+        button_text=t(VIEW_DOCUMENTS_BUTTON, language),
+        sections=[{"title": t(DOCUMENTS_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -360,9 +385,14 @@ async def _handle_awaiting_reports_document(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, language: str = "en",
 ) -> None:
     patient_id = context.get("patient_id")
+    if patient_id is None:
+        # No patient context to re-fetch against -- stale session, back to idle.
+        sessions.reset(hospital_id, phone)
+        await wa.send_text(phone, t(MY_DETAILS_NOT_FOUND, language))
+        return
     document_id = _parse_reports_document_row_id(reply["id"]) if reply["type"] == "interactive_reply" else None
     document = db.get_patient_document(hospital_id, document_id) if document_id is not None else None
-    if patient_id is None or document is None or document["patient_id"] != patient_id:
+    if document is None or document["patient_id"] != patient_id:
         # Stale/unrecognized tap, or the list went stale between send and
         # reply -- re-fetch and re-show fresh rather than acting on a stale
         # id (Phase 8's established "recheck dynamic data" discipline).
@@ -374,10 +404,10 @@ async def _handle_awaiting_reports_document(
     sent = await wa.send_document(phone, document_url, document["file_name"])
     sessions.reset(hospital_id, phone)
     if not sent:
-        await wa.send_text(phone, t("my_details_document_send_failed", language))
+        await wa.send_text(phone, t(MY_DETAILS_DOCUMENT_SEND_FAILED, language))
         return
-    db.mark_document_sent_to_whatsapp(hospital_id, document_id)
-    await wa.send_text(phone, t("my_details_document_sent", language))
+    db.mark_document_sent_to_whatsapp(hospital_id, document["id"])
+    await wa.send_text(phone, t(MY_DETAILS_DOCUMENT_SENT, language))
 
 
 async def _start_feature(
@@ -420,12 +450,30 @@ async def _start_feature(
         await start_view_appointments_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
         return
     if key == "reports_prescriptions":
+        if active_patient_id is None:
+            # No active patient resolved -- shouldn't normally happen (menu
+            # taps only reach here after _enter_idle() has already resolved
+            # one), but re-prompt rather than query with no patient.
+            sessions.reset(hospital_id, phone)
+            await _enter_idle(
+                wa, sessions, phone, hospital_id, hospital_name, [key], language, connector,
+            )
+            return
         await _send_reports_prescriptions(wa, sessions, phone, hospital_id, active_patient_id, language=language)
         return
     if key == "manage_patients":
         await patient_identity._start_manage_patients(wa, sessions, phone, hospital_id, connector, language=language)
         return
     if key == "consent_privacy":
+        if active_patient_id is None:
+            # No active patient resolved -- shouldn't normally happen (menu
+            # taps only reach here after _enter_idle() has already resolved
+            # one), but re-prompt rather than proceed with no patient.
+            sessions.reset(hospital_id, phone)
+            await _enter_idle(
+                wa, sessions, phone, hospital_id, hospital_name, [key], language, connector,
+            )
+            return
         await patient_identity.start_consent_privacy(
             wa, sessions, phone, hospital_id, connector, active_patient_id,
             privacy_notice_text=privacy_notice_text, language=language,
@@ -436,7 +484,7 @@ async def _start_feature(
         # Section 12.13: a hospital's own business_hours_text (set via
         # /portal/settings), appended as an extra informational line -- purely
         # display, never enforced against real doctor slot availability.
-        info_text = t("hospital_info_text", language)
+        info_text = t(HOSPITAL_INFO_TEXT, language)
         if business_hours_text:
             info_text = f"{info_text}\n\n{business_hours_text}"
         await wa.send_text(phone, info_text)
@@ -447,7 +495,7 @@ async def _start_feature(
             hospital_id, phone, reason="patient_requested",
             message_text="Patient tapped \"Talk to Reception\" from the main menu.",
         )
-        await wa.send_text(phone, t("reception_handoff_text", language))
+        await wa.send_text(phone, t(RECEPTION_HANDOFF_TEXT, language))
         return
     # Defensive only -- every key in REAL_FEATURES has a branch above, so this
     # is only reachable if a new feature key is added to REAL_FEATURES without

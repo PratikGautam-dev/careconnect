@@ -169,7 +169,7 @@ async def test_closing_message_appended_after_cancel_confirmed(hospital_id):
         closing_message_text="We hope to see you again soon.",
     )
 
-    kind, kwargs = wa.sent[-1]
+    kind, kwargs = wa.sent[-2]
     assert "cancelled" in kwargs["text"].lower()
     assert kwargs["text"].endswith("We hope to see you again soon.")
 
@@ -194,6 +194,7 @@ async def test_business_hours_text_shown_in_hospital_info_reply(hospital_id):
 @pytest.mark.asyncio
 async def test_no_business_hours_configured_leaves_hospital_info_reply_unchanged(hospital_id):
     from core.translations import t
+    from core.translations.menu import HOSPITAL_INFO_TEXT
 
     wa = FakeWhatsAppClient()
     sessions = _english_session(hospital_id)
@@ -208,7 +209,7 @@ async def test_no_business_hours_configured_leaves_hospital_info_reply_unchanged
     # business_hours_text isn't set (the default text itself already
     # mentions example "Mon-Sat" hours, so that substring alone isn't a safe
     # thing to assert the ABSENCE of; exact equality is the real test).
-    assert kwargs["text"] == t("hospital_info_text", "en")
+    assert kwargs["text"] == t(HOSPITAL_INFO_TEXT, "en")
 
 
 # --- Default language / language prompt skip ---
@@ -226,7 +227,7 @@ async def test_language_prompt_disabled_skips_picker_and_uses_default_language(h
     )
 
     kwargs = _last_list(wa)  # straight to the menu, never the picker
-    assert "आपका स्वागत है" in kwargs["body_text"]
+    assert "कृपया एक विकल्प चुनें" in kwargs["body_text"]
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"

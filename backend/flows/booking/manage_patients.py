@@ -6,6 +6,23 @@ core/booking_flow.py module. Add reuses STATE_AWAITING_PATIENT_NAME/AGE
 as booking's implicit-first-profile and selector "+ Add Patient" paths."""
 from connectors import Connector, MAX_ACTIVE_PATIENT_LINKS
 from core.translations import t
+from core.translations.patient_identity import (
+    ADD_PATIENT_OPTION,
+    BACK_TO_MENU_OPTION,
+    TOO_MANY_LINKED_PATIENTS,
+)
+from core.translations.manage_patients import (
+    MANAGE_PATIENTS_BUTTON,
+    MANAGE_PATIENTS_HEADER,
+    MANAGE_PATIENTS_SECTION_TITLE,
+    PATIENT_UNLINKED,
+    UNLINK_PATIENT_CONFIRM,
+)
+from core.translations.booking import (
+    ASK_PATIENT_NAME,
+    CANCEL_BUTTON,
+    CONFIRM_BUTTON,
+)
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
@@ -20,15 +37,15 @@ async def _start_manage_patients_flow(
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
     if len(patients) < MAX_ACTIVE_PATIENT_LINKS:
-        rows.append({"id": MANAGE_PATIENTS_ADD_ROW_ID, "title": t("add_patient_option", language)})
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+        rows.append({"id": MANAGE_PATIENTS_ADD_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = _cap_rows(rows, "manage patients list")
     sessions.set(hospital_id, phone, STATE_AWAITING_MANAGE_PATIENTS_ACTION, {})
     await wa.send_list(
         to=phone,
-        body_text=t("manage_patients_header", language),
-        button_text=t("manage_patients_button", language),
-        sections=[{"title": t("manage_patients_section_title", language), "rows": rows}],
+        body_text=t(MANAGE_PATIENTS_HEADER, language),
+        button_text=t(MANAGE_PATIENTS_BUTTON, language),
+        sections=[{"title": t(MANAGE_PATIENTS_SECTION_TITLE, language), "rows": rows}],
     )
 
 
@@ -41,11 +58,11 @@ async def _handle_awaiting_manage_patients_action(
         if rid == MANAGE_PATIENTS_ADD_ROW_ID:
             patients = connector.list_active_patients(hospital_id, phone)
             if len(patients) >= MAX_ACTIVE_PATIENT_LINKS:
-                await wa.send_text(phone, t("too_many_linked_patients", language))
+                await wa.send_text(phone, t(TOO_MANY_LINKED_PATIENTS, language))
                 await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
                 return
             sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": "manage_patients"})
-            await wa.send_text(phone, t("ask_patient_name", language))
+            await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
             return
         patient_id = _parse_patient_row_id(rid)
         if patient_id is not None:
@@ -58,10 +75,10 @@ async def _handle_awaiting_manage_patients_action(
                 )
                 await wa.send_buttons(
                     to=phone,
-                    body_text=t("unlink_patient_confirm", language, patient_name=match["name"]),
+                    body_text=t(UNLINK_PATIENT_CONFIRM, language, patient_name=match["name"]),
                     buttons=[
-                        {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-                        {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+                        {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+                        {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
                     ],
                 )
                 return
@@ -82,7 +99,7 @@ async def _handle_awaiting_unlink_confirm(
             # and never touches `patients`/`appointments`, so this patient's
             # booking history and Patient ID are completely unaffected.
             connector.unlink_patient(hospital_id, phone, patient_id)
-            await wa.send_text(phone, t("patient_unlinked", language, patient_name=patient_name))
+            await wa.send_text(phone, t(PATIENT_UNLINKED, language, patient_name=patient_name))
             await _start_manage_patients_flow(wa, sessions, phone, hospital_id, connector, language=language)
             return
         if reply["id"] == CONFIRM_NO:
@@ -91,9 +108,9 @@ async def _handle_awaiting_unlink_confirm(
     sessions.set(hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM, context)
     await wa.send_buttons(
         to=phone,
-        body_text=t("unlink_patient_confirm", language, patient_name=patient_name),
+        body_text=t(UNLINK_PATIENT_CONFIRM, language, patient_name=patient_name),
         buttons=[
-            {"id": CONFIRM_YES, "title": t("confirm_button", language)},
-            {"id": CONFIRM_NO, "title": t("cancel_button", language)},
+            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )

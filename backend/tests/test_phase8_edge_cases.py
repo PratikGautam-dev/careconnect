@@ -290,7 +290,8 @@ async def test_stale_session_in_every_state_resets_to_idle_and_shows_main_menu(h
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert "City Hospital" in kwargs["body_text"]  # got the main menu, not a resumed stale flow
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}  # got the main menu, not a resumed stale flow
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 

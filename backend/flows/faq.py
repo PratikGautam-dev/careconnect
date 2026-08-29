@@ -42,6 +42,13 @@ in this feature).
 import db.repository as db
 from flows.common import cap_rows
 from core.translations import t
+from core.translations.faq import (
+    FAQ_NO_TOPICS,
+    FAQ_TOPIC_PROMPT,
+    TOPICS_SECTION_TITLE,
+    VIEW_TOPICS_BUTTON,
+)
+from core.translations.patient_identity import BACK_TO_MENU_OPTION
 from core.whatsapp import WhatsAppClient
 
 STATE_FAQ_ACTIVE = "FAQ_ACTIVE"
@@ -66,17 +73,17 @@ async def send_topic_menu(
         # graceful patient-facing message rather than an empty/broken list
         # send (same "never send Meta a zero-row list" discipline as
         # booking_flow.py's Phase 8 hardening).
-        await wa.send_text(phone, t("faq_no_topics", language, hospital_name=hospital_name))
+        await wa.send_text(phone, t(FAQ_NO_TOPICS, language, hospital_name=hospital_name))
         return
 
     rows = [{"id": str(t_["id"]), "title": t_["topic_label"]} for t_ in topics]
-    rows.append({"id": GOTO_MAIN_MENU, "title": t("back_to_menu_option", language)})
+    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = cap_rows(rows, f"FAQ topic menu for hospital {hospital_id}")
     await wa.send_list(
         to=phone,
-        body_text=t("faq_topic_prompt", language, hospital_name=hospital_name),
-        button_text=t("view_topics_button", language),
-        sections=[{"title": t("topics_section_title", language), "rows": rows}],
+        body_text=t(FAQ_TOPIC_PROMPT, language, hospital_name=hospital_name),
+        button_text=t(VIEW_TOPICS_BUTTON, language),
+        sections=[{"title": t(TOPICS_SECTION_TITLE, language), "rows": rows}],
     )
 
 

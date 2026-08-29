@@ -4,7 +4,10 @@ node between patient resolution and department selection. Hospital-
 configurable set, same "toggle a fixed catalog" shape as
 hospitals.enabled_features -- see db/schema.sql's own comment on
 appointment_types for why this isn't hardcoded in the flow itself."""
+from typing import cast
+
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 
 from db.connection import get_session
 from db.orm_models import AppointmentType
@@ -16,12 +19,12 @@ from db.orm_models import AppointmentType
 # RELATIONSHIP_OPTIONS plays for patient_links.relationship_label.
 DEFAULT_APPOINTMENT_TYPES = (
     {"id": "new", "label": "New Consultation", "requires_consent": False, "requires_doctor_selection": True},
-    {"id": "followup", "label": "Follow-up", "requires_consent": False, "requires_doctor_selection": True},
-    {"id": "tele", "label": "Tele-consultation", "requires_consent": True, "requires_doctor_selection": True},
-    {"id": "second_opinion", "label": "Second Opinion", "requires_consent": True, "requires_doctor_selection": True},
-    {"id": "diagnostic", "label": "Diagnostic", "requires_consent": False, "requires_doctor_selection": False},
-    {"id": "lab", "label": "Lab Test", "requires_consent": False, "requires_doctor_selection": False},
-    {"id": "daycare", "label": "Daycare", "requires_consent": False, "requires_doctor_selection": True},
+    {"id": "followup", "label": "Follow-up Consultation", "requires_consent": False, "requires_doctor_selection": True},
+    {"id": "tele", "label": "Video Consultation", "requires_consent": True, "requires_doctor_selection": True},
+    {"id": "diagnostic", "label": "Diagnostic Booking", "requires_consent": False, "requires_doctor_selection": False},
+    {"id": "lab", "label": "Lab Test Booking", "requires_consent": False, "requires_doctor_selection": False},
+    {"id": "daycare", "label": "Daycare Booking", "requires_consent": False, "requires_doctor_selection": True},
+    {"id": "second_opinion", "label": "Report Review", "requires_consent": True, "requires_doctor_selection": True},
 )
 
 # Which of the fixed catalog's types are ACTIVE by default per tenant_type
@@ -102,11 +105,11 @@ def set_appointment_type_active(hospital_id: int, appointment_type_id: str, is_a
     any other data. Returns None if the type doesn't exist for this hospital
     (an unrecognized/stale id), else the updated row."""
     session = get_session()
-    result = session.execute(
+    result = cast(CursorResult, session.execute(
         update(AppointmentType)
         .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
         .values(is_active=is_active)
-    )
+    ))
     session.commit()
     if result.rowcount == 0:
         return None

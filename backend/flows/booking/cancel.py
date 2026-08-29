@@ -3,11 +3,17 @@
 split out of the former single core/booking_flow.py module."""
 from connectors import Connector
 from core.translations import t
+from core.translations.cancel_reschedule import (
+    APPOINTMENT_CANCELLED,
+    APPOINTMENT_LOOKUP_ERROR,
+    CANCELLATION_ABORTED,
+    NO_UPCOMING_TO_CANCEL,
+)
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.messages import (
     _find_selected_appointment, _send_appointment_selection_menu, _send_cancel_confirm, _send_main_menu,
-    _send_patient_selector,
+    _send_patient_selector, _send_post_action_menu,
 )
 from flows.booking.state import (
     CONFIRM_NO, CONFIRM_YES, STATE_AWAITING_CANCEL_CONFIRM, STATE_AWAITING_CANCEL_SELECTION, _append_closing_message,
@@ -69,7 +75,7 @@ async def _start_cancel_flow_for_patient(
     if not appointments:
         # Item 9: nothing to cancel is a dead end without a menu offered.
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("no_upcoming_to_cancel", language))
+        await wa.send_text(phone, t(NO_UPCOMING_TO_CANCEL, language))
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_SELECTION, {"active_patient_id": active_patient_id})
@@ -106,7 +112,7 @@ async def _handle_awaiting_cancel_confirm(
         # Item 9: an unexpected failure mid-flow -- exactly the "give the
         # patient a way forward" case, not item 1's alternate-slot recovery.
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("appointment_lookup_error", language))
+        await wa.send_text(phone, t(APPOINTMENT_LOOKUP_ERROR, language))
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
 
@@ -115,12 +121,13 @@ async def _handle_awaiting_cancel_confirm(
         if rid == CONFIRM_YES:
             connector.cancel_booking(hospital_id, appt.id)
             when = appt.scheduled_at.strftime("%A, %d %B at %H:%M")
-            cancelled_text = t("appointment_cancelled", language, doctor_name=appt.doctor_name, when=when)
+            cancelled_text = t(APPOINTMENT_CANCELLED, language, doctor_name=appt.doctor_name, when=when)
             await wa.send_text(phone, _append_closing_message(cancelled_text, closing_message_text))
             sessions.reset(hospital_id, phone)
+            await _send_post_action_menu(wa, phone, language=language)
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, t("cancellation_aborted", language))
+            await wa.send_text(phone, t(CANCELLATION_ABORTED, language))
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CANCEL_CONFIRM, context)

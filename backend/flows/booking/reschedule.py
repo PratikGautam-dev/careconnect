@@ -7,13 +7,18 @@ from datetime import datetime
 
 from connectors import Connector
 from core.translations import t
+from core.translations.cancel_reschedule import (
+    APPOINTMENT_RESCHEDULED,
+    NO_UPCOMING_TO_RESCHEDULE,
+    RESCHEDULE_ABORTED,
+)
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 
 from flows.booking.messages import (
     _find_selected_appointment, _handle_slot_taken, _notify_no_slots_available, _send_appointment_selection_menu,
-    _send_back_button, _send_date_menu, _send_main_menu, _send_patient_selector, _send_reschedule_confirm,
-    _send_time_menu,
+    _send_back_button, _send_date_menu, _send_main_menu, _send_patient_selector, _send_post_action_menu,
+    _send_reschedule_confirm, _send_time_menu,
 )
 from flows.booking.state import (
     BACK_ID, CONFIRM_NO, CONFIRM_YES, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
@@ -84,7 +89,7 @@ async def _start_reschedule_flow_for_patient(
     if not appointments:
         # Item 9: nothing to reschedule is a dead end without a menu offered.
         sessions.reset(hospital_id, phone)
-        await wa.send_text(phone, t("no_upcoming_to_reschedule", language))
+        await wa.send_text(phone, t(NO_UPCOMING_TO_RESCHEDULE, language))
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SELECTION, {"active_patient_id": active_patient_id})
@@ -229,15 +234,15 @@ async def _handle_awaiting_reschedule_confirm(
                 await flow.on_booking_confirmed(
                     new_appointment.id, hospital_id, context.get("active_patient_id"), connector, context,
                 )
-            summary = t(
-                "appointment_rescheduled", language,
+            summary = t(APPOINTMENT_RESCHEDULED, language,
                 doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),
             )
             await wa.send_text(phone, _append_closing_message(summary, closing_message_text))
             sessions.reset(hospital_id, phone)
+            await _send_post_action_menu(wa, phone, language=language)
             return
         if rid == CONFIRM_NO:
-            await wa.send_text(phone, t("reschedule_aborted", language))
+            await wa.send_text(phone, t(RESCHEDULE_ABORTED, language))
             sessions.reset(hospital_id, phone)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_CONFIRM, context)

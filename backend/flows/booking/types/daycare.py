@@ -9,6 +9,11 @@ right after it, offering a hospital-configurable list of duration options
 few-hour stay and a multi-night admission without a second date picker."""
 from connectors import Connector
 from core.translations import t
+from core.translations.booking import (
+    DAYCARE_DURATIONS_SECTION_TITLE,
+    SELECT_DAYCARE_DURATION,
+    VIEW_DURATIONS_BUTTON,
+)
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
@@ -32,9 +37,9 @@ async def _send_daycare_duration_menu(wa: WhatsAppClient, phone: str, hospital_i
     rows = [{"id": str(o["id"]), "title": o["label"]} for o in connector.get_daycare_duration_options(hospital_id)]
     await wa.send_list(
         to=phone,
-        body_text=t("select_daycare_duration", language),
-        button_text=t("view_durations_button", language),
-        sections=[{"title": t("daycare_durations_section_title", language), "rows": rows}],
+        body_text=t(SELECT_DAYCARE_DURATION, language),
+        button_text=t(VIEW_DURATIONS_BUTTON, language),
+        sections=[{"title": t(DAYCARE_DURATIONS_SECTION_TITLE, language), "rows": rows}],
     )
 
 

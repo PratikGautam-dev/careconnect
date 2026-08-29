@@ -30,6 +30,17 @@ import flows
 import flows.patient_identity as patient_identity
 from core.session_store import InMemorySessionStore
 from core.translations import t as translate
+from core.translations.menu import FEATURE_BOOKING, RECEPTION_HANDOFF_TEXT, WELCOME_MENU
+from core.translations.booking import (
+    ASK_PATIENT_AGE,
+    ASK_PATIENT_GENDER,
+    ASK_PATIENT_NAME,
+    CONFIRM_BOOKING_SUMMARY,
+    SELECT_APPOINTMENT_TYPE,
+    SELECT_DEPARTMENT,
+    SELECT_DOCTOR,
+    SELECT_TIME_SLOT,
+)
 
 os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test")
 os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "123")
@@ -332,11 +343,15 @@ async def test_view_appointments_feature(hospital_id):
         connector=FakeConnector(appointments=[appt]), enabled_features=["view_appointments"],
     )
 
-    kind, kwargs = wa.sent[-1]
-    assert kind == "list"
+    kwargs = _last_list(wa)
     row = kwargs["sections"][0]["rows"][0]
     assert row["id"] == "appt_501"
     assert "Dr. Rao" in row["title"]
+    # A generic (not appointment-scoped) Main Menu/Cancel/Reschedule
+    # follow-up menu is sent right after the list -- see _send_post_action_menu.
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"goto_main_menu", "menu_cancel", "menu_reschedule"}
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_VIEW_APPOINTMENT_ACTION"
 
 
@@ -350,7 +365,12 @@ async def test_view_appointments_no_upcoming_sends_plain_text(hospital_id):
         connector=FakeConnector(appointments=[]), enabled_features=["view_appointments"],
     )
 
-    assert wa.sent[-1][0] == "text"
+    assert wa.sent[-2][0] == "text"
+    # A generic (not appointment-scoped) Main Menu/Cancel/Reschedule
+    # follow-up menu is sent right after -- see _send_post_action_menu.
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"goto_main_menu", "menu_cancel", "menu_reschedule"}
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
@@ -414,7 +434,7 @@ async def test_reception_handoff_queues_request_and_replies(hospital_id):
         connector=FakeConnector(), enabled_features=["reception_handoff"],
     )
 
-    assert wa.sent[-1] == ("text", {"to": PHONE, "text": translate("reception_handoff_text", "en")})
+    assert wa.sent[-1] == ("text", {"to": PHONE, "text": translate(RECEPTION_HANDOFF_TEXT, "en")})
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
     open_handoffs = db.get_handoff_requests(hospital_id, status="open")
@@ -666,12 +686,11 @@ async def test_selecting_english_then_shows_menu_in_english(hospital_id):
     )
 
     kwargs = _last_list(wa)
-    assert "City Clinic" in kwargs["body_text"]
     # CareConnect architecture doc alignment (Spec.md Section 0): the main
     # menu now leads with a "Patient: X / MRN: Y" header (Section 20) --
     # endswith() rather than == since this test is about the LANGUAGE the
     # welcome text renders in, not the header's own content.
-    assert kwargs["body_text"].endswith(translate("welcome_menu", "en", hospital_name="City Clinic"))
+    assert kwargs["body_text"].endswith(translate(WELCOME_MENU, "en", hospital_name="City Clinic"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "en"
@@ -692,9 +711,9 @@ async def test_selecting_hindi_then_shows_menu_in_hindi(hospital_id):
     )
 
     kwargs = _last_list(wa)
-    assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="City Clinic"))
+    assert kwargs["body_text"].endswith(translate(WELCOME_MENU, "hi", hospital_name="City Clinic"))
     row = kwargs["sections"][0]["rows"][0]
-    assert row["title"] == translate("feature_booking", "hi")
+    assert row["title"] == translate(FEATURE_BOOKING, "hi")
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"
@@ -740,18 +759,18 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
     kind, kwargs = wa.sent[-1]
-    assert kwargs["text"] == translate("ask_patient_name", "hi")
+    assert kwargs["text"] == translate(ASK_PATIENT_NAME, "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_AGE
     kind, kwargs = wa.sent[-1]
-    assert kwargs["text"] == translate("ask_patient_age", "hi", patient_name="Ravi Kumar")
+    assert kwargs["text"] == translate(ASK_PATIENT_AGE, "hi", patient_name="Ravi Kumar")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert kwargs["body_text"] == translate("ask_patient_gender", "hi")
+    assert kwargs["body_text"] == translate(ASK_PATIENT_GENDER, "hi")
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
@@ -760,21 +779,21 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"
     kwargs = _last_list(wa)
-    assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="the hospital"))
+    assert kwargs["body_text"].endswith(translate(WELCOME_MENU, "hi", hospital_name="the hospital"))
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
     kwargs = _last_list(wa)
-    assert kwargs["body_text"] == translate("select_appointment_type", "hi")
+    assert kwargs["body_text"] == translate(SELECT_APPOINTMENT_TYPE, "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kwargs = _last_list(wa)
-    assert kwargs["body_text"] == translate("select_department", "hi")
+    assert kwargs["body_text"] == translate(SELECT_DEPARTMENT, "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
     kwargs = _last_list(wa)
-    assert kwargs["body_text"] == translate("select_doctor", "hi", department_name=department["name"])
+    assert kwargs["body_text"] == translate(SELECT_DOCTOR, "hi", department_name=department["name"])
 
     doctor = db.get_doctors(hospital_id, department["id"])[0]
     doctor_id = doctor["id"]
@@ -789,7 +808,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
     kwargs = _last_list(wa)
-    assert kwargs["body_text"] == translate("select_time_slot", "hi")
+    assert kwargs["body_text"] == translate(SELECT_TIME_SLOT, "hi")
 
     # Picking a time now goes straight to confirmation -- name/age were
     # already collected up front.
@@ -800,8 +819,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert session["language"] == "hi"
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert kwargs["body_text"] == translate(
-        "confirm_booking_summary", "hi",
+    assert kwargs["body_text"] == translate(CONFIRM_BOOKING_SUMMARY, "hi",
         appointment_type_label=session["context"]["appointment_type_label"],
         department_name=session["context"]["department_name"],
         doctor_name=session["context"]["doctor_name"],
@@ -1000,7 +1018,7 @@ async def test_hindi_reset_keyword_escapes_mid_flow_and_stays_in_hindi(hospital_
     )
 
     kwargs = _last_list(wa)  # straight back to the Hindi menu, not the language picker again
-    assert kwargs["body_text"].endswith(translate("welcome_menu", "hi", hospital_name="City Clinic"))
+    assert kwargs["body_text"].endswith(translate(WELCOME_MENU, "hi", hospital_name="City Clinic"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["language"] == "hi"

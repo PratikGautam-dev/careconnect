@@ -67,7 +67,6 @@ async def test_idle_any_message_sends_welcome_and_main_menu(hospital_id):
     assert len(wa.sent) == 1
     kind, kwargs = wa.sent[0]
     assert kind == "list"
-    assert "City Hospital" in kwargs["body_text"]
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
     assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
@@ -225,7 +224,6 @@ async def test_reset_keyword_escapes_a_stuck_mid_flow_state(hospital_id):
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert "City Hospital" in kwargs["body_text"]
     row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
     assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
@@ -623,7 +621,8 @@ async def test_expired_session_resets_to_idle_instead_of_resuming(hospital_id):
 
     kind, kwargs = wa.sent[-1]
     assert kind == "list"
-    assert "City Hospital" in kwargs["body_text"]  # got the main menu, not a slot reprompt
+    row_ids = {row["id"] for section in kwargs["sections"] for row in section["rows"]}
+    assert row_ids == {"menu_book", "menu_reschedule", "menu_cancel", "menu_faq"}  # got the main menu, not a slot reprompt
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
 
@@ -667,9 +666,14 @@ async def test_cancel_flow_one_appointment_happy_path(hospital_id):
 
     # Confirm -> cancelled, resets to IDLE
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
-    kind, kwargs = wa.sent[-1]
+    kind, kwargs = wa.sent[-2]
     assert kind == "text"
     assert "cancelled" in kwargs["text"].lower()
+    # A generic (not appointment-scoped) Main Menu/Cancel/Reschedule
+    # follow-up menu is sent right after -- see _send_post_action_menu.
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"goto_main_menu", "menu_cancel", "menu_reschedule"}
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
     assert db.get_appointment(hospital_id, appt.id).status == db.STATUS_CANCELLED
 
@@ -807,9 +811,14 @@ async def test_reschedule_flow_happy_path_skips_department_and_doctor(hospital_i
 
     # Confirm -> old appointment rescheduled, new one created, resets to IDLE
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
-    kind, kwargs = wa.sent[-1]
+    kind, kwargs = wa.sent[-2]
     assert kind == "text"
     assert "rescheduled" in kwargs["text"].lower()
+    # A generic (not appointment-scoped) Main Menu/Cancel/Reschedule
+    # follow-up menu is sent right after -- see _send_post_action_menu.
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"goto_main_menu", "menu_cancel", "menu_reschedule"}
     assert sessions.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
     assert db.get_appointment(hospital_id, appt.id).status == db.STATUS_RESCHEDULED
@@ -1355,7 +1364,7 @@ async def test_rescheduling_a_tele_consultation_generates_a_fresh_video_link(hos
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
 
-    kind, kwargs = wa.sent[-1]
+    kind, kwargs = wa.sent[-2]
     assert kind == "text"
     assert "rescheduled" in kwargs["text"].lower()
     # Same "don't show it in the notification" rule as a fresh booking.
