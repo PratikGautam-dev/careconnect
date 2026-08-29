@@ -1,7 +1,7 @@
 """doctors.email / password_hash -- dedicated doctor login
 
-Revision ID: 0010
-Revises: 0009
+Revision ID: 0012
+Revises: 0011
 Create Date: 2026-08-29
 
 Additive, nullable columns supporting a new, separate doctor-login auth
@@ -24,8 +24,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0010"
-down_revision: Union[str, None] = "0009"
+revision: str = "0012"
+down_revision: Union[str, None] = "0011"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
