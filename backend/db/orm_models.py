@@ -182,6 +182,8 @@ class DoctorRow(Base):
     followup_duration_minutes: Mapped[int | None]
     effective_from: Mapped[str | None]
     is_active: Mapped[bool]
+    email: Mapped[str | None]
+    password_hash: Mapped[str | None]
 
 
 class AppointmentRow(Base):

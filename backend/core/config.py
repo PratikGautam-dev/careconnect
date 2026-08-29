@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     TENANTS_ADMIN_SECRET: str = ""
     PORTAL_SECRET: str = ""
     AUTH_SECRET: str = ""
+    # Dedicated doctor-login session token (auth/doctor_session.py) -- its own
+    # secret, not PORTAL_SECRET/AUTH_SECRET, same "a leaked secret should only
+    # forge the one thing it's for" reasoning ADMIN_SECRET vs
+    # TENANTS_ADMIN_SECRET and PORTAL_SECRET vs AUTH_SECRET already apply: a
+    # leaked PORTAL_SECRET must not also forge a doctor-scoped token, and vice
+    # versa.
+    DOCTOR_SECRET: str = ""
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     FRONTEND_ORIGIN: str = "http://localhost:3000"

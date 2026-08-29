@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime
 
 from fastapi import APIRouter, Header
@@ -6,6 +7,8 @@ from pydantic import BaseModel, Field
 
 import db.repository as db
 from admin.validation import _validate_doctor_fields
+from db.connection import IntegrityError
+from db.repositories.hospitals import hash_portal_password
 from portal.deps import _authenticate, require_capability
 from portal.routes.bookings import _appointment_json
 
@@ -102,6 +105,62 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
         entity_type="doctor", entity_id=doctor["id"], after={"name": doctor_data["name"]},
     )
     return JSONResponse({"doctor": doctor, "warnings": warnings})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/login-credentials")
+async def portal_set_doctor_login_credentials(
+    doctor_id: str, payload: dict, authorization: str | None = Header(default=None)
+):
+    """Admin-issued/reset dedicated doctor login (Spec.md Section 0's
+    doctor-portal build) -- separate from this doctor's row otherwise; a
+    doctor with no credentials set keeps working through the shared staff
+    portal exactly as before. payload = {"email": str, "password"?: str} --
+    if password is omitted, a random one is generated and returned ONCE in
+    this response (never re-displayable after this), same "show it once,
+    the admin relays it to the doctor directly" model the shared staff
+    portal password already effectively uses on creation."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    email = ((payload or {}).get("email") or "").strip().lower()
+    if not email:
+        return JSONResponse({"error": "Email is required."}, status_code=400)
+    password = (payload or {}).get("password") or secrets.token_urlsafe(9)
+    password_hash = hash_portal_password(password)
+    try:
+        ok = db.set_doctor_login_credentials(hospital.id, doctor_id, email, password_hash)
+    except IntegrityError:
+        return JSONResponse({"error": "This email is already used by another doctor."}, status_code=409)
+    if not ok:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.login_credentials_set",
+        entity_type="doctor", entity_id=doctor_id, after={"email": email},
+    )
+    return JSONResponse({"ok": True, "email": email, "password": password})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/login-credentials/revoke")
+async def portal_revoke_doctor_login_credentials(doctor_id: str, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
+    ok = db.clear_doctor_login_credentials(hospital.id, doctor_id)
+    if not ok:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.login_credentials_revoked",
+        entity_type="doctor", entity_id=doctor_id,
+    )
+    return JSONResponse({"ok": True})
 
 
 @router.post("/api/portal/doctors/{doctor_id}/active")

@@ -282,6 +282,16 @@ ALTER TABLE doctors ADD COLUMN IF NOT EXISTS followup_duration_minutes INTEGER;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS effective_from TEXT;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- Dedicated doctor login (see migration 0010) -- nullable/additive, admin-
+-- issued via POST /api/portal/doctors/{doctor_id}/login-credentials, never
+-- self-registered. A doctor row with email IS NULL simply has no login yet;
+-- every existing doctor-management/booking path is unaffected either way.
+-- password_hash reuses the exact PBKDF2-SHA256 scheme as
+-- hospitals.portal_password_hash (hash_portal_password()/verify_portal_password()).
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS password_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_doctors_email ON doctors(email) WHERE email IS NOT NULL;
+
 -- Section 14.7: one row per date a doctor is unavailable for the whole day
 -- (leave/holiday/on-call elsewhere). generate_slots_for_doctor() skips any
 -- date present here entirely for that doctor, rather than generating slots

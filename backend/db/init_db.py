@@ -534,6 +534,13 @@ def init_db_on_connection(conn) -> int:
         ")"
     )
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER")
+    # Migration 0010: doctors.email/password_hash -- dedicated doctor login,
+    # additive/nullable, admin-issued via portal/routes/doctors.py.
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS email TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS password_hash TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_doctors_email ON doctors(email) WHERE email IS NOT NULL"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

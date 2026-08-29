@@ -5,10 +5,11 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import cast
 
+import sqlalchemy.exc
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.engine import CursorResult
 
-from db.connection import get_connection, get_session
+from db.connection import get_connection, get_session, reraise_as_driver_integrity_error
 from db.orm_models import Department, DoctorRow, DoctorSlot
 
 _SLOT_DAYS_AHEAD = 14
@@ -188,6 +189,67 @@ def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool
     ))
     session.commit()
     return result.rowcount > 0
+
+
+def set_doctor_login_credentials(hospital_id: int, doctor_id: str, email: str, password_hash: str) -> bool:
+    """Admin-issued/reset doctor login (dedicated doctor portal, separate
+    from the shared staff portal) -- called only from
+    portal/routes/doctors.py's admin-only credential route, never
+    self-service. Overwrites any existing email/password_hash outright, same
+    "reset replaces, doesn't merge" semantics as a portal password reset.
+    Returns False if no matching doctor row exists for this hospital (404 for
+    the caller) or if `email` is already taken by a DIFFERENT doctor
+    (ux_doctors_email is globally unique, not per-hospital) -- surfaced to
+    the caller as a psycopg2 IntegrityError via reraise_as_driver_integrity_error,
+    same pattern every other unique-constraint-backed write in this codebase uses."""
+    session = get_session()
+    try:
+        result = cast(CursorResult, session.execute(
+            update(DoctorRow).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
+            .values(email=email, password_hash=password_hash)
+        ))
+        session.commit()
+    except sqlalchemy.exc.IntegrityError as e:
+        session.rollback()
+        raise reraise_as_driver_integrity_error(e)
+    return result.rowcount > 0
+
+
+def clear_doctor_login_credentials(hospital_id: int, doctor_id: str) -> bool:
+    """Revokes a doctor's login (admin action) without touching anything
+    else about the doctor row -- any outstanding doctor-session tokens still
+    verify cryptographically (auth/doctor_session.py's HMAC has no server-side
+    revocation list, same "re-issued rather than revoked" posture
+    auth/session.py's own module docstring already accepts for the shared
+    portal token), but a fresh login attempt fails immediately since
+    find_doctor_by_email() can no longer find this doctor's email at all."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(DoctorRow).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
+        .values(email=None, password_hash=None)
+    ))
+    session.commit()
+    return result.rowcount > 0
+
+
+def find_doctor_by_email(email: str) -> dict | None:
+    """Doctor-login lookup (auth path, not staff-portal) -- email is globally
+    unique (ux_doctors_email), not scoped to one hospital first, so this is
+    the one doctor-repository read that doesn't take hospital_id as a
+    parameter; the caller learns hospital_id FROM this row instead of
+    supplying it. Returns None for a doctor with no login configured
+    (email IS NULL never matches) or an inactive doctor (is_active=False is
+    excluded here the same way get_doctors() already excludes inactive
+    doctors from every bookable/patient-facing path -- a doctor taken off
+    the schedule shouldn't still be able to log in and touch data)."""
+    session = get_session()
+    row = session.execute(
+        select(
+            DoctorRow.id, DoctorRow.hospital_id, DoctorRow.name,
+            DoctorRow.email, DoctorRow.password_hash,
+        ).where(DoctorRow.email == email, DoctorRow.is_active.is_(True))
+    ).first()
+    return dict(row._mapping) if row is not None else None
 
 
 def update_doctor(
