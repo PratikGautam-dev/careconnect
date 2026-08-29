@@ -1,4 +1,4 @@
-# db/init_db.py
+
 """
 Creates the schema (SPEC Section 4 -- see db/migrations/versions/
 0001_baseline_schema.py's frozen SQL, or db/schema.sql for the same content
