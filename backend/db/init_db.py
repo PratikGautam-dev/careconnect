@@ -368,7 +368,7 @@ def _backfill_reports_prescriptions_feature(conn) -> None:
     anything else -- and is naturally idempotent, since the WHERE clause
     finds nothing left to touch on a second run once every hospital's
     already been converted."""
-    # %% (not %) -- db/connection.py's execute() always passes a params
+    #  (not %) -- db/connection.py's execute() always passes a params
     # tuple to psycopg2, which treats a bare % in the query as the start of
     # its own substitution syntax even with nothing to substitute.
     conn.execute(
@@ -566,7 +566,14 @@ def init_db_on_connection(conn) -> int:
     conn.execute(
         "INSERT INTO platform_settings (id, max_active_patient_links) VALUES (1, ?) "
         "ON CONFLICT (id) DO NOTHING",
-        (DEFAULT_MAX_ACTIVE_PATIENT_LINKS,),
+        (DEFAULT_MAX_ACTIVE_PATIENT_LINKS,)
+    )
+    # Migration 0010: doctors.email/password_hash -- dedicated doctor login,
+    # additive/nullable, admin-issued via portal/routes/doctors.py.
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS email TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS password_hash TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_doctors_email ON doctors(email) WHERE email IS NOT NULL"
     )
     conn.commit()
     _settings = get_settings()

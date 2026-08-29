@@ -3,6 +3,7 @@ import hashlib
 from fastapi.responses import JSONResponse
 
 import db.repository as db
+from auth.doctor_session import verify_doctor_session
 from auth.session import _verify_session
 from portal.capabilities import get_capabilities, has_capability
 
@@ -32,6 +33,33 @@ def _authenticate(authorization: str | None):
     if hospital_id is None:
         return None
     return db.get_hospital(hospital_id)
+
+
+def _authenticate_doctor(authorization: str | None):
+    """Returns (Hospital, doctor_id) for a valid doctor-scoped 'Bearer
+    <token>' header, or None. Deliberately separate from `_authenticate`
+    above, not a variant of it -- a doctor token and a shared-staff-portal
+    token are signed with different secrets (auth/doctor_session.py's own
+    module docstring) and are never interchangeable, so this can't
+    accidentally accept a staff token or vice versa.
+
+    Every route in portal/routes/doctor_portal.py calls this, and reads
+    doctor_id ONLY from its return value, never from a path/query/body
+    parameter -- that's what makes it structurally impossible for a doctor's
+    own valid token to be used to ask for a DIFFERENT doctor's data at the
+    same hospital (the isolation gap the shared staff portal has today,
+    since it has no doctor-scoped concept at all)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    verified = verify_doctor_session(token)
+    if verified is None:
+        return None
+    hospital_id, doctor_id = verified
+    hospital = db.get_hospital(hospital_id)
+    if hospital is None:
+        return None
+    return hospital, doctor_id
 
 
 def require_capability(hospital, capability: str) -> JSONResponse | None:
