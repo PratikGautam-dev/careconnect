@@ -71,6 +71,7 @@ from core.translations.patient_identity import (
     DUPLICATE_SELF_LINK,
     MANAGE_PATIENTS_SHORT,
     MULTI_PATIENT_SELECTOR_PROMPT,
+    PATIENT_ALREADY_LINKED,
     PATIENT_CODE_LABEL,
     PATIENT_HEADER_LABEL,
     PATIENT_SELECTOR_BUTTON,
@@ -255,9 +256,11 @@ def _parse_unlink_row_id(row_id: str) -> int | None:
 
 
 def _patient_row_title(patient: dict) -> str:
-    """Row title for a patient list -- name, plus " — <relationship>" if set."""
-    label = patient.get("relationship_label")
-    return f"{patient['name']} — {label}" if label else patient["name"]
+    """Row title for a patient list -- just the name. relationship_label
+    ("Self"/"Other") is an internal bookkeeping value (drives the
+    one-Self-per-account rule and the contact-number question), never shown
+    to the patient -- confirmed with the user."""
+    return patient["name"]
 
 
 # --- Conversation states ("IDENTITY_" prefixed to stay distinct from
@@ -574,9 +577,14 @@ async def _handle_awaiting_patient_gender(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Accepts a gender choice, then either surfaces a duplicate-patient
-    match (exact name + age, among this hospital's active patients) for the
-    user to resolve, or creates the profile directly if there's no match.
-    Re-prompts on an unrecognized tap; BACK returns to the age question."""
+    match (exact name + contact phone, among this hospital's active
+    patients) for the user to resolve, creates the profile directly if
+    there's no match, or -- if the match is already actively linked to THIS
+    phone -- tells the user plainly and creates nothing (re-adding the same
+    name+contact you already have would otherwise silently create a genuine
+    duplicate `patients` row every time; see
+    find_potential_duplicate_patient()'s own docstring). Re-prompts on an
+    unrecognized tap; BACK returns to the age question."""
     if reply["type"] == "interactive_reply" and reply["id"] == BACK_ID:
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context, language=language)
         await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("pending_name", "")))
@@ -590,8 +598,16 @@ async def _handle_awaiting_patient_gender(
 
     new_context = {**context, "pending_gender": gender}
     match = connector.find_potential_duplicate_patient(
-        hospital_id, phone, new_context["pending_name"], new_context["pending_contact_phone"],
+        hospital_id, new_context["pending_name"], new_context["pending_contact_phone"],
     )
+    if match is not None and connector.validate_active_patient_link(hospital_id, phone, match["id"]):
+        identity_flow_next = context.get("identity_flow_next", "resolve")
+        await wa.send_text(phone, t(PATIENT_ALREADY_LINKED, language, name=match["name"]))
+        if identity_flow_next == "manage_patients":
+            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+        else:
+            sessions.reset(hospital_id, phone)
+        return
     if match is not None:
         new_context["duplicate_patient_id"] = match["id"]
         new_context["duplicate_patient_name"] = match["name"]

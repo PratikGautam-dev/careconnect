@@ -26,6 +26,7 @@ ADD_PATIENT_OPTION = "add_patient_option"
 ALL_PATIENTS_OPTION = "all_patients_option"
 TOO_MANY_LINKED_PATIENTS = "too_many_linked_patients"
 DUPLICATE_SELF_LINK = "duplicate_self_link"
+PATIENT_ALREADY_LINKED = "patient_already_linked"
 PATIENT_HEADER_LABEL = "patient_header_label"
 PATIENT_CODE_LABEL = "patient_code_label"
 PATIENT_SELECTOR_PROMPT = "patient_selector_prompt"
@@ -99,6 +100,15 @@ STRINGS: dict[str, dict[Language, str]] = {
     DUPLICATE_SELF_LINK: {
         "en": "You already have a \"Myself\" profile linked at this hospital. Please try again to add someone else.",
         "hi": "इस अस्पताल में आपकी \"मैं खुद\" प्रोफ़ाइल पहले से ही जुड़ी हुई है। कृपया किसी और को जोड़ने के लिए फिर से प्रयास करें।",
+    },
+    # find_potential_duplicate_patient() matched an existing patient that's
+    # ALREADY actively linked to this same phone -- re-adding them (same
+    # name+contact) would either violate patient_links' own uniqueness
+    # constraint (Link Existing) or silently create a genuine duplicate
+    # `patients` row (Different Patient), so neither choice is offered here.
+    PATIENT_ALREADY_LINKED: {
+        "en": "{name} is already in your patient list at this hospital -- no need to add them again.",
+        "hi": "{name} इस अस्पताल में आपकी मरीज़ सूची में पहले से मौजूद हैं -- उन्हें दोबारा जोड़ने की ज़रूरत नहीं है।",
     },
 
     # CareConnect architecture doc alignment (Spec.md Section 0): resolution

@@ -367,37 +367,36 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     )
 
 
-def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, contact_phone: str) -> dict | None:
+def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone: str) -> dict | None:
     """CareConnect architecture doc alignment (Spec.md Section 0), Sections
     8-10: searched BEFORE create_patient_profile() creates a brand-new
     `patients` row/MRN, so a family member who already has a hospital
-    record (e.g. from a staff-created booking, or a different WhatsApp
-    number) isn't silently duplicated. Matching criteria (confirmed with the
-    user): exact name (case/whitespace-insensitive) AND exact contact phone
-    number (patients.phone -- the patient's OWN number: the messaging phone
-    for "Myself", the collected number for "Someone Else", see
+    record (e.g. from a staff-created booking, a different WhatsApp number,
+    or the SAME phone re-adding someone already in their own list) isn't
+    silently duplicated. Matching criteria (confirmed with the user): exact
+    name (case/whitespace-insensitive) AND exact contact phone number
+    (patients.phone -- the patient's OWN number: the messaging phone for
+    "Myself", the collected number for "Someone Else", see
     create_patient_profile()'s contact_phone param), among this hospital's
-    ACTIVE patients -- age is no longer part of the match. `phone` here is
-    the MESSAGING phone (may differ from contact_phone for "Someone Else"),
-    used only to exclude a patient already actively linked to THIS
-    conversation -- if they're already linked, they'd show up in the family
-    list directly, not through this duplicate-detection path at all.
+    ACTIVE patients -- age is no longer part of the match.
+
+    Deliberately does NOT exclude a patient already linked to the caller's
+    own phone (an earlier version of this function did, via a
+    "not already actively linked to this phone" clause) -- that exclusion
+    let the exact same name+contact be re-added from the same phone
+    indefinitely, silently creating a genuine duplicate `patients` row every
+    time, since the real existing record was filtered out of its own
+    duplicate search. The caller (flows/patient_identity.py) now checks
+    validate_active_patient_link() itself on the returned match to tell
+    "already yours" apart from "exists elsewhere" and respond accordingly.
     Returns the first match (deterministic: lowest patient id) or None."""
     session = get_session()
-    active_link_exists = (
-        select(PatientLink.id)
-        .where(
-            PatientLink.patient_id == PatientRow.id, PatientLink.hospital_id == hospital_id,
-            PatientLink.whatsapp_phone == phone, PatientLink.unlinked_at.is_(None),
-        )
-        .exists()
-    )
     row = session.execute(
         select(PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id)
         .where(
             PatientRow.hospital_id == hospital_id, PatientRow.status == "active",
             func.lower(func.trim(PatientRow.name)) == func.lower(func.trim(name)),
-            PatientRow.phone == contact_phone, ~active_link_exists,
+            PatientRow.phone == contact_phone,
         )
         .order_by(PatientRow.id)
         .limit(1)
