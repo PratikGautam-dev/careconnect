@@ -34,8 +34,13 @@ NO_DOCTORS_AVAILABLE = "no_doctors_available"
 NO_SLOTS_AVAILABLE = "no_slots_available"
 SLOT_TAKEN_NO_ALTERNATIVES = "slot_taken_no_alternatives"
 SLOT_TAKEN_CHOOSE_ANOTHER = "slot_taken_choose_another"
+ASK_BOOKING_FOR = "ask_booking_for"
+BOOKING_FOR_SELF_BUTTON = "booking_for_self_button"
+BOOKING_FOR_OTHER_BUTTON = "booking_for_other_button"
 ASK_PATIENT_NAME = "ask_patient_name"
 INVALID_PATIENT_NAME = "invalid_patient_name"
+ASK_PATIENT_CONTACT_NUMBER = "ask_patient_contact_number"
+INVALID_PATIENT_CONTACT_NUMBER = "invalid_patient_contact_number"
 ASK_PATIENT_AGE = "ask_patient_age"
 INVALID_PATIENT_AGE = "invalid_patient_age"
 ASK_PATIENT_GENDER = "ask_patient_gender"
@@ -168,6 +173,12 @@ STRINGS: dict[str, dict[Language, str]] = {
     # accurate when this was the LAST step before confirmation -- now that
     # name/age is asked FIRST (before department selection), that framing
     # was actively misleading, caught live and dropped.
+    ASK_BOOKING_FOR: {
+        "en": "Are you registering yourself, or someone else?",
+        "hi": "क्या आप अपना पंजीकरण कर रहे हैं, या किसी और का?",
+    },
+    BOOKING_FOR_SELF_BUTTON: {"en": "Myself", "hi": "मैं खुद"},
+    BOOKING_FOR_OTHER_BUTTON: {"en": "Someone Else", "hi": "कोई और"},
     ASK_PATIENT_NAME: {
         "en": "Please type the patient's full name in the chat box below and send it:",
         "hi": "कृपया चैट बॉक्स में मरीज़ का पूरा नाम टाइप करें और भेजें:",
@@ -175,6 +186,14 @@ STRINGS: dict[str, dict[Language, str]] = {
     INVALID_PATIENT_NAME: {
         "en": "Please enter a valid name using letters only (4–50 characters).",
         "hi": "कृपया केवल अक्षरों का उपयोग करके एक मान्य नाम दर्ज करें (4–50 अक्षर)।",
+    },
+    ASK_PATIENT_CONTACT_NUMBER: {
+        "en": "Please share {patient_name}'s 10-digit contact number:",
+        "hi": "कृपया {patient_name} का 10 अंकों का संपर्क नंबर बताएं:",
+    },
+    INVALID_PATIENT_CONTACT_NUMBER: {
+        "en": "Please enter a valid 10-digit contact number, digits only.",
+        "hi": "कृपया केवल अंकों में एक मान्य 10 अंकों का संपर्क नंबर दर्ज करें।",
     },
     ASK_PATIENT_AGE: {
         "en": "Please share the patient's age:",

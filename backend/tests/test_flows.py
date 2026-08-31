@@ -129,16 +129,19 @@ class FakeConnector:
     def list_active_patients(self, hospital_id, phone):
         return self._patients
 
-    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None):
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None, contact_phone=None):
         next_id = (max((p["id"] for p in self._patients), default=0)) + 1
         patient = {
             "id": next_id, "name": name, "age": age, "gender": gender, "relationship_label": relationship_label,
-            "patient_display_id": f"PAT-TEST-{next_id:04d}",
+            "patient_display_id": f"PAT-TEST-{next_id:04d}", "contact_phone": contact_phone or phone,
         }
         self._patients.append(patient)
         return patient
 
-    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
+    def has_self_linked_patient(self, hospital_id, care_connect_account_id):
+        return any(p.get("relationship_label") == "Self" for p in self._patients)
+
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, contact_phone):
         return None
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
@@ -778,6 +781,10 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     # after language selection, not after tapping "Book Appointment".
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"])
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_BOOKING_FOR
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_SELF_ID), connector=connector, enabled_features=["booking"],
+    )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
     kind, kwargs = wa.sent[-1]
     assert kwargs["text"] == translate(ASK_PATIENT_NAME, "hi")

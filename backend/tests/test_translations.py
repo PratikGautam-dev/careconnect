@@ -63,6 +63,7 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         # Patient identity SEPARATION (Spec.md Section 0): list "button_text"
         # labels share the same 20-char limit as interactive buttons.
         "patient_selector_button", "manage_patients_button",
+        "booking_for_self_button", "booking_for_other_button",
         # CareConnect architecture doc alignment (Spec.md Section 0): row
         # AND button dual-use keys (manage_patients_short, back_to_menu_option)
         # checked against the stricter 20-char button limit, which also
