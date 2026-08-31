@@ -43,6 +43,13 @@ def text_reply(text):
     return {"type": "text", "text": text}
 
 
+def _last_list(wa):
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "list":
+            return kwargs
+    raise AssertionError("no list message was sent")
+
+
 def _sessions_en(hospital_id, phone=PHONE):
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, phone, "IDLE", {}, language="en")
@@ -168,13 +175,70 @@ def test_duplicate_detection_matches_on_name_and_contact_phone_not_age(hospital_
     db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self")
 
     # Same name, same contact phone, DIFFERENT age -- still a match.
-    match = db.find_potential_duplicate_patient(hospital_id, "some-other-messaging-phone", "Asha Rao", "5490009999")
+    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999")
     assert match is not None
     assert match["name"] == "Asha Rao"
 
     # Same name, same age, DIFFERENT contact phone -- no longer a match.
-    no_match = db.find_potential_duplicate_patient(hospital_id, "some-other-messaging-phone", "Asha Rao", "1112223333")
+    no_match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333")
     assert no_match is None
+
+
+@pytest.mark.asyncio
+async def test_readding_the_same_name_and_contact_from_your_own_phone_is_blocked_not_duplicated(hospital_id):
+    """Bug: find_potential_duplicate_patient() used to exclude a patient
+    already linked to the caller's own phone from its OWN duplicate search,
+    so re-typing the exact same name+contact number from the SAME WhatsApp
+    conversation silently created a brand-new, genuinely duplicate `patients`
+    row every time (reported live: "Chandu" with the same 10-digit number
+    added twice). Now the match still fires -- and since it's already
+    linked to this phone, no new profile is created and no Link/Different
+    choice is offered (Link would violate patient_links' own uniqueness
+    constraint; Different would recreate the exact bug)."""
+    connector = flows._DEFAULT_CONNECTOR
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await _register_via_chat(
+        wa, sessions, hospital_id, connector, PHONE, patient_identity.BOOKING_FOR_OTHER_ID, "Chandu",
+        contact_number="6200876670",
+    )
+    linked = connector.list_active_patients(hospital_id, PHONE)
+    assert len(linked) == 1
+
+    # Attempt to add "Chandu" / same contact number AGAIN, from the same
+    # phone, via Manage Patients.
+    sessions.reset(hospital_id, PHONE)
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("Chandu"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("6200876670"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("30"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+
+    # No second "Chandu" profile was created, and no Link/Different choice
+    # was ever offered for it.
+    linked = connector.list_active_patients(hospital_id, PHONE)
+    assert len(linked) == 1
+    assert not any(
+        kind == "buttons" and patient_identity.DUPLICATE_LINK_ID in {b["id"] for b in kwargs["buttons"]}
+        for kind, kwargs in wa.sent
+    )
+    assert any(kind == "text" and "Chandu" in kwargs["text"] for kind, kwargs in wa.sent)
 
 
 def test_has_self_linked_patient_and_the_hard_advisory_locked_guard(hospital_id):
@@ -209,3 +273,42 @@ def test_portal_visit_stats_are_correct_for_a_someone_else_patient_booked_under_
     listed = {p["id"]: p for p in db.list_patients(hospital_id)}[patient["id"]]
     assert listed["visit_count"] == 1
     assert listed["last_visit"] == appt.scheduled_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_patient_list_never_shows_the_self_or_other_relationship_label(hospital_id):
+    """relationship_label ("Self"/"Other") is internal bookkeeping -- it
+    drives the one-Myself-per-account rule and the contact-number question,
+    but must never appear in a patient-facing list row (confirmed with the
+    user)."""
+    connector = flows._DEFAULT_CONNECTOR
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    await _register_via_chat(wa, sessions, hospital_id, connector, PHONE, patient_identity.BOOKING_FOR_SELF_ID, "Chandan")
+    sessions.reset(hospital_id, PHONE)
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("Chandu"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("6200876670"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("30"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+
+    kwargs = _last_list(wa)
+    titles = [row["title"] for section in kwargs["sections"] for row in section["rows"]]
+    assert "Chandan" in titles
+    assert "Chandu" in titles
+    assert not any("Self" in title or "Other" in title for title in titles)
