@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.env
+.env
+.env.production
+.env.*.local
+*.log
+.pytest_cache/
+*.db
+pgdata/
+local_storage/
+pgcli.py
