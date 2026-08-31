@@ -1,5 +1,22 @@
-const TOKEN_KEY = "portal_token";
-const HOSPITAL_KEY = "portal_hospital";
+// Compatibility layer over staffAuth.ts (docs/rbac-redis-plan.md) -- every
+// portal page/component below was written against this file's original
+// shared-hospital-password session (portal_token/portal_hospital in
+// localStorage). Rather than touching every one of those call sites,
+// getPortalToken/getPortalHospital/portalFetch/clearPortalSession now just
+// delegate to the staff session (staffAuth.ts) underneath -- same
+// "preserve the interface, change what's underneath" discipline the
+// backend's db/repositories/*.py already applies throughout this rework.
+// This is what makes staff login (and Google sign-in, since
+// auth/google_oauth.py's callback issues a staff session too) actually
+// take effect on dashboard/appointments/messages/settings/doctors/etc.,
+// which all guard themselves via usePortalGuard() -> getPortalToken() ->
+// here.
+import {
+  clearStaffSession,
+  getStaffAccessToken,
+  getStaffSession,
+  staffFetch,
+} from "@/lib/staffAuth";
 
 export type PortalHospital = {
   id: number;
@@ -10,54 +27,20 @@ export type PortalHospital = {
   admin_capabilities: string[];
 };
 
-export function savePortalSession(token: string, hospital: PortalHospital) {
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(HOSPITAL_KEY, JSON.stringify(hospital));
-}
-
 export function getPortalToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return getStaffAccessToken();
 }
 
 export function getPortalHospital(): PortalHospital | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(HOSPITAL_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return getStaffSession()?.hospital ?? null;
 }
 
 export function clearPortalSession() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(HOSPITAL_KEY);
+  clearStaffSession();
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-/** fetch() wrapper that attaches the portal Bearer token and treats a 401 as
- * a signal to clear the stale session -- callers redirect to /portal/login
- * on `unauthorized`, same as portal.py's own _current_hospital() returning
- * None sends the server-rendered version back to the login page. */
-export async function portalFetch(path: string, init?: RequestInit): Promise<
-  { ok: true; data: unknown } | { ok: false; unauthorized: true } | { ok: false; unauthorized: false; error: string }
-> {
-  const token = getPortalToken();
-  if (!token) return { ok: false, unauthorized: true };
-
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: { ...(init?.headers || {}), Authorization: `Bearer ${token}` },
-  });
-
-  if (res.status === 401) {
-    clearPortalSession();
-    return { ok: false, unauthorized: true };
-  }
-  const data = await res.json();
-  if (!res.ok) return { ok: false, unauthorized: false, error: data.error || "Something went wrong." };
-  return { ok: true, data };
-}
+// Same FetchResult shape staffFetch already returns -- a straight
+// delegation, not a reimplementation, so callers also pick up staffFetch's
+// silent-refresh-on-401 behavior (an improvement over this file's old bare
+// "401 -> logout", not a regression).
+export const portalFetch = staffFetch;

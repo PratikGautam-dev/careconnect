@@ -568,6 +568,14 @@ def init_db_on_connection(conn) -> int:
         "ON CONFLICT (id) DO NOTHING",
         (DEFAULT_MAX_ACTIVE_PATIENT_LINKS,)
     )
+    # Migration 0014: feature_labels/dpdp_consent_required move from a
+    # per-hospital column to this ONE global row (db/repositories/
+    # platform_settings.py's own docstring) -- additive, defaults keep every
+    # existing deployment's menu labels blank / DPDP gate off until a
+    # platform admin sets them via /api/admin/platform-settings.
+    conn.execute("ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS feature_labels TEXT")
+    conn.execute("ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS dpdp_consent_required BOOLEAN NOT NULL DEFAULT FALSE")
+    conn.execute("UPDATE platform_settings SET feature_labels = '{}' WHERE feature_labels IS NULL")
     # Migration 0010: doctors.email/password_hash -- dedicated doctor login,
     # additive/nullable, admin-issued via portal/routes/doctors.py.
     conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS email TEXT")
@@ -575,6 +583,202 @@ def init_db_on_connection(conn) -> int:
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_doctors_email ON doctors(email) WHERE email IS NOT NULL"
     )
+    # Migration 0013: staff_users/role_permissions/super_admins -- RBAC +
+    # Redis (docs/rbac-redis-plan.md). New tables only, doctors.email/
+    # password_hash and hospitals.portal_password_hash stay untouched here
+    # (dropped only in a later cleanup migration, once every doctor/hospital
+    # has a staff_users row) -- see db/schema.sql's own comment on these
+    # three tables for the full reasoning.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS staff_users ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')), "
+        "email TEXT NOT NULL, "
+        "password_hash TEXT NOT NULL, "
+        "name TEXT NOT NULL, "
+        "doctor_id TEXT REFERENCES doctors(id), "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "token_version INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL DEFAULT (now()::text), "
+        "updated_at TEXT NOT NULL DEFAULT (now()::text)"
+        ")"
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_users_email ON staff_users(lower(email))")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_users_doctor_id ON staff_users(doctor_id) "
+        "WHERE doctor_id IS NOT NULL"
+    )
+    conn.execute("ALTER TABLE staff_users DROP CONSTRAINT IF EXISTS ck_staff_users_doctor_role_pairing")
+    conn.execute(
+        "ALTER TABLE staff_users ADD CONSTRAINT ck_staff_users_doctor_role_pairing "
+        "CHECK ((role = 'doctor') = (doctor_id IS NOT NULL))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS role_permissions ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')), "
+        "page_key TEXT NOT NULL, "
+        "can_view BOOLEAN NOT NULL DEFAULT FALSE, "
+        "can_write BOOLEAN NOT NULL DEFAULT FALSE, "
+        "can_delete BOOLEAN NOT NULL DEFAULT FALSE, "
+        "UNIQUE(hospital_id, role, page_key)"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_role_permissions_hospital_role ON role_permissions(hospital_id, role)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS super_admins ("
+        "id SERIAL PRIMARY KEY, "
+        "email TEXT NOT NULL UNIQUE, "
+        "password_hash TEXT NOT NULL, "
+        "name TEXT NOT NULL, "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "token_version INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL DEFAULT (now()::text)"
+        ")"
+    )
+    # Migration 0016: identities -- one shared identity/credential table for
+    # every principal (see db/migrations/versions/0016_identities_merge.py's
+    # own docstring). users/staff_users/super_admins/hospital_users above are
+    # untouched, never dropped -- this block only adds the new tables and
+    # backfills them; db/repositories/{users,staff_users,super_admins}.py now
+    # read/write these instead.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS identities ("
+        "id SERIAL PRIMARY KEY, "
+        "email TEXT NOT NULL, "
+        "name TEXT, "
+        "google_id TEXT, "
+        "password_hash TEXT, "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "token_version INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL DEFAULT (now()::text), "
+        "updated_at TEXT"
+        ")"
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_identities_email ON identities(lower(email))")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_identities_google_id ON identities(google_id) "
+        "WHERE google_id IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS staff_details ("
+        "identity_id INTEGER PRIMARY KEY REFERENCES identities(id), "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')), "
+        "doctor_id TEXT REFERENCES doctors(id)"
+        ")"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_details_doctor_id ON staff_details(doctor_id) "
+        "WHERE doctor_id IS NOT NULL"
+    )
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_doctor_role_pairing")
+    conn.execute(
+        "ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_doctor_role_pairing "
+        "CHECK ((role = 'doctor') = (doctor_id IS NOT NULL))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS super_admin_details ("
+        "identity_id INTEGER PRIMARY KEY REFERENCES identities(id)"
+        ")"
+    )
+    # Transitional only (migration 0018 drops this further down): still
+    # created here, on every boot, purely so the backfill below has
+    # somewhere to land hospital_users/users data (or, on an existing
+    # database, so any hospital_owners rows from before 0018 are read
+    # rather than erroring) before everything is merged into staff_details
+    # and this table is dropped again in the same call.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS hospital_owners ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "identity_id INTEGER NOT NULL REFERENCES identities(id), "
+        "role TEXT NOT NULL DEFAULT 'owner', "
+        "created_at TEXT NOT NULL DEFAULT (now()::text), "
+        "UNIQUE(hospital_id, identity_id)"
+        ")"
+    )
+    conn.commit()
+    # Backfill -- idempotent (every INSERT is ON CONFLICT DO NOTHING/DO
+    # UPDATE), safe to re-run on every startup. Order matters: users (OAuth)
+    # first via DO NOTHING so it never clobbers a password identity; see
+    # 0016_identities_merge.py's docstring for the full merge-by-email
+    # reasoning this mirrors exactly.
+    conn.execute(
+        "INSERT INTO identities (email, name, google_id, created_at) "
+        "SELECT email, name, google_id, created_at FROM users "
+        "ON CONFLICT (lower(email)) DO NOTHING"
+    )
+    conn.execute(
+        "INSERT INTO identities (email, name, password_hash, is_active, token_version, created_at) "
+        "SELECT email, name, password_hash, is_active, token_version, created_at FROM staff_users "
+        "ON CONFLICT (lower(email)) DO UPDATE SET "
+        "password_hash = EXCLUDED.password_hash, is_active = EXCLUDED.is_active, "
+        "token_version = EXCLUDED.token_version"
+    )
+    conn.execute(
+        "INSERT INTO staff_details (identity_id, hospital_id, role, doctor_id) "
+        "SELECT i.id, s.hospital_id, s.role, s.doctor_id "
+        "FROM staff_users s JOIN identities i ON lower(i.email) = lower(s.email) "
+        "ON CONFLICT (identity_id) DO NOTHING"
+    )
+    conn.execute(
+        "INSERT INTO identities (email, name, password_hash, is_active, token_version, created_at) "
+        "SELECT email, name, password_hash, is_active, token_version, created_at FROM super_admins "
+        "ON CONFLICT (lower(email)) DO UPDATE SET "
+        "password_hash = EXCLUDED.password_hash, is_active = EXCLUDED.is_active, "
+        "token_version = EXCLUDED.token_version"
+    )
+    conn.execute(
+        "INSERT INTO super_admin_details (identity_id) "
+        "SELECT i.id FROM super_admins sa JOIN identities i ON lower(i.email) = lower(sa.email) "
+        "ON CONFLICT (identity_id) DO NOTHING"
+    )
+    conn.execute(
+        "INSERT INTO hospital_owners (hospital_id, identity_id, role, created_at) "
+        "SELECT hu.hospital_id, i.id, hu.role, hu.created_at "
+        "FROM hospital_users hu "
+        "JOIN users u ON u.id = hu.user_id "
+        "JOIN identities i ON lower(i.email) = lower(u.email) "
+        "ON CONFLICT (hospital_id, identity_id) DO NOTHING"
+    )
+    # Migration 0018: hospital_owners folded into staff_details (role='admin')
+    # -- confirmed with the user, the M:M ownership shape was never actually
+    # used (no identity owns more than one hospital in practice), and a
+    # hospital's role vocabulary stays exactly admin/receptionist/doctor, no
+    # separate 'owner' role. Runs after the hospital_owners backfill above
+    # (so any live data already in hospital_owners on an existing database
+    # is captured) and before that table is dropped below.
+    conn.execute(
+        "INSERT INTO staff_details (identity_id, hospital_id, role, doctor_id) "
+        "SELECT identity_id, hospital_id, 'admin', NULL FROM hospital_owners "
+        "ON CONFLICT (identity_id) DO NOTHING"
+    )
+    conn.commit()
+    # Migration 0017: the backfill above is done with these tables --
+    # confirmed with the user, drop them now that every row lives in
+    # identities/staff_details/super_admin_details. hospital_users first (its
+    # user_id FK references users). On a database that already dropped these
+    # (every startup after the first), each is a no-op via IF EXISTS.
+    # _baseline_schema._BASELINE_SQL above still recreates users/hospital_users
+    # on every startup (it's a frozen, unedited historical migration -- see
+    # its own docstring) -- these DROPs are what actually keeps them gone.
+    conn.execute("DROP TABLE IF EXISTS hospital_users")
+    conn.execute("DROP TABLE IF EXISTS users")
+    conn.execute("DROP TABLE IF EXISTS staff_users")
+    conn.execute("DROP TABLE IF EXISTS super_admins")
+    # Migration 0018: hospital_owners itself, now that its rows live in
+    # staff_details (see the backfill just above).
+    conn.execute("DROP TABLE IF EXISTS hospital_owners")
+    # Migration 0015: appointment_types.is_allowed -- platform-admin whitelist
+    # (edit-tenant page), independent of the tenant-controlled is_active
+    # toggle. Defaults TRUE so no already-onboarded tenant loses access to
+    # anything it could already use.
+    conn.execute("ALTER TABLE appointment_types ADD COLUMN IF NOT EXISTS is_allowed BOOLEAN NOT NULL DEFAULT TRUE")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

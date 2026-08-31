@@ -15,11 +15,13 @@ from pydantic import BaseModel, Field
 
 import db.repository as db
 import flows
-from admin.onboarding import _VALID_TIERS, check_admin_secret
+from admin.onboarding import _VALID_TIERS
 from admin.validation import _parse_offsets, _validate_doctor_fields
 from db.connection import IntegrityError
 from auth.google_oauth import authenticate_user
 from portal.capabilities import DEFAULT_CAPABILITIES_BY_TYPE, resolve_default_capabilities
+from portal.deps import get_current_super_admin
+from portal.permissions import DEFAULT_PERMISSIONS_BY_ROLE, resolve_default_permissions
 
 _VALID_TENANT_TYPES = set(DEFAULT_CAPABILITIES_BY_TYPE.keys())
 
@@ -54,7 +56,21 @@ class TopicIn(BaseModel):
 
 
 class OnboardingSubmission(BaseModel):
-    admin_secret: str = ""
+    # RBAC (docs/rbac-redis-plan.md): replaces the old shared ADMIN_SECRET
+    # check -- this is a super_admins JWT (from POST /api/admin/super/login),
+    # verified via get_current_super_admin() below. Carried in the request
+    # BODY rather than the Authorization header (unlike every other
+    # get_current_super_admin() call site in this codebase) because this
+    # endpoint's Authorization header is already spoken for by
+    # authenticate_user() below -- the separate Google-account identity used
+    # to link the new hospital's owner (hospital_users), a completely
+    # different concern from "is this caller allowed to onboard a hospital
+    # at all." One header can't carry two independent Bearer credentials at
+    # once, so the super-admin token travels in the body here instead; every
+    # OTHER super-admin-gated route (admin/tenants_api.py,
+    # admin/platform_settings_api.py) has no such conflict and uses the
+    # header normally.
+    super_admin_token: str = ""
     name: str = ""
     whatsapp_phone_number_id: str = ""
     access_token: str = ""
@@ -63,6 +79,12 @@ class OnboardingSubmission(BaseModel):
     reminder_offsets_hours: str = "24"
     reminder_template_name: str = ""
     portal_password: str = ""
+    # RBAC: the new hospital's first staff_users admin row -- replaces
+    # portal_password as the actual login going forward (portal_password is
+    # still accepted/stored above during the migration window, per the
+    # plan's dual-path rollout, but a NEW hospital's real login is this).
+    admin_email: str = ""
+    admin_password: str = ""
     enabled_features: list[str] = Field(default_factory=list)
     data_tier: str = "tier1"
     api_base_url: str = ""
@@ -140,26 +162,38 @@ def _validate_topics(topics: list[TopicIn]) -> tuple[list[dict], list[str]]:
 async def submit_onboarding(
     payload: OnboardingSubmission, request: Request, authorization: str | None = Header(default=None)
 ):
-    # Section 15: two independent gates, not one replacing the other --
-    # ADMIN_SECRET stays required deliberately (this product isn't open to
-    # public self-serve signup yet, only the two tenants actually running
-    # today), while Google sign-in adds the real per-user identity that
-    # ADMIN_SECRET alone never gave us (every prior onboarding was
-    # anonymous past this one shared secret). Once public signup is ready,
-    # this admin_secret check is the one line to remove.
+    # Section 15: two independent gates, not one replacing the other -- a
+    # super-admin identity stays required deliberately (this product isn't
+    # open to public self-serve signup yet, only the two tenants actually
+    # running today), while Google sign-in adds the real per-user identity
+    # that alone never gave us (every prior onboarding was anonymous past
+    # the old shared ADMIN_SECRET). Once public signup is ready, the
+    # super-admin check below is the one block to remove. RBAC
+    # (docs/rbac-redis-plan.md): the super-admin token travels in
+    # payload.super_admin_token, not this Authorization header -- see
+    # OnboardingSubmission's own field docstring for why.
     user = authenticate_user(authorization)
     if user is None:
         return JSONResponse({"errors": ["You must be signed in with Google to onboard a hospital."]}, status_code=401)
-    if not check_admin_secret(payload.admin_secret, request):
-        return JSONResponse({"errors": ["Incorrect admin secret."]}, status_code=403)
+    if get_current_super_admin(f"Bearer {payload.super_admin_token}") is None:
+        return JSONResponse({"errors": ["Not authenticated as a super admin."]}, status_code=403)
 
     name = payload.name.strip()
     whatsapp_phone_number_id = payload.whatsapp_phone_number_id.strip()
+    admin_email = payload.admin_email.strip()
     errors: list[str] = []
     if not name:
         errors.append("Hospital name is required.")
     if not whatsapp_phone_number_id:
         errors.append("WhatsApp phone_number_id is required.")
+    # RBAC: every new hospital gets its first staff_users admin row created
+    # right here (below) -- this is that person's real login, so it's
+    # required unconditionally, not gated on "booking" the way the legacy
+    # portal_password check further down still is.
+    if not admin_email or "@" not in admin_email:
+        errors.append("A valid admin email address is required.")
+    if not payload.admin_password.strip():
+        errors.append("An admin password is required.")
 
     unknown_features = [f for f in payload.enabled_features if f not in flows.ALL_FEATURES]
     if unknown_features:
@@ -182,8 +216,11 @@ async def submit_onboarding(
         errors.extend(dept_errors)
         if not departments:
             errors.append("At least one department with at least one doctor is required.")
-        if not payload.portal_password.strip():
-            errors.append("A bookings portal password is required.")
+        # RBAC (docs/rbac-redis-plan.md): a bookings portal password is no
+        # longer required here -- admin_email/admin_password (validated
+        # above) is this hospital's real login going forward. portal_password
+        # stays ACCEPTED (below) for anyone who still submits one, but a new
+        # hospital onboarded today never needs it.
     if "faq" in payload.enabled_features:
         errors.extend(topic_errors)
         if not topics:
@@ -226,6 +263,29 @@ async def submit_onboarding(
 
     db.link_hospital_owner(hospital.id, user.id)
 
+    # RBAC (docs/rbac-redis-plan.md): this hospital's first staff_users
+    # admin row + the default role_permissions matrix, seeded explicitly
+    # right here -- same "write it now, don't rely on a runtime fallback"
+    # discipline resolve_default_capabilities()/admin_capabilities already
+    # established just above. A brand-new hospital_id can never already have
+    # rows, so there's nothing to conflict with; create_staff_user()'s own
+    # IntegrityError path (a duplicate email) is intentionally NOT caught
+    # here -- it propagates as a 500, since a duplicate admin_email at this
+    # point (globally unique across every hospital, ux_staff_users_email)
+    # means someone already used this email as staff somewhere else, which
+    # this wizard's own field validation above doesn't check for and isn't
+    # expected to hit in practice (an operator-run onboarding flow, not
+    # self-serve signup).
+    db.create_staff_user(
+        hospital.id, role="admin", email=admin_email,
+        password_hash=db.hash_portal_password(payload.admin_password.strip()), name=f"{name} Admin",
+    )
+    db.seed_default_role_permissions(hospital.id, [
+        {"role": role, "page_key": page_key, "can_view": actions["view"], "can_write": actions["write"], "can_delete": actions["delete"]}
+        for role in DEFAULT_PERMISSIONS_BY_ROLE
+        for page_key, actions in resolve_default_permissions(role).items()
+    ])
+
     created_departments = []
     if "booking" in payload.enabled_features:
         for dept in departments:
@@ -261,6 +321,7 @@ async def submit_onboarding(
         "whatsapp_phone_number_id": hospital.whatsapp_phone_number_id,
         "data_tier": hospital.data_tier,
         "portal_password_set": bool(hospital.portal_password_hash),
+        "admin_email": admin_email,
         "departments": created_departments,
         "topics": created_topics,
         "warnings": dept_warnings,

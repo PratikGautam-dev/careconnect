@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AdminSecretGate } from "@/components/admin/AdminSecretGate";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 
 export const metadata: Metadata = {
@@ -7,8 +8,10 @@ export const metadata: Metadata = {
 
 export default function OnboardHospitalPage() {
   return (
-    <div className="min-h-screen bg-paper">
-      <OnboardingWizard />
-    </div>
+    <AdminSecretGate title="Super admin sign-in">
+      <div className="min-h-screen bg-paper">
+        <OnboardingWizard />
+      </div>
+    </AdminSecretGate>
   );
 }

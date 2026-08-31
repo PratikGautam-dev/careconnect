@@ -40,7 +40,10 @@ async def portal_set_appointment_type_active(
     if forbidden:
         return forbidden
     is_active = bool((payload or {}).get("is_active", True))
-    updated = db.set_appointment_type_active(hospital.id, appointment_type_id, is_active)
+    try:
+        updated = db.set_appointment_type_active(hospital.id, appointment_type_id, is_active)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     if updated is None:
         return JSONResponse({"error": "No such appointment type."}, status_code=404)
     db.record_audit_log(

@@ -17,6 +17,7 @@ import logging
 import os
 import time
 
+import db.repository as db
 from db.models import Hospital
 from connectors import get_connector_for_hospital
 import flows
@@ -129,9 +130,15 @@ async def _process_message(
     # main menu from hospital.enabled_features and internally delegates to
     # core/booking_flow.py's/faq_flow.py's own sub-flow logic once a feature
     # is selected.
+    # Migration 0014: feature_labels/dpdp_consent_required are now ONE
+    # platform-wide value (db/repositories/platform_settings.py), not a
+    # per-hospital column -- every tenant reads the same platform_settings
+    # row here instead of its own hospital.feature_labels/
+    # dpdp_consent_required.
+    platform_settings = db.get_platform_settings()
     await flows.handle_incoming(
         wa, SESSIONS, phone, hospital.id, reply, hospital.name, connector, hospital.enabled_features,
-        feature_labels=hospital.feature_labels,
+        feature_labels=platform_settings["feature_labels"],
         closing_message_text=hospital.closing_message_text,
         business_hours_text=hospital.business_hours_text,
         default_language=hospital.default_language,
@@ -141,6 +148,6 @@ async def _process_message(
         privacy_notice_text=hospital.privacy_notice_text,
         provider_user_id=provider_user_id,
         username=username,
-        dpdp_consent_required=hospital.dpdp_consent_required,
+        dpdp_consent_required=platform_settings["dpdp_consent_required"],
     )
     logger.info("Flow router returned for %s (hospital %s)", phone, hospital.id)

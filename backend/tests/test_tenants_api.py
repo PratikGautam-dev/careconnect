@@ -8,9 +8,10 @@ platform-admin UI. Ported rather than dropped: admin/tenants_api.py's
 update_tenant()/list_tenants() are the currently-live code these pages
 actually call.
 
-Gated by TENANTS_ADMIN_SECRET via an X-Admin-Secret header (not
-ADMIN_SECRET, not a Bearer token) -- deliberately a different secret from
-onboarding's, per this module's own docstring.
+RBAC (docs/rbac-redis-plan.md): gated by get_current_super_admin() -- a
+real super_admins account's JWT (the super_admin_headers fixture,
+tests/conftest.py), replacing the old TENANTS_ADMIN_SECRET/X-Admin-Secret
+header this file used before.
 """
 import os
 
@@ -26,27 +27,23 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)
 
-TENANTS_ADMIN_SECRET = "test-tenants-admin-secret"
-_HEADERS = {"X-Admin-Secret": TENANTS_ADMIN_SECRET}
-
-
-def test_list_tenants_requires_secret(hospital_id, second_hospital_id):
+def test_list_tenants_requires_secret(hospital_id, second_hospital_id, super_admin_headers):
     resp = client.get("/api/admin/tenants")
     assert resp.status_code == 401
 
-    resp = client.get("/api/admin/tenants", headers={"X-Admin-Secret": "wrong"})
+    resp = client.get("/api/admin/tenants", headers={"Authorization": "Bearer wrong-token"})
     assert resp.status_code == 401
 
 
-def test_list_tenants_shows_all_tenants(hospital_id, second_hospital_id):
-    resp = client.get("/api/admin/tenants", headers=_HEADERS)
+def test_list_tenants_shows_all_tenants(hospital_id, second_hospital_id, super_admin_headers):
+    resp = client.get("/api/admin/tenants", headers=super_admin_headers)
     assert resp.status_code == 200
     ids = {t["id"] for t in resp.json()["tenants"]}
     assert {hospital_id, second_hospital_id} <= ids
 
 
-def test_get_tenant_prefilled_with_masked_secrets(hospital_id):
-    resp = client.get(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS)
+def test_get_tenant_prefilled_with_masked_secrets(hospital_id, super_admin_headers):
+    resp = client.get(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers)
     assert resp.status_code == 200
     tenant = resp.json()["tenant"]
     assert tenant["id"] == hospital_id
@@ -54,14 +51,14 @@ def test_get_tenant_prefilled_with_masked_secrets(hospital_id):
     assert "••••" in tenant["access_token_masked"]
 
 
-def test_get_nonexistent_tenant_returns_404(hospital_id):
-    resp = client.get("/api/admin/tenants/999999", headers=_HEADERS)
+def test_get_nonexistent_tenant_returns_404(hospital_id, super_admin_headers):
+    resp = client.get("/api/admin/tenants/999999", headers=super_admin_headers)
     assert resp.status_code == 404
 
 
-def test_update_changes_the_correct_fields_and_keeps_blank_secret_unchanged(hospital_id):
+def test_update_changes_the_correct_fields_and_keeps_blank_secret_unchanged(hospital_id, super_admin_headers):
     original_app_secret = db.get_hospital(hospital_id).app_secret
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": "Renamed Hospital",
         "whatsapp_phone_number_id": "123",
         "access_token": "brand-new-token",
@@ -81,7 +78,7 @@ def test_update_changes_the_correct_fields_and_keeps_blank_secret_unchanged(hosp
     assert sorted(updated.reminder_offsets_hours) == [2, 48]
 
 
-def test_update_can_enable_a_new_feature_for_an_existing_tenant(hospital_id):
+def test_update_can_enable_a_new_feature_for_an_existing_tenant(hospital_id, super_admin_headers):
     """Feature-toggle follow-up (Spec.md Section 0): enabled_features was
     previously only ever set once, at onboarding, with no way anywhere in
     this app to turn a feature on for an already-onboarded tenant -- this
@@ -89,7 +86,7 @@ def test_update_can_enable_a_new_feature_for_an_existing_tenant(hospital_id):
     before = db.get_hospital(hospital_id)
     assert "manage_patients" not in before.enabled_features
 
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -102,7 +99,7 @@ def test_update_can_enable_a_new_feature_for_an_existing_tenant(hospital_id):
         assert key in updated.enabled_features
 
 
-def test_update_omitting_enabled_features_keeps_the_current_value(hospital_id):
+def test_update_omitting_enabled_features_keeps_the_current_value(hospital_id, super_admin_headers):
     """Same "blank/omitted means keep current" rule every other field on
     this endpoint already follows (blank token/secret/password) -- a
     request that doesn't mention enabled_features at all (any caller
@@ -110,7 +107,7 @@ def test_update_omitting_enabled_features_keeps_the_current_value(hospital_id):
     before = db.get_hospital(hospital_id)
     assert before.enabled_features  # the seeded hospital has some enabled
 
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -120,14 +117,14 @@ def test_update_omitting_enabled_features_keeps_the_current_value(hospital_id):
     assert sorted(updated.enabled_features) == sorted(before.enabled_features)
 
 
-def test_update_with_explicit_empty_enabled_features_disables_everything(hospital_id):
+def test_update_with_explicit_empty_enabled_features_disables_everything(hospital_id, super_admin_headers):
     """The other half of the same distinction: an explicit [] (every
     checkbox unticked in the UI) IS a deliberate "disable everything" and
     must be honored, not treated the same as "field not sent.\""""
     before = db.get_hospital(hospital_id)
     assert before.enabled_features
 
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -138,9 +135,9 @@ def test_update_with_explicit_empty_enabled_features_disables_everything(hospita
     assert updated.enabled_features == []
 
 
-def test_update_uniqueness_constraint_enforced_on_phone_number_id_change(hospital_id, second_hospital_id):
+def test_update_uniqueness_constraint_enforced_on_phone_number_id_change(hospital_id, second_hospital_id, super_admin_headers):
     hosp1_before = db.get_hospital(hospital_id)
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": hosp1_before.name,
         "whatsapp_phone_number_id": "TEST_HOSPITAL_2_PHONE_ID",  # already used by the other tenant
         "data_tier": "tier1",
@@ -151,8 +148,8 @@ def test_update_uniqueness_constraint_enforced_on_phone_number_id_change(hospita
     assert hosp1_after.whatsapp_phone_number_id == hosp1_before.whatsapp_phone_number_id
 
 
-def test_update_unchanged_phone_number_id_does_not_conflict_with_itself(hospital_id):
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_HEADERS, json={
+def test_update_unchanged_phone_number_id_does_not_conflict_with_itself(hospital_id, super_admin_headers):
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": "Still Works Hospital",
         "whatsapp_phone_number_id": "123",  # its own existing value, unchanged
         "data_tier": "tier1",
@@ -161,24 +158,24 @@ def test_update_unchanged_phone_number_id_does_not_conflict_with_itself(hospital
     assert db.get_hospital(hospital_id).name == "Still Works Hospital"
 
 
-def test_update_wrong_secret_rejected(hospital_id):
+def test_update_wrong_secret_rejected(hospital_id, super_admin_headers):
     hosp_before = db.get_hospital(hospital_id)
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers={"X-Admin-Secret": "wrong"}, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers={"Authorization": "Bearer wrong-token"}, json={
         "name": "Should Not Apply", "whatsapp_phone_number_id": "123", "data_tier": "tier1",
     })
     assert resp.status_code == 401
     assert db.get_hospital(hospital_id).name == hosp_before.name
 
 
-def test_update_nonexistent_tenant_returns_404(hospital_id):
-    resp = client.post("/api/admin/tenants/999999", headers=_HEADERS, json={
+def test_update_nonexistent_tenant_returns_404(hospital_id, super_admin_headers):
+    resp = client.post("/api/admin/tenants/999999", headers=super_admin_headers, json={
         "name": "Ghost", "whatsapp_phone_number_id": "ghost-id", "data_tier": "tier1",
     })
     assert resp.status_code == 404
 
 
-def test_assign_owner_by_email_creates_placeholder_user_and_links(hospital_id):
-    resp = client.post(f"/api/admin/tenants/{hospital_id}/assign-owner", headers=_HEADERS, json={
+def test_assign_owner_by_email_creates_placeholder_user_and_links(hospital_id, super_admin_headers):
+    resp = client.post(f"/api/admin/tenants/{hospital_id}/assign-owner", headers=super_admin_headers, json={
         "email": "owner@example.com",
     })
     assert resp.status_code == 200, resp.text
@@ -188,7 +185,7 @@ def test_assign_owner_by_email_creates_placeholder_user_and_links(hospital_id):
     assert owners[0].google_id is None  # placeholder -- backfilled on first real Google sign-in
 
     # Idempotent: assigning the same email again doesn't create a duplicate.
-    resp2 = client.post(f"/api/admin/tenants/{hospital_id}/assign-owner", headers=_HEADERS, json={
+    resp2 = client.post(f"/api/admin/tenants/{hospital_id}/assign-owner", headers=super_admin_headers, json={
         "email": "owner@example.com",
     })
     assert resp2.status_code == 200
@@ -204,12 +201,12 @@ def test_assign_owner_requires_secret(hospital_id):
 # --- Item 5: stalled Google signups (Spec.md Section 0) ---
 
 
-def test_stalled_signups_lists_users_with_no_hospital(hospital_id):
+def test_stalled_signups_lists_users_with_no_hospital(hospital_id, super_admin_headers):
     stalled = db.create_user(email="stalled@example.com", google_id="g-stalled", name="Stalled Person")
     owner = db.create_user(email="owner@example.com", google_id="g-owner", name="Real Owner")
     db.link_hospital_owner(hospital_id, owner.id)
 
-    resp = client.get("/api/admin/stalled-signups", headers=_HEADERS)
+    resp = client.get("/api/admin/stalled-signups", headers=super_admin_headers)
     assert resp.status_code == 200, resp.text
     emails = {u["email"] for u in resp.json()["users"]}
     assert emails == {"stalled@example.com"}
@@ -225,10 +222,10 @@ def test_stalled_signups_requires_secret(hospital_id):
     assert resp.status_code == 401
 
 
-def test_total_bookings_stat_counts_every_booking_across_hospitals(hospital_id, second_hospital_id):
+def test_total_bookings_stat_counts_every_booking_across_hospitals(hospital_id, second_hospital_id, super_admin_headers):
     from datetime import datetime
 
-    before = client.get("/api/admin/stats/total-bookings", headers=_HEADERS).json()["total_bookings"]
+    before = client.get("/api/admin/stats/total-bookings", headers=super_admin_headers).json()["total_bookings"]
 
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot = db.get_slots(hospital_id, doctor_id)[0]
@@ -246,7 +243,7 @@ def test_total_bookings_stat_counts_every_booking_across_hospitals(hospital_id, 
     # Cancelling doesn't reduce the lifetime count -- item 7's own definition.
     db.cancel_appointment(hospital_id, appt.id)
 
-    resp = client.get("/api/admin/stats/total-bookings", headers=_HEADERS)
+    resp = client.get("/api/admin/stats/total-bookings", headers=super_admin_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["total_bookings"] == before + 2
 

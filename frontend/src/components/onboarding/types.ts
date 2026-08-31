@@ -65,7 +65,13 @@ export type WizardState = {
   portalPassword: string;
   departments: DepartmentForm[];
   topics: TopicForm[];
-  adminSecret: string;
+  // RBAC (docs/rbac-redis-plan.md): this hospital's first staff_users admin
+  // login -- replaces the old shared portalPassword as the real ongoing
+  // login. portalPassword above is still collected/sent (still accepted
+  // during the dual-path migration window) but is no longer the field
+  // required for onboarding to succeed.
+  adminEmail: string;
+  adminPassword: string;
 };
 
 export function emptyDoctor(): DoctorForm {
@@ -115,7 +121,8 @@ export function initialWizardState(): WizardState {
     portalPassword: "",
     departments: [],
     topics: [],
-    adminSecret: "",
+    adminEmail: "",
+    adminPassword: "",
   };
 }
 
@@ -150,7 +157,11 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
  * with plain structured objects instead of that string format. */
 export function buildSubmissionPayload(state: WizardState) {
   return {
-    admin_secret: state.adminSecret,
+    // super_admin_token is NOT read off `state` here -- it's the platform
+    // operator's own super-admin session (lib/adminAuth.ts), not part of
+    // the wizard's persisted form state, so OnboardingWizard's submit
+    // handler merges it into this object right before POSTing (same
+    // pattern getUserToken() already follows for the Google-auth header).
     tenant_type: state.tenantType,
     name: state.name,
     whatsapp_phone_number_id: state.whatsappPhoneNumberId,
@@ -160,6 +171,8 @@ export function buildSubmissionPayload(state: WizardState) {
     reminder_offsets_hours: state.reminderOffsetsHours,
     reminder_template_name: state.reminderTemplateName,
     portal_password: state.portalPassword,
+    admin_email: state.adminEmail,
+    admin_password: state.adminPassword,
     enabled_features: state.enabledFeatures,
     data_tier: state.dataTier,
     api_base_url: state.apiBaseUrl,

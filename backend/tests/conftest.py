@@ -19,6 +19,13 @@ os.environ.setdefault("AUTH_SECRET", "test-auth-secret")
 # platform-admin tenant pages) -- same "must be set before core.main's
 # first import" reasoning.
 os.environ.setdefault("TENANTS_ADMIN_SECRET", "test-tenants-admin-secret")
+# RBAC (docs/rbac-redis-plan.md): unlike REDIS_URL/DATABASE_URL, JWT_SECRET/
+# SUPER_ADMIN_JWT_SECRET ARE read live per call (auth/jwt_session.py's
+# _secret_for(), never cached at import time) -- set here anyway, same place
+# as every other secret above, purely for consistency; nothing actually
+# depends on these being set before first import the way ADMIN_SECRET does.
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
+os.environ.setdefault("SUPER_ADMIN_JWT_SECRET", "test-super-admin-jwt-secret")
 
 # SPEC Section 6/12.6: the app moved off SQLite onto Postgres (Neon), so tests
 # need a real Postgres to run against -- an in-memory swap-in-a-connection
@@ -73,6 +80,27 @@ def _fresh_rate_limiter():
     rate_limit.reset_all_for_tests()
     yield
     rate_limit.reset_all_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rbac_caches():
+    """RBAC (docs/rbac-redis-plan.md): portal/permission_cache.py's
+    _LOCAL_CACHE and auth/refresh_tokens.py's in-memory fallback store are
+    both module-level singletons keyed by hospital_id/staff_id -- and
+    _fresh_test_db below recreates the schema (so hospital ids like 1/2
+    get REUSED across tests) without touching either of these process-wide
+    caches. Left alone, a permission matrix or refresh token cached/issued
+    by one test would leak into the next test that happens to get the same
+    id, the same class of cross-test bleed core/rate_limit.py's own
+    _fresh_rate_limiter fixture already exists to prevent for that module."""
+    import auth.refresh_tokens as refresh_tokens
+    import portal.permission_cache as permission_cache
+
+    permission_cache.reset_for_tests()
+    refresh_tokens.reset_for_tests()
+    yield
+    permission_cache.reset_for_tests()
+    refresh_tokens.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)
@@ -133,3 +161,34 @@ def user_auth_header(_fresh_test_db):
     user = db.create_user(email="test-owner@example.com", google_id="google-test-id", name="Test Owner")
     token = _sign_user_session(user.id, int(time.time()) + 3600)
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def super_admin_token(_fresh_test_db):
+    """RBAC (docs/rbac-redis-plan.md): a real super_admins row + a real
+    typ='super_admin' JWT, the get_current_super_admin() replacement for
+    every test that used to send a bare X-Admin-Secret/TENANTS_ADMIN_SECRET
+    header. Returns the raw token string (not a headers dict) since
+    admin/onboarding_api.py's submit_onboarding() needs it as a PLAIN
+    payload field (payload.super_admin_token), not an Authorization header
+    -- see that endpoint's own docstring for why; every other super-admin-
+    gated route uses super_admin_headers below instead."""
+    import db.repository as db
+    from auth.jwt_session import issue_access_token
+
+    super_admin = db.create_super_admin(
+        email="super-admin@example.com", password_hash=db.hash_portal_password("irrelevant"), name="Test Super Admin",
+    )
+    return issue_access_token(
+        super_admin["id"], hospital_id=None, role="super_admin",
+        token_version=super_admin["token_version"], typ="super_admin",
+    )
+
+
+@pytest.fixture
+def super_admin_headers(super_admin_token):
+    """The Authorization-header form of super_admin_token above, for every
+    get_current_super_admin()-gated route EXCEPT /api/onboarding (which
+    needs the bare token in the request body -- see super_admin_token's own
+    docstring)."""
+    return {"Authorization": f"Bearer {super_admin_token}"}

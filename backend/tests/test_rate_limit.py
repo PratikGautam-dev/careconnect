@@ -32,22 +32,17 @@ os.environ.setdefault("GOOGLE_CALENDAR_ID", "test@calendar")
 os.environ.setdefault("GOOGLE_CALENDAR_OWNER_EMAIL", "test@test.com")
 os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
 
-import admin.tenants_api as tenants_api  # noqa: E402
 from main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)
 
+# RBAC (docs/rbac-redis-plan.md): admin.onboarding.ADMIN_SECRET is the one
+# shared-secret constant still live anywhere in this file (dead code post-
+# migration, covered by test_admin_secret_empty_env_value_never_authenticates
+# below) -- TENANTS_ADMIN_SECRET no longer gates anything at request time,
+# so there's no equivalent module constant to patch here anymore.
 ADMIN_SECRET = "test-admin-secret"  # matches conftest.py's os.environ.setdefault
-
-# admin/tenants_api.py reads TENANTS_ADMIN_SECRET from the environment once,
-# at import time -- by the time this test module loads, some earlier test
-# file may already have imported it with the env var unset (giving a
-# permanently-empty module constant for the rest of the process). Patch the
-# module attribute directly rather than relying on setdefault() winning a
-# race it can't win.
-TENANTS_ADMIN_SECRET = "test-tenants-admin-secret"
-tenants_api.TENANTS_ADMIN_SECRET = TENANTS_ADMIN_SECRET
 
 
 @pytest.fixture(autouse=True)
@@ -157,84 +152,61 @@ def test_portal_login_success_resets_failure_count(hospital_id):
         assert resp.status_code == 403, "locked out earlier than a fresh counter should allow"
 
 
-# --- admin/onboarding_api.py's ADMIN_SECRET gate ---
+# --- RBAC (docs/rbac-redis-plan.md): admin/onboarding_api.py's ADMIN_SECRET
+# gate and admin/tenants_api.py's TENANTS_ADMIN_SECRET/X-Admin-Secret gate
+# (and its POST /api/admin/tenants/login rate-limited entry point) are both
+# GONE now -- replaced by get_current_super_admin(), a JWT verification that
+# isn't a "guessable shared secret" the same way those two were (a JWT can't
+# be brute-forced the way a short shared secret can; the actual guessable
+# surface moved to the LOGIN that mints the JWT). admin/onboarding.py's
+# check_admin_secret() itself is untouched (dead code post-migration, not
+# yet deleted -- Phase 6 cleanup) and still covered below for the same
+# "timing-safe comparison is wired correctly" reason it always was.
+# admin/tenants_api.py's own former _check_secret() is deleted outright
+# (nothing references TENANTS_ADMIN_SECRET as a request-time gate anymore),
+# so its own empty-value test is removed rather than adapted.
+#
+# The genuinely analogous "brute-forceable shared credential" surface now is
+# POST /api/admin/super/login's password check (admin/super_auth.py) -- its
+# own rate-limit scope ("super_admin_login", distinct from "portal_login"/
+# "staff_login") is what these tests cover instead.
 
 
-def _onboarding_payload(admin_secret: str) -> dict:
-    # "hospital_info" deliberately avoided "booking" -- that feature requires
-    # at least one department/doctor, which is irrelevant noise for a test
-    # that's only exercising the ADMIN_SECRET gate itself.
-    return {
-        "admin_secret": admin_secret,
-        "name": "Rate Limit Test Hospital",
-        "whatsapp_phone_number_id": "rl-test-phone-id",
-        "access_token": "tok",
-        "app_secret": "sec",
-        "portal_password": "irrelevant",
-        "enabled_features": ["hospital_info"],
-        "data_tier": "tier1",
-    }
+def test_super_admin_login_locks_out_after_max_attempts():
+    import db.repository as db
 
+    db.create_super_admin(email="ratelimit-super@example.com", password_hash=db.hash_portal_password("correct-pw"), name="RL Super")
 
-def test_admin_secret_locks_out_after_max_attempts(user_auth_header):
     for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        resp = client.post("/api/onboarding", json=_onboarding_payload("wrong-secret"), headers=user_auth_header)
-        assert resp.status_code == 403
+        resp = client.post("/api/admin/super/login", json={"email": "ratelimit-super@example.com", "password": "wrong"})
+        assert resp.status_code == 401
 
-    locked = client.post("/api/onboarding", json=_onboarding_payload("wrong-secret"), headers=user_auth_header)
-    assert locked.status_code == 403
-
-    # Confirm it's genuinely a lockout, not coincidence, via the shared
-    # in-process counter directly (this TestClient's requests all carry the
-    # same "testclient" host, which is what the key is built from).
-    assert rate_limit.is_locked_out(rate_limit.client_key("admin_secret", None)) is False  # "unknown" key, unaffected
-    assert rate_limit.is_locked_out(f"admin_secret:testclient") is True
-
-    # Locked out blocks even the CORRECT secret, not just repeats of the wrong one.
-    still_locked = client.post("/api/onboarding", json=_onboarding_payload(ADMIN_SECRET), headers=user_auth_header)
-    assert still_locked.status_code == 403
-
-
-def test_admin_secret_correct_value_still_works_before_lockout(user_auth_header):
-    resp = client.post("/api/onboarding", json=_onboarding_payload(ADMIN_SECRET), headers=user_auth_header)
-    assert resp.status_code == 200, resp.text
-
-
-# --- admin/tenants_api.py's TENANTS_ADMIN_SECRET ---
-
-
-def test_tenants_admin_secret_locks_out_after_max_attempts():
-    for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        resp = client.post("/api/admin/tenants/login", json={"secret": "wrong"})
-        assert resp.status_code == 403
-
-    locked = client.post("/api/admin/tenants/login", json={"secret": "wrong"})
+    locked = client.post("/api/admin/super/login", json={"email": "ratelimit-super@example.com", "password": "wrong"})
     assert locked.status_code == 429
 
-    still_locked = client.post("/api/admin/tenants/login", json={"secret": TENANTS_ADMIN_SECRET})
+    assert rate_limit.is_locked_out(rate_limit.client_key("super_admin_login", None)) is False  # "unknown" key, unaffected
+    assert rate_limit.is_locked_out("super_admin_login:testclient") is True
+
+    # Locked out blocks even the CORRECT password, not just repeats of the wrong one.
+    still_locked = client.post("/api/admin/super/login", json={"email": "ratelimit-super@example.com", "password": "correct-pw"})
     assert still_locked.status_code == 429
 
 
-def test_tenants_admin_secret_correct_value_works():
-    resp = client.post("/api/admin/tenants/login", json={"secret": TENANTS_ADMIN_SECRET})
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
+def test_super_admin_login_correct_password_still_works_before_lockout():
+    import db.repository as db
 
-
-def test_tenants_list_endpoint_shares_lockout_with_login_endpoint():
-    """GET /api/admin/tenants re-checks the secret on every request (no
-    server-side session) -- guessing via that endpoint must count against
-    the same budget as the dedicated login endpoint."""
-    for _ in range(rate_limit.DEFAULT_MAX_ATTEMPTS):
-        client.get("/api/admin/tenants", headers={"X-Admin-Secret": "wrong"})
-
-    locked = client.get("/api/admin/tenants", headers={"X-Admin-Secret": TENANTS_ADMIN_SECRET})
-    assert locked.status_code == 401  # locked-out and wrong-secret look identical on this endpoint by design
+    db.create_super_admin(email="ratelimit-super2@example.com", password_hash=db.hash_portal_password("correct-pw"), name="RL Super 2")
+    resp = client.post("/api/admin/super/login", json={"email": "ratelimit-super2@example.com", "password": "correct-pw"})
+    assert resp.status_code == 200, resp.text
+    assert "access_token" in resp.json()
 
 
 # --- Timing-safe comparison: functional correctness (the actual timing
-# property is what hmac.compare_digest guarantees; these confirm the
-# comparison is wired correctly, not just that some comparison exists) ---
+# property is what hmac.compare_digest guarantees; this confirms the
+# comparison is wired correctly, not just that some comparison exists).
+# admin/onboarding.py's check_admin_secret() is dead code post-migration
+# (Phase 6 cleanup deletes it), still covered here since it still exists
+# and still guards the "" (unset) case the same way. ---
 
 
 def test_admin_secret_empty_env_value_never_authenticates(monkeypatch):
@@ -244,10 +216,3 @@ def test_admin_secret_empty_env_value_never_authenticates(monkeypatch):
     # hmac.compare_digest("", "") is True -- the bool(ADMIN_SECRET) guard is
     # what prevents an unset secret from accepting a blank guess.
     assert onboarding.check_admin_secret("", request=None) is False
-
-
-def test_tenants_admin_secret_empty_env_value_never_authenticates(monkeypatch):
-    import admin.tenants_api as tenants_api
-
-    monkeypatch.setattr(tenants_api, "TENANTS_ADMIN_SECRET", "")
-    assert tenants_api._check_secret("", request=None) is False

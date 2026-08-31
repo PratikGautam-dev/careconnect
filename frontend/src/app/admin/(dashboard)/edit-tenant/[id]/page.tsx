@@ -2,7 +2,6 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AdminSecretGate } from "@/components/admin/AdminSecretGate";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CheckboxRow } from "@/components/ui/Checkbox";
@@ -30,6 +29,14 @@ type TenantDetail = {
   admin_capabilities: string[];
   all_capabilities: string[];
   default_capabilities_by_type: Record<string, string[]>;
+  appointment_types: AppointmentTypeRow[];
+};
+
+type AppointmentTypeRow = {
+  id: string;
+  label: string;
+  is_active: boolean;
+  is_allowed: boolean;
 };
 
 type FormState = {
@@ -55,34 +62,6 @@ function capabilitiesMatch(a: string[], b: string[]): boolean {
   return sortedA.length === sortedB.length && sortedA.every((v, i) => v === sortedB[i]);
 }
 
-type AuditEntry = {
-  id: number;
-  actor_level: string;
-  action: string;
-  entity_type: string | null;
-  entity_id: string | null;
-  before_value: Record<string, unknown> | null;
-  after_value: Record<string, unknown> | null;
-  created_at: string;
-};
-
-function formatAuditChanges(entry: AuditEntry): string {
-  const keys = new Set([
-    ...Object.keys(entry.before_value || {}),
-    ...Object.keys(entry.after_value || {}),
-  ]);
-  if (keys.size === 0) return "";
-  return Array.from(keys)
-    .map((key) => {
-      const before = entry.before_value?.[key];
-      const after = entry.after_value?.[key];
-      if (before !== undefined && after !== undefined) return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
-      if (after !== undefined) return `${key}: ${JSON.stringify(after)}`;
-      return `${key}: ${JSON.stringify(before)}`;
-    })
-    .join(", ");
-}
-
 function titleCaseCapability(key: string): string {
   return key
     .split("_")
@@ -97,7 +76,6 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
 
   const load = useCallback(async () => {
     const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
@@ -151,16 +129,30 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     });
   }
 
-  const loadAuditLog = useCallback(async () => {
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}/audit-log`);
-    if (!result.ok) return;
-    setAuditEntries((result.data as { entries: AuditEntry[] }).entries);
-  }, [tenantId]);
+  const [appointmentTypeError, setAppointmentTypeError] = useState<string | null>(null);
+
+  async function toggleAppointmentTypeAllowed(appointmentTypeId: string, isAllowed: boolean) {
+    setAppointmentTypeError(null);
+    const result = await adminFetch(`/api/admin/tenants/${tenantId}/appointment-types/${appointmentTypeId}/allowed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_allowed: isAllowed }),
+    });
+    if (!result.ok) {
+      setAppointmentTypeError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
+      return;
+    }
+    const updated = (result.data as { appointment_type: AppointmentTypeRow }).appointment_type;
+    setTenant((prev) =>
+      prev
+        ? { ...prev, appointment_types: prev.appointment_types.map((t) => (t.id === updated.id ? updated : t)) }
+        : prev
+    );
+  }
 
   useEffect(() => {
     load();
-    loadAuditLog();
-  }, [load, loadAuditLog]);
+  }, [load]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -186,7 +178,6 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     }
     setSaved(true);
     load();
-    loadAuditLog();
   }
 
   return (
@@ -300,6 +291,25 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               </div>
             </Field>
 
+            <Field
+              label="Appointment types"
+              htmlFor="appointment_types"
+              hint="Which types this tenant may offer at all. Unchecking one also turns it off in the tenant's own portal immediately — the tenant can then only switch it back on if you re-allow it here first."
+            >
+              {appointmentTypeError && <p className="mb-space-2 text-[12.5px] text-error">{appointmentTypeError}</p>}
+              <div id="appointment_types" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
+                {tenant.appointment_types.map((at) => (
+                  <CheckboxRow
+                    key={at.id}
+                    checked={at.is_allowed}
+                    onChange={(checked) => toggleAppointmentTypeAllowed(at.id, checked)}
+                  >
+                    {at.label}
+                  </CheckboxRow>
+                ))}
+              </div>
+            </Field>
+
             <Field label="Data connection tier" htmlFor="data_tier">
               <select
                 id="data_tier"
@@ -360,48 +370,11 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
         </Card>
       )}
 
-      {tenant && auditEntries.length > 0 && (
-        <Card className="mt-space-4 p-space-5">
-          <div className="mb-space-1 flex items-center justify-between">
-            <h2 className="text-[15px] font-bold text-ink-900">Audit log</h2>
-            <Link
-              href={`/admin/audit-log?hospital_id=${tenant.id}`}
-              className="text-[12.5px] font-semibold text-brand-600 hover:underline"
-            >
-              View full history →
-            </Link>
-          </div>
-          <p className="mb-space-3 text-[12.5px] text-ink-400">
-            Most recent activity only — both platform-level changes (made here, by an operator) and this
-            tenant&apos;s own staff-portal activity (doctor/department edits, feature toggles, settings updates).
-          </p>
-          <ul className="divide-y divide-line">
-            {auditEntries.map((entry) => (
-              <li key={entry.id} className="py-space-2 text-[12.5px]">
-                <div className="flex items-center justify-between gap-space-3">
-                  <span className="font-medium text-ink-900">
-                    {entry.action}
-                    <span className="ml-space-2 rounded-full bg-brand-50 px-space-2 py-0.5 text-[11px] font-semibold text-brand-700">
-                      {entry.actor_level === "platform_admin" ? "Platform" : "Portal"}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-ink-400">{entry.created_at}</span>
-                </div>
-                {formatAuditChanges(entry) && <p className="mt-space-1 text-ink-600">{formatAuditChanges(entry)}</p>}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
     </div>
   );
 }
 
 export default function EditTenantPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  return (
-    <AdminSecretGate title={`Edit tenant #${id}`}>
-      <EditTenantForm tenantId={Number(id)} />
-    </AdminSecretGate>
-  );
+  return <EditTenantForm tenantId={Number(id)} />;
 }

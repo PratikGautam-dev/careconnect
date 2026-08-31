@@ -31,10 +31,6 @@ from portal.capabilities import (  # noqa: E402
 
 client = TestClient(app)
 
-TENANTS_ADMIN_SECRET = "test-tenants-admin-secret"
-_TENANTS_HEADERS = {"X-Admin-Secret": TENANTS_ADMIN_SECRET}
-
-
 _UNSET = object()
 
 
@@ -218,11 +214,11 @@ def test_explicit_admin_capabilities_override_lets_a_clinic_manage_doctors(hospi
 
 # --- admin/tenants_api.py: platform admin edits tenant_type/admin_capabilities ---
 
-def test_tenant_admin_can_set_tenant_type_and_capabilities(hospital_id):
+def test_tenant_admin_can_set_tenant_type_and_capabilities(hospital_id, super_admin_headers):
     before = db.get_hospital(hospital_id)
     assert before.tenant_type == "hospital"
 
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -235,9 +231,9 @@ def test_tenant_admin_can_set_tenant_type_and_capabilities(hospital_id):
     assert set(updated.admin_capabilities) == {"manage_bookings", "manage_settings"}
 
 
-def test_tenant_admin_rejects_unrecognized_tenant_type(hospital_id):
+def test_tenant_admin_rejects_unrecognized_tenant_type(hospital_id, super_admin_headers):
     before = db.get_hospital(hospital_id)
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -247,7 +243,7 @@ def test_tenant_admin_rejects_unrecognized_tenant_type(hospital_id):
     assert db.get_hospital(hospital_id).tenant_type == "hospital"
 
 
-def test_tenant_admin_omitting_capability_fields_keeps_current_values(hospital_id):
+def test_tenant_admin_omitting_capability_fields_keeps_current_values(hospital_id, super_admin_headers):
     """Same "omitted means keep current" discipline enabled_features already
     follows on this endpoint -- a caller predating these two fields must not
     silently reset an already-configured clinic back to hospital/full-access."""
@@ -262,7 +258,7 @@ def test_tenant_admin_omitting_capability_fields_keeps_current_values(hospital_i
         tenant_type="clinic", admin_capabilities=["manage_bookings"],
     )
 
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": "Renamed Only",
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -274,12 +270,12 @@ def test_tenant_admin_omitting_capability_fields_keeps_current_values(hospital_i
     assert updated.admin_capabilities == ["manage_bookings"]
 
 
-def test_tenant_detail_reports_effective_capabilities(hospital_id):
+def test_tenant_detail_reports_effective_capabilities(hospital_id, super_admin_headers):
     """_tenant_detail()'s admin_capabilities reflects the EFFECTIVE set
     (get_capabilities()) even when the column itself is unset -- an
     operator looking at a hospital-type tenant with no override sees the
     full default set, not an empty/null value."""
-    resp = client.get(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS)
+    resp = client.get(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers)
     assert resp.status_code == 200, resp.text
     tenant = resp.json()["tenant"]
     assert tenant["tenant_type"] == "hospital"
@@ -289,9 +285,11 @@ def test_tenant_detail_reports_effective_capabilities(hospital_id):
 
 # --- admin/onboarding_api.py: tenant_type at creation ---
 
-def test_onboarding_sets_reduced_capabilities_for_a_clinic(hospital_id, user_auth_header):
+def test_onboarding_sets_reduced_capabilities_for_a_clinic(hospital_id, user_auth_header, super_admin_token):
     payload = {
-        "admin_secret": "test-admin-secret",
+        "admin_email": "onboard-admin@example.com",
+        "admin_password": "onboard-admin-pw",
+        "super_admin_token": super_admin_token,
         "name": "Downtown Walk-in Clinic",
         "whatsapp_phone_number_id": "CLINIC_PHONE_ID",
         "access_token": "clinic-token",
@@ -320,12 +318,14 @@ def test_onboarding_sets_reduced_capabilities_for_a_clinic(hospital_id, user_aut
     assert set(hospital.admin_capabilities) == DEFAULT_CAPABILITIES_BY_TYPE["clinic"]
 
 
-def test_onboarding_defaults_to_hospital_type_when_omitted(hospital_id, user_auth_header):
+def test_onboarding_defaults_to_hospital_type_when_omitted(hospital_id, user_auth_header, super_admin_token):
     """Backward compatibility: any caller that predates tenant_type (the
     existing Next.js wizard, until it's updated) keeps getting full
     hospital-type admin capabilities, unchanged."""
     payload = {
-        "admin_secret": "test-admin-secret",
+        "admin_email": "onboard-admin@example.com",
+        "admin_password": "onboard-admin-pw",
+        "super_admin_token": super_admin_token,
         "name": "Legacy Wizard Hospital",
         "whatsapp_phone_number_id": "LEGACY_PHONE_ID",
         "reminder_offsets_hours": "24",
@@ -352,14 +352,16 @@ def test_onboarding_defaults_to_hospital_type_when_omitted(hospital_id, user_aut
 
 # --- Follow-up: tenant-aware appointment type defaults (the "daycare" gap) ---
 
-def test_daycare_is_active_by_default_for_hospital_but_not_clinic(hospital_id, user_auth_header):
+def test_daycare_is_active_by_default_for_hospital_but_not_clinic(hospital_id, user_auth_header, super_admin_token):
     """DEFAULT_ACTIVE_TYPES_BY_TENANT_TYPE (db/repositories/appointment_types.py):
     every tenant gets a row for every type at creation, but 'daycare' starts
     inactive for a clinic -- proving the hospital-only-feature gap flagged in
     tenant-capability-gating-plan.md's follow-up is actually closed, not just
     documented."""
     payload = {
-        "admin_secret": "test-admin-secret",
+        "admin_email": "onboard-admin@example.com",
+        "admin_password": "onboard-admin-pw",
+        "super_admin_token": super_admin_token,
         "name": "Daycare Gap Clinic",
         "whatsapp_phone_number_id": "DAYCARE_CLINIC_PHONE_ID",
         "reminder_offsets_hours": "24",
@@ -404,7 +406,7 @@ def test_clinic_cannot_toggle_appointment_types_without_the_capability(hospital_
     assert "manage_appointment_types" in resp.json()["error"]
 
 
-def test_clinic_can_turn_on_daycare_once_granted_the_capability(user_auth_header):
+def test_clinic_can_turn_on_daycare_once_granted_the_capability(user_auth_header, super_admin_token, super_admin_headers):
     """The exact "clinic wants a hospital-only feature turned on" scenario
     tenant-capability-gating-plan.md's follow-up describes: no re-onboarding,
     no data loss, just a capability grant + an is_active flip. Onboards a
@@ -413,7 +415,9 @@ def test_clinic_can_turn_on_daycare_once_granted_the_capability(user_auth_header
     already-seeded hospital's tenant_type does NOT retroactively touch rows
     seeded under its old type, by design (see this file's downgrade test)."""
     payload = {
-        "admin_secret": "test-admin-secret",
+        "admin_email": "onboard-admin@example.com",
+        "admin_password": "onboard-admin-pw",
+        "super_admin_token": super_admin_token,
         "name": "Growing Clinic",
         "whatsapp_phone_number_id": "GROWING_CLINIC_PHONE_ID",
         "reminder_offsets_hours": "24",
@@ -435,7 +439,7 @@ def test_clinic_can_turn_on_daycare_once_granted_the_capability(user_auth_header
     assert resp.status_code == 200, resp.text
     clinic_id = resp.json()["hospital_id"]
 
-    resp = client.post(f"/api/admin/tenants/{clinic_id}", headers=_TENANTS_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{clinic_id}", headers=super_admin_headers, json={
         "name": "Growing Clinic",
         "whatsapp_phone_number_id": "GROWING_CLINIC_PHONE_ID",
         "data_tier": "tier1",
@@ -469,9 +473,83 @@ def test_appointment_type_toggle_rejects_unknown_id(hospital_id):
     assert resp.status_code == 404
 
 
+# --- Platform-admin appointment-type allow-list (edit-tenant page) ---
+
+def test_platform_admin_can_revoke_and_restore_an_appointment_type_allowlist(hospital_id, super_admin_headers):
+    """The new edit-tenant "Appointment types" section: revoking a type also
+    forces is_active off, and re-allowing it doesn't retroactively turn it
+    back on -- the tenant has to do that itself via its own portal toggle,
+    same "never silently flip tenant-controlled state" rule admin_capabilities
+    already follows."""
+    resp = client.post(
+        f"/api/admin/tenants/{hospital_id}/appointment-types/followup/allowed",
+        headers=super_admin_headers, json={"is_allowed": False},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["appointment_type"] == {
+        "id": "followup", "label": "Follow-up Consultation", "is_active": False, "is_allowed": False,
+        "requires_consent": False, "requires_doctor_selection": True,
+    }
+
+    row = next(t for t in db.get_all_appointment_types_for_hospital(hospital_id) if t["id"] == "followup")
+    assert row["is_allowed"] is False
+    assert row["is_active"] is False
+
+    resp = client.post(
+        f"/api/admin/tenants/{hospital_id}/appointment-types/followup/allowed",
+        headers=super_admin_headers, json={"is_allowed": True},
+    )
+    assert resp.status_code == 200, resp.text
+    row = next(t for t in db.get_all_appointment_types_for_hospital(hospital_id) if t["id"] == "followup")
+    assert row["is_allowed"] is True
+    assert row["is_active"] is False  # not auto-restored
+
+
+def test_platform_admin_appointment_type_allowlist_rejects_unknown_id(hospital_id, super_admin_headers):
+    resp = client.post(
+        f"/api/admin/tenants/{hospital_id}/appointment-types/not_a_real_type/allowed",
+        headers=super_admin_headers, json={"is_allowed": False},
+    )
+    assert resp.status_code == 404
+
+
+def test_portal_cannot_activate_a_disallowed_appointment_type(hospital_id, super_admin_headers):
+    _set_hospital(hospital_id, password="apttype-pw4", tenant_type="hospital", admin_capabilities=None)
+    token = _login("apttype-pw4")
+
+    client.post(
+        f"/api/admin/tenants/{hospital_id}/appointment-types/followup/allowed",
+        headers=super_admin_headers, json={"is_allowed": False},
+    )
+
+    resp = client.post(
+        "/api/portal/appointment-types/followup/active", headers=_auth(token), json={"is_active": True},
+    )
+    assert resp.status_code == 400
+    assert "isn't enabled" in resp.json()["error"].lower()
+
+    # Turning it off (already off) is still fine -- the whitelist only ever
+    # blocks turning ON a disallowed type.
+    resp = client.post(
+        "/api/portal/appointment-types/followup/active", headers=_auth(token), json={"is_active": False},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_appointment_type_allowlist_revoke_records_a_platform_admin_audit_entry(hospital_id, super_admin_headers):
+    client.post(
+        f"/api/admin/tenants/{hospital_id}/appointment-types/lab/allowed",
+        headers=super_admin_headers, json={"is_allowed": False},
+    )
+    entries = db.get_audit_logs(hospital_id=hospital_id, actor_level="platform_admin")
+    entry = next(e for e in entries if e["action"] == "appointment_type.allow")
+    assert entry["entity_id"] == "lab"
+    assert entry["after_value"] == {"is_allowed": False}
+
+
 # --- Downgrade/upgrade safety: capability changes never touch underlying data ---
 
-def test_downgrading_a_hospital_to_clinic_never_deletes_departments_or_doctors(hospital_id):
+def test_downgrading_a_hospital_to_clinic_never_deletes_departments_or_doctors(hospital_id, super_admin_headers):
     """The whole point of the toggle: capability gating hides portal
     management routes, it never deletes or hides the underlying data --
     departments/doctors/appointment types the tenant already had stay fully
@@ -480,7 +558,7 @@ def test_downgrading_a_hospital_to_clinic_never_deletes_departments_or_doctors(h
     doctors_before = db.get_all_doctors_for_hospital(hospital_id)
     assert departments_before and doctors_before
 
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": db.get_hospital(hospital_id).name,
         "whatsapp_phone_number_id": db.get_hospital(hospital_id).whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -508,9 +586,9 @@ def test_downgrading_a_hospital_to_clinic_never_deletes_departments_or_doctors(h
 
 # --- Audit trail: platform_admin and portal levels, secret redaction ---
 
-def test_tenant_update_records_a_platform_admin_audit_entry(hospital_id):
+def test_tenant_update_records_a_platform_admin_audit_entry(hospital_id, super_admin_headers):
     before = db.get_hospital(hospital_id)
-    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS, json={
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -571,12 +649,12 @@ def test_portal_audit_log_route_requires_manage_settings(hospital_id):
     assert resp.status_code == 403
 
 
-def test_platform_audit_log_route_lists_across_tenants_with_hospital_name(hospital_id, second_hospital_id):
+def test_platform_audit_log_route_lists_across_tenants_with_hospital_name(hospital_id, second_hospital_id, super_admin_headers):
     """GET /api/admin/audit-log (unlike the per-tenant route) is the
     cross-tenant view -- a platform admin browsing recent activity without
     opening every tenant's edit page individually."""
     before = db.get_hospital(hospital_id)
-    client.post(f"/api/admin/tenants/{hospital_id}", headers=_TENANTS_HEADERS, json={
+    client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
         "name": before.name,
         "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
         "data_tier": "tier1",
@@ -584,19 +662,19 @@ def test_platform_audit_log_route_lists_across_tenants_with_hospital_name(hospit
         "admin_capabilities": ["manage_bookings"],
     })
 
-    resp = client.get("/api/admin/audit-log", headers=_TENANTS_HEADERS)
+    resp = client.get("/api/admin/audit-log", headers=super_admin_headers)
     assert resp.status_code == 200, resp.text
     entries = resp.json()["entries"]
     assert any(e["hospital_id"] == hospital_id and e["hospital_name"] == before.name for e in entries)
 
     # hospital_id filter narrows it down to one tenant, same rows the
     # per-tenant route would show.
-    resp = client.get("/api/admin/audit-log", headers=_TENANTS_HEADERS, params={"hospital_id": hospital_id})
+    resp = client.get("/api/admin/audit-log", headers=super_admin_headers, params={"hospital_id": hospital_id})
     assert resp.status_code == 200, resp.text
     scoped = resp.json()["entries"]
     assert scoped and all(e["hospital_id"] == hospital_id for e in scoped)
 
-    resp = client.get("/api/admin/audit-log", headers=_TENANTS_HEADERS, params={"actor_level": "not_a_real_level"})
+    resp = client.get("/api/admin/audit-log", headers=super_admin_headers, params={"actor_level": "not_a_real_level"})
     assert resp.status_code == 400
 
 

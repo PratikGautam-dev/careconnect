@@ -22,8 +22,11 @@ from core.config import get_settings
 PORTAL_SECRET = get_settings().PORTAL_SECRET
 # Deliberately short given the "basic protection, not production-grade
 # auth" posture this project applies to every shared-secret/session scheme
-# -- re-issued via /api/auth/select-hospital or a fresh password login
-# rather than silently extended.
+# -- re-issued via a fresh password login rather than silently extended.
+# Google OAuth sign-in no longer issues this token at all (migration 0018 --
+# auth/google_oauth.py's callback issues a staff JWT session directly now);
+# only portal/routes/auth.py's legacy shared-hospital-password login still
+# does.
 _SESSION_TTL_SECONDS = 24 * 60 * 60
 
 

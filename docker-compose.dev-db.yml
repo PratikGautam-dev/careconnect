@@ -37,5 +37,17 @@ services:
       timeout: 5s
       retries: 10
 
+  # RBAC + Redis (docs/rbac-redis-plan.md) -- backs core/redis_client.py's
+  # shared client, permission caching/invalidation (portal/permission_cache.py),
+  # and refresh tokens (auth/refresh_tokens.py). Optional everywhere it's
+  # used (REDIS_URL unset -> in-memory fallback, same posture as this file's
+  # own Postgres precedent has for local dev), so this service is a
+  # convenience, not a hard requirement to run the app locally.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
 volumes:
   pgdata:

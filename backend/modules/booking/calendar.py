@@ -10,6 +10,8 @@ import pytz
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
+from core.redis_client import get_redis as _get_redis
+
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
@@ -28,17 +30,16 @@ def _get_credentials() -> Credentials:
     return Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
 
 
-def _get_redis():
-    redis_url = os.environ.get("REDIS_URL")
-    if not redis_url:
-        return None
-    try:
-        import redis
-        r = redis.from_url(redis_url)
-        r.ping()
-        return r
-    except Exception:
-        return None
+# _get_redis used to be a hand-rolled from_url()+ping()+except:None copy,
+# identical in shape to core/redis_client.py's get_redis() -- reconnects
+# fresh on every call with no memoization either way, so routing it through
+# the shared client is a pure dedup, not a behavior change. Every call site
+# below only does exists()/setex()/delete() (no .get() that would care about
+# decode_responses=True vs the old bare from_url()), so the switch is safe.
+# Imported under this name (not `get_redis`) so tests/test_calendar.py's
+# `monkeypatch.setattr("modules.booking.calendar._get_redis", ...)` keeps
+# working unchanged -- it patches this module's own attribute, not the
+# function's origin.
 
 
 class CalendarClient:

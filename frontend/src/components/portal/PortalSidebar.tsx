@@ -6,6 +6,7 @@ import {
   LogOut,
   MessageCircle,
   Settings,
+  ShieldCheck,
   Stethoscope,
   Users,
   X,
@@ -14,18 +15,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
+import { hasPermission } from "@/lib/staffAuth";
 
 // Staff/Branches/Reports/Calendar/Departments were removed (not just hidden)
 // -- Calendar had no backend and no near-term plan to build one; Departments
 // duplicated Doctors (same /portal/doctors page manages both) so it was a
 // second sidebar entry pointing at a page already reachable via "Doctors."
 const NAV_ITEMS = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard" },
-  { key: "appointments", label: "Appointments", icon: CalendarCheck, href: "/portal/appointments" },
-  { key: "patients", label: "Patients", icon: Users, href: "/portal/patients" },
-  { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors" },
-  { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages" },
-  { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings" },
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
+  { key: "appointments", label: "Appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
+  { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
+  { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
+  { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages", pageKey: "messages" },
+  { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },
+  { key: "staff", label: "Staff", icon: Users, href: "/portal/settings/staff", pageKey: "staff" },
+  { key: "roles", label: "Roles & Permissions", icon: ShieldCheck, href: "/portal/settings/roles", pageKey: "roles" },
 ];
 
 type Props = {
@@ -82,12 +86,13 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.filter(
-            // Hide "Doctors" for clinic tenants that lack manage_doctors --
-            // this is only a UI convenience, the backend route guard is the
-            // real enforcement (403s the mutation), so a still-loading or
-            // missing capabilities array fails OPEN (keeps the link) rather
-            // than flashing it away.
-            (item) => item.key !== "doctors" || !hospital || hospital.admin_capabilities?.includes("manage_doctors"),
+            // Per-page-key permission check (hasPermission is the same
+            // plain localStorage read as usePermission, aliased so eslint's
+            // rules-of-hooks check doesn't flag calling it inside a loop).
+            // Fails OPEN the same way the old hardcoded "doctors" capability
+            // check did -- this is only a UI convenience, the backend's 403
+            // is the real enforcement.
+            (item) => hasPermission(item.pageKey, "view"),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

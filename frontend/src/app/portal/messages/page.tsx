@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
@@ -269,14 +270,16 @@ export default function PortalMessagesPage() {
                       ) : (
                         <Badge tone="success">Resolved {selected.resolved_at ? formatTime(selected.resolved_at) : ""}</Badge>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(selected.id)}
-                        disabled={deletingId === selected.id}
-                        className="inline-flex items-center gap-space-1 rounded-md px-space-2 py-space-2 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
-                      >
-                        <Trash2 size={14} /> {deletingId === selected.id ? "Deleting…" : "Delete"}
-                      </button>
+                      <PermissionGate page="messages" action="delete">
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(selected.id)}
+                          disabled={deletingId === selected.id}
+                          className="inline-flex items-center gap-space-1 rounded-md px-space-2 py-space-2 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
+                        >
+                          <Trash2 size={14} /> {deletingId === selected.id ? "Deleting…" : "Delete"}
+                        </button>
+                      </PermissionGate>
                     </div>
                   </div>
 

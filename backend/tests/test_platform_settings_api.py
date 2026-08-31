@@ -2,8 +2,8 @@
 """
 admin/platform_settings_api.py -- the platform/super admin's GLOBAL settings
 endpoint (as opposed to tests/test_tenants_api.py, which is about one
-tenant's own row). Same TENANTS_ADMIN_SECRET gate, same X-Admin-Secret
-header convention, per that module's own docstring.
+tenant's own row). RBAC (docs/rbac-redis-plan.md): same get_current_super_admin()
+gate as tests/test_tenants_api.py now uses, per that module's own docstring.
 """
 import os
 
@@ -18,36 +18,32 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app)
 
-TENANTS_ADMIN_SECRET = "test-tenants-admin-secret"
-_HEADERS = {"X-Admin-Secret": TENANTS_ADMIN_SECRET}
-
-
-def test_get_platform_settings_requires_secret():
+def test_get_platform_settings_requires_secret(super_admin_headers):
     resp = client.get("/api/admin/platform-settings")
     assert resp.status_code == 401
 
-    resp = client.get("/api/admin/platform-settings", headers={"X-Admin-Secret": "wrong"})
+    resp = client.get("/api/admin/platform-settings", headers={"Authorization": "Bearer wrong-token"})
     assert resp.status_code == 401
 
 
-def test_get_platform_settings_returns_the_current_value():
-    resp = client.get("/api/admin/platform-settings", headers=_HEADERS)
+def test_get_platform_settings_returns_the_current_value(super_admin_headers):
+    resp = client.get("/api/admin/platform-settings", headers=super_admin_headers)
     assert resp.status_code == 200
     assert "max_active_patient_links" in resp.json()
 
 
-def test_update_platform_settings_changes_the_value_globally():
-    original = client.get("/api/admin/platform-settings", headers=_HEADERS).json()["max_active_patient_links"]
+def test_update_platform_settings_changes_the_value_globally(super_admin_headers):
+    original = client.get("/api/admin/platform-settings", headers=super_admin_headers).json()["max_active_patient_links"]
     try:
-        resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 3}, headers=_HEADERS)
+        resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 3}, headers=super_admin_headers)
         assert resp.status_code == 200
         assert resp.json()["max_active_patient_links"] == 3
 
         # A fresh read reflects the change -- not just the response body.
-        resp = client.get("/api/admin/platform-settings", headers=_HEADERS)
+        resp = client.get("/api/admin/platform-settings", headers=super_admin_headers)
         assert resp.json()["max_active_patient_links"] == 3
     finally:
-        client.post("/api/admin/platform-settings", json={"max_active_patient_links": original}, headers=_HEADERS)
+        client.post("/api/admin/platform-settings", json={"max_active_patient_links": original}, headers=super_admin_headers)
 
 
 def test_update_platform_settings_requires_secret():
@@ -55,11 +51,11 @@ def test_update_platform_settings_requires_secret():
     assert resp.status_code == 401
 
 
-def test_update_platform_settings_rejects_out_of_range_values():
-    resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 0}, headers=_HEADERS)
+def test_update_platform_settings_rejects_out_of_range_values(super_admin_headers):
+    resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 0}, headers=super_admin_headers)
     assert resp.status_code == 400
 
-    resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 21}, headers=_HEADERS)
+    resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 21}, headers=super_admin_headers)
     assert resp.status_code == 400
 
 
@@ -80,11 +76,11 @@ def test_get_max_active_patient_links_falls_back_to_default_on_read_failure(hosp
         assert db.get_max_active_patient_links() == DEFAULT_MAX_ACTIVE_PATIENT_LINKS
 
 
-def test_updated_cap_is_immediately_enforced_by_the_patient_linking_flow(hospital_id):
+def test_updated_cap_is_immediately_enforced_by_the_patient_linking_flow(hospital_id, super_admin_headers):
     import db.repository as db
     from db.repository import TooManyLinkedPatientsError
 
-    resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 2}, headers=_HEADERS)
+    resp = client.post("/api/admin/platform-settings", json={"max_active_patient_links": 2}, headers=super_admin_headers)
     assert resp.status_code == 200
     try:
         db.create_patient_profile(hospital_id, "5491119990001", "Family Member 1", 30)
@@ -95,4 +91,4 @@ def test_updated_cap_is_immediately_enforced_by_the_patient_linking_flow(hospita
         except TooManyLinkedPatientsError:
             pass
     finally:
-        client.post("/api/admin/platform-settings", json={"max_active_patient_links": 5}, headers=_HEADERS)
+        client.post("/api/admin/platform-settings", json={"max_active_patient_links": 5}, headers=super_admin_headers)

@@ -3,7 +3,6 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { AdminSecretGate } from "@/components/admin/AdminSecretGate";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import { adminFetch } from "@/lib/adminAuth";
@@ -68,11 +67,7 @@ function AuditLogList() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-[1000px] px-space-4 py-space-7 md:px-space-7">
-      <Link href="/admin/tenants" className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline">
-        ← All tenants
-      </Link>
-
+    <div className="mx-auto max-w-[1000px]">
       <div className="mb-space-5 flex items-center justify-between">
         <div>
           <p className="text-eyebrow mb-space-1">Platform admin</p>
@@ -143,10 +138,8 @@ function AuditLogList() {
 
 export default function AuditLogPage() {
   return (
-    <AdminSecretGate title="Audit log">
-      <Suspense>
-        <AuditLogList />
-      </Suspense>
-    </AdminSecretGate>
+    <Suspense>
+      <AuditLogList />
+    </Suspense>
   );
 }

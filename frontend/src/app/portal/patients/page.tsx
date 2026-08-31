@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
+import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePatients } from "@/hooks/usePatients";
@@ -51,15 +52,17 @@ export default function PortalPatientsPage() {
             />
           </div>
           {selectedPatients.length > 0 && (
-            <Button
-              variant="secondary"
-              size="md"
-              className="border-error/30 text-error hover:border-error hover:bg-error/10"
-              onClick={() => setPendingDelete(selectedPatients)}
-            >
-              <Trash2 size={15} />
-              Delete selected ({selectedPatients.length})
-            </Button>
+            <PermissionGate page="patients" action="delete">
+              <Button
+                variant="secondary"
+                size="md"
+                className="border-error/30 text-error hover:border-error hover:bg-error/10"
+                onClick={() => setPendingDelete(selectedPatients)}
+              >
+                <Trash2 size={15} />
+                Delete selected ({selectedPatients.length})
+              </Button>
+            </PermissionGate>
           )}
         </div>
 
@@ -134,14 +137,16 @@ export default function PortalPatientsPage() {
                         </span>
                       </td>
                       <td className="py-space-2 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => setPendingDelete([p])}
-                          className="rounded p-1 text-ink-400 hover:bg-error/10 hover:text-error"
-                          aria-label={`Delete ${p.name || p.phone}`}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <PermissionGate page="patients" action="delete">
+                          <button
+                            type="button"
+                            onClick={() => setPendingDelete([p])}
+                            className="rounded p-1 text-ink-400 hover:bg-error/10 hover:text-error"
+                            aria-label={`Delete ${p.name || p.phone}`}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </PermissionGate>
                       </td>
                     </tr>
                   ))}

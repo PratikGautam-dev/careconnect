@@ -549,6 +549,10 @@ CREATE TABLE IF NOT EXISTS appointment_types (
     requires_consent BOOLEAN NOT NULL DEFAULT FALSE,
     requires_doctor_selection BOOLEAN NOT NULL DEFAULT TRUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Platform-admin whitelist (edit-tenant page): whether this tenant may
+    -- use this type at all. is_active is the tenant's own portal-level
+    -- toggle WITHIN this whitelist -- see db/orm_models.py's AppointmentType.
+    is_allowed BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (hospital_id, id)
 );
@@ -911,38 +915,11 @@ CREATE TABLE IF NOT EXISTS patient_documents (
 );
 CREATE INDEX IF NOT EXISTS idx_patient_documents_hospital_patient ON patient_documents(hospital_id, patient_id);
 
--- Section 15 (Google OAuth + per-user identity): one row per Google account
--- that's ever signed in. google_id is nullable -- a platform admin can
--- pre-create a placeholder row by email alone via /admin/edit-tenant's
--- owner-assignment field (the migration path for hospital #1/DaaPrime,
--- onboarded before this section existed and still using portal_password_hash
--- login); the OAuth callback matches an incoming Google sign-in by google_id
--- first, then by email, backfilling google_id onto that same placeholder row
--- rather than creating a second, disconnected one for the same person.
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    google_id TEXT UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT,
-    created_at TEXT NOT NULL DEFAULT (now()::text)
-);
-
--- Join table, not a single owner_user_id column on hospitals -- deliberately
--- future-proofs for real per-staff accounts (Section 12.10's flagged
--- follow-up: patient notes/documents can currently only be traced to a
--- login session, not a named person) without a later migration off a
--- single-owner column onto a join table. role is stored but not yet
--- enforced differently (every row created today is 'owner') -- same
--- "store now, enforce later" pattern as doctors.online_quota/walkin_quota
--- (Section 14.7).
-CREATE TABLE IF NOT EXISTS hospital_users (
-    id SERIAL PRIMARY KEY,
-    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    role TEXT NOT NULL DEFAULT 'owner',
-    created_at TEXT NOT NULL DEFAULT (now()::text),
-    UNIQUE(hospital_id, user_id)
-);
+-- Section 15 (Google OAuth + per-user identity): DROPPED, migration 0017 --
+-- see the identities/hospital_owners tables further below, which replaced
+-- this table and hospital_users below it (both migration 0016). This
+-- comment block is kept only so a reader following schema.sql's own history
+-- top-to-bottom can still see where Section 15 originally landed.
 
 -- Two-level audit trail (tenant-capability-gating-plan.md's follow-up):
 -- 'platform_admin' rows record TENANTS_ADMIN_SECRET-gated tenant edits
@@ -969,3 +946,88 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_logs_hospital_created ON audit_logs (hospital_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_audit_logs_level_created ON audit_logs (actor_level, created_at);
+
+-- RBAC (docs/rbac-redis-plan.md): unified per-person staff identity for
+-- Admin/Receptionist/Doctor, replacing the three parallel HMAC auth schemes
+-- (shared hospital portal password, dedicated doctors.email/password_hash,
+-- X-Admin-Secret) one at a time -- DROPPED, migration 0017. See the
+-- staff_details table further below (migration 0016), which replaced it;
+-- Identity now holds email/password_hash/token_version, StaffDetail holds
+-- hospital_id/role/doctor_id.
+
+-- One row per (hospital, role, page) rather than a JSON blob -- read on
+-- every request (portal/permissions.py's get_permission_matrix(), Redis-
+-- cached) and edited cell-by-cell by the Roles & Permissions admin UI.
+-- A hospital with zero rows for a role falls back to
+-- DEFAULT_PERMISSIONS_BY_ROLE (portal/permissions.py) rather than treating
+-- "no rows yet" as "no access" -- rows are seeded explicitly at onboarding,
+-- this fallback only matters for a hospital that predates this feature.
+CREATE TABLE IF NOT EXISTS role_permissions (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')),
+    page_key TEXT NOT NULL,
+    can_view BOOLEAN NOT NULL DEFAULT FALSE,
+    can_write BOOLEAN NOT NULL DEFAULT FALSE,
+    can_delete BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE(hospital_id, role, page_key)
+);
+CREATE INDEX IF NOT EXISTS ix_role_permissions_hospital_role ON role_permissions(hospital_id, role);
+
+-- Super admin platform layer -- global, not hospital-scoped, replacing the
+-- X-Admin-Secret/ADMIN_SECRET/TENANTS_ADMIN_SECRET shared-secret gates with
+-- real individual accounts and an audit trail -- DROPPED, migration 0017.
+-- See the super_admin_details table further below (migration 0016), which
+-- replaced it: a super-admin identity is an Identity row with a matching
+-- super_admin_details row, not its own table with its own email/password_hash.
+
+-- Migration 0016: identities -- one shared identity/credential table for
+-- every principal (Google-OAuth hospital owner, password-login staff,
+-- password-login super admin), replacing users/staff_users/super_admins as
+-- the tables the APPLICATION reads/writes. Those three tables (plus
+-- hospital_users) were kept, untouched, as a safety net when this table was
+-- introduced -- migration 0017 later dropped all four once the new tables
+-- were verified correct in production. identities holds the shared
+-- identity/credential concern (email, password_hash, google_id,
+-- token_version); staff_details/super_admin_details hold only what's
+-- specific to that context. See
+-- db/migrations/versions/0016_identities_merge.py's own docstring for the
+-- full reasoning and the backfill's merge-by-email logic.
+CREATE TABLE IF NOT EXISTS identities (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL,
+    name TEXT,
+    google_id TEXT,
+    password_hash TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    token_version INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_identities_email ON identities(lower(email));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_identities_google_id ON identities(google_id) WHERE google_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS staff_details (
+    identity_id INTEGER PRIMARY KEY REFERENCES identities(id),
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')),
+    doctor_id TEXT REFERENCES doctors(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_details_doctor_id ON staff_details(doctor_id) WHERE doctor_id IS NOT NULL;
+ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_doctor_role_pairing;
+ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_doctor_role_pairing
+    CHECK ((role = 'doctor') = (doctor_id IS NOT NULL));
+
+CREATE TABLE IF NOT EXISTS super_admin_details (
+    identity_id INTEGER PRIMARY KEY REFERENCES identities(id)
+);
+
+-- hospital_owners (Google-OAuth hospital ownership, M:M) -- DROPPED,
+-- migration 0018. Confirmed with the user: no identity actually owns more
+-- than one hospital in practice, so this table was pure redundancy with
+-- staff_details' own (identity_id, hospital_id, role) columns, and a
+-- hospital's role vocabulary stays exactly admin/receptionist/doctor -- no
+-- separate 'owner' role. A hospital owner is now just a staff_details row
+-- with role='admin' -- same table, same login path
+-- (portal/routes/staff_auth.py) as every other staff member. See
+-- db/migrations/versions/0018_merge_hospital_owners_into_staff_details.py.

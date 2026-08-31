@@ -15,7 +15,10 @@ from portal.routes.doctors import router as doctors_router
 from portal.routes.documents import router as documents_router
 from portal.routes.handoffs import router as handoffs_router
 from portal.routes.patients import router as patients_router
+from portal.routes.roles import router as roles_router
 from portal.routes.settings import router as settings_router
+from portal.routes.staff import router as staff_router
+from portal.routes.staff_auth import router as staff_auth_router
 
 router = APIRouter()
 router.include_router(auth_router)
@@ -34,3 +37,10 @@ router.include_router(handoffs_router)
 # portal's hospital-wide one.
 router.include_router(doctor_auth_router)
 router.include_router(doctor_portal_router)
+# RBAC (docs/rbac-redis-plan.md): unified staff login + the roles/permissions
+# and staff-management admin UIs -- additive alongside auth_router/
+# doctor_auth_router above, not a replacement, during the dual-path
+# migration window.
+router.include_router(staff_auth_router)
+router.include_router(staff_router)
+router.include_router(roles_router)

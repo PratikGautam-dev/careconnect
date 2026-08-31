@@ -12,6 +12,9 @@ touches (Dockerfile CMD, railway.toml startCommand).
 """
 import logging
 import os
+import threading
+import time
+import uuid
 
 import uvicorn
 from dotenv import load_dotenv
@@ -26,17 +29,23 @@ from contextlib import asynccontextmanager
 from admin.onboarding import router as onboarding_router
 from admin.onboarding_api import router as onboarding_api_router
 from admin.platform_settings_api import router as platform_settings_api_router
+from admin.super_auth import router as super_auth_router
 from admin.tenants_api import router as tenants_api_router
+from admin.users_api import router as users_api_router
 from portal.routes import router as portal_api_router
 from auth.google_oauth import AUTH_SECRET, router as user_auth_router
 
-# uvicorn only configures its own "uvicorn"/"uvicorn.error"/"uvicorn.access" loggers
-# (see uvicorn.config.LOGGING_CONFIG) — it never touches the root logger. Every logger
-# in this app (core.whatsapp, webhook.routes, ...) propagates up to the root logger
-# instead, which without this call has no handler and falls back to Python's "last
-# resort" handler (WARNING+ only) — so logger.info(...) calls anywhere in the app
-# would be silently invisible even though the logging calls themselves are correct.
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# core/logging_config.py's own module docstring covers the full reasoning --
+# in short, every logger in this app (core.whatsapp, webhook.routes, ...)
+# propagates to the ROOT logger, so configuring root's handler/formatter
+# here is what makes every one of them emit structured JSON, with no changes
+# needed to any of those files. Replaces the old
+# `logging.basicConfig(level=logging.INFO, format="...")` plain-text call.
+from core.logging_config import configure_logging
+from core.request_context import get_request_id, reset_request_id, set_request_id
+
+configure_logging()
+_request_logger = logging.getLogger("request")
 
 # webhook.dispatch's own import creates the HISTORY/SESSIONS singletons;
 # init_db() must run right after that and before webhook.routes' own
@@ -56,10 +65,66 @@ from webhook.routes import router as webhook_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _start_perms_invalidate_subscriber()
     yield
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _request_logging(request, call_next):
+    """One JSON log line per request (method/path/status/duration), and the
+    thing that actually populates request_id (core/request_context.py) for
+    every OTHER log line emitted anywhere during this request's handling --
+    route handlers, repository functions, the rollback middleware below,
+    anything that does logging.getLogger(__name__).info(...) downstream of
+    here sees the same request_id automatically, without it being passed
+    through every function signature. set/reset in a try/finally so the
+    ContextVar is always cleared at the end of this request's task, even on
+    an unhandled exception -- a value must never leak into whatever request
+    this same asyncio task (or a pooled thread reusing it) handles next.
+
+    Always server-generated for now, deliberately not reading an incoming
+    X-Request-ID header -- honoring a client-supplied id (the standard
+    "propagate if present, generate if absent" pattern) is real future work
+    once a frontend actually sends one, but needs its own input validation
+    (a client-controlled value flowing into logs/response headers) done
+    properly at that point rather than half-built ahead of the frontend
+    change it depends on."""
+    request_id = uuid.uuid4().hex[:12]
+    token = set_request_id(request_id)
+    start = time.monotonic()
+    try:
+        # Both log calls below must run BEFORE the outer finally resets the
+        # context var -- get_request_id() (core/logging_config.py's
+        # JSONFormatter) reads it at format() time, so logging "request
+        # completed"/"request failed" AFTER the reset would log request_id
+        # as None for the one line that most needs it.
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = round((time.monotonic() - start) * 1000, 1)
+            _request_logger.exception(
+                "request failed",
+                extra={"extra_data": {"method": request.method, "path": request.url.path, "duration_ms": duration_ms}},
+            )
+            raise
+        duration_ms = round((time.monotonic() - start) * 1000, 1)
+        _request_logger.info(
+            "request completed",
+            extra={"extra_data": {
+                "method": request.method, "path": request.url.path,
+                "status_code": response.status_code, "duration_ms": duration_ms,
+            }},
+        )
+        # Lets the frontend/browser network tab and this backend's own JSON
+        # logs be correlated for the same request -- cheap, standard
+        # practice, no downside for a same-origin-or-CORS-allowed API.
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        reset_request_id(token)
 
 
 @app.middleware("http")
@@ -120,11 +185,59 @@ app.add_middleware(SessionMiddleware, secret_key=AUTH_SECRET or "insecure-dev-on
 app.include_router(onboarding_router)
 app.include_router(onboarding_api_router)
 app.include_router(tenants_api_router)
+app.include_router(users_api_router)
 app.include_router(platform_settings_api_router)
+app.include_router(super_auth_router)
 app.include_router(portal_api_router)
 app.include_router(user_auth_router)
 app.include_router(webhook_router)
 app.include_router(cron_router)
+
+# RBAC (docs/rbac-redis-plan.md): a background subscriber on the
+# `perms:invalidate` Redis pub/sub channel -- portal/permission_cache.py's
+# invalidate() (called by PUT /api/portal/roles/permissions) already clears
+# ITS OWN process's local cache directly; this subscriber is what makes an
+# edit take effect immediately on every OTHER worker process/instance too,
+# rather than only lazily once each of their cached matrices happens to
+# expire (up to permission_cache.py's own 5-minute TTL later). A daemon
+# thread, not an asyncio task -- redis-py's pubsub().listen() is a blocking
+# generator; wrapping it in a thread keeps it off the event loop without
+# needing an async Redis client just for this one subscriber. No Redis ->
+# get_redis() returns None -> this entire function no-ops immediately,
+# matching every other Redis touch in this app's "optional, degrade
+# silently" posture.
+from core.redis_client import get_redis
+from portal.permission_cache import INVALIDATE_CHANNEL, drop_local_cache
+
+
+def _run_perms_invalidate_subscriber() -> None:
+    import json
+
+    client = get_redis()
+    if client is None:
+        return
+    try:
+        pubsub = client.pubsub()
+        pubsub.subscribe(INVALIDATE_CHANNEL)
+        for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            try:
+                hospital_id = json.loads(message["data"])["hospital_id"]
+            except (TypeError, ValueError, KeyError):
+                continue
+            drop_local_cache(hospital_id)
+    except Exception:
+        # A subscriber that dies mid-stream (Redis restarted, network blip)
+        # simply stops invalidating OTHER processes' local caches early --
+        # each process still falls back to Postgres once its own 5-minute
+        # local/Redis TTL lapses (permission_cache.py's _CACHE_TTL_SECONDS),
+        # so this is a staleness-window regression, never a 500 or a crash.
+        pass
+
+
+def _start_perms_invalidate_subscriber() -> None:
+    threading.Thread(target=_run_perms_invalidate_subscriber, daemon=True).start()
 
 
 def main():

@@ -85,11 +85,13 @@ def get_all_appointment_types_for_hospital(hospital_id: int) -> list[dict]:
     """Active AND inactive types, for the portal's own management screen (a
     staff admin needs to see what's currently off in order to turn it back
     on) -- unlike get_appointment_types() above, which only ever surfaces the
-    active subset to the WhatsApp booking flow."""
+    active subset to the WhatsApp booking flow. Includes is_allowed so the
+    portal UI can grey out a type the platform admin hasn't whitelisted for
+    this tenant, instead of offering a toggle that would just 400."""
     session = get_session()
     rows = session.execute(
         select(
-            AppointmentType.id, AppointmentType.label, AppointmentType.is_active,
+            AppointmentType.id, AppointmentType.label, AppointmentType.is_active, AppointmentType.is_allowed,
             AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
         )
         .where(AppointmentType.hospital_id == hospital_id)
@@ -103,8 +105,21 @@ def set_appointment_type_active(hospital_id: int, appointment_type_id: str, is_a
     is_active flip that lets a clinic turn on a hospital-only type (e.g.
     daycare) after upgrading, or a hospital turn one off, without touching
     any other data. Returns None if the type doesn't exist for this hospital
-    (an unrecognized/stale id), else the updated row."""
+    (an unrecognized/stale id), else the updated row.
+
+    Raises ValueError if is_active=True is requested for a type this tenant
+    isn't whitelisted for (is_allowed=False, set by the platform admin on the
+    edit-tenant page) -- a tenant may only turn on what it's been allowed,
+    never work around the whitelist via its own portal."""
     session = get_session()
+    current = session.execute(
+        select(AppointmentType.is_allowed)
+        .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
+    ).first()
+    if current is None:
+        return None
+    if is_active and not current.is_allowed:
+        raise ValueError("This appointment type isn't enabled for your tenant. Contact support.")
     result = cast(CursorResult, session.execute(
         update(AppointmentType)
         .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
@@ -115,7 +130,36 @@ def set_appointment_type_active(hospital_id: int, appointment_type_id: str, is_a
         return None
     row = session.execute(
         select(
-            AppointmentType.id, AppointmentType.label, AppointmentType.is_active,
+            AppointmentType.id, AppointmentType.label, AppointmentType.is_active, AppointmentType.is_allowed,
+            AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
+        )
+        .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
+    ).first()
+    return dict(row._mapping) if row else None
+
+
+def set_appointment_type_allowed(hospital_id: int, appointment_type_id: str, is_allowed: bool) -> dict | None:
+    """Platform-admin whitelist toggle (edit-tenant page) -- which
+    appointment types tenant may use at all. Turning OFF also forces
+    is_active=False in the same statement, since a type can never be active
+    while disallowed -- so a tenant's portal never has to reconcile a
+    contradictory state on its own. Returns None if the type doesn't exist
+    for this hospital, else the updated row."""
+    session = get_session()
+    values = {"is_allowed": is_allowed}
+    if not is_allowed:
+        values["is_active"] = False
+    result = cast(CursorResult, session.execute(
+        update(AppointmentType)
+        .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)
+        .values(**values)
+    ))
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    row = session.execute(
+        select(
+            AppointmentType.id, AppointmentType.label, AppointmentType.is_active, AppointmentType.is_allowed,
             AppointmentType.requires_consent, AppointmentType.requires_doctor_selection,
         )
         .where(AppointmentType.hospital_id == hospital_id, AppointmentType.id == appointment_type_id)

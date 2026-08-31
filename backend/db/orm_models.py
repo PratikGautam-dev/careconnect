@@ -86,6 +86,12 @@ class AppointmentType(Base):
     requires_consent: Mapped[bool]
     requires_doctor_selection: Mapped[bool]
     is_active: Mapped[bool]
+    # Platform-admin-controlled whitelist (edit-tenant page): whether this
+    # tenant may use this type AT ALL. is_active is the tenant's own portal-
+    # level on/off switch WITHIN that whitelist -- a type can never be
+    # is_active=True while is_allowed=False, enforced in
+    # db/repositories/appointment_types.py's set_appointment_type_active().
+    is_allowed: Mapped[bool]
     sort_order: Mapped[int]
 
 
@@ -238,31 +244,11 @@ class AppointmentReminder(Base):
     sent_at: Mapped[str]
 
 
-class UserAccount(Base):
-    """db/schema.sql's users table -- Google-OAuth accounts (Section 15).
-    Named UserAccount, not User, to avoid colliding with db/models.py's
-    User dataclass (db/repositories/users.py's _row_to_user() still maps a
-    query result -- ORM or raw -- onto that dataclass; this class is only
-    the table mapping used to build the query itself)."""
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    google_id: Mapped[str | None]
-    email: Mapped[str]
-    name: Mapped[str | None]
-    created_at: Mapped[str]
-
-
-class HospitalUser(Base):
-    """db/schema.sql's hospital_users table -- hospital-ownership join
-    table (Section 15)."""
-    __tablename__ = "hospital_users"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    role: Mapped[str]
-    created_at: Mapped[str]
+# UserAccount ("users" table) and HospitalUser ("hospital_users" table)
+# used to live here -- Google-OAuth accounts and the hospital-ownership join
+# table (Section 15). Migration 0016 replaced them with Identity/
+# HospitalOwner; migration 0017 dropped both tables once the new ones were
+# verified correct in production. See Identity's own docstring.
 
 
 class HandoffRequest(Base):
@@ -485,6 +471,109 @@ class CodeSequence(Base):
     last_value: Mapped[int]
 
 
+# StaffUser ("staff_users" table) used to live here -- unified per-person
+# staff login (docs/rbac-redis-plan.md). Migration 0016 replaced it with
+# Identity + StaffDetail; migration 0017 dropped the table. See Identity's
+# own docstring.
+
+
+class RolePermission(Base):
+    """db/schema.sql's role_permissions table -- one row per (hospital, role,
+    page), not a JSON blob, since portal/permissions.py reads this on every
+    permission check and the Roles & Permissions admin UI edits it
+    cell-by-cell."""
+    __tablename__ = "role_permissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    role: Mapped[str]
+    page_key: Mapped[str]
+    can_view: Mapped[bool]
+    can_write: Mapped[bool]
+    can_delete: Mapped[bool]
+
+
+# SuperAdmin ("super_admins" table) used to live here -- global,
+# not hospital-scoped platform-operator accounts. Migration 0016 replaced it
+# with Identity + SuperAdminDetail; migration 0017 dropped the table. See
+# Identity's own docstring.
+
+
+class Identity(Base):
+    """db/schema.sql's identities table (migration 0016) -- the shared
+    identity/credential row for every principal in this app: a Google-OAuth
+    hospital owner (google_id set, password_hash NULL), a password-login
+    hospital staff member, or a password-login super admin (password_hash
+    set for both, google_id NULL). email is globally unique
+    (ux_identities_email, case-insensitive) across ALL of them.
+
+    Deliberately carries NO privilege/role column of its own (no
+    is_super_admin flag) -- which kind of principal a row is comes ONLY from
+    whether a matching StaffDetail or SuperAdminDetail row exists. A flag on
+    this shared, widely-written table would be one stray UPDATE (or a bug in
+    some unrelated staff/OAuth write path) away from silently granting
+    platform-wide access; a separate table means super-admin status
+    requires an actual row, only ever inserted by the dedicated super-admin
+    provisioning path (db/repositories/super_admins.py's create_super_admin)
+    -- confirmed with the user, this safety property matters more than the
+    extra table's minimal storage overhead. See migration 0016's own
+    docstring for why this replaced the old users/staff_users/super_admins
+    tables (and hospital_users), all four of which migration 0017 later
+    dropped once these new tables were verified correct in production."""
+    __tablename__ = "identities"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str]
+    name: Mapped[str | None]
+    google_id: Mapped[str | None]
+    password_hash: Mapped[str | None]
+    is_active: Mapped[bool]
+    token_version: Mapped[int]
+    created_at: Mapped[str]
+    updated_at: Mapped[str | None]
+
+
+class StaffDetail(Base):
+    """db/schema.sql's staff_details table (migration 0016) -- the
+    hospital/role/doctor_id extension for an Identity that's a hospital
+    staff member, replacing StaffUser's own columns of the same name.
+    identity_id is the primary key (1:1 with Identity, mirroring StaffUser's
+    old "one staff_users row per person" cardinality). Since migration 0018,
+    this also covers Google-OAuth hospital owners (role='admin' -- no
+    separate 'owner' role; confirmed with the user, a hospital's role
+    vocabulary stays exactly admin/receptionist/doctor) -- see the comment
+    where HospitalOwner used to be defined, just below."""
+    __tablename__ = "staff_details"
+
+    identity_id: Mapped[int] = mapped_column(ForeignKey("identities.id"), primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    role: Mapped[str]
+    doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id"))
+
+
+class SuperAdminDetail(Base):
+    """db/schema.sql's super_admin_details table (migration 0016) -- a bare
+    marker row: an Identity with a matching row here is a platform/super
+    admin. Deliberately a separate table, not a flag on Identity itself --
+    see Identity's own docstring for the security reasoning (privilege
+    requires a row only the dedicated provisioning path ever inserts, not a
+    column any Identity-writing code could accidentally flip)."""
+    __tablename__ = "super_admin_details"
+
+    identity_id: Mapped[int] = mapped_column(ForeignKey("identities.id"), primary_key=True)
+
+
+# HospitalOwner ("hospital_owners" table) used to live here -- migration
+# 0016 introduced it as an M:M ownership link (Identity <-> Hospital) for
+# Google-OAuth sign-ins, repointed from the old HospitalUser table.
+# Migration 0018 folded it into StaffDetail: confirmed with the user, no
+# identity actually owns more than one hospital in practice, so the M:M
+# shape was pure redundancy with StaffDetail's own (identity_id, hospital_id,
+# role) columns. A hospital owner is now just a StaffDetail row with
+# role='admin' -- same table, same login path (portal/routes/staff_auth.py)
+# as every other staff member. See StaffDetail's own docstring.
+
+
 class PlatformSettings(Base):
     """db/schema.sql's platform_settings table -- a SINGLETON row (id is
     always 1, enforced by a CHECK constraint, not per-hospital) holding
@@ -499,3 +588,8 @@ class PlatformSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     max_active_patient_links: Mapped[int]
+    # Migration 0014: moved off hospitals.feature_labels/dpdp_consent_required
+    # -- ONE value for every tenant now, not a per-hospital override. Stored
+    # as JSON text, same convention as HospitalRow.feature_labels.
+    feature_labels: Mapped[str | None]
+    dpdp_consent_required: Mapped[bool]

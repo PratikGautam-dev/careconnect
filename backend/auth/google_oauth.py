@@ -1,44 +1,42 @@
 # auth/google_oauth.py
 """
 Section 15: Google OAuth sign-in -- the one NEW identity layer this app
-gets. Deliberately does NOT replace auth/session.py/portal/*'s existing
-hospital-scoped session token (`_sign_session`/`_verify_session`, still
-gating every /api/portal/* route) -- once a Google-authenticated user's
-owned hospital is resolved (db.get_hospitals_for_user), /api/auth/select-hospital
-below just ISSUES that exact same token, so the whole rest of the portal
-(dashboard, settings, doctors, ...) runs completely unchanged. This module
-only owns the bit in FRONT of that: resolving "which Google account is
-this" and "which hospital(s) do they own."
+gets. This module owns "which Google account is this" and what happens
+right after: if that identity already has a staff_details row (an admin
+created via the staff-management UI, or the person who onboarded this
+hospital -- migration 0018 folded hospital ownership into StaffDetail,
+role='admin', no separate 'owner' role, confirmed with the user), the
+callback below issues a real staff refresh token directly (auth/refresh_tokens.py's
+issue_refresh_token(), the same one portal/routes/staff_auth.py's password
+login issues) and the frontend exchanges it for a full session via
+/api/portal/staff/refresh -- so Google sign-in and staff email+password
+sign-in land the SAME session type, and the whole rest of the portal only
+ever needs to understand one. One identity, one hospital
+(confirmed with the user: staff_details.identity_id is a 1:1 PK), so there
+is no multi-hospital picker step here -- an identity with a staff_details
+row goes straight into that one hospital.
 
-Session token here is a SEPARATE HMAC-signed "user_id.expires_epoch.sig"
-string, using its own AUTH_SECRET (not PORTAL_SECRET) -- same reasoning
-this project already applies to ADMIN_SECRET vs TENANTS_ADMIN_SECRET being
-different secrets (admin/tenants_api.py's module docstring): a leaked
-PORTAL_SECRET today only forges a hospital session; reusing it for user
-identity too would let a leak forge arbitrary user identities as well, a
-strictly bigger blast radius.
+If the identity has NO staff_details row yet (nobody has run
+db.link_hospital_owner for them -- a brand new Google sign-in that hasn't
+onboarded a hospital), this falls back to the short-lived user-only session
+(`_sign_user_session`, this module's own separate AUTH_SECRET-signed
+"user_id.expires_epoch.sig" scheme) just long enough for the onboarding
+wizard to authenticate its submission (authenticate_user(), still used by
+admin/onboarding_api.py) -- once submit_onboarding() calls
+db.link_hospital_owner() for this same identity, their NEXT Google sign-in
+takes the staff-session branch above instead.
 
-Delivered to the frontend the same way portal/routes/auth.py's token is: a Bearer
-token stored in localStorage, not a cookie -- the frontend runs on a
-different origin (Vercel vs Railway/localhost:8000), the exact cross-origin
-cookie problem portal/routes/auth.py's own module docstring already worked through.
-The one place this module DOES use a real browser redirect is the OAuth
-dance itself (Google requires a full-page redirect, not a fetch/XHR call),
-which stays entirely on THIS backend's own origin throughout (frontend ->
-/auth/google/login -> accounts.google.com -> /auth/google/callback, all
-same-origin from the browser's perspective except the middle hop to
-Google) -- no cross-origin cookie problem there either. The callback then
-hands the resulting token to the frontend via a one-time `?token=...` query
-param on a redirect to FRONTEND_ORIGIN, not a JSON body, since a redirect
-can't carry a response body for the frontend to read directly.
-
-Sign-up vs sign-in is deliberately NOT two different flows: Google OAuth
-doesn't naturally distinguish them the way a password form does, so there
-is exactly one entry point (/auth/google/login) used both from the landing
-page and from /portal/login -- the frontend decides where to go next
-(onboarding wizard vs. straight into a hospital vs. a picker) based on
-/api/auth/me's owned_hospitals count, not based on which button was
-clicked.
+Both token schemes are delivered to the frontend the same way
+portal/routes/staff_auth.py's are: query params on a redirect to
+FRONTEND_ORIGIN, not a JSON body, since a redirect can't carry a response
+body for the frontend to read directly. The OAuth dance itself (Google
+requires a full-page redirect, not a fetch/XHR call) stays entirely on THIS
+backend's own origin throughout (frontend -> /auth/google/login ->
+accounts.google.com -> /auth/google/callback, all same-origin from the
+browser's perspective except the middle hop to Google) -- no cross-origin
+cookie problem, which is also why every session here is a Bearer token in
+localStorage, never a cookie (frontend runs on a different origin --
+Vercel/Vercel-preview vs Railway/localhost:8000).
 """
 import hashlib
 import hmac
@@ -49,8 +47,8 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 import db.repository as db
+from auth.refresh_tokens import issue_refresh_token
 from core.config import get_settings
-from auth.session import _SESSION_TTL_SECONDS, _sign_session
 
 router = APIRouter()
 
@@ -59,10 +57,10 @@ AUTH_SECRET = _settings.AUTH_SECRET
 GOOGLE_CLIENT_ID = _settings.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = _settings.GOOGLE_CLIENT_SECRET
 FRONTEND_ORIGIN = _settings.FRONTEND_ORIGIN
-# Deliberately shorter-lived than auth/session.py's own 24h hospital session --
-# this token only exists to get through /api/auth/me + /api/auth/select-hospital
-# right after signing in, not to be browsed against over a whole day the way
-# the hospital-scoped session is.
+# Short-lived: this token only exists to get through /api/auth/me and the
+# onboarding wizard's own submission call right after signing in, for a
+# Google identity that has no staff_details row yet -- not to be browsed
+# against over a long session the way a staff JWT is.
 _USER_SESSION_TTL_SECONDS = 60 * 60
 
 oauth = OAuth()
@@ -140,6 +138,28 @@ async def google_callback(request: Request):
         return RedirectResponse(f"{FRONTEND_ORIGIN}/auth?error=google_sign_in_failed")
 
     user = db.get_or_create_user_for_google_login(google_id, email, name)
+
+    staff = db.get_staff_user_by_email(email)
+    if staff is not None and staff["is_active"]:
+        # This identity already has a staff_details row (an admin created
+        # via the staff-management UI, or someone db.link_hospital_owner()
+        # was already called for) -- skip the short-lived user-only session
+        # entirely and go straight to a real staff session, same as
+        # portal/routes/staff_auth.py's password login issues. Only the
+        # refresh token travels in the URL (not the access token too) --
+        # /api/portal/staff/refresh mints the access token + full session
+        # (staff summary, permissions) the frontend actually needs, so
+        # nothing sensitive beyond a single-use-rotating refresh token ever
+        # sits in a URL that could end up in browser history or a server log.
+        refresh_token = issue_refresh_token(staff["id"], staff["hospital_id"], staff["role"])
+        return RedirectResponse(f"{FRONTEND_ORIGIN}/auth/callback?staff_refresh_token={refresh_token}")
+
+    # No staff_details row yet -- a brand new Google sign-in that hasn't
+    # onboarded a hospital. Short-lived user-only session, just long enough
+    # for the onboarding wizard to authenticate its submission
+    # (authenticate_user(), used by admin/onboarding_api.py) -- once
+    # submit_onboarding() calls db.link_hospital_owner() for this identity,
+    # their next Google sign-in takes the staff-session branch above.
     expires_at = int(time.time()) + _USER_SESSION_TTL_SECONDS
     session_token = _sign_user_session(user.id, expires_at)
     return RedirectResponse(f"{FRONTEND_ORIGIN}/auth/callback?token={session_token}")
@@ -147,6 +167,11 @@ async def google_callback(request: Request):
 
 @router.get("/api/auth/me")
 async def auth_me(authorization: str | None = Header(default=None)):
+    """Only reached for the "no staff_details row yet" case now (the
+    callback above routes a Google sign-in with an existing staff account
+    straight to a staff session, bypassing this entirely) -- the frontend
+    calls this to confirm there's still no hospital before sending the
+    person to the onboarding wizard."""
     user = authenticate_user(authorization)
     if user is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -154,33 +179,4 @@ async def auth_me(authorization: str | None = Header(default=None)):
     return JSONResponse({
         "user": {"id": user.id, "email": user.email, "name": user.name},
         "owned_hospitals": [{"id": h.id, "name": h.name} for h in hospitals],
-    })
-
-
-@router.post("/api/auth/select-hospital")
-async def auth_select_hospital(payload: dict, authorization: str | None = Header(default=None)):
-    """Issues the exact same hospital-scoped session token
-    portal/routes/auth.py's password login issues (_sign_session) -- the frontend
-    saves it via the existing savePortalSession() and every /api/portal/*
-    route works unchanged from here on. hospital_id is never trusted from
-    the client without re-checking ownership server-side."""
-    user = authenticate_user(authorization)
-    if user is None:
-        return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    hospital_id = (payload or {}).get("hospital_id")
-    if not isinstance(hospital_id, int) or not db.user_owns_hospital(hospital_id, user.id):
-        return JSONResponse({"error": "You don't have access to that hospital."}, status_code=403)
-
-    hospital = db.get_hospital(hospital_id)
-    expires_at = int(time.time()) + _SESSION_TTL_SECONDS
-    portal_token = _sign_session(hospital.id, expires_at)
-    return JSONResponse({
-        "token": portal_token,
-        "expires_at": expires_at,
-        "hospital": {
-            "id": hospital.id,
-            "name": hospital.name,
-            "data_tier": hospital.data_tier,
-            "enabled_features": hospital.enabled_features,
-        },
     })

@@ -7,53 +7,39 @@ admin/onboarding.py's server-rendered /admin/tenants and /admin/edit-tenant
 routes but as JSON, reusing that module's exact validation/masking helpers
 and db/repository.py's update_hospital() rather than duplicating them.
 
-Gated by TENANTS_ADMIN_SECRET, deliberately a DIFFERENT secret from
-ADMIN_SECRET (which only gates *creating* a new hospital via the onboarding
-wizard) -- this surface shows and can change every already-onboarded
-tenant's stored credentials, a strictly higher-blast-radius operation, so it
-doesn't share a credential with the lower-stakes one. Checked on every
-request via an X-Admin-Secret header, re-validated server-side each time
-(never trusted from client-side "logged in" state) -- same "basic
-protection, not production-grade auth" posture as every other shared-secret
-gate in this project.
-"""
-import hmac
-
+RBAC (docs/rbac-redis-plan.md): gated by get_current_super_admin() -- an
+individual super_admins account's JWT, replacing the shared
+TENANTS_ADMIN_SECRET/X-Admin-Secret header this file used before. Every
+route below still re-verifies on every request (never trusted from
+client-side "logged in" state), same "basic protection, not
+production-grade auth" posture as before, just with a real per-operator
+identity backing it now, which is what makes _tenant_update's own audit-log
+call sites able to record WHO made a change instead of the literal string
+"platform admin"."""
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-import core.rate_limit as rate_limit
 import db.repository as db
 from admin.onboarding import _VALID_TIERS, _mask_secret
 from admin.validation import _parse_offsets
-from core.config import get_settings
 from core.translations import t
 from db.connection import IntegrityError
 from flows import _FEATURE_MENU, REAL_FEATURES
 from portal.capabilities import ALL_CAPABILITIES, DEFAULT_CAPABILITIES_BY_TYPE, get_capabilities
+from portal.deps import get_current_super_admin
 
 _VALID_TENANT_TYPES = set(DEFAULT_CAPABILITIES_BY_TYPE.keys())
 
 router = APIRouter()
 
-TENANTS_ADMIN_SECRET = get_settings().TENANTS_ADMIN_SECRET
 
-
-def _check_secret(x_admin_secret: str | None, request: Request) -> bool:
-    """Timing-safe (hmac.compare_digest, not a plain ==) and rate-limited
-    (audit follow-up, Spec.md Section 0) -- this single secret gates every
-    endpoint in this file, so the lockout is checked/recorded here once
-    rather than duplicated per route."""
-    key = rate_limit.client_key("tenants_admin_secret", request)
-    if rate_limit.is_locked_out(key):
-        return False
-    ok = bool(TENANTS_ADMIN_SECRET) and hmac.compare_digest(x_admin_secret or "", TENANTS_ADMIN_SECRET)
-    if ok:
-        rate_limit.reset(key)
-    else:
-        rate_limit.record_failure(key)
-    return ok
+def _actor_label(super_admin: dict) -> str:
+    """audit_logs.actor_label real-identity population (docs/rbac-redis-plan.md's
+    "Existing schema changes" note) -- now that platform-admin actions carry
+    a real super_admins row, replaces the old literal "platform admin"
+    string every call site in this file used to pass."""
+    return f'{super_admin["name"]} <{super_admin["email"]}>'
 
 
 def _tenant_summary(h) -> dict:
@@ -115,36 +101,31 @@ def _tenant_detail(h) -> dict:
         "default_capabilities_by_type": {
             k: sorted(v) for k, v in DEFAULT_CAPABILITIES_BY_TYPE.items()
         },
+        # Appointment-type allow-list (edit-tenant page): which of the fixed
+        # catalog this tenant is whitelisted for at all, separate from
+        # admin_capabilities' "manage_appointment_types" (which only gates
+        # whether portal staff can toggle is_active WITHIN this whitelist).
+        # is_active is included too so the operator can see whether a
+        # currently-active type would be turned off by revoking it.
+        "appointment_types": db.get_all_appointment_types_for_hospital(h.id),
     }
 
 
-@router.post("/api/admin/tenants/login")
-async def tenants_login(payload: dict, request: Request):
-    if rate_limit.is_locked_out(rate_limit.client_key("tenants_admin_secret", request)):
-        return JSONResponse(
-            {"error": "Too many attempts. Please wait a while before trying again."}, status_code=429
-        )
-    secret = (payload or {}).get("secret", "")
-    if not _check_secret(secret, request):
-        return JSONResponse({"error": "Incorrect admin secret."}, status_code=403)
-    return JSONResponse({"ok": True})
-
-
 @router.get("/api/admin/tenants")
-async def list_tenants(request: Request, x_admin_secret: str | None = Header(default=None)):
-    if not _check_secret(x_admin_secret, request):
+async def list_tenants(request: Request, authorization: str | None = Header(default=None)):
+    if get_current_super_admin(authorization) is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     hospitals = db.get_all_hospitals()
     return JSONResponse({"tenants": [_tenant_summary(h) for h in hospitals]})
 
 
 @router.get("/api/admin/stalled-signups")
-async def list_stalled_signups(request: Request, x_admin_secret: str | None = Header(default=None)):
+async def list_stalled_signups(request: Request, authorization: str | None = Header(default=None)):
     """Item 5 (Spec.md Section 0): who's signed in with Google but never
     finished onboarding a hospital -- db.get_users_without_hospital() is
     already the correct query (a user row with zero hospital_users links),
     this just exposes it to the platform-admin frontend."""
-    if not _check_secret(x_admin_secret, request):
+    if get_current_super_admin(authorization) is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     users = db.get_users_without_hospital()
     return JSONResponse({
@@ -153,21 +134,21 @@ async def list_stalled_signups(request: Request, x_admin_secret: str | None = He
 
 
 @router.get("/api/admin/stats/total-bookings")
-async def get_total_bookings_stat(request: Request, x_admin_secret: str | None = Header(default=None)):
+async def get_total_bookings_stat(request: Request, authorization: str | None = Header(default=None)):
     """Item 7 (Spec.md Section 0): platform-wide lifetime "how many times has
     this application been used for booking" -- every appointments row ever
     inserted, across every hospital, regardless of current status or later
     soft-deletion (db.get_total_bookings_count()'s own docstring has the
     full definition). Deliberately NOT the attended-status count from the
     earlier no-show work -- a separate metric entirely."""
-    if not _check_secret(x_admin_secret, request):
+    if get_current_super_admin(authorization) is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     return JSONResponse({"total_bookings": db.get_total_bookings_count()})
 
 
 @router.get("/api/admin/tenants/{tenant_id}")
-async def get_tenant(tenant_id: int, request: Request, x_admin_secret: str | None = Header(default=None)):
-    if not _check_secret(x_admin_secret, request):
+async def get_tenant(tenant_id: int, request: Request, authorization: str | None = Header(default=None)):
+    if get_current_super_admin(authorization) is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     hospital = db.get_hospital(tenant_id)
     if hospital is None:
@@ -195,9 +176,10 @@ class TenantUpdatePayload(BaseModel):
 
 @router.post("/api/admin/tenants/{tenant_id}")
 async def update_tenant(
-    tenant_id: int, payload: TenantUpdatePayload, request: Request, x_admin_secret: str | None = Header(default=None)
+    tenant_id: int, payload: TenantUpdatePayload, request: Request, authorization: str | None = Header(default=None)
 ):
-    if not _check_secret(x_admin_secret, request):
+    super_admin = get_current_super_admin(authorization)
+    if super_admin is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
 
     hospital = db.get_hospital(tenant_id)
@@ -322,7 +304,7 @@ async def update_tenant(
     changed = {k: (old, new) for k, (old, new) in _audit_fields.items() if old != new}
     if changed:
         db.record_audit_log(
-            "platform_admin", tenant_id, "platform admin", "tenant.update",
+            "platform_admin", tenant_id, _actor_label(super_admin), "tenant.update",
             entity_type="hospital", entity_id=str(tenant_id),
             before={k: old for k, (old, new) in changed.items()},
             after={k: new for k, (old, new) in changed.items()},
@@ -337,7 +319,7 @@ class AssignOwnerPayload(BaseModel):
 
 @router.post("/api/admin/tenants/{tenant_id}/assign-owner")
 async def assign_tenant_owner(
-    tenant_id: int, payload: AssignOwnerPayload, request: Request, x_admin_secret: str | None = Header(default=None)
+    tenant_id: int, payload: AssignOwnerPayload, request: Request, authorization: str | None = Header(default=None)
 ):
     """Section 15's migration tool for hospitals onboarded before Google
     sign-in existed (hospital #1, DaaPrime): links a hospital to a Google
@@ -350,7 +332,8 @@ async def assign_tenant_owner(
     script -- a hospital can have more than one owner (hospital_users is a
     join table), so calling this again for a second email just adds another
     owner rather than replacing the first."""
-    if not _check_secret(x_admin_secret, request):
+    super_admin = get_current_super_admin(authorization)
+    if super_admin is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
 
     hospital = db.get_hospital(tenant_id)
@@ -363,22 +346,57 @@ async def assign_tenant_owner(
 
     owner = db.assign_hospital_owner_by_email(tenant_id, email)
     db.record_audit_log(
-        "platform_admin", tenant_id, "platform admin", "tenant.assign_owner",
+        "platform_admin", tenant_id, _actor_label(super_admin), "tenant.assign_owner",
         entity_type="hospital_owner", entity_id=str(owner.id), after={"email": email},
     )
     return JSONResponse({"tenant": _tenant_detail(hospital), "owner": {"id": owner.id, "email": owner.email}})
 
 
+class AppointmentTypeAllowedPayload(BaseModel):
+    is_allowed: bool = True
+
+
+@router.post("/api/admin/tenants/{tenant_id}/appointment-types/{appointment_type_id}/allowed")
+async def set_tenant_appointment_type_allowed(
+    tenant_id: int, appointment_type_id: str, payload: AppointmentTypeAllowedPayload,
+    request: Request, authorization: str | None = Header(default=None),
+):
+    """The platform-admin half of the appointment-type allow-list: which
+    types a tenant may use at all (edit-tenant page's new "Appointment
+    types" section). Turning one off also forces is_active=False for it
+    (db.set_appointment_type_allowed()'s own docstring), so the tenant's own
+    portal toggle (portal/routes/appointment_types.py) never has to
+    reconcile a type that's active but no longer allowed."""
+    super_admin = get_current_super_admin(authorization)
+    if super_admin is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    hospital = db.get_hospital(tenant_id)
+    if hospital is None:
+        return JSONResponse({"error": f"No tenant with id {tenant_id}."}, status_code=404)
+
+    updated = db.set_appointment_type_allowed(tenant_id, appointment_type_id, payload.is_allowed)
+    if updated is None:
+        return JSONResponse({"error": "No such appointment type."}, status_code=404)
+
+    db.record_audit_log(
+        "platform_admin", tenant_id, _actor_label(super_admin), "appointment_type.allow",
+        entity_type="appointment_type", entity_id=appointment_type_id,
+        after={"is_allowed": payload.is_allowed},
+    )
+    return JSONResponse({"appointment_type": updated})
+
+
 @router.get("/api/admin/tenants/{tenant_id}/audit-log")
 async def get_tenant_audit_log(
-    tenant_id: int, request: Request, x_admin_secret: str | None = Header(default=None)
+    tenant_id: int, request: Request, authorization: str | None = Header(default=None)
 ):
     """Platform-admin view of both audit levels for one tenant -- the portal-
     facing GET /api/portal/audit-log (portal/routes/settings.py) only ever
     shows that tenant's own 'portal'-level rows, never platform_admin ones
     (data_tier/API-key changes are operator-only concerns), so this is the
     only place both levels for a tenant are visible together."""
-    if not _check_secret(x_admin_secret, request):
+    if get_current_super_admin(authorization) is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     if db.get_hospital(tenant_id) is None:
         return JSONResponse({"error": f"No tenant with id {tenant_id}."}, status_code=404)
@@ -388,7 +406,7 @@ async def get_tenant_audit_log(
 @router.get("/api/admin/audit-log")
 async def get_platform_audit_log(
     request: Request,
-    x_admin_secret: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
     hospital_id: int | None = None,
     actor_level: str | None = None,
 ):
@@ -402,7 +420,7 @@ async def get_platform_audit_log(
     (a lookup dict built once, not a query per row) since these entries span
     tenants and an id alone isn't identifying enough here the way it is on
     the single-tenant route."""
-    if not _check_secret(x_admin_secret, request):
+    if get_current_super_admin(authorization) is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     if actor_level is not None and actor_level not in ("platform_admin", "portal"):
         return JSONResponse({"error": f'Unrecognized actor_level "{actor_level}".'}, status_code=400)

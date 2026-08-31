@@ -171,12 +171,21 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
         </div>
       )}
 
-      <Field label="Admin secret" htmlFor="admin_secret" required>
+      <Field label="Hospital admin email" htmlFor="admin_email" required>
         <Input
-          id="admin_secret"
+          id="admin_email"
+          type="email"
+          value={state.adminEmail}
+          onChange={(e) => dispatch({ type: "set", field: "adminEmail", value: e.target.value })}
+        />
+      </Field>
+
+      <Field label="Hospital admin password" htmlFor="admin_password" required>
+        <Input
+          id="admin_password"
           type="password"
-          value={state.adminSecret}
-          onChange={(e) => dispatch({ type: "set", field: "adminSecret", value: e.target.value })}
+          value={state.adminPassword}
+          onChange={(e) => dispatch({ type: "set", field: "adminPassword", value: e.target.value })}
         />
       </Field>
 

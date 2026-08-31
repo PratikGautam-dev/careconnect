@@ -6,13 +6,27 @@ of each module doing its own `os.environ.get(...)` at import time. Per-tenant
 config (menu labels, feature toggles, credentials-per-hospital) lives in the
 `hospitals` DB table and is untouched by this file -- see `db/repository.py`.
 
-Deliberately does NOT cover REDIS_URL or DATABASE_URL. Both already have a
-"read live, connect, fall back if unreachable" pattern re-checked on every
-call (core/chat_history.py's get_history(), core/session_store.py's get_session_store(), core/rate_limit.py's
-_build_limiter(), core/main.py's _get_redis(), db/connection.py's
-get_database_url()) that several tests exercise via `monkeypatch.delenv` --
+Deliberately does NOT cover DATABASE_URL, or REDIS_URL for any of the SIX
+existing hand-rolled call sites (core/chat_history.py's get_history(),
+core/session_store.py's get_session_store(), core/rate_limit.py's
+_build_limiter(), webhook/dispatch.py's _get_redis(), modules/booking/calendar.py's
+_get_redis(), auth/refresh_tokens.py's _build_store(), db/connection.py's
+get_database_url() -- that's seven, including DATABASE_URL). Each already
+has a "read live, connect, fall back if unreachable" pattern re-checked on
+every call, and several tests exercise that via `monkeypatch.delenv` --
 freezing either into a singleton at import time would silently break that
 live re-check. Leave those exactly as direct os.environ reads where they are.
+main.py is NOT one of these -- its own Redis usage already goes through
+core/redis_client.py's get_redis(), not a hand-rolled copy.
+
+REDIS_URL below is the ONE exception, added for core/redis_client.py's
+get_redis() specifically -- that function calls get_settings().REDIS_URL
+fresh on every invocation (never caches the value at import time the way
+PORTAL_SECRET/DOCTOR_SECRET below do), so it preserves the exact same live-
+read-per-call semantics os.environ.get() would have given it, without
+actually reintroducing the frozen-singleton risk this docstring warns about.
+Not retrofitted onto the six sites above -- this is scoped to redis_client.py
+alone, by request, not a signal to migrate the others.
 
 No cached module-level `settings` singleton, deliberately: several of the
 values below (WHATSAPP_VERIFY_TOKEN especially) were previously read at each
@@ -54,6 +68,17 @@ class Settings(BaseSettings):
     # leaked PORTAL_SECRET must not also forge a doctor-scoped token, and vice
     # versa.
     DOCTOR_SECRET: str = ""
+    # RBAC (docs/rbac-redis-plan.md): staff JWT access tokens (auth/jwt_session.py)
+    # and super-admin JWT access tokens are signed with SEPARATE secrets, same
+    # "a leaked secret should only forge the one thing it's for" precedent
+    # DOCTOR_SECRET vs PORTAL_SECRET already established -- a leaked JWT_SECRET
+    # must never be usable to forge a super-admin token (full platform access),
+    # and vice versa.
+    JWT_SECRET: str = ""
+    SUPER_ADMIN_JWT_SECRET: str = ""
+    # See this module's own docstring above -- the one exception to "REDIS_URL
+    # isn't covered here", scoped to core/redis_client.py's get_redis() alone.
+    REDIS_URL: str | None = None
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     FRONTEND_ORIGIN: str = "http://localhost:3000"

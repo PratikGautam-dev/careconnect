@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pencil } from "lucide-react";
 import Link from "next/link";
-import { AdminSecretGate } from "@/components/admin/AdminSecretGate";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
@@ -54,20 +53,15 @@ function TenantsList() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-[1000px] px-space-4 py-space-7 md:px-space-7">
+    <div className="mx-auto max-w-[1000px]">
       <div className="mb-space-5 flex items-center justify-between">
         <div>
           <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">All tenants</h1>
         </div>
-        <div className="flex items-center gap-space-3">
-          <Button href="/admin/audit-log" variant="ghost">
-            Audit log
-          </Button>
-          <Button href="/admin/onboard-hospital" variant="secondary">
-            Onboard a hospital
-          </Button>
-        </div>
+        <Button href="/admin/onboard-hospital" variant="secondary">
+          Onboard a hospital
+        </Button>
       </div>
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
@@ -142,9 +136,5 @@ function TenantsList() {
 }
 
 export default function TenantsPage() {
-  return (
-    <AdminSecretGate title="All tenants">
-      <TenantsList />
-    </AdminSecretGate>
-  );
+  return <TenantsList />;
 }

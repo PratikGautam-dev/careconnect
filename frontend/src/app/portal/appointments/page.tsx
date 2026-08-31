@@ -5,6 +5,7 @@ import { CalendarClock, Plus, Search, Send, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
@@ -432,14 +433,16 @@ export default function PortalAppointmentsPage() {
                             // Item 3: delete only ever offered for a resolved
                             // (non-'booked') appointment -- matches the
                             // backend's own guard.
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(a.id)}
-                              disabled={deletingId === a.id}
-                              className="inline-flex items-center gap-space-1 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
-                            >
-                              <Trash2 size={12} /> {deletingId === a.id ? "Deleting…" : "Delete"}
-                            </button>
+                            <PermissionGate page="appointments" action="delete">
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(a.id)}
+                                disabled={deletingId === a.id}
+                                className="inline-flex items-center gap-space-1 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
+                              >
+                                <Trash2 size={12} /> {deletingId === a.id ? "Deleting…" : "Delete"}
+                              </button>
+                            </PermissionGate>
                           )}
                         </td>
                       </tr>

@@ -5,22 +5,23 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
-import { getAdminSecret, setAdminSecret } from "@/lib/adminAuth";
+import { getAdminToken, setAdminToken } from "@/lib/adminAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-/** Gates any platform-admin page behind TENANTS_ADMIN_SECRET -- re-verified
- * against the backend on submit (never just "trust a non-empty field"), same
- * as every other shared-secret gate in this project. Wrap a whole page's
- * content in this; children only render once unlocked. */
+/** Gates any platform-admin page behind an individual super-admin account
+ * (replacing the old shared TENANTS_ADMIN_SECRET) -- re-verified against the
+ * backend on submit, never just "trust a non-empty field". Wrap a whole
+ * page's content in this; children only render once unlocked. */
 export function AdminSecretGate({ title, children }: { title: string; children: React.ReactNode }) {
   const [status, setStatus] = useState<"checking" | "gate" | "unlocked">("checking");
-  const [secretInput, setSecretInput] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setStatus(getAdminSecret() ? "unlocked" : "gate");
+    setStatus(getAdminToken() ? "unlocked" : "gate");
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -28,17 +29,17 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/tenants/login`, {
+      const res = await fetch(`${API_BASE_URL}/api/admin/super/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secret: secretInput }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Incorrect admin secret.");
+        setError(data.error || "Incorrect email or password.");
         return;
       }
-      setAdminSecret(secretInput);
+      setAdminToken(data.access_token, data.super_admin);
       setStatus("unlocked");
     } catch {
       setError("Couldn't reach the server. Please try again.");
@@ -65,17 +66,25 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
           <h1 className="text-display mb-space-1 !text-[22px]">{title}</h1>
           <p className="text-body mb-space-5">This page shows tenant credentials, so it&apos;s gated separately from onboarding.</p>
           <form onSubmit={handleSubmit}>
-            <Field label="Admin secret" htmlFor="admin_secret" error={error || undefined}>
+            <Field label="Email" htmlFor="super_admin_email">
               <Input
-                id="admin_secret"
-                type="password"
+                id="super_admin_email"
+                type="email"
                 autoFocus
-                value={secretInput}
-                invalid={!!error}
-                onChange={(e) => setSecretInput(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </Field>
-            <Button type="submit" disabled={submitting || !secretInput} className="mt-space-2 w-full" size="lg">
+            <Field label="Password" htmlFor="super_admin_password" error={error || undefined}>
+              <Input
+                id="super_admin_password"
+                type="password"
+                value={password}
+                invalid={!!error}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </Field>
+            <Button type="submit" disabled={submitting || !email || !password} className="mt-space-2 w-full" size="lg">
               {submitting ? "Checking…" : "Continue"}
             </Button>
           </form>

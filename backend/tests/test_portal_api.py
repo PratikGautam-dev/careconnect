@@ -1195,13 +1195,15 @@ def test_settings_get_includes_new_customization_fields_with_safe_defaults(two_h
     resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
     assert resp.status_code == 200
     data = resp.json()
-    assert data["feature_labels"] == {}
+    # Migration 0014: feature_labels/feature_default_labels moved to
+    # /api/admin/platform-settings (platform-wide now, not per-hospital) --
+    # no longer part of this response.
+    assert "feature_labels" not in data
     assert data["closing_message_text"] == ""
     assert data["business_hours_text"] == ""
     assert data["default_language"] == "en"
     assert data["language_prompt_enabled"] is True
     assert data["session_timeout_minutes"] == 30
-    assert "booking" in data["feature_default_labels"]
 
 
 def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
@@ -1210,7 +1212,6 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
         "welcome_message_text": "Welcome!",
         "reminder_offsets_hours": "24",
         "reminder_template_name": "reminder",
-        "feature_labels": {"booking": "Schedule a visit", "unknown_key": "ignored"},
         "closing_message_text": "Thank you for choosing us.",
         "business_hours_text": "Mon-Sat, 9am-8pm",
         "default_language": "hi",
@@ -1222,7 +1223,6 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
 
     get_resp = client.get("/api/portal/settings", headers=_auth(a["token"]))
     data = get_resp.json()
-    assert data["feature_labels"] == {"booking": "Schedule a visit"}  # unrecognized key dropped
     assert data["closing_message_text"] == "Thank you for choosing us."
     assert data["business_hours_text"] == "Mon-Sat, 9am-8pm"
     assert data["default_language"] == "hi"

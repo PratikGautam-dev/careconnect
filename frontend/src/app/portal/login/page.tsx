@@ -7,45 +7,46 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
-import { savePortalSession } from "@/lib/portalAuth";
+import { saveStaffSession } from "@/lib/staffAuth";
 import { googleLoginUrl } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function PortalLoginPage() {
   const router = useRouter();
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [showForgotHelp, setShowForgotHelp] = useState(false);
-  // Section 15: Google sign-in is the primary path now -- the password form
-  // is a permanent fallback (not scheduled for removal) for hospitals that
-  // don't have a Google owner assigned yet (see admin/tenants_api.py's
-  // assign-owner migration tool), so it stays available but collapsed
-  // rather than front-and-center.
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  const [staffEmail, setStaffEmail] = useState("");
+  const [staffPassword, setStaffPassword] = useState("");
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const [staffSubmitting, setStaffSubmitting] = useState(false);
+
+  async function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitting(true);
-    setError(null);
+    setStaffSubmitting(true);
+    setStaffError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/portal/login`, {
+      const res = await fetch(`${API_BASE_URL}/api/portal/staff/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: staffEmail, password: staffPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Incorrect password.");
+        setStaffError(data.error || "Incorrect email or password.");
         return;
       }
-      savePortalSession(data.token, data.hospital);
+      saveStaffSession(data.access_token, data.refresh_token, {
+        id: data.staff.id,
+        name: data.staff.name,
+        role: data.staff.role,
+        hospital: data.staff.hospital,
+        permissions: data.permissions,
+      });
       router.push("/portal/dashboard");
     } catch {
-      setError("Couldn't reach the server. Please try again.");
+      setStaffError("Couldn't reach the server. Please try again.");
     } finally {
-      setSubmitting(false);
+      setStaffSubmitting(false);
     }
   }
 
@@ -62,8 +63,8 @@ export default function PortalLoginPage() {
           </div>
         </div>
 
-        <h1 className="text-display mb-space-1 !text-[22px]">Staff login</h1>
-        <p className="text-body mb-space-5">Continue with the Google account that manages your hospital.</p>
+        <h1 className="text-display mb-space-1 !text-[22px]">Sign in</h1>
+        <p className="text-body mb-space-5">Sign in with your Google account or your individual staff email and password.</p>
 
         <a
           href={googleLoginUrl()}
@@ -73,48 +74,40 @@ export default function PortalLoginPage() {
           Continue with Google
         </a>
 
-        {!showPasswordForm ? (
-          <p className="mt-space-3 text-center text-[12.5px]">
-            <button
-              type="button"
-              onClick={() => setShowPasswordForm(true)}
-              className="font-semibold text-brand-600 hover:underline"
-            >
-              Sign in with hospital password instead
-            </button>
-          </p>
-        ) : (
-          <form onSubmit={handleSubmit} className="mt-space-5 border-t border-line pt-space-5">
-            <Field label="Password" htmlFor="password" error={error || undefined}>
-              <Input
-                id="password"
-                type="password"
-                autoFocus
-                value={password}
-                invalid={!!error}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </Field>
-            <Button type="submit" disabled={submitting || !password} className="mt-space-2 w-full" size="lg">
-              {submitting ? "Signing in…" : "Sign in"}
-            </Button>
-            <p className="mt-space-3 text-center text-[12.5px]">
-              <button
-                type="button"
-                onClick={() => setShowForgotHelp((v) => !v)}
-                className="font-semibold text-brand-600 hover:underline"
-              >
-                Forgot password?
-              </button>
-            </p>
-            {showForgotHelp && (
-              <p className="mt-space-2 rounded-md bg-paper p-space-3 text-center text-[12.5px] text-ink-600">
-                Portal passwords are reset by your platform administrator, not self-service. Contact them to have it
-                changed.
-              </p>
-            )}
-          </form>
-        )}
+        <div className="my-space-5 flex items-center gap-space-3 text-[12px] font-medium uppercase text-ink-400">
+          <span className="h-px flex-1 bg-line" />
+          or
+          <span className="h-px flex-1 bg-line" />
+        </div>
+
+        <form onSubmit={handleStaffSubmit}>
+          <Field label="Email" htmlFor="staff_email">
+            <Input
+              id="staff_email"
+              type="email"
+              autoFocus
+              value={staffEmail}
+              onChange={(e) => setStaffEmail(e.target.value)}
+            />
+          </Field>
+          <Field label="Password" htmlFor="staff_password" error={staffError || undefined}>
+            <Input
+              id="staff_password"
+              type="password"
+              value={staffPassword}
+              invalid={!!staffError}
+              onChange={(e) => setStaffPassword(e.target.value)}
+            />
+          </Field>
+          <Button
+            type="submit"
+            disabled={staffSubmitting || !staffEmail || !staffPassword}
+            className="mt-space-2 w-full"
+            size="lg"
+          >
+            {staffSubmitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
 
         <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
           Don&apos;t have a hospital account yet?{" "}

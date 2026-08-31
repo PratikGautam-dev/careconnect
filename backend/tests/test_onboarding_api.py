@@ -10,10 +10,12 @@ _parse_offsets) with the code the old HTML route used, so this is coverage
 of currently-live, currently-used logic, not dead code.
 
 Section 15 addition since the old tests were written: submit_onboarding()
-now requires BOTH a signed-in user (Authorization: Bearer, via the
-user_auth_header fixture) AND the correct admin_secret -- two independent
-gates (see admin/onboarding_api.py's own comment on why). Every test here
-carries a real user_auth_header unless specifically testing that gate.
+requires BOTH a signed-in user (Authorization: Bearer, via the
+user_auth_header fixture) AND a valid super-admin token (payload.super_admin_token,
+via the super_admin_token fixture -- RBAC's docs/rbac-redis-plan.md
+replacement for the old shared ADMIN_SECRET) -- two independent gates (see
+admin/onboarding_api.py's own comment on why). Every test here carries both
+unless specifically testing one of those two gates.
 """
 import os
 
@@ -44,9 +46,9 @@ def _valid_departments():
     }]
 
 
-def _payload(**overrides):
+def _payload(super_admin_token, **overrides):
     data = {
-        "admin_secret": "test-admin-secret",
+        "super_admin_token": super_admin_token,
         "name": "St. Jude Community Hospital",
         "whatsapp_phone_number_id": "NEW_HOSPITAL_PHONE_ID",
         "access_token": "new-hospital-token",
@@ -54,6 +56,8 @@ def _payload(**overrides):
         "welcome_message_text": "Welcome to St. Jude!",
         "reminder_offsets_hours": "24,1",
         "portal_password": "bookings-pw",
+        "admin_email": "admin@stjude.example",
+        "admin_password": "stjude-admin-pw",
         "enabled_features": ["booking"],
         "data_tier": "tier1",
         "departments": _valid_departments(),
@@ -63,12 +67,13 @@ def _payload(**overrides):
     return data
 
 
-def test_successful_onboarding_creates_real_rows_and_links_owner(hospital_id, user_auth_header):
-    resp = client.post("/api/onboarding", json=_payload(), headers=user_auth_header)
+def test_successful_onboarding_creates_real_rows_and_links_owner(hospital_id, user_auth_header, super_admin_token):
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token), headers=user_auth_header)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["hospital_name"] == "St. Jude Community Hospital"
     assert body["portal_password_set"] is True
+    assert body["admin_email"] == "admin@stjude.example"
 
     hospital = db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID")
     assert hospital is not None
@@ -80,70 +85,84 @@ def test_successful_onboarding_creates_real_rows_and_links_owner(hospital_id, us
     doctors = db.get_doctors(hospital.id, departments[0]["id"])
     assert sorted(d["name"] for d in doctors) == ["Dr. Arjun Singh", "Dr. Meera Nair"]
 
-    # Section 15: the signed-in user must actually be linked as the owner.
+    # Section 15: the signed-in user must actually be linked as an admin.
+    # Two admins now exist for this hospital -- the signed-in Google user
+    # (linked via link_hospital_owner) and the admin_email/admin_password
+    # account created explicitly below -- there's no separate 'owner' role
+    # to distinguish them (confirmed with the user, centralized on 'admin').
     owners = db.get_owners_for_hospital(hospital.id)
-    assert len(owners) == 1
-    assert owners[0].email == "test-owner@example.com"
+    assert {o.email for o in owners} == {"test-owner@example.com", "admin@stjude.example"}
+
+    # RBAC (docs/rbac-redis-plan.md): the hospital's first staff_users admin
+    # row + its default role_permissions matrix were seeded, not just the
+    # legacy portal_password_hash.
+    staff = db.get_staff_user_by_email("admin@stjude.example")
+    assert staff is not None
+    assert staff["role"] == "admin"
+    assert staff["hospital_id"] == hospital.id
+    assert db.get_role_permissions(hospital.id)  # non-empty: every (role, page) seeded
 
 
-def test_requires_signed_in_user(hospital_id):
-    resp = client.post("/api/onboarding", json=_payload())  # no Authorization header
+def test_requires_signed_in_user(hospital_id, super_admin_token):
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token))  # no Authorization header
     assert resp.status_code == 401
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
-def test_wrong_admin_secret_rejected_even_when_signed_in(hospital_id, user_auth_header):
-    resp = client.post("/api/onboarding", json=_payload(admin_secret="wrong"), headers=user_auth_header)
+def test_wrong_super_admin_token_rejected_even_when_signed_in(hospital_id, user_auth_header, super_admin_token):
+    bad_payload = _payload(super_admin_token)
+    bad_payload["super_admin_token"] = "wrong"
+    resp = client.post("/api/onboarding", json=bad_payload, headers=user_auth_header)
     assert resp.status_code == 403
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
-def test_duplicate_phone_number_id_rejected(hospital_id, user_auth_header):
+def test_duplicate_phone_number_id_rejected(hospital_id, user_auth_header, super_admin_token):
     before = db.find_hospital_by_phone_number_id("123")  # the already-seeded hospital's number
-    resp = client.post("/api/onboarding", json=_payload(whatsapp_phone_number_id="123"), headers=user_auth_header)
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, whatsapp_phone_number_id="123"), headers=user_auth_header)
     assert resp.status_code == 400
     assert "already exists" in resp.json()["errors"][0]
     after = db.find_hospital_by_phone_number_id("123")
     assert before.id == after.id
 
 
-def test_missing_departments_rejected_when_booking_enabled(hospital_id, user_auth_header):
-    resp = client.post("/api/onboarding", json=_payload(departments=[]), headers=user_auth_header)
+def test_missing_departments_rejected_when_booking_enabled(hospital_id, user_auth_header, super_admin_token):
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, departments=[]), headers=user_auth_header)
     assert resp.status_code == 400
     assert any("department" in e.lower() for e in resp.json()["errors"])
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
-def test_doctor_with_invalid_working_day_rejected(hospital_id, user_auth_header):
+def test_doctor_with_invalid_working_day_rejected(hospital_id, user_auth_header, super_admin_token):
     departments = [{"name": "Pediatrics", "doctors": [
         {"name": "Dr. Bad Day", "working_days": ["Mon", "Funday"], "working_hours": ["09:00-13:00"], "slot_duration_minutes": "20"},
     ]}]
-    resp = client.post("/api/onboarding", json=_payload(departments=departments), headers=user_auth_header)
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, departments=departments), headers=user_auth_header)
     assert resp.status_code == 400
     assert any("invalid working day" in e.lower() for e in resp.json()["errors"])
 
 
-def test_no_features_selected_rejected(hospital_id, user_auth_header):
-    resp = client.post("/api/onboarding", json=_payload(enabled_features=[], departments=[]), headers=user_auth_header)
+def test_no_features_selected_rejected(hospital_id, user_auth_header, super_admin_token):
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, enabled_features=[], departments=[]), headers=user_auth_header)
     assert resp.status_code == 400
     assert any("patient-experience" in e.lower() for e in resp.json()["errors"])
 
 
-def test_unrecognized_feature_rejected(hospital_id, user_auth_header):
-    resp = client.post("/api/onboarding", json=_payload(enabled_features=["booking", "teleporting"]), headers=user_auth_header)
+def test_unrecognized_feature_rejected(hospital_id, user_auth_header, super_admin_token):
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, enabled_features=["booking", "teleporting"]), headers=user_auth_header)
     assert resp.status_code == 400
 
 
-def test_tier2_requires_api_fields(hospital_id, user_auth_header):
-    resp = client.post("/api/onboarding", json=_payload(data_tier="tier2", api_base_url="", api_key=""), headers=user_auth_header)
+def test_tier2_requires_api_fields(hospital_id, user_auth_header, super_admin_token):
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, data_tier="tier2", api_base_url="", api_key=""), headers=user_auth_header)
     assert resp.status_code == 400
     assert db.find_hospital_by_phone_number_id("NEW_HOSPITAL_PHONE_ID") is None
 
 
-def test_tier2_fields_save_correctly(hospital_id, user_auth_header):
+def test_tier2_fields_save_correctly(hospital_id, user_auth_header, super_admin_token):
     resp = client.post(
         "/api/onboarding",
-        json=_payload(data_tier="tier2", api_base_url="https://erp.stjude.example/api", api_key="tier2-secret-key"),
+        json=_payload(super_admin_token, data_tier="tier2", api_base_url="https://erp.stjude.example/api", api_key="tier2-secret-key"),
         headers=user_auth_header,
     )
     assert resp.status_code == 200, resp.text
@@ -152,10 +171,10 @@ def test_tier2_fields_save_correctly(hospital_id, user_auth_header):
     assert hospital.external_api_base_url == "https://erp.stjude.example/api"
 
 
-def test_faq_only_hospital_created_with_topics_not_departments(hospital_id, user_auth_header):
+def test_faq_only_hospital_created_with_topics_not_departments(hospital_id, user_auth_header, super_admin_token):
     resp = client.post(
         "/api/onboarding",
-        json=_payload(
+        json=_payload(super_admin_token,
             enabled_features=["faq"], departments=[], portal_password="",
             whatsapp_phone_number_id="FAQ_HOSPITAL_PHONE_ID",
             topics=[{"topic_label": "Hours", "answer_text": "Mon-Sat, 9-6."},
@@ -173,10 +192,10 @@ def test_faq_only_hospital_created_with_topics_not_departments(hospital_id, user
     assert db.get_departments(hospital.id) == []
 
 
-def test_faq_missing_topics_rejected(hospital_id, user_auth_header):
+def test_faq_missing_topics_rejected(hospital_id, user_auth_header, super_admin_token):
     resp = client.post(
         "/api/onboarding",
-        json=_payload(enabled_features=["faq"], departments=[], portal_password="", topics=[],
+        json=_payload(super_admin_token, enabled_features=["faq"], departments=[], portal_password="", topics=[],
                        whatsapp_phone_number_id="FAQ_HOSPITAL_PHONE_ID"),
         headers=user_auth_header,
     )
@@ -184,10 +203,10 @@ def test_faq_missing_topics_rejected(hospital_id, user_auth_header):
     assert any("topic" in e.lower() for e in resp.json()["errors"])
 
 
-def test_booking_and_faq_both_enabled_creates_both(hospital_id, user_auth_header):
+def test_booking_and_faq_both_enabled_creates_both(hospital_id, user_auth_header, super_admin_token):
     resp = client.post(
         "/api/onboarding",
-        json=_payload(
+        json=_payload(super_admin_token,
             enabled_features=["booking", "faq"], whatsapp_phone_number_id="BOTH_PHONE_ID",
             topics=[{"topic_label": "Hours", "answer_text": "Mon-Sat, 9-6."}],
         ),

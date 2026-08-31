@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { CheckboxRow } from "@/components/ui/Checkbox";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
+import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
 import { DaycareDurationOptions } from "@/components/portal/DaycareDurationOptions";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -19,8 +20,6 @@ type Settings = {
   reminder_template_name: string;
   // Section 12.13: self-serve bot customization.
   enabled_features: string[];
-  feature_labels: Record<string, string>;
-  feature_default_labels: Record<string, string>;
   closing_message_text: string;
   business_hours_text: string;
   default_language: "en" | "hi";
@@ -29,9 +28,6 @@ type Settings = {
   // CareConnect architecture doc alignment (Spec.md Section 0).
   require_patient_confirmation: boolean;
   privacy_notice_text: string;
-  // DPDP Act consent gate: shown right after language selection, before any
-  // patient identity is resolved. Off by default.
-  dpdp_consent_required: boolean;
 };
 
 type AuditEntry = {
@@ -61,19 +57,6 @@ function formatAuditChanges(entry: AuditEntry): string {
     })
     .join(", ");
 }
-
-const FEATURE_DISPLAY_NAMES: Record<string, string> = {
-  booking: "Book Appointment",
-  reschedule: "Reschedule Appointment",
-  cancel: "Cancel Appointment",
-  view_appointments: "My Appointments",
-  reports_prescriptions: "Reports & Prescriptions",
-  manage_patients: "Manage Patients",
-  consent_privacy: "Consent & Privacy",
-  hospital_info: "Hospital Information",
-  reception_handoff: "Talk to Reception",
-  faq: "FAQ / Information",
-};
 
 export default function PortalSettingsPage() {
   const router = useRouter();
@@ -151,11 +134,6 @@ export default function PortalSettingsPage() {
     setSaved(true);
   }
 
-  function setFeatureLabel(key: string, label: string) {
-    if (!settings) return;
-    setSettings({ ...settings, feature_labels: { ...settings.feature_labels, [key]: label } });
-  }
-
   return (
     <PortalShell hospital={hospital} active="settings">
         <h1 className="text-display mb-space-5">Hospital settings</h1>
@@ -195,27 +173,6 @@ export default function PortalSettingsPage() {
                   onChange={(e) => setSettings({ ...settings, reminder_template_name: e.target.value })}
                 />
               </Field>
-            </Card>
-
-            <Card className="p-space-5">
-              <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Menu labels</h2>
-              <p className="mb-space-3 text-[12.5px] text-ink-400">
-                Rename how an enabled feature appears in your WhatsApp menu. Leave a field blank to use the default.
-              </p>
-              {settings.enabled_features.length === 0 ? (
-                <p className="text-[13px] text-ink-400">No features are enabled yet — enable some via onboarding/tenant setup first.</p>
-              ) : (
-                settings.enabled_features.map((key) => (
-                  <Field key={key} label={FEATURE_DISPLAY_NAMES[key] || key} htmlFor={`label_${key}`}>
-                    <Input
-                      id={`label_${key}`}
-                      placeholder={settings.feature_default_labels[key] || ""}
-                      value={settings.feature_labels[key] || ""}
-                      onChange={(e) => setFeatureLabel(key, e.target.value)}
-                    />
-                  </Field>
-                ))
-              )}
             </Card>
 
             <Card className="p-space-5">
@@ -312,22 +269,6 @@ export default function PortalSettingsPage() {
             </Card>
 
             <Card className="p-space-5">
-              <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">DPDP Act consent</h2>
-              <p className="mb-space-3 text-[12.5px] text-ink-400">
-                When enabled, a fresh conversation must tap &quot;I Agree&quot; on a fixed Digital Personal Data
-                Protection (DPDP) Act notice right after choosing a language, before anything else -- including
-                registration or picking a patient. The decision is remembered per phone number, so a patient who has
-                already agreed is never asked again.
-              </p>
-              <CheckboxRow
-                checked={settings.dpdp_consent_required}
-                onChange={(checked) => setSettings({ ...settings, dpdp_consent_required: checked })}
-              >
-                Require DPDP consent before entering the menu
-              </CheckboxRow>
-            </Card>
-
-            <Card className="p-space-5">
               <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Privacy notice</h2>
               <p className="mb-space-3 text-[12.5px] text-ink-400">
                 Shown on the &quot;Consent &amp; Privacy&quot; menu item, when enabled. Leave blank to show a generic default notice.
@@ -349,6 +290,18 @@ export default function PortalSettingsPage() {
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </form>
+        )}
+
+        {canManageAppointmentTypes && (
+          <Card className="mt-space-5 max-w-2xl p-space-5">
+            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Appointment types</h2>
+            <p className="mb-space-3 text-[12.5px] text-ink-400">
+              Turn on/off which of your allowed appointment types show up in the WhatsApp booking menu.
+              A type greyed out below hasn&apos;t been enabled for your account by the platform — contact
+              support to request it.
+            </p>
+            <AppointmentTypeToggles canManage={canManageAppointmentTypes} />
+          </Card>
         )}
 
         {canManageAppointmentTypes && (

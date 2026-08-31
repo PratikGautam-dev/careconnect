@@ -17,7 +17,7 @@ from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 
 import db.repository as db
-from portal.deps import _authenticate_doctor
+from portal.deps import _authenticate_doctor, get_current_staff
 from portal.routes.bookings import _appointment_json
 
 router = APIRouter()
@@ -27,7 +27,23 @@ def _require_doctor(authorization: str | None):
     """Returns (hospital, doctor_id) or raises via an early-return JSONResponse
     from the caller -- mirrors this codebase's own established manual-guard
     idiom (portal/deps.py's require_capability docstring) rather than a
-    FastAPI Depends() factory, matching every existing /api/portal/* route."""
+    FastAPI Depends() factory, matching every existing /api/portal/* route.
+
+    Dual-path (docs/rbac-redis-plan.md Phase 3): tries the new unified
+    get_current_staff() FIRST (a staff_users row with role='doctor', reading
+    doctor_id off the verified StaffPrincipal), falling back to the original
+    _authenticate_doctor() (auth/doctor_session.py's dedicated doctor token)
+    for any doctor not yet migrated off doctors.email/password_hash. Both
+    paths preserve the exact same isolation guarantee this module's own
+    header docstring describes: doctor_id is read ONLY from a verified
+    token/session, never from a request parameter, regardless of which of
+    the two auth schemes actually authenticated this caller. A StaffPrincipal
+    whose role isn't 'doctor' (an Admin/Receptionist's own staff login) is
+    deliberately rejected here, not silently allowed through with
+    doctor_id=None -- these routes are Doctor-scoped by definition."""
+    principal = get_current_staff(authorization)
+    if principal is not None and principal.role == "doctor" and principal.doctor_id is not None:
+        return (principal.hospital, principal.doctor_id), None
     auth = _authenticate_doctor(authorization)
     if auth is None:
         return None, JSONResponse({"error": "Not authenticated."}, status_code=401)
