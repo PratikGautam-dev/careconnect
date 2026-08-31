@@ -25,6 +25,7 @@ PATIENT_SELECTOR_SECTION_TITLE = "patient_selector_section_title"
 ADD_PATIENT_OPTION = "add_patient_option"
 ALL_PATIENTS_OPTION = "all_patients_option"
 TOO_MANY_LINKED_PATIENTS = "too_many_linked_patients"
+DUPLICATE_SELF_LINK = "duplicate_self_link"
 PATIENT_HEADER_LABEL = "patient_header_label"
 PATIENT_CODE_LABEL = "patient_code_label"
 PATIENT_SELECTOR_PROMPT = "patient_selector_prompt"
@@ -89,6 +90,15 @@ STRINGS: dict[str, dict[Language, str]] = {
               "Unlink someone first if you'd like to add another.",
         "hi": "इस फोन नंबर पर पहले से ही 5 मरीज़ जुड़े हुए हैं — यह अधिकतम सीमा है। "
               "किसी और को जोड़ने के लिए पहले किसी एक को अनलिंक करें।",
+    },
+    # "Myself / Someone Else" registration step: the hard, race-safe
+    # backstop (db.DuplicateSelfLinkError) firing in practice -- the chat
+    # flow's own soft pre-check (has_self_linked_patient) means a user
+    # should essentially never see this outside a genuine two-taps-at-once
+    # race.
+    DUPLICATE_SELF_LINK: {
+        "en": "You already have a \"Myself\" profile linked at this hospital. Please try again to add someone else.",
+        "hi": "इस अस्पताल में आपकी \"मैं खुद\" प्रोफ़ाइल पहले से ही जुड़ी हुई है। कृपया किसी और को जोड़ने के लिए फिर से प्रयास करें।",
     },
 
     # CareConnect architecture doc alignment (Spec.md Section 0): resolution

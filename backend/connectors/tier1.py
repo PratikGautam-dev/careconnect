@@ -49,16 +49,20 @@ class Tier1Connector(Connector):
     def list_active_patients(self, hospital_id, phone):
         return repo.get_active_patients_for_phone(hospital_id, phone)
 
-    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None):
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None, contact_phone=None):
         return repo.create_patient_profile(
             hospital_id, phone, name, age, relationship_label=relationship_label, gender=gender,
+            contact_phone=contact_phone,
         )
+
+    def has_self_linked_patient(self, hospital_id, care_connect_account_id):
+        return repo.has_self_linked_patient(hospital_id, care_connect_account_id)
 
     def unlink_patient(self, hospital_id, phone, patient_id):
         return repo.unlink_patient(hospital_id, phone, patient_id)
 
-    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
-        return repo.find_potential_duplicate_patient(hospital_id, phone, name, age)
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, contact_phone):
+        return repo.find_potential_duplicate_patient(hospital_id, phone, name, contact_phone)
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
         return repo.link_existing_patient(hospital_id, phone, patient_id, relationship_label=relationship_label)

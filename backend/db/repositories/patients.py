@@ -9,7 +9,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_connection, get_session
-from db.models import TooManyLinkedPatientsError, _generate_patient_identifiers
+from db.models import DuplicateSelfLinkError, TooManyLinkedPatientsError, _generate_patient_identifiers
 from db.orm_models import AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
 from db.repositories.accounts import _get_or_create_account_in_conn
 
@@ -62,7 +62,16 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     most recent scheduled_at across every appointment (any status, same
     "staff want to see the full history" reasoning as
     get_all_appointments_for_hospital()), visit_count counts every
-    appointment row ever created for that phone, not just kept ones."""
+    appointment row ever created for that patient, not just kept ones.
+
+    Joined on patient_id, NOT phone -- a phone-keyed join here would
+    silently mis-attribute visits once patients.phone can be the patient's
+    OWN contact number ("Myself / Someone Else" registration,
+    flows/patient_identity.py) rather than the WhatsApp number that
+    actually booked the appointment (e.g. a child registered under a
+    parent's WhatsApp: appointments.phone is the parent's number,
+    patients.phone is now the child's own). patient_id is the authoritative
+    link regardless of whose phone did the booking."""
     last_visit = func.max(AppointmentRow.scheduled_at)
     visit_count = func.count(AppointmentRow.id)
     stmt = (
@@ -73,7 +82,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
         .select_from(PatientRow)
         .outerjoin(
             AppointmentRow,
-            and_(AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.phone == PatientRow.phone),
+            and_(AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.patient_id == PatientRow.id),
         )
         .where(PatientRow.hospital_id == hospital_id)
         .group_by(PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn)
@@ -164,6 +173,14 @@ def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
 # migration for no functional gain (confirmed with the user).
 RELATIONSHIP_OPTIONS = ("Self", "Mother", "Father", "Son", "Daughter", "Spouse", "Guardian", "Other")
 
+# "Myself / Someone Else" registration step (flows/patient_identity.py) only
+# ever writes one of these two RELATIONSHIP_OPTIONS values -- the other 6
+# (Mother/Father/Son/Daughter/Spouse/Guardian) stay reachable at the data
+# layer (e.g. a future richer picker, or portal-side manual editing) but are
+# never written by the live chat flow today.
+RELATIONSHIP_SELF = "Self"
+RELATIONSHIP_OTHER = "Other"
+
 # Chat-flow registration (flows/patient_identity.py) now collects this as a
 # required step, but the column itself stays nullable at the DB level --
 # other write paths (portal demographics edit, the pre-existing appointment-
@@ -243,6 +260,24 @@ def count_active_links_for_phone(hospital_id: int, phone: str) -> int:
     ).scalar_one()
 
 
+def has_self_linked_patient(hospital_id: int, care_connect_account_id: int) -> bool:
+    """"Myself / Someone Else" registration step (flows/patient_identity.py):
+    soft pre-check, called BEFORE showing the Myself/Someone Else buttons --
+    once an account has one, every later "Add Patient" for that account at
+    this hospital skips straight to "Someone Else" (never asked twice). The
+    hard, race-safe version of this same rule lives in
+    _link_patient_under_cap() below, under the same advisory lock as the
+    active-links-cap check."""
+    session = get_session()
+    row = session.execute(
+        select(PatientLink.id).where(
+            PatientLink.hospital_id == hospital_id, PatientLink.care_connect_account_id == care_connect_account_id,
+            PatientLink.relationship_label == RELATIONSHIP_SELF, PatientLink.unlinked_at.is_(None),
+        )
+    ).first()
+    return row is not None
+
+
 def _check_relationship_label(relationship_label: str | None) -> None:
     if relationship_label is not None and relationship_label not in RELATIONSHIP_OPTIONS:
         raise ValueError(f"relationship_label must be one of {RELATIONSHIP_OPTIONS} or None, got {relationship_label!r}")
@@ -312,6 +347,19 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
         raise TooManyLinkedPatientsError(
             f"This phone number already has {max_active_patient_links} linked patients -- unlink one first."
         )
+    if relationship_label == RELATIONSHIP_SELF:
+        # Hard, race-safe backstop under the SAME advisory lock as the cap
+        # check above -- the chat flow already soft-checks this via
+        # has_self_linked_patient() before ever asking Myself/Someone Else,
+        # so this should only ever fire against a genuinely concurrent
+        # second "Myself" tap from the same account.
+        existing_self = conn.execute(
+            "SELECT 1 FROM patient_links WHERE hospital_id = ? AND care_connect_account_id = ? "
+            "AND relationship_label = ? AND unlinked_at IS NULL",
+            (hospital_id, account["id"], RELATIONSHIP_SELF),
+        ).fetchone()
+        if existing_self is not None:
+            raise DuplicateSelfLinkError("This account already has a 'Myself' patient linked at this hospital.")
     conn.execute(
         "INSERT INTO patient_links (hospital_id, whatsapp_phone, patient_id, relationship_label, care_connect_account_id) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -319,20 +367,22 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     )
 
 
-def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, age: int | None) -> dict | None:
+def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, contact_phone: str) -> dict | None:
     """CareConnect architecture doc alignment (Spec.md Section 0), Sections
     8-10: searched BEFORE create_patient_profile() creates a brand-new
     `patients` row/MRN, so a family member who already has a hospital
     record (e.g. from a staff-created booking, or a different WhatsApp
-    number) isn't silently duplicated. Matching criteria confirmed with the
-    user, deliberately simple and conservative -- no fuzzy matching: exact
-    name (case/whitespace-insensitive) AND exact age, among this hospital's
-    ACTIVE patients. Excludes any patient already actively linked to THIS
-    phone -- if they're already linked, they'd show up in the family list
-    directly, not through this duplicate-detection path at all. Returns the
-    first match (deterministic: lowest patient id) or None."""
-    if age is None:
-        return None
+    number) isn't silently duplicated. Matching criteria (confirmed with the
+    user): exact name (case/whitespace-insensitive) AND exact contact phone
+    number (patients.phone -- the patient's OWN number: the messaging phone
+    for "Myself", the collected number for "Someone Else", see
+    create_patient_profile()'s contact_phone param), among this hospital's
+    ACTIVE patients -- age is no longer part of the match. `phone` here is
+    the MESSAGING phone (may differ from contact_phone for "Someone Else"),
+    used only to exclude a patient already actively linked to THIS
+    conversation -- if they're already linked, they'd show up in the family
+    list directly, not through this duplicate-detection path at all.
+    Returns the first match (deterministic: lowest patient id) or None."""
     session = get_session()
     active_link_exists = (
         select(PatientLink.id)
@@ -347,7 +397,7 @@ def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, ag
         .where(
             PatientRow.hospital_id == hospital_id, PatientRow.status == "active",
             func.lower(func.trim(PatientRow.name)) == func.lower(func.trim(name)),
-            PatientRow.age == age, ~active_link_exists,
+            PatientRow.phone == contact_phone, ~active_link_exists,
         )
         .order_by(PatientRow.id)
         .limit(1)
@@ -357,14 +407,26 @@ def find_potential_duplicate_patient(hospital_id: int, phone: str, name: str, ag
 
 def create_patient_profile(
     hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
-    gender: str | None = None,
+    gender: str | None = None, contact_phone: str | None = None,
 ) -> dict:
     """Creates a brand-new `patients` row (NEVER an upsert-by-phone -- multiple
     profiles are the whole point now) and links it to `phone` via a new
     patient_links row. Raises TooManyLinkedPatientsError if this phone already
-    has MAX_ACTIVE_PATIENT_LINKS active links, or ValueError if
-    relationship_label isn't one of RELATIONSHIP_OPTIONS (or None), or gender
-    isn't one of GENDER_OPTIONS (or None).
+    has MAX_ACTIVE_PATIENT_LINKS active links, DuplicateSelfLinkError if
+    relationship_label="Self" and this account already has one at this
+    hospital, or ValueError if relationship_label isn't one of
+    RELATIONSHIP_OPTIONS (or None), or gender isn't one of GENDER_OPTIONS
+    (or None).
+
+    `contact_phone` is the patient's OWN number, stored as `patients.phone`
+    -- distinct from `phone`, which is the WhatsApp number this conversation
+    is happening on and always becomes `patient_links.whatsapp_phone`
+    regardless of who the patient is. Defaults to `phone` when not given (the
+    "Myself" case, and every pre-existing caller that never collected a
+    separate contact number) -- flows/patient_identity.py passes the two
+    apart only for a "Someone Else" registration, where the family member's
+    own number was explicitly asked for and can legitimately differ from the
+    messaging phone.
 
     `gender` stays Optional here (like relationship_label) so other callers
     (dead-code core/booking_flow.py path, direct test fixtures) that never
@@ -391,7 +453,7 @@ def create_patient_profile(
     try:
         patient_row = conn.execute(
             "INSERT INTO patients (hospital_id, phone, name, age, gender) VALUES (?, ?, ?, ?, ?) RETURNING id",
-            (hospital_id, phone, name, age, gender),
+            (hospital_id, contact_phone or phone, name, age, gender),
         ).fetchone()
         assert patient_row is not None  # INSERT ... RETURNING always returns the inserted row
         patient_id = patient_row["id"]

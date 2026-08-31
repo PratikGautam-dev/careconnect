@@ -77,6 +77,17 @@ class TooManyLinkedPatientsError(Exception):
     ("unlink someone first")."""
 
 
+class DuplicateSelfLinkError(Exception):
+    """"Myself / Someone Else" registration step (flows/patient_identity.py):
+    raised by _link_patient_under_cap() when this care_connect_account
+    already has an active relationship_label="Self" patient_links row at
+    this hospital. The chat flow itself soft-checks this up front (via
+    db.has_self_linked_patient()) so the question is normally never even
+    asked twice -- this is the hard, advisory-locked backstop against two
+    genuinely concurrent "Myself" registrations from the same account
+    racing each other, same reasoning as TooManyLinkedPatientsError above."""
+
+
 
 _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,

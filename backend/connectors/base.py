@@ -109,14 +109,22 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_patient_profile(
         self, hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
-        gender: str | None = None,
+        gender: str | None = None, contact_phone: str | None = None,
     ) -> dict: ...
+
+    # "Myself / Someone Else" registration step (flows/patient_identity.py):
+    # deliberately no hospital-scoped `phone` param, same "genuinely global"
+    # reasoning as identify_contact()/get_max_active_patient_links() above --
+    # the caller already resolved care_connect_account_id via
+    # identify_contact() before this point.
+    @abc.abstractmethod
+    def has_self_linked_patient(self, hospital_id: int, care_connect_account_id: int) -> bool: ...
 
     @abc.abstractmethod
     def unlink_patient(self, hospital_id: int, phone: str, patient_id: int) -> bool: ...
 
     @abc.abstractmethod
-    def find_potential_duplicate_patient(self, hospital_id: int, phone: str, name: str, age: int | None) -> dict | None: ...
+    def find_potential_duplicate_patient(self, hospital_id: int, phone: str, name: str, contact_phone: str) -> dict | None: ...
 
     @abc.abstractmethod
     def link_existing_patient(
@@ -236,13 +244,16 @@ class _UnimplementedTierConnector(Connector):
     def list_active_patients(self, hospital_id, phone):
         self._not_implemented("list_active_patients")
 
-    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None):
+    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None, contact_phone=None):
         self._not_implemented("create_patient_profile")
+
+    def has_self_linked_patient(self, hospital_id, care_connect_account_id):
+        self._not_implemented("has_self_linked_patient")
 
     def unlink_patient(self, hospital_id, phone, patient_id):
         self._not_implemented("unlink_patient")
 
-    def find_potential_duplicate_patient(self, hospital_id, phone, name, age):
+    def find_potential_duplicate_patient(self, hospital_id, phone, name, contact_phone):
         self._not_implemented("find_potential_duplicate_patient")
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
