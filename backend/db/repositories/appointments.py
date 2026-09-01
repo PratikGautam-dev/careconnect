@@ -35,7 +35,7 @@ def _appointment_select_stmt():
             AppointmentRow.scheduled_at, AppointmentRow.status, AppointmentRow.source, AppointmentRow.reference_id,
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
-            AppointmentRow.duration_hours,
+            AppointmentRow.duration_hours, AppointmentRow.created_at,
         )
         .select_from(AppointmentRow)
         .join(Department, Department.id == AppointmentRow.department_id)

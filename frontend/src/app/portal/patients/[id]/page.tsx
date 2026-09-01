@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, FileText, Send, Upload } from "lucide-react";
+import { Fragment } from "react";
+import { ArrowLeft, ChevronDown, ChevronUp, FileText, Search, Send, Upload } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -12,73 +12,27 @@ import { Textarea } from "@/components/ui/Input";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
-import { portalFetch } from "@/lib/portalAuth";
+import { formatDate, formatDateTime, formatShortDateTime } from "@/lib/formatDate";
+import { TYPE_LABELS } from "@/hooks/useAppointments";
+import { usePatientDetail } from "@/hooks/usePatientDetail";
 
-type Patient = {
-  id: number;
-  phone: string;
-  name: string | null;
-  patient_display_id: string | null;
-  mrn: string | null;
-  date_of_birth: string | null;
-  gender: string | null;
-  address: string | null;
-  created_at: string;
-  // CareConnect architecture doc alignment (Spec.md Section 0), Section 18.
-  status: "active" | "blocked" | "inactive";
-};
-
-type Visit = {
-  id: number;
-  phone: string;
-  department_name: string;
-  doctor_name: string;
-  scheduled_at: string;
-  status: string;
-  source: string;
-};
-
-type Note = {
-  id: number;
-  patient_id: number;
-  appointment_id: number | null;
-  doctor_id: string | null;
-  doctor_name: string | null;
-  note_text: string;
-  created_at: string;
-  created_by_session_id: string | null;
-};
-
-type Document = {
-  id: number;
-  patient_id: number;
-  appointment_id: number | null;
-  file_name: string;
-  uploaded_at: string;
-  uploaded_by_session_id: string | null;
-  sent_to_whatsapp_at: string | null;
-};
-
-type DetailData = { patient: Patient; visit_history: Visit[]; notes: Note[]; documents: Document[] };
-
+// Same status/source styling as /portal/appointments (STATUS_STYLES/LABELS,
+// SOURCE_LABELS there) -- duplicated per-file rather than shared, matching
+// this codebase's existing convention for these small per-page Record maps
+// (e.g. DoctorTodayAppointments.tsx has its own copy too).
 const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
   cancelled: "bg-error-tint text-error",
   rescheduled: "bg-clay-100 text-clay-700",
+  attended: "bg-success-tint text-success",
+  no_show: "bg-error-tint text-error",
 };
-const STATUS_LABELS: Record<string, string> = { booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled" };
-
-function formatDateTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
+const STATUS_LABELS: Record<string, string> = {
+  booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled",
+  attended: "Attended", no_show: "No-show",
+};
+const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
+const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
 export default function PatientDetailPage() {
   const router = useRouter();
@@ -86,122 +40,19 @@ export default function PatientDetailPage() {
   const patientId = params.id;
   const { hospital, ready } = usePortalGuard();
 
-  const [data, setData] = useState<DetailData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [dob, setDob] = useState("");
-  const [gender, setGender] = useState("");
-  const [address, setAddress] = useState("");
-  const [savingDemographics, setSavingDemographics] = useState(false);
-
-  const [savingStatus, setSavingStatus] = useState(false);
-
-  const [expandedVisit, setExpandedVisit] = useState<number | null>(null);
-  const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
-  const [savingNote, setSavingNote] = useState<number | null>(null);
-
-  const [generalNoteDraft, setGeneralNoteDraft] = useState("");
-  const [savingGeneralNote, setSavingGeneralNote] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [sendingDocId, setSendingDocId] = useState<number | null>(null);
-  const [sendError, setSendError] = useState<Record<number, string>>({});
-
-  const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/patients/${patientId}`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const d = result.data as DetailData;
-    setData(d);
-    setDob(d.patient.date_of_birth || "");
-    setGender(d.patient.gender || "");
-    setAddress(d.patient.address || "");
-  }, [router, patientId]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
-
-  async function handleSetStatus(status: Patient["status"]) {
-    setSavingStatus(true);
-    const result = await portalFetch(`/api/portal/patients/${patientId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setSavingStatus(false);
-    if (result.ok) load();
-    else if (!result.unauthorized) setError(result.error);
-  }
-
-  async function handleSaveDemographics() {
-    setSavingDemographics(true);
-    const result = await portalFetch(`/api/portal/patients/${patientId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date_of_birth: dob, gender, address }),
-    });
-    setSavingDemographics(false);
-    if (result.ok) load();
-  }
-
-  async function handleAddNote(appointmentId: number | null) {
-    const key = appointmentId ?? 0;
-    const text = (appointmentId ? noteDraft[appointmentId] : generalNoteDraft) || "";
-    if (!text.trim()) return;
-    if (appointmentId) setSavingNote(appointmentId);
-    else setSavingGeneralNote(true);
-
-    const result = await portalFetch(`/api/portal/patients/${patientId}/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note_text: text.trim(), appointment_id: appointmentId }),
-    });
-
-    if (appointmentId) setSavingNote(null);
-    else setSavingGeneralNote(false);
-
-    if (result.ok) {
-      if (appointmentId) setNoteDraft((d) => ({ ...d, [appointmentId]: "" }));
-      else setGeneralNoteDraft("");
-      load();
-    }
-    void key;
-  }
-
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    const result = await portalFetch(`/api/portal/patients/${patientId}/documents`, {
-      method: "POST",
-      body: formData,
-    });
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (result.ok) load();
-    else if (!result.unauthorized) setError(result.error);
-  }
-
-  async function handleSendToWhatsapp(documentId: number) {
-    setSendingDocId(documentId);
-    setSendError((e) => ({ ...e, [documentId]: "" }));
-    const result = await portalFetch(`/api/portal/patients/${patientId}/documents/${documentId}/send`, {
-      method: "POST",
-    });
-    setSendingDocId(null);
-    if (result.ok) {
-      load();
-    } else if (!result.unauthorized) {
-      setSendError((e) => ({ ...e, [documentId]: result.error }));
-    }
-  }
+  const {
+    data, error,
+    dob, setDob, gender, setGender, address, setAddress, savingDemographics, handleSaveDemographics,
+    savingStatus, handleSetStatus,
+    expandedVisit, setExpandedVisit, noteDraft, setNoteDraft, savingNote,
+    generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
+    handleAddNote,
+    fileInputRef, uploading, handleUpload,
+    sendingDocId, sendError, handleSendToWhatsapp,
+    visitSearch, setVisitSearch, visitTimeFilter, setVisitTimeFilter,
+    visitStatusFilter, setVisitStatusFilter, visitTypeFilter, setVisitTypeFilter,
+    visitTypeCounts, filteredVisits,
+  } = usePatientDetail(patientId, ready);
 
   if (!data) {
     return (
@@ -229,9 +80,9 @@ export default function PatientDetailPage() {
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[18px] font-bold text-brand-700">
             {(patient.name || patient.phone).trim().charAt(0).toUpperCase()}
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-display !text-[24px]">{patient.name || patient.phone}</h1>
-            <div className="flex items-center gap-space-2 text-[13px] text-ink-600">
+            <div className="flex flex-wrap items-center gap-space-2 text-[13px] text-ink-600">
               <span>{patient.phone}</span>
               {patient.patient_display_id && (
                 <span className="rounded-full bg-brand-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-brand-700">
@@ -258,76 +109,182 @@ export default function PatientDetailPage() {
           <div className="space-y-space-4">
             <Card className="p-space-4">
               <h3 className="text-label mb-space-3 font-bold text-ink-900">Visit history</h3>
+
               {visit_history.length === 0 ? (
                 <p className="py-space-4 text-center text-[13px] text-ink-400">No visits yet.</p>
               ) : (
-                <ul className="divide-y divide-line">
-                  {visit_history.map((v) => {
-                    const expanded = expandedVisit === v.id;
-                    const visitNotes = notesByVisit(v.id);
-                    return (
-                      <li key={v.id} className="py-space-3">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedVisit(expanded ? null : v.id)}
-                          className="flex w-full items-center justify-between gap-space-3 text-left"
-                        >
-                          <div>
-                            <p className="text-[13.5px] font-semibold text-ink-900">
-                              {formatDateTime(v.scheduled_at)} — {v.doctor_name}
-                            </p>
-                            <p className="text-[12px] text-ink-600">
-                              {v.department_name}
-                              {visitNotes.length > 0 ? ` · ${visitNotes.length} note${visitNotes.length > 1 ? "s" : ""}` : ""}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-space-2">
-                            <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[v.status] || "bg-black/[0.04] text-ink-600")}>
-                              {STATUS_LABELS[v.status] || v.status}
-                            </span>
-                            {expanded ? <ChevronUp size={16} className="text-ink-400" /> : <ChevronDown size={16} className="text-ink-400" />}
-                          </div>
-                        </button>
-
-                        {expanded && (
-                          <div className="mt-space-3 rounded-lg border border-line bg-paper p-space-3">
-                            {visitNotes.length === 0 ? (
-                              <p className="text-hint mb-space-3">No notes for this visit yet.</p>
-                            ) : (
-                              <ul className="mb-space-3 space-y-space-2">
-                                {visitNotes.map((n) => (
-                                  <li key={n.id} className="rounded-md bg-card p-space-3 text-[13px]">
-                                    <p className="text-ink-900">{n.note_text}</p>
-                                    <p className="text-hint mt-space-1">
-                                      {n.doctor_name ? `${n.doctor_name} · ` : ""}
-                                      {formatDateTime(n.created_at)}
-                                    </p>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                            <div className="flex items-end gap-space-2">
-                              <Textarea
-                                placeholder="Add a note for this visit…"
-                                value={noteDraft[v.id] || ""}
-                                onChange={(e) => setNoteDraft((d) => ({ ...d, [v.id]: e.target.value }))}
-                                rows={2}
-                                className="flex-1"
-                              />
-                              <Button
-                                size="md"
-                                onClick={() => handleAddNote(v.id)}
-                                disabled={savingNote === v.id || !(noteDraft[v.id] || "").trim()}
-                              >
-                                {savingNote === v.id ? "Saving…" : "Add note"}
-                              </Button>
-                            </div>
-                          </div>
+                <>
+                  {/* Same filter shape as /portal/appointments: type tabs,
+                      search, status dropdown -- plus an upcoming/past time
+                      filter this single-patient view adds on top. */}
+                  <div className="mb-space-3 flex flex-wrap gap-space-2">
+                    {TYPE_TAB_ORDER.filter((id) => id === "all" || (visitTypeCounts[id] || 0) > 0 || visitTypeFilter === id).map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setVisitTypeFilter(id)}
+                        className={cn(
+                          "rounded-full border px-space-3 py-space-1 text-[12.5px] font-semibold transition-colors duration-150",
+                          visitTypeFilter === id
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-card text-ink-600 hover:border-brand-300 hover:bg-brand-50",
                         )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                      >
+                        {id === "all" ? "All" : id === "other" ? "Other" : TYPE_LABELS[id]}
+                        <span className={cn("ml-space-1 tabular-nums", visitTypeFilter === id ? "text-white/80" : "text-ink-400")}>
+                          {visitTypeCounts[id] || 0}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mb-space-3 flex flex-wrap items-center gap-space-2">
+                    <div className="flex gap-space-1 rounded-md border border-line bg-paper p-0.5">
+                      {(["all", "upcoming", "past"] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setVisitTimeFilter(t)}
+                          className={cn(
+                            "rounded px-space-2 py-1 text-[12px] font-semibold capitalize transition-colors duration-150",
+                            visitTimeFilter === t ? "bg-card text-ink-900 shadow-[var(--shadow-sm)]" : "text-ink-400 hover:text-ink-700",
+                          )}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="relative min-w-[180px] flex-1">
+                      <Search size={14} className="pointer-events-none absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
+                      <input
+                        type="text"
+                        placeholder="Search doctor, department, or reference…"
+                        value={visitSearch}
+                        onChange={(e) => setVisitSearch(e.target.value)}
+                        className="h-9 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[12.5px] text-ink-900 outline-none focus:border-brand-400"
+                      />
+                    </div>
+                    <select
+                      value={visitStatusFilter}
+                      onChange={(e) => setVisitStatusFilter(e.target.value)}
+                      className="h-9 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                    >
+                      <option value="all">All statuses</option>
+                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {filteredVisits.length === 0 ? (
+                    <p className="py-space-4 text-center text-[13px] text-ink-400">No visits match this filter.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-[13px]">
+                        <thead>
+                          <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
+                            <th className="pb-space-2 font-semibold">Appointment time</th>
+                            <th className="pb-space-2 font-semibold">Booked</th>
+                            <th className="pb-space-2 font-semibold">Reference</th>
+                            <th className="pb-space-2 font-semibold">Doctor</th>
+                            <th className="pb-space-2 font-semibold">Department</th>
+                            <th className="pb-space-2 font-semibold">Type</th>
+                            <th className="pb-space-2 font-semibold">Source</th>
+                            <th className="pb-space-2 font-semibold">Status</th>
+                            <th className="pb-space-2 font-semibold"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredVisits.map((v) => {
+                            const expanded = expandedVisit === v.id;
+                            const visitNotes = notesByVisit(v.id);
+                            return (
+                              <Fragment key={v.id}>
+                                <tr className={cn("border-b border-line last:border-0 hover:bg-black/[0.02]", expanded && "border-b-0")}>
+                                  <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(v.scheduled_at)}</td>
+                                  <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-400">
+                                    {v.created_at ? formatShortDateTime(v.created_at) : "—"}
+                                  </td>
+                                  <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">{v.reference_id || "—"}</td>
+                                  <td className="py-space-2 text-ink-600">{v.doctor_name}</td>
+                                  <td className="py-space-2 text-ink-600">{v.department_name}</td>
+                                  <td className="py-space-2 text-ink-600">
+                                    <div>{v.appointment_type_id ? TYPE_LABELS[v.appointment_type_id] || v.appointment_type_id : "—"}</div>
+                                    {v.appointment_type_id === "tele" && v.video_link && (
+                                      <a
+                                        href={v.video_link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[11.5px] font-semibold text-brand-600 hover:underline"
+                                      >
+                                        🎥 Join
+                                      </a>
+                                    )}
+                                  </td>
+                                  <td className="py-space-2 text-ink-600">{SOURCE_LABELS[v.source] || v.source}</td>
+                                  <td className="py-space-2">
+                                    <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[v.status] || "bg-black/[0.04] text-ink-600")}>
+                                      {STATUS_LABELS[v.status] || v.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-space-2 text-right whitespace-nowrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedVisit(expanded ? null : v.id)}
+                                      className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-600 hover:underline"
+                                    >
+                                      {visitNotes.length > 0 ? `${visitNotes.length} note${visitNotes.length > 1 ? "s" : ""}` : "Notes"}
+                                      {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+                                  </td>
+                                </tr>
+                                {expanded && (
+                                  <tr className="border-b border-line last:border-0">
+                                    <td colSpan={9} className="pb-space-3">
+                                      <div className="rounded-lg border border-line bg-paper p-space-3">
+                                        {visitNotes.length === 0 ? (
+                                          <p className="text-hint mb-space-3">No notes for this visit yet.</p>
+                                        ) : (
+                                          <ul className="mb-space-3 space-y-space-2">
+                                            {visitNotes.map((n) => (
+                                              <li key={n.id} className="rounded-md bg-card p-space-3 text-[13px]">
+                                                <p className="text-ink-900">{n.note_text}</p>
+                                                <p className="text-hint mt-space-1">
+                                                  {n.doctor_name ? `${n.doctor_name} · ` : ""}
+                                                  {formatDateTime(n.created_at)}
+                                                </p>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                        <div className="flex items-end gap-space-2">
+                                          <Textarea
+                                            placeholder="Add a note for this visit…"
+                                            value={noteDraft[v.id] || ""}
+                                            onChange={(e) => setNoteDraft((d) => ({ ...d, [v.id]: e.target.value }))}
+                                            rows={2}
+                                            className="flex-1"
+                                          />
+                                          <Button
+                                            size="md"
+                                            onClick={() => handleAddNote(v.id)}
+                                            disabled={savingNote === v.id || !(noteDraft[v.id] || "").trim()}
+                                          >
+                                            {savingNote === v.id ? "Saving…" : "Add note"}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
 
@@ -372,7 +329,7 @@ export default function PatientDetailPage() {
                 <ul className="divide-y divide-line">
                   {documents.map((doc) => (
                     <li key={doc.id} className="py-space-3">
-                      <div className="flex items-center justify-between gap-space-3">
+                      <div className="flex flex-col gap-space-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-space-2 overflow-hidden">
                           <FileText size={16} className="shrink-0 text-ink-400" />
                           <div className="overflow-hidden">

@@ -65,6 +65,20 @@ def _get_whatsapp_client(hospital: Hospital) -> WhatsAppClient:
     return client
 
 
+def invalidate_whatsapp_client(hospital_id: int) -> None:
+    """Evicts this hospital's cached WhatsAppClient (if any) so the next
+    message rebuilds it from the DB's current access_token/
+    whatsapp_phone_number_id -- called by admin/tenants_api.py right after
+    a tenant edit actually changes either of those two values. Without
+    this, _wa_clients above (see its own module-level comment) keeps
+    handing out the OLD client indefinitely: every send for that hospital
+    would keep failing with Meta's 401 even though the DB row is already
+    fixed, until this process happens to restart. Safe to call even if
+    nothing is cached yet (e.g. this hospital hasn't received a message in
+    this process) -- .pop(..., None) is a no-op in that case."""
+    _wa_clients.pop(hospital_id, None)
+
+
 def _get_redis():
     """Same connect-once-and-fall-back pattern as core.chat_history's get_history()/
     core.session_store's get_session_store(): ping once, and if Redis isn't reachable, remember that

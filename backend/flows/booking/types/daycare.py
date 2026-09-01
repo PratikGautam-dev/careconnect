@@ -21,7 +21,7 @@ from flows.booking.state import (
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_TIME_SLOT,
     _HISTORY_KEY, _push_history,
 )
-from flows.booking.types.base import TypeFlow
+from flows.booking.types.base import TypeFlow, existing_department_appointment
 
 # Same shape as base.py's FULL_FLOW, with STATE_AWAITING_DAYCARE_DURATION
 # inserted before confirmation -- kept here, not in base.py, since this is
@@ -91,4 +91,7 @@ async def _on_daycare_duration_confirmed(
         connector.set_appointment_duration(hospital_id, appointment_id, duration_hours)
 
 
-FLOW = TypeFlow(type_id="daycare", steps=_STEPS, on_booking_confirmed=_on_daycare_duration_confirmed)
+FLOW = TypeFlow(
+    type_id="daycare", steps=_STEPS, on_booking_confirmed=_on_daycare_duration_confirmed,
+    validate_department=existing_department_appointment,
+)

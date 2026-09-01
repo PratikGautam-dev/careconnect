@@ -973,16 +973,19 @@ async def test_reschedule_flow_excludes_past_and_cancelled_appointments(hospital
 
 @pytest.mark.asyncio
 async def test_new_consultation_blocks_rebooking_in_same_department(hospital_id):
-    """docs/per-appointment-type-flow-plan.md Phase 2, New Consultation-only
-    rule 1: a patient with an existing ACTIVE (non-cancelled) booking in a
-    department cannot book that same department again until it's
-    cancelled."""
+    """Shared department-selection rule (base.existing_department_appointment,
+    confirmed with the user): a patient with an existing ACTIVE (non-cancelled)
+    appointment in a department cannot book that same department again until
+    it's cancelled -- blocked immediately on department selection, before
+    doctor/date/slot are ever asked, dropping straight to the main menu with
+    Cancel/Reschedule for the CONFLICTING appointment (not a re-prompt of the
+    department list)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot = db.get_slots(hospital_id, doctor_id)[0]
-    db.create_appointment(
+    existing = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
         patient_id=patient["id"], appointment_type_id="new",
     )
@@ -993,12 +996,70 @@ async def test_new_consultation_blocks_rebooking_in_same_department(hospital_id)
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
 
-    text_messages = [kwargs for kind, kwargs in wa.sent if kind == "text"]
-    assert any("already have an active appointment in this department" in m["text"].lower() for m in text_messages)
-    # Re-prompted with the department menu, not reset or advanced to doctor.
-    assert any(kind == "list" for kind, kwargs in wa.sent[-3:])
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "cardiology" in kwargs["body_text"].lower()
+    assert existing.doctor_name.lower() in kwargs["body_text"].lower()
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert "goto_main_menu" in button_ids
+    assert any(b.startswith("manage_cancel_") for b in button_ids)
+    assert any(b.startswith("manage_reschedule_") for b in button_ids)
+    # Dropped to the main menu, not left mid-flow.
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
     # No second appointment was created.
+    assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("appointment_type_id", ["tele", "second_opinion", "daycare"])
+async def test_other_full_flow_types_also_block_rebooking_in_same_department(hospital_id, appointment_type_id):
+    """The department-selection conflict check (base.existing_department_
+    appointment) isn't New-Consultation-only -- confirmed with the user it
+    should cover every type that lets the patient pick a department
+    themselves."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
+        patient_id=patient["id"], appointment_type_id="new",
+    )
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(appointment_type_id))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "cardiology" in kwargs["body_text"].lower()
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_followup_appointment_also_blocks_a_new_pick_in_that_department(hospital_id):
+    """An appointment booked as "followup" still counts as "already in that
+    department" for the shared check -- get_active_appointments_for_patient()
+    doesn't distinguish by appointment_type_id."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    db.create_appointment(
+        hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
+        patient_id=patient["id"], appointment_type_id="followup",
+    )
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "cardiology" in kwargs["body_text"].lower()
     assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 1
 
 

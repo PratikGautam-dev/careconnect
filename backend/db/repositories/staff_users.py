@@ -14,11 +14,11 @@ underlying tables changed. "id" here is identities.id."""
 from typing import cast
 
 import sqlalchemy.exc
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_session, reraise_as_driver_integrity_error
-from db.orm_models import HospitalRow, Identity, StaffDetail
+from db.orm_models import Department, DoctorRow, HospitalRow, Identity, StaffDetail
 
 _STAFF_COLUMNS = (
     Identity.id, StaffDetail.hospital_id, StaffDetail.role, Identity.email, Identity.password_hash,
@@ -108,12 +108,15 @@ def list_staff_users_for_hospital(hospital_id: int) -> list[dict]:
 
 def list_all_staff_users(
     hospital_id: int | None = None, role: str | None = None, is_active: bool | None = None,
+    search: str | None = None,
 ) -> list[dict]:
     """Cross-tenant staff view for the platform admin's /admin/users page --
     list_staff_users_for_hospital() above is scoped to one tenant (the
     hospital's own Staff page); this is the super-admin equivalent, joined
     with hospitals.name since that page has no other way to label which
-    hospital each row belongs to. All filters optional/combinable."""
+    hospital each row belongs to. All filters optional/combinable. search is
+    a case-insensitive partial match on name OR email, same ILIKE pattern
+    db/repositories/patients.py's search_patients() uses."""
     session = get_session()
     query = (
         select(*_STAFF_COLUMNS, HospitalRow.name.label("hospital_name"))
@@ -126,9 +129,63 @@ def list_all_staff_users(
         query = query.where(StaffDetail.role == role)
     if is_active is not None:
         query = query.where(Identity.is_active == is_active)
+    if search:
+        like = f"%{search.strip()}%"
+        query = query.where(or_(Identity.name.ilike(like), Identity.email.ilike(like)))
     query = query.order_by(HospitalRow.name, Identity.name)
     rows = session.execute(query).all()
     return [dict(r._mapping) for r in rows]
+
+
+def get_staff_summary_by_hospital(search: str | None = None) -> list[dict]:
+    """Card view for the platform admin's /admin/users overview -- one row
+    per hospital with a per-role headcount (admin/doctor/receptionist),
+    computed in a single grouped query rather than fetching every staff row
+    and counting in Python. LEFT JOIN so a hospital with zero staff still
+    gets a row (all counts 0), not silently dropped. search is a
+    case-insensitive partial match on the hospital's own name."""
+    session = get_session()
+    admin_count = func.count(StaffDetail.identity_id).filter(StaffDetail.role == "admin")
+    doctor_count = func.count(StaffDetail.identity_id).filter(StaffDetail.role == "doctor")
+    receptionist_count = func.count(StaffDetail.identity_id).filter(StaffDetail.role == "receptionist")
+    query = (
+        select(
+            HospitalRow.id, HospitalRow.name, HospitalRow.is_active, HospitalRow.data_tier,
+            admin_count.label("admin_count"), doctor_count.label("doctor_count"),
+            receptionist_count.label("receptionist_count"),
+            func.count(StaffDetail.identity_id).label("total_count"),
+        )
+        .select_from(HospitalRow)
+        .outerjoin(StaffDetail, StaffDetail.hospital_id == HospitalRow.id)
+        .group_by(HospitalRow.id)
+        .order_by(HospitalRow.name)
+    )
+    if search:
+        query = query.where(HospitalRow.name.ilike(f"%{search.strip()}%"))
+    rows = session.execute(query).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def get_staff_user_detail(staff_id: int) -> dict | None:
+    """Single-staff detail view (/admin/users/[hospitalId]/[staffId]) --
+    get_staff_user_by_id() plus hospital_name/created_at and, for a
+    role='doctor' row, the linked doctor's department/specialization/
+    qualification/years_experience (all None for admin/receptionist rows,
+    or a doctor StaffDetail whose doctor_id was never linked)."""
+    session = get_session()
+    row = session.execute(
+        select(
+            *_STAFF_COLUMNS, Identity.created_at, HospitalRow.name.label("hospital_name"),
+            DoctorRow.name.label("doctor_name"), DoctorRow.specialization, DoctorRow.qualification,
+            DoctorRow.years_experience, Department.name.label("department_name"),
+        )
+        .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(HospitalRow, HospitalRow.id == StaffDetail.hospital_id)
+        .outerjoin(DoctorRow, DoctorRow.id == StaffDetail.doctor_id)
+        .outerjoin(Department, Department.id == DoctorRow.department_id)
+        .where(Identity.id == staff_id)
+    ).first()
+    return dict(row._mapping) if row is not None else None
 
 
 def _bump_token_version(staff_id: int) -> None:

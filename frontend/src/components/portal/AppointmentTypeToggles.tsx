@@ -53,7 +53,7 @@ export function AppointmentTypeToggles({ canManage }: { canManage: boolean }) {
       {error && <p className="mb-space-3 text-[12.5px] font-medium text-error">{error}</p>}
       <ul className="divide-y divide-line">
         {types.map((type) => (
-          <li key={type.id} className="flex items-center justify-between gap-space-3 py-space-2">
+          <li key={type.id} className="flex flex-col gap-space-2 py-space-2 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
             <p className={`text-[13.5px] font-semibold ${type.is_allowed ? "text-ink-900" : "text-ink-400"}`}>
               {type.label}
             </p>

@@ -65,6 +65,13 @@ def _last_list(wa):
     raise AssertionError("no list message was sent")
 
 
+def _last_buttons(wa):
+    for kind, kwargs in reversed(wa.sent):
+        if kind == "buttons":
+            return kwargs
+    raise AssertionError("no buttons message was sent")
+
+
 async def _add_patient_via_chat(wa, sessions, hospital_id, connector, name, age, phone=PHONE, enabled=("booking",)):
     """Drives "Book Appointment" -> name -> age through flows.handle_incoming
     to create one real patient profile the way a real conversation would --
@@ -119,6 +126,14 @@ async def test_adding_a_second_through_fifth_patient_works(hospital_id):
     linked = connector.list_active_patients(hospital_id, PHONE)
     assert len(linked) == 1
     sessions.reset(hospital_id, PHONE)
+    # _add_patient_via_chat drives booking's own separate legacy flow, which
+    # never sets active_patient_id on the session the way real router
+    # traffic does -- one real identity-resolution round-trip first, same
+    # as any actual conversation would have before ever reaching Manage
+    # Patients, so the Add-Patient-then-IDLE ending below can correctly
+    # skip re-asking "who is this for" once a 2nd+ patient exists.
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["manage_patients"])
+    assert sessions.get(hospital_id, PHONE)["active_patient_id"] is not None
 
     for i, (name, age) in enumerate([("Priya Kumar", 8), ("Anita Kumar", 60), ("Sunil Kumar", 65), ("Zoya Kumar", 3)], start=2):
         await flows.handle_incoming(
@@ -126,8 +141,8 @@ async def test_adding_a_second_through_fifth_patient_works(hospital_id):
             connector=connector, enabled_features=["manage_patients"],
         )
         assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
-        row_ids = _row_ids(_last_list(wa))
-        assert patient_identity.MANAGE_ADD_ROW_ID in row_ids
+        button_ids = {b["id"] for b in _last_buttons(wa)["buttons"]}
+        assert patient_identity.MANAGE_ADD_ROW_ID in button_ids
         await flows.handle_incoming(
             wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
             connector=connector, enabled_features=["manage_patients"],
@@ -150,8 +165,8 @@ async def test_adding_a_second_through_fifth_patient_works(hospital_id):
             wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
             connector=connector, enabled_features=["manage_patients"],
         )
-        # Lands back on the Manage Patients list, patient added.
-        assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
+        # Lands on the main menu now, patient added (confirmed with the user).
+        assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
         linked = connector.list_active_patients(hospital_id, PHONE)
         assert len(linked) == i
         assert any(p["name"] == name for p in linked)
@@ -177,6 +192,10 @@ async def test_sixth_patient_is_blocked_with_a_clear_message(hospital_id):
 
 @pytest.mark.asyncio
 async def test_manage_patients_add_is_blocked_at_the_cap_with_a_clear_message(hospital_id):
+    """Manage Patients (confirmed with the user) always shows both Remove/
+    Add Patient buttons regardless of the cap -- the block only fires once
+    "Add Patient" is actually TAPPED, with a clear message, re-showing the
+    same 2-option screen rather than a dead end."""
     connector = flows._DEFAULT_CONNECTOR
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
@@ -188,8 +207,15 @@ async def test_manage_patients_add_is_blocked_at_the_cap_with_a_clear_message(ho
         connector=connector, enabled_features=["manage_patients"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
-    row_ids = _row_ids(_last_list(wa))
-    assert patient_identity.MANAGE_ADD_ROW_ID not in row_ids
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
+    kind, kwargs = wa.sent[-2]
+    assert kind == "text"
+    assert "5" in kwargs["text"]
 
 
 @pytest.mark.asyncio
@@ -427,16 +453,16 @@ async def test_unlinking_a_patient_via_manage_patients_does_not_delete_their_his
     )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
 
+    # Manage Patients is now a 2-option entry point (confirmed with the
+    # user): Remove Patient / Add Patient, not a direct patient list.
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(f"idpat_{patient['id']}"),
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_REMOVE_ROW_ID),
         connector=connector, enabled_features=["manage_patients"],
     )
-    # Tapping a patient row now asks WHICH action first (confirmed with the
-    # user), rather than jumping straight to unlink.
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_ACTION_CHOICE
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_REMOVE_PATIENT_SELECTION
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.PATIENT_ACTION_UNLINK_ID),
+        wa, sessions, PHONE, hospital_id, tap(patient_identity._unlink_row_id(patient["id"])),
         connector=connector, enabled_features=["manage_patients"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_UNLINK_CONFIRM
@@ -452,6 +478,86 @@ async def test_unlinking_a_patient_via_manage_patients_does_not_delete_their_his
     assert still_there is not None and still_there["name"] == "Ravi Kumar"
     appointments = db.get_upcoming_appointments_for_phone(hospital_id, PHONE)
     assert any(a.id == appt.id for a in appointments)
+    # Lands on the main menu (confirmed with the user), not back on Manage
+    # Patients -- with 0 patients left, that means fresh registration.
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_BOOKING_FOR
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_patient_removal_keeps_them_linked_and_shows_the_main_menu(hospital_id):
+    connector = flows._DEFAULT_CONNECTOR
+    ravi = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+    priya = db.create_patient_profile(hospital_id, PHONE, "Priya Kumar", 8, relationship_label="Other")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    sessions.set(hospital_id, PHONE, "IDLE", {}, language="en", active_patient_id=ravi["id"])
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_REMOVE_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity._unlink_row_id(priya["id"])),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_UNLINK_CONFIRM
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("cancel"), connector=connector, enabled_features=["manage_patients"],
+    )
+
+    linked = connector.list_active_patients(hospital_id, PHONE)
+    assert {p["id"] for p in linked} == {ravi["id"], priya["id"]}
+    cancelled_text = next(kwargs["text"] for kind, kwargs in wa.sent if kind == "text" and "Priya Kumar" in kwargs["text"])
+    assert cancelled_text
+    # Lands straight on the main menu -- active patient (Ravi) untouched, no
+    # re-prompt even though 2 patients are linked (just_confirmed_patient).
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    assert sessions.get(hospital_id, PHONE)["active_patient_id"] == ravi["id"]
+
+
+@pytest.mark.asyncio
+async def test_manage_patients_entry_shows_remove_and_add_buttons(hospital_id):
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+
+    button_ids = {b["id"] for b in _last_buttons(wa)["buttons"]}
+    assert button_ids == {patient_identity.MANAGE_REMOVE_ROW_ID, patient_identity.MANAGE_ADD_ROW_ID}
+
+
+@pytest.mark.asyncio
+async def test_remove_patient_with_nothing_linked_shows_a_message_and_reprompts(hospital_id):
+    """Not reachable in real traffic (Manage Patients always has an already-
+    resolved active patient) -- exercised directly here as the defensive
+    edge case _send_remove_patient_list explicitly handles."""
+    connector = flows._DEFAULT_CONNECTOR
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    sessions.set(hospital_id, PHONE, "IDLE", {}, language="en", active_patient_id=patient["id"])
+    connector.unlink_patient(hospital_id, PHONE, patient["id"])
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_REMOVE_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+
+    kind, kwargs = wa.sent[-2]
+    assert kind == "text"
+    assert "no patients to remove" in kwargs["text"].lower()
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
 
 
 @pytest.mark.asyncio

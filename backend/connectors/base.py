@@ -71,6 +71,12 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def get_max_active_patient_links(self) -> int: ...
 
+    # Same "deliberately no hospital_id param" reasoning as identify_contact
+    # above -- a chosen language is GLOBAL to the account (confirmed with
+    # the user), not per-hospital like dpdp_consents.
+    @abc.abstractmethod
+    def set_account_language(self, care_connect_account_id: int, language: str) -> None: ...
+
     @abc.abstractmethod
     def get_appointment_types(self, hospital_id: int) -> list[dict]: ...
 
@@ -213,6 +219,9 @@ class _UnimplementedTierConnector(Connector):
 
     def get_max_active_patient_links(self):
         self._not_implemented("get_max_active_patient_links")
+
+    def set_account_language(self, care_connect_account_id, language):
+        self._not_implemented("set_account_language")
 
     def get_appointment_types(self, hospital_id):
         self._not_implemented("get_appointment_types")

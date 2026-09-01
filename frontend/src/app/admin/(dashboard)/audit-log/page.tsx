@@ -1,25 +1,11 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
-import { adminFetch } from "@/lib/adminAuth";
-
-type AuditEntry = {
-  id: number;
-  actor_level: string;
-  hospital_id: number | null;
-  hospital_name: string | null;
-  actor_label: string;
-  action: string;
-  entity_type: string | null;
-  entity_id: string | null;
-  before_value: Record<string, unknown> | null;
-  after_value: Record<string, unknown> | null;
-  created_at: string;
-};
+import { useAuditLog, type AuditEntry } from "@/hooks/useAuditLog";
 
 function formatAuditChanges(entry: AuditEntry): string {
   const keys = new Set([
@@ -46,29 +32,12 @@ function AuditLogList() {
   const searchParams = useSearchParams();
   const hospitalIdParam = searchParams.get("hospital_id");
 
-  const [entries, setEntries] = useState<AuditEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [levelFilter, setLevelFilter] = useState<"" | "platform_admin" | "portal">("");
-
-  const load = useCallback(async () => {
-    const query = new URLSearchParams();
-    if (hospitalIdParam) query.set("hospital_id", hospitalIdParam);
-    if (levelFilter) query.set("actor_level", levelFilter);
-    const result = await adminFetch(`/api/admin/audit-log?${query.toString()}`);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    setEntries((result.data as { entries: AuditEntry[] }).entries);
-  }, [hospitalIdParam, levelFilter]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { entries, error } = useAuditLog(hospitalIdParam, levelFilter);
 
   return (
-    <div className="mx-auto max-w-[1000px]">
-      <div className="mb-space-5 flex items-center justify-between">
+    <div>
+      <div className="mb-space-5 flex flex-col items-start gap-space-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">
@@ -79,7 +48,7 @@ function AuditLogList() {
         <select
           value={levelFilter}
           onChange={(e) => setLevelFilter(e.target.value as "" | "platform_admin" | "portal")}
-          className="h-10 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
+          className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:w-auto"
         >
           <option value="">All levels</option>
           <option value="platform_admin">Platform only</option>
@@ -104,8 +73,8 @@ function AuditLogList() {
           <ul className="divide-y divide-line">
             {entries.map((entry) => (
               <li key={entry.id} className="py-space-3 text-[12.5px]">
-                <div className="flex items-center justify-between gap-space-3">
-                  <div className="flex items-center gap-space-2">
+                <div className="flex flex-col gap-space-1 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
+                  <div className="flex flex-wrap items-center gap-space-2">
                     <span className="font-medium text-ink-900">{entry.action}</span>
                     <span
                       className={cn(
@@ -117,7 +86,7 @@ function AuditLogList() {
                     </span>
                     {entry.hospital_id && (
                       <Link
-                        href={`/admin/edit-tenant/${entry.hospital_id}`}
+                        href={`/admin/tenants/${entry.hospital_id}`}
                         className="text-brand-600 hover:underline"
                       >
                         {entry.hospital_name || `Tenant #${entry.hospital_id}`}

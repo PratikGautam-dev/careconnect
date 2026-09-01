@@ -62,6 +62,7 @@ CHANGE_DURATION_OPTION = "change_duration_option"
 BOOKING_CONFIRMED = "booking_confirmed"
 BOOKING_NOT_CONFIRMED = "booking_not_confirmed"
 DUPLICATE_BOOKING_TEXT = "duplicate_booking_text"
+DEPARTMENT_APPOINTMENT_CONFLICT = "department_appointment_conflict"
 NEW_CONSULTATION_DEPARTMENT_CONFLICT = "new_consultation_department_conflict"
 NEW_CONSULTATION_SAME_DAY_CONFLICT = "new_consultation_same_day_conflict"
 NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP = "no_previous_appointment_for_followup"
@@ -192,8 +193,8 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "कृपया {patient_name} का 10 अंकों का संपर्क नंबर बताएं:",
     },
     INVALID_PATIENT_CONTACT_NUMBER: {
-        "en": "Please enter a valid 10-digit contact number, digits only.",
-        "hi": "कृपया केवल अंकों में एक मान्य 10 अंकों का संपर्क नंबर दर्ज करें।",
+        "en": "Please enter a valid 10-digit contact number, digits only, not starting with 0.",
+        "hi": "कृपया केवल अंकों में एक मान्य 10 अंकों का संपर्क नंबर दर्ज करें, जो 0 से शुरू न हो।",
     },
     ASK_PATIENT_AGE: {
         "en": "Please share the patient's age:",
@@ -284,8 +285,20 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "You already have an appointment booked with {doctor_name} — reply below to manage it.",
         "hi": "आपकी {doctor_name} के साथ पहले से ही एक अपॉइंटमेंट बुक है — इसे प्रबंधित करने के लिए नीचे उत्तर दें।",
     },
+    # Shared department-selection conflict (base.existing_department_appointment):
+    # new/tele/second_opinion/daycare all block picking a department the
+    # patient already has an active appointment (or follow-up) in, showing
+    # that existing appointment's own details plus Main Menu/Cancel/Reschedule
+    # quick actions -- same shape as DUPLICATE_BOOKING_TEXT above.
+    DEPARTMENT_APPOINTMENT_CONFLICT: {
+        "en": "You already have an appointment in {department_name} with {doctor_name} on {when} — reply below to manage it.",
+        "hi": "आपकी {department_name} में {doctor_name} के साथ {when} को पहले से ही एक अपॉइंटमेंट है — इसे प्रबंधित करने के लिए नीचे उत्तर दें।",
+    },
     # docs/per-appointment-type-flow-plan.md Phase 2: New Consultation-only
-    # booking rules -- flows/booking/types/new_consultation.py.
+    # booking rules -- flows/booking/types/new_consultation.py. (The
+    # department half is now a same-day-of-booking safety net only --
+    # DEPARTMENT_APPOINTMENT_CONFLICT above already blocks this earlier, at
+    # department selection.)
     NEW_CONSULTATION_DEPARTMENT_CONFLICT: {
         "en": "You already have an active appointment in this department. Please cancel it first if you'd like to book again.",
         "hi": "इस विभाग में आपकी पहले से ही एक सक्रिय अपॉइंटमेंट है। दोबारा बुक करने के लिए कृपया पहले उसे रद्द करें।",

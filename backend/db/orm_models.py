@@ -49,6 +49,14 @@ class CareConnectAccount(Base):
     # id yet" reason patient_display_id is -- always set in practice by the
     # time any caller reads the row (see that migration's own docstring).
     display_id: Mapped[str | None]
+    # Language-persistence follow-up (confirmed with the user): a chosen
+    # language is GLOBAL to the account (same language at every hospital
+    # this person messages), not per-hospital like dpdp_consents --
+    # language is a personal preference, not a hospital-specific compliance
+    # matter. NULL means "never chosen yet" -- flows/router.py's
+    # _enter_idle() still shows the picker in that case, same as before
+    # this column existed.
+    language: Mapped[str | None]
 
 
 class WhatsappIdentity(Base):

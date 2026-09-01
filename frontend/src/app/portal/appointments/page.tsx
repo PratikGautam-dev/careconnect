@@ -1,41 +1,16 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment } from "react";
 import { CalendarClock, Plus, Search, Send, Trash2, X } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
-import { portalFetch } from "@/lib/portalAuth";
-
-const DEFAULT_CANCEL_MESSAGE = "Your appointment has been cancelled.";
-const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
-
-type Appointment = {
-  id: number;
-  phone: string;
-  department_name: string;
-  doctor_name: string;
-  scheduled_at: string;
-  status: string;
-  source: string;
-  reference_id: string | null;
-  patient_display_id: string | null;
-  appointment_type_id: string | null;
-  video_link: string | null;
-};
-
-type Department = { id: string; name: string };
-type Doctor = { id: string; name: string };
-type Slot = { id: string; label: string };
-type NewBookingContext = {
-  departments: Department[];
-  doctors_by_department: Record<string, Doctor[]>;
-  slots_by_doctor: Record<string, Record<string, Slot[]>>;
-};
+import { formatShortDateTime } from "@/lib/formatDate";
+import { TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
 
 const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
@@ -49,213 +24,46 @@ const STATUS_LABELS: Record<string, string> = {
   attended: "Attended", no_show: "No-show",
 };
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
-// docs/per-appointment-type-flow-plan.md's fixed catalog (db/repositories/
-// appointment_types.py's DEFAULT_APPOINTMENT_TYPES) -- there's no portal CRUD
-// for appointment types (seeded once, at onboarding), so this mirrors that
-// same fixed id->label mapping rather than fetching it from a new endpoint.
-const TYPE_LABELS: Record<string, string> = {
-  new: "New Consultation",
-  followup: "Follow-up",
-  tele: "Tele-consultation",
-  second_opinion: "Second Opinion",
-  diagnostic: "Diagnostic",
-  lab: "Lab Test",
-  daycare: "Daycare",
-};
 const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
 export default function PortalAppointmentsPage() {
-  const router = useRouter();
   const { hospital, ready } = usePortalGuard();
-  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [cancellingId, setCancellingId] = useState<number | null>(null);
-  const [cancelPanelId, setCancelPanelId] = useState<number | null>(null);
-  const [cancelMessage, setCancelMessage] = useState(DEFAULT_CANCEL_MESSAGE);
-
-  const [reschedulePanelId, setReschedulePanelId] = useState<number | null>(null);
-  const [reschedulingId, setReschedulingId] = useState<number | null>(null);
-  const [rescheduleCtx, setRescheduleCtx] = useState<NewBookingContext | null>(null);
-  const [rescheduleErrors, setRescheduleErrors] = useState<string[]>([]);
-  const [rescheduleMessage, setRescheduleMessage] = useState(DEFAULT_RESCHEDULE_MESSAGE);
-  const [rDepartmentId, setRDepartmentId] = useState("");
-  const [rDoctorId, setRDoctorId] = useState("");
-  const [rDate, setRDate] = useState("");
-  const [rSlotId, setRSlotId] = useState("");
-  const [markingAttendanceId, setMarkingAttendanceId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-
-  // Item 2 (Spec.md Section 0): search (patient phone / doctor / department
-  // name) + status filter -- computed client-side, same reasoning the
-  // doctors page below uses (this list is already bounded to 500 rows by
-  // the backend, small enough that a server round-trip per keystroke isn't
-  // needed).
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  // Divides the appointments list by type (New Consultation, Follow-up,
-  // Tele-consultation, ...) as its own tab row -- "other" covers any
-  // appointment predating appointment_type_id (never backfilled, so an
-  // old row is legitimately typeless, not a bug).
-  const [typeFilter, setTypeFilter] = useState("all");
-
-  // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
-  // real status" gap -- a still-'booked' appointment whose scheduled time
-  // has already passed gets an inline "Did the patient visit?" prompt,
-  // computed here from the same fields the table already has (no separate
-  // fetch needed just to know which rows these are).
-  async function handleAttendance(id: number, attended: boolean) {
-    setMarkingAttendanceId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/attendance`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ attended }),
-    });
-    setMarkingAttendanceId(null);
-    if (result.ok) load();
-  }
-
-  // Item 3 (Spec.md Section 0): soft-delete only, per this project's
-  // never-hard-delete convention -- restricted server-side to non-'booked'
-  // rows (cancel it first), same guard reflected here by only offering the
-  // button once status !== "booked".
-  async function handleDelete(id: number) {
-    if (!window.confirm("Delete this appointment record? This can't be undone from the portal.")) return;
-    setDeletingId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/delete`, { method: "POST" });
-    setDeletingId(null);
-    if (result.ok) load();
-  }
-
-  function typeBucket(a: Appointment) {
-    return a.appointment_type_id && a.appointment_type_id in TYPE_LABELS ? a.appointment_type_id : "other";
-  }
-
-  const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: appointments?.length ?? 0 };
-    for (const a of appointments || []) {
-      const bucket = typeBucket(a);
-      counts[bucket] = (counts[bucket] || 0) + 1;
-    }
-    return counts;
-  }, [appointments]);
-
-  const filteredAppointments = useMemo(() => {
-    if (!appointments) return appointments;
-    const q = searchQuery.trim().toLowerCase();
-    return appointments.filter((a) => {
-      if (typeFilter !== "all" && typeBucket(a) !== typeFilter) return false;
-      if (statusFilter !== "all" && a.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        a.phone.toLowerCase().includes(q) ||
-        a.doctor_name.toLowerCase().includes(q) ||
-        a.department_name.toLowerCase().includes(q) ||
-        (a.reference_id || "").toLowerCase().includes(q) ||
-        (a.patient_display_id || "").toLowerCase().includes(q)
-      );
-    });
-  }, [appointments, searchQuery, statusFilter, typeFilter]);
-
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/bookings");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setAppointments((result.data as { appointments: Appointment[] }).appointments);
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
-
-  function openCancelPanel(id: number) {
-    setReschedulePanelId(null);
-    setCancelPanelId(id);
-    setCancelMessage(DEFAULT_CANCEL_MESSAGE);
-  }
-
-  function closeCancelPanel() {
-    setCancelPanelId(null);
-  }
-
-  async function handleCancel(id: number) {
-    setCancellingId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: cancelMessage.trim() }),
-    });
-    setCancellingId(null);
-    setCancelPanelId(null);
-    if (result.ok) load();
-  }
-
-  async function openReschedulePanel(id: number) {
-    setCancelPanelId(null);
-    setReschedulePanelId(id);
-    setRescheduleMessage(DEFAULT_RESCHEDULE_MESSAGE);
-    setRescheduleErrors([]);
-    setRDepartmentId("");
-    setRDoctorId("");
-    setRDate("");
-    setRSlotId("");
-    if (!rescheduleCtx) {
-      // Reuses the exact same context endpoint /portal/new-booking already
-      // reads department/doctor/slot options from -- no separate endpoint,
-      // and staff can pick a different doctor for the reschedule, not just
-      // a different slot with the same one.
-      const result = await portalFetch("/api/portal/new-booking/context");
-      if (result.ok) setRescheduleCtx(result.data as NewBookingContext);
-    }
-  }
-
-  function closeReschedulePanel() {
-    setReschedulePanelId(null);
-  }
-
-  async function handleReschedule(id: number) {
-    setReschedulingId(id);
-    setRescheduleErrors([]);
-    const result = await portalFetch(`/api/portal/bookings/${id}/reschedule`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        department_id: rDepartmentId, doctor_id: rDoctorId, slot_id: rSlotId,
-        message: rescheduleMessage.trim(),
-      }),
-    });
-    setReschedulingId(null);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setRescheduleErrors([result.error]);
-      return;
-    }
-    const data = result.data as { errors?: string[] };
-    if (data.errors?.length) {
-      setRescheduleErrors(data.errors);
-      return;
-    }
-    setReschedulePanelId(null);
-    load();
-  }
-
-  const rDoctors = rDepartmentId && rescheduleCtx ? rescheduleCtx.doctors_by_department[rDepartmentId] || [] : [];
-  const rDatesForDoctor = rDoctorId && rescheduleCtx ? Object.keys(rescheduleCtx.slots_by_doctor[rDoctorId] || {}).sort() : [];
-  const rSlotsForDate = rDoctorId && rDate && rescheduleCtx ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] || [] : [];
+  const {
+    appointments, error, filteredAppointments, typeCounts,
+    searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
+    cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
+    reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
+    rDepartmentId, setRDepartmentId, rDoctorId, setRDoctorId, rDate, setRDate, rSlotId, setRSlotId,
+    rDoctors, rDatesForDoctor, rSlotsForDate,
+    openReschedulePanel, closeReschedulePanel, handleReschedule,
+    markingAttendanceId, handleAttendance,
+    deletingId, handleDelete,
+    selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
+    pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,
+  } = useAppointments(ready);
 
   return (
     <PortalShell hospital={hospital} active="appointments">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
           <h1 className="text-display">Appointments</h1>
-          <Button href="/portal/new-booking">
-            <Plus size={15} /> New booking
-          </Button>
+          <div className="flex items-center gap-space-2">
+            {selectedAppointments.length > 0 && (
+              <PermissionGate page="appointments" action="delete">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  className="border-error/30 text-error hover:border-error hover:bg-error/10"
+                  onClick={() => setPendingDelete(selectedAppointments)}
+                >
+                  <Trash2 size={15} />
+                  Delete selected ({selectedAppointments.length})
+                </Button>
+              </PermissionGate>
+            )}
+            <Button href="/portal/new-booking">
+              <Plus size={15} /> New booking
+            </Button>
+          </div>
         </div>
 
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
@@ -319,7 +127,20 @@ export default function PortalAppointmentsPage() {
               <table className="w-full text-left text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
-                    <th className="pb-space-2 font-semibold">Time</th>
+                    <th className="w-8 pb-space-2 font-semibold">
+                      <PermissionGate page="appointments" action="delete">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={(e) => toggleSelectAll(e.target.checked)}
+                          disabled={deletableAppointments.length === 0}
+                          className="h-4 w-4 accent-brand-600"
+                          aria-label="Select all deletable appointments"
+                        />
+                      </PermissionGate>
+                    </th>
+                    <th className="pb-space-2 font-semibold">Appointment time</th>
+                    <th className="pb-space-2 font-semibold">Booked</th>
                     <th className="pb-space-2 font-semibold">Reference</th>
                     <th className="pb-space-2 font-semibold">Patient</th>
                     <th className="pb-space-2 font-semibold">Doctor</th>
@@ -335,7 +156,23 @@ export default function PortalAppointmentsPage() {
                   {(filteredAppointments || []).map((a) => (
                     <Fragment key={a.id}>
                       <tr className={cn("border-b border-line last:border-0", (cancelPanelId === a.id || reschedulePanelId === a.id) && "border-b-0")}>
-                        <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatTime(a.scheduled_at)}</td>
+                        <td className="py-space-2" onClick={(e) => e.stopPropagation()}>
+                          {a.status !== "booked" && (
+                            <PermissionGate page="appointments" action="delete">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(a.id)}
+                                onChange={(e) => toggleSelected(a.id, e.target.checked)}
+                                className="h-4 w-4 accent-brand-600"
+                                aria-label={`Select appointment ${a.reference_id || a.id}`}
+                              />
+                            </PermissionGate>
+                          )}
+                        </td>
+                        <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(a.scheduled_at)}</td>
+                        <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-400">
+                          {a.created_at ? formatShortDateTime(a.created_at) : "—"}
+                        </td>
                         <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">{a.reference_id || "—"}</td>
                         <td className="py-space-2 text-ink-900">
                           <div>{a.phone}</div>
@@ -448,9 +285,9 @@ export default function PortalAppointmentsPage() {
                       </tr>
                       {reschedulePanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={10} className="pb-space-3">
+                          <td colSpan={12} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
-                              <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 sm:grid-cols-2">
+                              <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 md:grid-cols-2">
                                 <div>
                                   <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Department</label>
                                   <select
@@ -565,7 +402,7 @@ export default function PortalAppointmentsPage() {
                       )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={10} className="pb-space-3">
+                          <td colSpan={12} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
                                 Message to send {a.phone} on WhatsApp
@@ -601,6 +438,23 @@ export default function PortalAppointmentsPage() {
             </div>
           )}
         </Card>
+
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          title={pendingDelete && pendingDelete.length > 1 ? `Delete ${pendingDelete.length} appointments?` : "Delete appointment?"}
+          message={
+            pendingDelete
+              ? `This will permanently delete ${
+                  pendingDelete.length > 1 ? `${pendingDelete.length} appointment records` : `the ${pendingDelete[0].reference_id || "selected"} appointment`
+                }. This action is irreversible.`
+              : ""
+          }
+          confirmLabel="Delete"
+          destructive
+          busy={bulkDeleting}
+          onConfirm={() => pendingDelete && runBulkDelete(pendingDelete)}
+          onCancel={() => setPendingDelete(null)}
+        />
     </PortalShell>
   );
 }

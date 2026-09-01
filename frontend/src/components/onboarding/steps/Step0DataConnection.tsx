@@ -58,7 +58,7 @@ export function Step0DataConnection({ state, dispatch }: Props) {
         around it.
       </p>
 
-      <div className="mb-space-5 grid grid-cols-1 gap-space-4 sm:grid-cols-3">
+      <div className="mb-space-5 grid grid-cols-1 gap-space-4 md:grid-cols-3">
         {TIERS.map(({ tier, badge, badgeTone, title, description, cta }) => {
           const selected = state.dataTier === tier;
           return (
@@ -94,7 +94,7 @@ export function Step0DataConnection({ state, dispatch }: Props) {
       <p className="mb-space-4 text-center text-[12.5px] font-semibold tracking-wide text-ink-400 uppercase">OR</p>
 
       <div className="mb-space-5 rounded-lg border border-line bg-paper p-space-5">
-        <div className="flex flex-col items-center gap-space-3 text-center sm:flex-row sm:text-left">
+        <div className="flex flex-col items-center gap-space-3 text-center md:flex-row md:text-left">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
             <Compass size={20} strokeWidth={2} />
           </div>
@@ -125,7 +125,7 @@ export function Step0DataConnection({ state, dispatch }: Props) {
       </div>
 
       {state.dataTier === "tier2" && (
-        <div className="mb-space-5 grid grid-cols-1 gap-space-4 rounded-lg border border-line bg-paper p-space-4 sm:grid-cols-2">
+        <div className="mb-space-5 grid grid-cols-1 gap-space-4 rounded-lg border border-line bg-paper p-space-4 md:grid-cols-2">
           <Field label="API base URL" htmlFor="api_base_url" required>
             <Input
               id="api_base_url"

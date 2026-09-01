@@ -779,6 +779,11 @@ def init_db_on_connection(conn) -> int:
     # toggle. Defaults TRUE so no already-onboarded tenant loses access to
     # anything it could already use.
     conn.execute("ALTER TABLE appointment_types ADD COLUMN IF NOT EXISTS is_allowed BOOLEAN NOT NULL DEFAULT TRUE")
+    # Migration 0019: care_connect_accounts.language -- a chosen language is
+    # now persisted GLOBALLY on the account (same at every hospital this
+    # person messages), not re-asked every session timeout. NULL (every
+    # existing row) means "never chosen yet", same as today's behavior.
+    conn.execute("ALTER TABLE care_connect_accounts ADD COLUMN IF NOT EXISTS language TEXT")
     # Migration 0019: handoff auto-resolve -- hospitals.handoff_auto_resolve_hours
     # (nullable, per-hospital threshold) + handoff_requests.resolved_by
     # ('auto' vs. a staff member's hashed session token).

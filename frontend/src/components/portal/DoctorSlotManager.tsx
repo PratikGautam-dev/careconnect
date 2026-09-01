@@ -5,16 +5,13 @@ import { Ban, CheckCircle2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
+import { formatDateHeading } from "@/lib/formatDate";
 import { portalFetch } from "@/lib/portalAuth";
 
 type Slot = { scheduled_at: string; date: string; time: string; blocked: boolean; block_reason: string | null; booked: boolean };
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function formatDateHeading(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
 // Item 1 (Spec.md Section 0) + add/remove follow-up: a manual per-slot

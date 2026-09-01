@@ -62,14 +62,12 @@ from core.translations.booking import (
     INVALID_PATIENT_NAME,
 )
 from core.translations.patient_identity import (
-    ADD_PATIENT_OPTION,
     ADD_PATIENT_SHORT,
     BACK_TO_MENU_OPTION,
     DUPLICATE_DIFFERENT_BUTTON,
     DUPLICATE_LINK_BUTTON,
     DUPLICATE_PATIENT_FOUND,
     DUPLICATE_SELF_LINK,
-    MANAGE_PATIENTS_SHORT,
     MULTI_PATIENT_SELECTOR_PROMPT,
     PATIENT_ALREADY_LINKED,
     PATIENT_CODE_LABEL,
@@ -84,13 +82,14 @@ from core.translations.patient_identity import (
 from core.translations.manage_patients import (
     MANAGE_PATIENTS_BUTTON,
     MANAGE_PATIENTS_HEADER,
+    MANAGE_PATIENTS_PROMPT,
     MANAGE_PATIENTS_SECTION_TITLE,
-    PATIENT_ACTION_PROMPT,
+    NO_PATIENTS_TO_REMOVE,
     PATIENT_ADDED,
+    PATIENT_REMOVAL_CANCELLED,
     PATIENT_UNLINKED,
-    UNLINK_OPTION,
+    REMOVE_PATIENT_OPTION,
     UNLINK_PATIENT_CONFIRM,
-    USE_THIS_PATIENT_OPTION,
 )
 from core.translations.dpdp_consent import (
     CONSENT_MARKETING_DISABLE,
@@ -192,15 +191,19 @@ async def _send_dynamic_menu(
 _PATIENT_ROW_PREFIX = "idpat_"
 _UNLINK_ROW_PREFIX = "idunlink_"
 MANAGE_ADD_ROW_ID = "id_manage_add"
+# Manage Patients' own 2-option entry point (confirmed with the user):
+# Remove Patient shows the patient list ONLY when removing -- there is no
+# "switch active patient" action here anymore, that's the resolution flow's
+# job. MANAGE_ADD_ROW_ID (above) doubles as this screen's own "Add Patient"
+# button id, same as before.
+MANAGE_REMOVE_ROW_ID = "id_manage_remove"
+# Remove-patient list's own "Back" row -- returns to the 2-option screen
+# above, not the main menu.
+MANAGE_PATIENTS_BACK_ID = "id_manage_patients_back"
 MANAGE_PATIENTS_ENTRY_ID = "id_manage_patients_entry"
 # Single-patient-confirm screen's "add someone else" escape hatch -- goes
 # straight into registration, not the full Manage Patients menu.
 ADD_PATIENT_ENTRY_ID = "id_add_patient_entry"
-# Manage Patients' own per-patient action choice -- the three buttons shown
-# after tapping a linked patient's row in THAT menu specifically.
-PATIENT_ACTION_USE_ID = "id_patient_action_use"
-PATIENT_ACTION_UNLINK_ID = "id_patient_action_unlink"
-PATIENT_ACTION_BACK_ID = "id_patient_action_back"
 DUPLICATE_LINK_ID = "id_dup_link"
 DUPLICATE_DIFFERENT_ID = "id_dup_different"
 CONSENT_TOGGLE_MARKETING_ID = "id_consent_marketing_toggle"
@@ -275,7 +278,7 @@ STATE_AWAITING_PATIENT_GENDER = "IDENTITY_AWAITING_GENDER"
 STATE_AWAITING_DUPLICATE_DECISION = "IDENTITY_AWAITING_DUPLICATE_DECISION"
 STATE_AWAITING_SINGLE_PATIENT_CONFIRM = "IDENTITY_AWAITING_SINGLE_CONFIRM"
 STATE_AWAITING_MANAGE_PATIENTS_ACTION = "IDENTITY_AWAITING_MANAGE_ACTION"
-STATE_AWAITING_PATIENT_ACTION_CHOICE = "IDENTITY_AWAITING_PATIENT_ACTION_CHOICE"
+STATE_AWAITING_REMOVE_PATIENT_SELECTION = "IDENTITY_AWAITING_REMOVE_PATIENT_SELECTION"
 STATE_AWAITING_UNLINK_CONFIRM = "IDENTITY_AWAITING_UNLINK_CONFIRM"
 STATE_AWAITING_CONSENT_ACTION = "IDENTITY_AWAITING_CONSENT_ACTION"
 
@@ -301,16 +304,21 @@ def _parse_patient_age(text: str) -> int | None:
 
 
 CONTACT_PHONE_NUMBER_LENGTH = 10
+CONTACT_PHONE_COUNTRY_CODE = "91"
 
 
 def _parse_contact_phone_number(text: str) -> str | None:
-    """"Someone Else" registration step: exact 10 digits, digits only (per
-    the user's own explicit call, not the looser is_valid_phone() rule used
-    for the messaging phone elsewhere) -- None for anything else."""
+    """"Someone Else" registration step: exact 10 digits, digits only, must
+    not start with 0 (per the user's own explicit call, not the looser
+    is_valid_phone() rule used for the messaging phone elsewhere) -- None for
+    anything else. Returned value is prefixed with the country code
+    (e.g. "7622569904" -> "917622569904") so it's stored in the same shape
+    as the messaging phone (patients.phone / whatsapp_identities.phone_number),
+    letting it be matched against an incoming WhatsApp number later."""
     text = text.strip()
-    if not text.isdigit() or len(text) != CONTACT_PHONE_NUMBER_LENGTH:
+    if not text.isdigit() or len(text) != CONTACT_PHONE_NUMBER_LENGTH or text[0] == "0":
         return None
-    return text
+    return CONTACT_PHONE_COUNTRY_CODE + text
 
 
 def _parse_patient_name(text: str) -> str | None:
@@ -706,8 +714,18 @@ async def _create_or_link_patient(
         return
 
     if identity_flow_next == "manage_patients":
+        # Confirmed with the user: lands on the main menu now, not back on
+        # the Manage Patients screen -- same "message, then IDLE" ending as
+        # the Remove Patient flow below. Doesn't override active_patient_id,
+        # so whichever patient was already active (Manage Patients is only
+        # ever reached with one already resolved) stays active --
+        # just_confirmed_patient is still required, though: adding a 2nd+
+        # patient here means get_or_prompt_for_active_patient would
+        # otherwise treat this same IDLE re-entry as "2+ patients, no
+        # confirmation yet" and show the "who is this for" selector instead
+        # of the real main menu (see that function's own docstring).
         await wa.send_text(phone, t(PATIENT_ADDED, language, patient_name=patient["name"]))
-        await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+        sessions.set(hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language)
         return
     sessions.set(
         hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
@@ -747,16 +765,16 @@ async def _send_single_patient_confirm(
             {"id": ADD_PATIENT_ENTRY_ID, "title": t(ADD_PATIENT_SHORT, language)},
         ],
     )
-    patients = connector.list_active_patients(hospital_id, phone)
-    rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t(MANAGE_PATIENTS_SHORT, language)})
-    rows = cap_rows(rows, "patient selector")
-    await wa.send_list(
-        to=phone,
-        body_text=t(PATIENT_SELECTOR_PROMPT, language),
-        button_text=t(PATIENT_SELECTOR_BUTTON, language),
-        sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
-    )
+    # patients = connector.list_active_patients(hospital_id, phone)
+    # rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
+    # rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t(MANAGE_PATIENTS_SHORT, language)})
+    # rows = cap_rows(rows, "patient selector")
+    # await wa.send_list(
+    #     to=phone,
+    #     body_text=t(PATIENT_SELECTOR_PROMPT, language),
+    #     button_text=t(PATIENT_SELECTOR_BUTTON, language),
+    #     sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
+    # )
 
 
 async def _send_patient_selector_for_resolution(
@@ -771,11 +789,17 @@ async def _send_patient_selector_for_resolution(
     candidate_patient_id in context here, so its CONFIRM_YES branch is simply
     never reached -- there's no Confirm button offered). A separate
     "Add Patient" follow-up button matches _send_single_patient_confirm's own,
-    minus the "Confirm" option it has no candidate to confirm."""
+    minus the "Confirm" option it has no candidate to confirm.
+
+    Deliberately no "Manage Patients" row in this sheet (confirmed with the
+    user) -- this list is purely "which patient is this conversation for,"
+    Manage Patients is its own separate main-menu feature, reached only from
+    there; _handle_awaiting_single_patient_confirm's MANAGE_PATIENTS_ENTRY_ID
+    branch is kept only as a harmless stale-tap fallback for an
+    already-sent, older message that still has that row."""
     sessions.set(hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM, {}, language=language)
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t(MANAGE_PATIENTS_SHORT, language)})
     rows = cap_rows(rows, "patient selector")
     await wa.send_list(
         to=phone,
@@ -830,27 +854,23 @@ async def _handle_awaiting_single_patient_confirm(
         sessions.reset(hospital_id, phone)
 
 
-# --- Manage Patients: view / add / unlink, plus the per-patient action
-# choice (Use This Patient / Unlink / Back) -- distinct from the plain
-# Patient List above, which never shows that extra choice screen. ---
+# --- Manage Patients (confirmed with the user): a 2-option entry point --
+# Remove Patient (shows the patient list ONLY to pick who to remove, then
+# confirms) / Add Patient (the existing registration flow) -- no "switch
+# active patient" action here anymore, that's the resolution flow's job. ---
 
 async def _start_manage_patients(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
 ) -> None:
-    """Sends the Manage Patients list: every linked patient, an "Add
-    Patient" row if under the cap, and "Back to Menu"."""
-    patients = connector.list_active_patients(hospital_id, phone)
-    rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    if len(patients) < connector.get_max_active_patient_links():
-        rows.append({"id": MANAGE_ADD_ROW_ID, "title": t(ADD_PATIENT_OPTION, language)})
-    rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
-    rows = cap_rows(rows, "manage patients list")
+    """Sends the Remove Patient / Add Patient choice."""
     sessions.set(hospital_id, phone, STATE_AWAITING_MANAGE_PATIENTS_ACTION, {}, language=language)
-    await wa.send_list(
+    await wa.send_buttons(
         to=phone,
-        body_text=t(MANAGE_PATIENTS_HEADER, language),
-        button_text=t(MANAGE_PATIENTS_BUTTON, language),
-        sections=[{"title": t(MANAGE_PATIENTS_SECTION_TITLE, language), "rows": rows}],
+        body_text=t(MANAGE_PATIENTS_PROMPT, language),
+        buttons=[
+            {"id": MANAGE_REMOVE_ROW_ID, "title": t(REMOVE_PATIENT_OPTION, language)},
+            {"id": MANAGE_ADD_ROW_ID, "title": t(ADD_PATIENT_SHORT, language)},
+        ],
     )
 
 
@@ -859,7 +879,8 @@ async def _handle_awaiting_manage_patients_action(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Starts "Add Patient" registration (blocked with a message if already
-    at the cap), or opens the per-patient action choice for a tapped row."""
+    at the cap), or shows the patient list to remove one. Re-prompts the
+    2-option choice on anything else."""
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
         if rid == MANAGE_ADD_ROW_ID:
@@ -870,100 +891,102 @@ async def _handle_awaiting_manage_patients_action(
                 return
             await _start_registration(wa, sessions, phone, hospital_id, connector, language, identity_flow_next="manage_patients")
             return
-        patient_id = _parse_patient_row_id(rid)
+        if rid == MANAGE_REMOVE_ROW_ID:
+            await _send_remove_patient_list(wa, sessions, phone, hospital_id, connector, language)
+            return
+    await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+
+
+async def _send_remove_patient_list(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str,
+) -> None:
+    """"Remove Patient" tapped: the patient list, shown ONLY to pick who to
+    remove (confirmed with the user -- exactly matches the instruction to
+    show "you have no patients to remove" and re-prompt the 2-option choice
+    when there's nothing to show)."""
+    patients = connector.list_active_patients(hospital_id, phone)
+    if not patients:
+        await wa.send_text(phone, t(NO_PATIENTS_TO_REMOVE, language))
+        await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+        return
+    rows = [{"id": _unlink_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
+    rows.append({"id": MANAGE_PATIENTS_BACK_ID, "title": t(BACK_OPTION, language)})
+    rows = cap_rows(rows, "remove patient list")
+    sessions.set(hospital_id, phone, STATE_AWAITING_REMOVE_PATIENT_SELECTION, {}, language=language)
+    await wa.send_list(
+        to=phone,
+        body_text=t(MANAGE_PATIENTS_HEADER, language),
+        button_text=t(MANAGE_PATIENTS_BUTTON, language),
+        sections=[{"title": t(MANAGE_PATIENTS_SECTION_TITLE, language), "rows": rows}],
+    )
+
+
+async def _handle_awaiting_remove_patient_selection(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en", closing_message_text: str | None = None,
+) -> None:
+    """A patient tapped from the remove-list -> asks to confirm; "Back", or
+    an unrecognized/stale tap, re-shows the current (fresh) list."""
+    if reply["type"] == "interactive_reply":
+        if reply["id"] == MANAGE_PATIENTS_BACK_ID:
+            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+            return
+        patient_id = _parse_unlink_row_id(reply["id"])
         if patient_id is not None:
             patients = connector.list_active_patients(hospital_id, phone)
             match = next((p for p in patients if p["id"] == patient_id), None)
             if match:
-                await _send_patient_action_choice(wa, sessions, phone, hospital_id, patient_id, match["name"], language)
+                sessions.set(
+                    hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM,
+                    {"unlink_patient_id": patient_id, "unlink_patient_name": match["name"]}, language=language,
+                )
+                await wa.send_buttons(
+                    to=phone,
+                    body_text=t(UNLINK_PATIENT_CONFIRM, language, patient_name=match["name"]),
+                    buttons=[
+                        {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+                        {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
+                    ],
+                )
                 return
-    await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
-
-
-async def _send_patient_action_choice(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, patient_id: int, patient_name: str, language: str,
-) -> None:
-    """Sends the Use This Patient / Unlink / Back choice for one patient
-    tapped from the Manage Patients list."""
-    sessions.set(
-        hospital_id, phone, STATE_AWAITING_PATIENT_ACTION_CHOICE,
-        {"chosen_patient_id": patient_id, "chosen_patient_name": patient_name}, language=language,
-    )
-    await wa.send_buttons(
-        to=phone,
-        body_text=t(PATIENT_ACTION_PROMPT, language, patient_name=patient_name),
-        buttons=[
-            {"id": PATIENT_ACTION_USE_ID, "title": t(USE_THIS_PATIENT_OPTION, language)},
-            {"id": PATIENT_ACTION_UNLINK_ID, "title": t(UNLINK_OPTION, language)},
-            {"id": PATIENT_ACTION_BACK_ID, "title": t(BACK_OPTION, language)},
-        ],
-    )
-
-
-async def _handle_awaiting_patient_action_choice(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
-    language: str = "en", closing_message_text: str | None = None,
-) -> None:
-    """Switches to the chosen patient, asks to confirm unlinking them, or
-    goes back to the Manage Patients list."""
-    patient_id = context.get("chosen_patient_id")
-    patient_name = context.get("chosen_patient_name", "")
-    if reply["type"] == "interactive_reply" and patient_id is not None:
-        if reply["id"] == PATIENT_ACTION_USE_ID:
-            # Switching to an already-linked patient needs no confirmation
-            # (unlike unlinking, it's trivially reversible). just_confirmed_
-            # patient prevents router.py's same-turn IDLE re-entry from
-            # immediately re-showing a single-patient-confirm screen (see
-            # get_or_prompt_for_active_patient's own docstring).
-            sessions.set(
-                hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
-                active_patient_id=patient_id,
-            )
-            return
-        if reply["id"] == PATIENT_ACTION_UNLINK_ID:
-            sessions.set(
-                hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM,
-                {"unlink_patient_id": patient_id, "unlink_patient_name": patient_name}, language=language,
-            )
-            await wa.send_buttons(
-                to=phone,
-                body_text=t(UNLINK_PATIENT_CONFIRM, language, patient_name=patient_name),
-                buttons=[
-                    {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
-                    {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
-                ],
-            )
-            return
-        if reply["id"] == PATIENT_ACTION_BACK_ID:
-            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
-            return
-    if patient_id is not None:
-        await _send_patient_action_choice(wa, sessions, phone, hospital_id, patient_id, patient_name, language)
-        return
-    await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+    await _send_remove_patient_list(wa, sessions, phone, hospital_id, connector, language)
 
 
 async def _handle_awaiting_unlink_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Soft-unlinks the patient on confirmation (never touches `patients` or
-    appointment history), or cancels back to the Manage Patients list."""
+    """Confirmed with the user: BOTH outcomes (removed, or cancelled) send
+    a message and then land on the main menu (state IDLE) -- router.py's own
+    post-dispatch check shows the main menu immediately once it sees IDLE,
+    same hook _create_or_link_patient's "Add Patient" success path now
+    uses. Neither branch re-shows Manage Patients anymore.
+
+    just_confirmed_patient is set on both outcomes UNLESS the removed
+    patient was the active one -- otherwise, with 2+ patients still linked,
+    get_or_prompt_for_active_patient would treat this same IDLE re-entry as
+    "2+ patients, no confirmation yet" and show the "who is this for"
+    selector instead of going straight to the real main menu (see that
+    function's own docstring, and _create_or_link_patient's identical fix
+    for the Add Patient path)."""
     patient_id = context.get("unlink_patient_id")
     patient_name = context.get("unlink_patient_name", "")
     if reply["type"] == "interactive_reply" and patient_id is not None:
         if reply["id"] == CONFIRM_YES:
             connector.unlink_patient(hospital_id, phone, patient_id)
             session = sessions.get(hospital_id, phone)
-            if session.get("active_patient_id") == patient_id:
+            removed_was_active = session.get("active_patient_id") == patient_id
+            if removed_was_active:
                 # Unlinked the currently-active patient -- force
                 # re-resolution rather than keep using a stale reference.
                 sessions.clear_active_patient(hospital_id, phone)
             await wa.send_text(phone, t(PATIENT_UNLINKED, language, patient_name=patient_name))
-            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+            new_context = {} if removed_was_active else {"just_confirmed_patient": True}
+            sessions.set(hospital_id, phone, "IDLE", new_context, language=language)
             return
         if reply["id"] == CONFIRM_NO:
-            await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+            await wa.send_text(phone, t(PATIENT_REMOVAL_CANCELLED, language, patient_name=patient_name))
+            sessions.set(hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM, context, language=language)
     await wa.send_buttons(
@@ -1039,6 +1062,6 @@ _HANDLERS = {
     STATE_AWAITING_DUPLICATE_DECISION: _handle_awaiting_duplicate_decision,
     STATE_AWAITING_SINGLE_PATIENT_CONFIRM: _handle_awaiting_single_patient_confirm,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION: _handle_awaiting_manage_patients_action,
-    STATE_AWAITING_PATIENT_ACTION_CHOICE: _handle_awaiting_patient_action_choice,
+    STATE_AWAITING_REMOVE_PATIENT_SELECTION: _handle_awaiting_remove_patient_selection,
     STATE_AWAITING_UNLINK_CONFIRM: _handle_awaiting_unlink_confirm,
 }

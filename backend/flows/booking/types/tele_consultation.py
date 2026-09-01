@@ -8,7 +8,7 @@ into the notification context. Every other type leaves on_booking_confirmed
 unset (None), so their notifications are untouched."""
 import secrets
 
-from flows.booking.types.base import FULL_FLOW, TypeFlow
+from flows.booking.types.base import FULL_FLOW, TypeFlow, existing_department_appointment
 
 # Jitsi Meet: no API key, no OAuth, no external account needed -- anyone
 # with the URL can join, so the room name IS the access control. Per the
@@ -29,4 +29,7 @@ async def _on_tele_booking_confirmed(
     return {"video_link": video_link}
 
 
-FLOW = TypeFlow(type_id="tele", steps=FULL_FLOW, on_booking_confirmed=_on_tele_booking_confirmed)
+FLOW = TypeFlow(
+    type_id="tele", steps=FULL_FLOW, on_booking_confirmed=_on_tele_booking_confirmed,
+    validate_department=existing_department_appointment,
+)

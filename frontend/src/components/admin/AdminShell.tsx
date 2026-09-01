@@ -70,7 +70,7 @@ export function AdminShell({ active, children }: Props) {
           <span className="truncate text-[14px] font-bold text-ink-900">Platform admin</span>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-space-4 sm:p-space-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-space-3 xs:p-space-4 sm:p-space-6">{children}</main>
       </div>
     </div>
   );

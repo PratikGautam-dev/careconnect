@@ -144,7 +144,7 @@ export function StepGuide({
             illustration && <StepIllustration {...illustration} />
           )}
 
-          <div className="mt-space-4 flex flex-col items-start gap-space-3 rounded-lg border border-line bg-card p-space-4 sm:flex-row sm:items-center">
+          <div className="mt-space-4 flex flex-col items-start gap-space-3 rounded-lg border border-line bg-card p-space-4 md:flex-row md:items-center">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
               <Globe size={18} strokeWidth={2} />
             </div>
@@ -153,7 +153,7 @@ export function StepGuide({
               <p className="text-[12.5px] text-ink-600">{resourceLink.description}</p>
               <p className="text-[12.5px] font-medium text-brand-600">{resourceLink.displayUrl}</p>
             </div>
-            <Button href={resourceLink.href} target="_blank" rel="noopener noreferrer" size="md" className="w-full shrink-0 sm:w-auto">
+            <Button href={resourceLink.href} target="_blank" rel="noopener noreferrer" size="md" className="w-full shrink-0 md:w-auto">
               Open Website <ArrowUpRight size={14} />
             </Button>
           </div>

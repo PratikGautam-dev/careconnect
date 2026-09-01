@@ -104,7 +104,7 @@ async def test_duplicate_match_offers_link_existing_or_different_patient(hospita
     "different WhatsApp number, same patient" scenario this check exists
     for."""
     connector = flows._DEFAULT_CONNECTOR
-    existing = db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self")
+    existing = db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self")
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)  # 0 linked patients on THIS phone -> registration
 
@@ -134,7 +134,7 @@ async def test_duplicate_match_offers_link_existing_or_different_patient(hospita
 @pytest.mark.asyncio
 async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
     connector = flows._DEFAULT_CONNECTOR
-    existing = db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self")
+    existing = db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self")
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
@@ -168,7 +168,7 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
 @pytest.mark.asyncio
 async def test_different_patient_creates_a_genuinely_new_profile(hospital_id):
     connector = flows._DEFAULT_CONNECTOR
-    existing = db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self")
+    existing = db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self")
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
@@ -306,10 +306,15 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
     list_kwargs = _last_list(wa)
     assert "Welcome to CareConnect" in list_kwargs["body_text"]
-    assert "Who are you accessing CareConnect for?" in list_kwargs["body_text"]
+    assert "Please select the patient." in list_kwargs["body_text"]
     row_ids = {row["id"] for row in list_kwargs["sections"][0]["rows"]}
     assert patient_identity._patient_row_id(abhi["id"]) in row_ids
     assert patient_identity._patient_row_id(raj["id"]) in row_ids
+    # Confirmed with the user: no "Manage Patients" row in this sheet --
+    # it's purely "which patient is this conversation for," Manage
+    # Patients is its own separate main-menu feature.
+    assert patient_identity.MANAGE_PATIENTS_ENTRY_ID not in row_ids
+    assert len(row_ids) == 2
     buttons_kwargs = _last_buttons(wa)
     button_ids = {b["id"] for b in buttons_kwargs["buttons"]}
     assert button_ids == {patient_identity.ADD_PATIENT_ENTRY_ID}

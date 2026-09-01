@@ -1,23 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CheckboxRow } from "@/components/ui/Checkbox";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
-import { adminFetch } from "@/lib/adminAuth";
-
-type PlatformSettings = {
-  max_active_patient_links: number;
-  // Migration 0014: moved off hospitals.feature_labels/dpdp_consent_required
-  // -- ONE value applied to every hospital's WhatsApp bot now, not a
-  // per-tenant self-serve setting (frontend/src/app/portal/settings/page.tsx
-  // no longer has these two sections).
-  feature_labels: Record<string, string>;
-  feature_default_labels: Record<string, string>;
-  dpdp_consent_required: boolean;
-};
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 const FEATURE_DISPLAY_NAMES: Record<string, string> = {
   booking: "Book Appointment",
@@ -33,67 +21,22 @@ const FEATURE_DISPLAY_NAMES: Record<string, string> = {
 };
 
 function PlatformSettingsForm() {
-  const [settings, setSettings] = useState<PlatformSettings | null>(null);
-  const [maxActiveLinks, setMaxActiveLinks] = useState("");
-  const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({});
-  const [dpdpRequired, setDpdpRequired] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    const result = await adminFetch("/api/admin/platform-settings");
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    const data = result.data as PlatformSettings;
-    setSettings(data);
-    setMaxActiveLinks(String(data.max_active_patient_links));
-    setFeatureLabels(data.feature_labels);
-    setDpdpRequired(data.dpdp_consent_required);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  function setFeatureLabel(key: string, label: string) {
-    setFeatureLabels((prev) => ({ ...prev, [key]: label }));
-    setSaved(false);
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaved(false);
-    setSaving(true);
-    try {
-      const result = await adminFetch("/api/admin/platform-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          max_active_patient_links: Number(maxActiveLinks),
-          feature_labels: featureLabels,
-          dpdp_consent_required: dpdpRequired,
-        }),
-      });
-      if (!result.ok) {
-        setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-        return;
-      }
-      const data = result.data as PlatformSettings;
-      setSettings(data);
-      setFeatureLabels(data.feature_labels);
-      setDpdpRequired(data.dpdp_consent_required);
-      setSaved(true);
-    } finally {
-      setSaving(false);
-    }
-  }
+  const {
+    settings,
+    maxActiveLinks,
+    setMaxActiveLinks,
+    featureLabels,
+    setFeatureLabel,
+    dpdpRequired,
+    setDpdpRequired,
+    error,
+    saved,
+    saving,
+    handleSubmit,
+  } = usePlatformSettings();
 
   return (
-    <div className="mx-auto max-w-[600px]">
+    <div>
       <div className="mb-space-5">
         <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Platform settings</h1>
@@ -121,10 +64,7 @@ function PlatformSettingsForm() {
                 min={1}
                 value={maxActiveLinks}
                 invalid={!!error}
-                onChange={(e) => {
-                  setMaxActiveLinks(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setMaxActiveLinks(e.target.value)}
               />
             </Field>
           </Card>
@@ -155,7 +95,7 @@ function PlatformSettingsForm() {
               else — including registration or picking a patient. The decision is remembered per phone number, so a
               patient who has already agreed is never asked again.
             </p>
-            <CheckboxRow checked={dpdpRequired} onChange={(checked) => { setDpdpRequired(checked); setSaved(false); }}>
+            <CheckboxRow checked={dpdpRequired} onChange={setDpdpRequired}>
               Require DPDP consent before entering the menu, for every hospital
             </CheckboxRow>
           </Card>

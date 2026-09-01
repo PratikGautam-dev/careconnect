@@ -54,7 +54,7 @@ export function Step6PatientExperience({ state, dispatch, error }: Props) {
         You can change this later.
       </p>
 
-      <div className="grid grid-cols-1 gap-space-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-space-3 md:grid-cols-2 lg:grid-cols-3">
         {FEATURE_ORDER.map((key) => {
           const Icon = FEATURE_ICONS[key];
           const selected = state.enabledFeatures.includes(key);

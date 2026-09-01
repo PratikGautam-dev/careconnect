@@ -1,8 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, MessageCircle, Send, Trash2, UserRound } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +9,9 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { portalFetch } from "@/lib/portalAuth";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { formatShortDateTime } from "@/lib/formatDate";
 
 type Handoff = {
   id: number;
@@ -387,7 +388,7 @@ export default function PortalMessagesPage() {
                         <Badge tone={selected.reason === "system_error" ? "clay" : "brand"}>
                           {selected.reason === "system_error" ? "System error" : "Patient requested"}
                         </Badge>
-                        <span className="text-[12px] text-ink-400">{formatTime(selected.created_at)}</span>
+                        <span className="text-[12px] text-ink-400">{formatShortDateTime(selected.created_at)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-space-2">
@@ -437,7 +438,7 @@ export default function PortalMessagesPage() {
                           >
                             <p className="whitespace-pre-wrap">{m.message_text}</p>
                             <p className={cn("mt-space-1 text-[10.5px]", m.direction === "outbound" ? "text-white/70" : "text-ink-400")}>
-                              {formatTime(m.created_at)}
+                              {formatShortDateTime(m.created_at)}
                             </p>
                           </div>
                         </div>

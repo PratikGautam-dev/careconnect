@@ -1,60 +1,13 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CheckboxRow } from "@/components/ui/Checkbox";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
-import { adminFetch } from "@/lib/adminAuth";
-
-type TenantDetail = {
-  id: number;
-  name: string;
-  whatsapp_phone_number_id: string;
-  access_token_masked: string;
-  app_secret_masked: string;
-  welcome_message_text: string;
-  reminder_offsets_hours: string;
-  reminder_template_name: string;
-  data_tier: string;
-  external_api_base_url: string;
-  external_api_key: string;
-  has_portal_password: boolean;
-  is_active: boolean;
-  enabled_features: string[];
-  feature_default_labels: Record<string, string>;
-  tenant_type: string;
-  admin_capabilities: string[];
-  all_capabilities: string[];
-  default_capabilities_by_type: Record<string, string[]>;
-  appointment_types: AppointmentTypeRow[];
-};
-
-type AppointmentTypeRow = {
-  id: string;
-  label: string;
-  is_active: boolean;
-  is_allowed: boolean;
-};
-
-type FormState = {
-  name: string;
-  whatsapp_phone_number_id: string;
-  access_token: string;
-  app_secret: string;
-  welcome_message_text: string;
-  reminder_offsets_hours: string;
-  reminder_template_name: string;
-  portal_password: string;
-  data_tier: string;
-  api_base_url: string;
-  api_key: string;
-  enabled_features: string[];
-  tenant_type: string;
-  admin_capabilities: string[];
-};
+import { useEditTenant } from "@/hooks/useEditTenant";
 
 function capabilitiesMatch(a: string[], b: string[]): boolean {
   const sortedA = [...a].sort();
@@ -70,118 +23,24 @@ function titleCaseCapability(key: string): string {
 }
 
 function EditTenantForm({ tenantId }: { tenantId: number }) {
-  const [tenant, setTenant] = useState<TenantDetail | null>(null);
-  const [form, setForm] = useState<FormState | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  const load = useCallback(async () => {
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    const t = (result.data as { tenant: TenantDetail }).tenant;
-    setTenant(t);
-    setForm({
-      name: t.name,
-      whatsapp_phone_number_id: t.whatsapp_phone_number_id,
-      access_token: "",
-      app_secret: "",
-      welcome_message_text: t.welcome_message_text,
-      reminder_offsets_hours: t.reminder_offsets_hours,
-      reminder_template_name: t.reminder_template_name,
-      portal_password: "",
-      data_tier: t.data_tier,
-      api_base_url: t.external_api_base_url,
-      api_key: t.external_api_key,
-      enabled_features: t.enabled_features,
-      tenant_type: t.tenant_type,
-      admin_capabilities: t.admin_capabilities,
-    });
-  }, [tenantId]);
-
-  function toggleFeature(key: string, checked: boolean) {
-    if (!form) return;
-    setForm({
-      ...form,
-      enabled_features: checked
-        ? [...form.enabled_features, key]
-        : form.enabled_features.filter((k) => k !== key),
-    });
-  }
-
-  function resetCapabilitiesToDefaults() {
-    if (!form || !tenant) return;
-    const defaults = tenant.default_capabilities_by_type[form.tenant_type] ?? [];
-    setForm({ ...form, admin_capabilities: defaults });
-  }
-
-  function toggleCapability(key: string, checked: boolean) {
-    if (!form) return;
-    setForm({
-      ...form,
-      admin_capabilities: checked
-        ? [...form.admin_capabilities, key]
-        : form.admin_capabilities.filter((k) => k !== key),
-    });
-  }
-
-  const [appointmentTypeError, setAppointmentTypeError] = useState<string | null>(null);
-
-  async function toggleAppointmentTypeAllowed(appointmentTypeId: string, isAllowed: boolean) {
-    setAppointmentTypeError(null);
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}/appointment-types/${appointmentTypeId}/allowed`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_allowed: isAllowed }),
-    });
-    if (!result.ok) {
-      setAppointmentTypeError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    const updated = (result.data as { appointment_type: AppointmentTypeRow }).appointment_type;
-    setTenant((prev) =>
-      prev
-        ? { ...prev, appointment_types: prev.appointment_types.map((t) => (t.id === updated.id ? updated : t)) }
-        : prev
-    );
-  }
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form) return;
-    setSaving(true);
-    setSaved(false);
-    setErrors([]);
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      if (result.unauthorized) setError("Session expired — refresh to sign in again.");
-      else setErrors([result.error]);
-      return;
-    }
-    const data = result.data as { tenant?: TenantDetail; errors?: string[] };
-    if (data.errors?.length) {
-      setErrors(data.errors);
-      return;
-    }
-    setSaved(true);
-    load();
-  }
+  const {
+    tenant,
+    form,
+    setForm,
+    error,
+    errors,
+    saving,
+    saved,
+    appointmentTypeError,
+    toggleFeature,
+    resetCapabilitiesToDefaults,
+    toggleCapability,
+    toggleAppointmentTypeAllowed,
+    handleSubmit,
+  } = useEditTenant(tenantId);
 
   return (
-    <div className="mx-auto max-w-[720px] px-space-4 py-space-7 md:px-space-7">
+    <div>
       <Link href="/admin/tenants" className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline">
         ← All tenants
       </Link>
@@ -197,7 +56,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
           <p className="text-body mb-space-5">Only fields you change are updated — leave the token/secret fields blank to keep their current values.</p>
 
           <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
               <Field label="Hospital name" htmlFor="name" required>
                 <Input id="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Field>
@@ -226,7 +85,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               />
             </Field>
 
-            <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
               <Field label="Reminder offsets (hours)" htmlFor="reminder_offsets_hours">
                 <Input
                   id="reminder_offsets_hours"
@@ -278,7 +137,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                   </span>
                 )}
               </div>
-              <div id="admin_capabilities" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
+              <div id="admin_capabilities" className="grid grid-cols-1 gap-space-1 md:grid-cols-2">
                 {tenant.all_capabilities.map((key) => (
                   <CheckboxRow
                     key={key}
@@ -297,7 +156,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               hint="Which types this tenant may offer at all. Unchecking one also turns it off in the tenant's own portal immediately — the tenant can then only switch it back on if you re-allow it here first."
             >
               {appointmentTypeError && <p className="mb-space-2 text-[12.5px] text-error">{appointmentTypeError}</p>}
-              <div id="appointment_types" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
+              <div id="appointment_types" className="grid grid-cols-1 gap-space-1 md:grid-cols-2">
                 {tenant.appointment_types.map((at) => (
                   <CheckboxRow
                     key={at.id}
@@ -328,7 +187,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               htmlFor="enabled_features"
               hint="Only set once, at onboarding -- this is the one place to change it afterward. A hospital's own /portal/settings can rename a label for an already-enabled feature, but can't turn one on or off."
             >
-              <div id="enabled_features" className="grid grid-cols-1 gap-space-1 sm:grid-cols-2">
+              <div id="enabled_features" className="grid grid-cols-1 gap-space-1 md:grid-cols-2">
                 {Object.entries(tenant.feature_default_labels).map(([key, label]) => (
                   <CheckboxRow
                     key={key}
@@ -342,7 +201,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
             </Field>
 
             {form.data_tier === "tier2" && (
-              <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
                 <Field label="API base URL" htmlFor="api_base_url" required>
                   <Input id="api_base_url" required value={form.api_base_url} onChange={(e) => setForm({ ...form, api_base_url: e.target.value })} />
                 </Field>

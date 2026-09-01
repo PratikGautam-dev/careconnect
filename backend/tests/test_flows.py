@@ -104,9 +104,16 @@ class FakeConnector:
         self._patient_info = patient_info
         self._patients = [dict(_DEFAULT_FAKE_PATIENT)] if patients is None else patients
         self._consent = {}
+        self._account_language = None
 
     def identify_contact(self, provider_user_id, phone_number=None, username=None):
-        return {"id": 1, "provider_user_id": provider_user_id, "phone_number": phone_number, "username": username}
+        return {
+            "id": 1, "provider_user_id": provider_user_id, "phone_number": phone_number, "username": username,
+            "language": self._account_language,
+        }
+
+    def set_account_language(self, care_connect_account_id, language):
+        self._account_language = language
 
     def get_max_active_patient_links(self):
         return 5
@@ -760,6 +767,94 @@ async def test_invalid_tap_at_language_picker_reprompts_the_picker(hospital_id):
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_LANGUAGE"
     assert session.get("language") is None
+
+
+@pytest.mark.asyncio
+async def test_language_choice_persists_on_the_account_not_just_the_session(hospital_id):
+    """Language-persistence follow-up (confirmed with the user): once
+    chosen, a language is saved GLOBALLY on the CareConnect account -- a
+    brand-new session (session timeout, or simply a fresh InMemorySessionStore
+    here) for the SAME phone must skip the picker entirely and resume in the
+    already-chosen language, unlike before this change (session-only,
+    re-asked every time)."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    connector = FakeConnector()  # ONE shared connector instance -- its account_language "DB" outlives the session below
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"],
+    )
+    assert sessions.get(hospital_id, PHONE)["language"] == "hi"
+
+    # A brand-new session for this same phone (simulates a timed-out/expired
+    # session) -- the SAME connector, so the account's saved language is
+    # still there.
+    fresh_sessions = InMemorySessionStore()
+    wa2 = FakeWhatsAppClient()
+    await flows.handle_incoming(
+        wa2, fresh_sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+    )
+
+    # No language picker this time -- straight to whatever comes next in
+    # Hindi (this FakeConnector's default single patient, so straight to
+    # the main menu).
+    assert not any(
+        kind == "buttons" and {b["id"] for b in kwargs["buttons"]} == {"lang_en", "lang_hi"} for kind, kwargs in wa2.sent
+    )
+    assert fresh_sessions.get(hospital_id, PHONE)["language"] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_change_language_menu_item_also_persists_to_the_account(hospital_id):
+    """The existing "Change Language" menu item (CHANGE_LANGUAGE_ROW) goes
+    through the SAME _handle_awaiting_language handler as first-time
+    selection -- confirmed with the user: it must update the durable
+    account value too, not just this session."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    connector = FakeConnector()
+    sessions.set(hospital_id, PHONE, "IDLE", {}, language="en")
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_change_language"), connector=connector, enabled_features=["booking"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_LANGUAGE"
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"],
+    )
+
+    assert connector._account_language == "hi"
+
+
+@pytest.mark.asyncio
+async def test_language_choice_is_really_persisted_to_the_database(hospital_id):
+    """Same guarantee as the FakeConnector tests above, but through the real
+    Tier1Connector/database -- proves the value survives in
+    care_connect_accounts.language itself, not just in-process state, and
+    that db.get_or_create_account() (identify_contact()'s real
+    implementation) reads it back correctly."""
+    connector = flows._DEFAULT_CONNECTOR
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("lang_hi"), connector=connector, enabled_features=["booking"])
+
+    account = db.get_or_create_account(PHONE, phone_number=PHONE)
+    assert account["language"] == "hi"
+
+    # A totally fresh session for the same phone -- no picker, resumes in
+    # Hindi straight away.
+    fresh_sessions = InMemorySessionStore()
+    wa2 = FakeWhatsAppClient()
+    await flows.handle_incoming(wa2, fresh_sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    assert not any(
+        kind == "buttons" and {b["id"] for b in kwargs["buttons"]} == {"lang_en", "lang_hi"} for kind, kwargs in wa2.sent
+    )
+    assert fresh_sessions.get(hospital_id, PHONE)["language"] == "hi"
 
 
 @pytest.mark.asyncio

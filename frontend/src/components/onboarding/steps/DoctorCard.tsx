@@ -34,7 +34,7 @@ export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions 
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
         <Field label="Name" htmlFor={`doc-${deptIndex}-${docIndex}-name`}>
           <Input id={`doc-${deptIndex}-${docIndex}-name`} value={doctor.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
@@ -93,7 +93,7 @@ export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions 
         </div>
       </Field>
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
         <Field label="Working hours" hint="Add another row for a split shift (e.g. morning + evening).">
           <div className="space-y-space-2">
             {doctor.shifts.map((shift, i) => (
@@ -148,7 +148,7 @@ export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions 
         </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
         <Field label="Breaks (optional)" hint="Excluded from bookable slots within whichever shift it falls in.">
           <div className="space-y-space-2">
             {doctor.breaks.map((brk, i) => (
@@ -201,7 +201,7 @@ export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions 
         </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
         <Field
           label="Bookings per slot"
           htmlFor={`doc-${deptIndex}-${docIndex}-max`}
@@ -230,7 +230,7 @@ export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions 
         </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
         <Field label="Online quota (optional)" htmlFor={`doc-${deptIndex}-${docIndex}-online`}>
           <Input
             id={`doc-${deptIndex}-${docIndex}-online`}
@@ -259,7 +259,7 @@ export function DoctorCard({ deptIndex, docIndex, doctor, dispatch, hideActions 
         label="Schedule effective from (optional)"
         htmlFor={`doc-${deptIndex}-${docIndex}-effective`}
         hint="Leave blank for effective immediately."
-        className="mb-0 sm:w-1/2 sm:pr-space-2"
+        className="mb-0 md:w-1/2 md:pr-space-2"
       >
         <Input
           id={`doc-${deptIndex}-${docIndex}-effective`}

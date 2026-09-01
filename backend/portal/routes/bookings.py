@@ -45,6 +45,9 @@ def _appointment_json(a) -> dict:
         # type, and for a tele appointment predating this column.
         "appointment_type_id": a.appointment_type_id,
         "video_link": a.video_link,
+        # When this row was actually booked, distinct from scheduled_at (the
+        # appointment's own time) -- the portal list shows both.
+        "created_at": a.created_at.isoformat() if a.created_at else None,
     }
 
 
@@ -68,6 +71,33 @@ async def portal_bookings_needing_attendance_review(authorization: str | None = 
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     appointments = db.get_appointments_needing_attendance_review(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+
+
+@router.post("/api/portal/bookings/delete")
+async def portal_delete_bookings(payload: dict, authorization: str | None = Header(default=None)):
+    """Bulk delete for the appointments list's row checkboxes + "Delete
+    selected" action, mirroring portal_delete_patients() in patients.py.
+    Registered ahead of the /{appointment_id} routes below -- FastAPI
+    matches routes in registration order, and a later registration here
+    would let POST /api/portal/bookings/{appointment_id}/... match "delete"
+    as an appointment_id string first, failing int coercion with a 422.
+    Reuses db.soft_delete_appointment()'s own status != 'booked' guard --
+    a still-booked id in the batch is silently skipped (not included in
+    `deleted`), same as portal_delete_booking()'s single-item 400 but
+    without failing the whole batch over one row."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment_ids = (payload or {}).get("appointment_ids") or []
+    if not isinstance(appointment_ids, list) or not appointment_ids:
+        return JSONResponse({"error": "appointment_ids is required."}, status_code=400)
+    deleted = [aid for aid in appointment_ids if db.soft_delete_appointment(hospital.id, aid)]
+    for aid in deleted:
+        db.record_audit_log(
+            "portal", hospital.id, "tenant portal", "booking.delete",
+            entity_type="appointment", entity_id=str(aid),
+        )
+    return JSONResponse({"deleted": deleted})
 
 
 @router.post("/api/portal/bookings/{appointment_id}/attendance")

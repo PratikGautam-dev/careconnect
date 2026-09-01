@@ -172,15 +172,15 @@ STRINGS: dict[str, dict[Language, str]] = {
     # --- Section 11: optional single-linked-patient confirmation
     # (hospitals.require_patient_confirmation, default off) ---
     SINGLE_PATIENT_CONFIRM: {
-        "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nPatient Code: {patient_code}\n\nContinue?",
-        "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nपेशेंट कोड: {patient_code}\n\nजारी रखें?",
+        "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nPatient Id: {patient_code}\n\nContinue?",
+        "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nपेशेंट आईडी: {patient_code}\n\nजारी रखें?",
     },
 
     # 2+ linked patients: no default candidate is picked (unlike
     # single_patient_confirm above), so the welcome text is folded directly
     # into the list prompt itself instead of a separate "Continue as X?" card.
     MULTI_PATIENT_SELECTOR_PROMPT: {
-        "en": "Welcome to CareConnect.\n\nWho are you accessing CareConnect for?",
-        "hi": "CareConnect में आपका स्वागत है।\n\nआप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
+        "en": "Welcome to CareConnect.\n\nPlease select the patient.",
+        "hi": "CareConnect में आपका स्वागत है।\n\nकृपया मरीज़ का चयन करें।",
     },
 }

@@ -1,7 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CheckboxRow } from "@/components/ui/Checkbox";
@@ -11,6 +9,7 @@ import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggl
 import { DaycareDurationOptions } from "@/components/portal/DaycareDurationOptions";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
+import { usePortalSettings, type AuditEntry } from "@/hooks/usePortalSettings";
 import { portalFetch } from "@/lib/portalAuth";
 
 type Settings = {
@@ -33,16 +32,16 @@ type Settings = {
   privacy_notice_text: string;
 };
 
-type AuditEntry = {
-  id: number;
-  actor_level: string;
-  action: string;
-  entity_type: string | null;
-  entity_id: string | null;
-  before_value: Record<string, unknown> | null;
-  after_value: Record<string, unknown> | null;
-  created_at: string;
-};
+// type AuditEntry = {
+//   id: number;
+//   actor_level: string;
+//   action: string;
+//   entity_type: string | null;
+//   entity_id: string | null;
+//   before_value: Record<string, unknown> | null;
+//   after_value: Record<string, unknown> | null;
+//   created_at: string;
+// };
 
 function formatAuditChanges(entry: AuditEntry): string {
   const keys = new Set([
@@ -62,80 +61,13 @@ function formatAuditChanges(entry: AuditEntry): string {
 }
 
 export default function PortalSettingsPage() {
-  const router = useRouter();
   const { hospital, ready } = usePortalGuard();
   // Backend route guards already 403 the actual mutations for a clinic
   // tenant lacking manage_appointment_types -- same UI-convenience-only
   // gating as PortalDoctorsPage's canManageDoctors. Fails open (renders the
   // section) while hospital hasn't loaded yet.
   const canManageAppointmentTypes = !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  // undefined = not loaded yet, null = this tenant lacks manage_settings (the
-  // capability that also gates the settings-update route above) so the
-  // section is hidden rather than shown as an error.
-  const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null | undefined>(undefined);
-
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/settings");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setSettings(result.data as Settings);
-  }, [router]);
-
-  const loadAuditLog = useCallback(async () => {
-    const result = await portalFetch("/api/portal/audit-log");
-    if (!result.ok) {
-      // 403 (no manage_settings) is expected for a clinic without that
-      // capability -- hide the section rather than surfacing an error.
-      setAuditEntries(null);
-      return;
-    }
-    setAuditEntries((result.data as { entries: AuditEntry[] }).entries);
-  }, []);
-
-  useEffect(() => {
-    if (ready) {
-      load();
-      loadAuditLog();
-    }
-  }, [ready, load, loadAuditLog]);
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!settings) return;
-    setSaving(true);
-    setSaved(false);
-    setError(null);
-    const result = await portalFetch("/api/portal/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    });
-    if (!result.ok) {
-      setSaving(false);
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    // Settings-not-updating bug fix (Spec.md Section 0): the form used to
-    // just flip a "Saved." flag and trust its own local (optimistic) state
-    // as still-accurate -- but the backend can NORMALIZE a submitted value
-    // (e.g. an emptied/garbled "Reminder offsets" field is coerced to a
-    // default of "24", not stored as empty) without the page ever finding
-    // out, so what was displayed after a save could silently diverge from
-    // what was actually persisted. Re-fetching here (instead of trusting
-    // the just-submitted `settings` object) makes the displayed values
-    // always match the real stored ones.
-    await load();
-    setSaving(false);
-    setSaved(true);
-  }
+  const { settings, setSettings, error, saving, saved, auditEntries, handleSave } = usePortalSettings(ready);
 
   return (
     <PortalShell hospital={hospital} active="settings">
@@ -348,7 +280,7 @@ export default function PortalSettingsPage() {
             <ul className="divide-y divide-line">
               {auditEntries.map((entry) => (
                 <li key={entry.id} className="py-space-2 text-[12.5px]">
-                  <div className="flex items-center justify-between gap-space-3">
+                  <div className="flex flex-wrap items-center justify-between gap-space-3">
                     <span className="font-medium text-ink-900">{entry.action}</span>
                     <span className="shrink-0 text-ink-400">{entry.created_at}</span>
                   </div>

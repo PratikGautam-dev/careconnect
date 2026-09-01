@@ -1,7 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
@@ -9,73 +7,17 @@ import { Input } from "@/components/ui/Input";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
-import { portalFetch } from "@/lib/portalAuth";
-
-type Department = { id: string; name: string };
-type Doctor = { id: string; name: string };
-type Slot = { id: string; label: string };
-type Context = {
-  departments: Department[];
-  doctors_by_department: Record<string, Doctor[]>;
-  slots_by_doctor: Record<string, Record<string, Slot[]>>;
-};
+import { useNewBooking } from "@/hooks/useNewBooking";
 
 export default function NewBookingPage() {
-  const router = useRouter();
   const { hospital, ready } = usePortalGuard();
-  const [ctx, setCtx] = useState<Context | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  const [patientName, setPatientName] = useState("");
-  const [patientPhone, setPatientPhone] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
-  const [doctorId, setDoctorId] = useState("");
-  const [date, setDate] = useState("");
-  const [slotId, setSlotId] = useState("");
-
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/new-booking/context");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setCtx(result.data as Context);
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
-
-  const doctors = departmentId && ctx ? ctx.doctors_by_department[departmentId] || [] : [];
-  const datesForDoctor = doctorId && ctx ? Object.keys(ctx.slots_by_doctor[doctorId] || {}).sort() : [];
-  const slotsForDate = doctorId && date && ctx ? ctx.slots_by_doctor[doctorId]?.[date] || [] : [];
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setErrors([]);
-    const result = await portalFetch("/api/portal/new-booking", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patient_name: patientName, patient_phone: patientPhone, department_id: departmentId, doctor_id: doctorId, slot_id: slotId }),
-    });
-    setSubmitting(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setErrors([result.error]);
-      return;
-    }
-    const data = result.data as { errors?: string[] };
-    if (data.errors?.length) {
-      setErrors(data.errors);
-      return;
-    }
-    setSuccess(true);
-  }
+  const {
+    ctx, error, errors, submitting, success,
+    patientName, setPatientName, patientPhone, setPatientPhone,
+    departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
+    doctors, datesForDoctor, slotsForDate,
+    handleSubmit,
+  } = useNewBooking(ready);
 
   return (
     <PortalShell hospital={hospital} active="appointments">
@@ -92,7 +34,7 @@ export default function NewBookingPage() {
             <p className="text-[13px] text-ink-400">Loading…</p>
           ) : (
             <form onSubmit={handleSubmit}>
-              <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
                 <Field label="Patient name (optional)" htmlFor="patient_name">
                   <Input id="patient_name" value={patientName} onChange={(e) => setPatientName(e.target.value)} />
                 </Field>
@@ -112,12 +54,7 @@ export default function NewBookingPage() {
                   id="department"
                   required
                   value={departmentId}
-                  onChange={(e) => {
-                    setDepartmentId(e.target.value);
-                    setDoctorId("");
-                    setDate("");
-                    setSlotId("");
-                  }}
+                  onChange={(e) => setDepartmentId(e.target.value)}
                   className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
                 >
                   <option value="">Choose…</option>
@@ -135,11 +72,7 @@ export default function NewBookingPage() {
                     id="doctor"
                     required
                     value={doctorId}
-                    onChange={(e) => {
-                      setDoctorId(e.target.value);
-                      setDate("");
-                      setSlotId("");
-                    }}
+                    onChange={(e) => setDoctorId(e.target.value)}
                     className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
                   >
                     <option value="">Choose…</option>
@@ -162,10 +95,7 @@ export default function NewBookingPage() {
                         <button
                           type="button"
                           key={d}
-                          onClick={() => {
-                            setDate(d);
-                            setSlotId("");
-                          }}
+                          onClick={() => setDate(d)}
                           className={cn(
                             "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
                             date === d ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",

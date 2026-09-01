@@ -36,6 +36,9 @@ export function clearAdminToken() {
   sessionStorage.removeItem(ADMIN_KEY);
 }
 
+import axios, { isAxiosError } from "axios";
+import { requestInitToAxiosConfig } from "@/lib/apiClient";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export async function adminFetch(path: string, init?: RequestInit): Promise<
@@ -44,16 +47,25 @@ export async function adminFetch(path: string, init?: RequestInit): Promise<
   const token = getAdminToken();
   if (!token) return { ok: false, unauthorized: true };
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: { ...(init?.headers || {}), Authorization: `Bearer ${token}` },
-  });
-
-  if (res.status === 401) {
-    clearAdminToken();
-    return { ok: false, unauthorized: true };
+  try {
+    const res = await axios.request({
+      ...requestInitToAxiosConfig(init),
+      url: `${API_BASE_URL}${path}`,
+      headers: { ...requestInitToAxiosConfig(init).headers, Authorization: `Bearer ${token}` },
+    });
+    return { ok: true, data: res.data };
+  } catch (err) {
+    if (isAxiosError(err) && err.response) {
+      if (err.response.status === 401) {
+        clearAdminToken();
+        return { ok: false, unauthorized: true };
+      }
+      const data = err.response.data;
+      return {
+        ok: false, unauthorized: false,
+        error: data?.error || (data?.errors || []).join(" ") || "Something went wrong.",
+      };
+    }
+    return { ok: false, unauthorized: false, error: "Network error — check your connection." };
   }
-  const data = await res.json();
-  if (!res.ok) return { ok: false, unauthorized: false, error: data.error || (data.errors || []).join(" ") || "Something went wrong." };
-  return { ok: true, data };
 }
