@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { formatShortDateTime } from "@/lib/formatDate";
 
 type Appointment = {
   id: number;
@@ -36,15 +37,6 @@ const STATUS_LABELS: Record<string, string> = {
 
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 export function RecentAppointmentsTable({ appointments }: { appointments: Appointment[] }) {
   return (
     <Card className="p-space-4">
@@ -74,7 +66,7 @@ export function RecentAppointmentsTable({ appointments }: { appointments: Appoin
               {appointments.map((a) => (
                 <tr key={a.id} className="border-b border-line last:border-0">
                   <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">
-                    {formatTime(a.scheduled_at)}
+                    {formatShortDateTime(a.scheduled_at)}
                   </td>
                   <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">
                     {a.reference_id || "—"}

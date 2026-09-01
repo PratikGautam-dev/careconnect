@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
+import { formatTimeOnly } from "@/lib/formatDate";
 import { portalFetch } from "@/lib/portalAuth";
 
 type Appointment = {
@@ -23,10 +24,6 @@ const STATUS_STYLES: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled", attended: "Attended", no_show: "No-show",
 };
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
 
 // Item 4 (Spec.md Section 0): a specific doctor's own appointments for
 // today, within the existing shared staff portal -- no separate doctor
@@ -55,7 +52,7 @@ export function DoctorTodayAppointments({ doctorId }: { doctorId: string }) {
           {appointments.map((a) => (
             <li key={a.id} className="rounded-md bg-card px-space-3 py-space-2 text-[12.5px]">
               <div className="flex items-center justify-between">
-                <span className="tabular-nums text-ink-900">{formatTime(a.scheduled_at)}</span>
+                <span className="tabular-nums text-ink-900">{formatTimeOnly(a.scheduled_at)}</span>
                 <span className="text-ink-600">{a.phone}</span>
                 <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600")}>
                   {STATUS_LABELS[a.status] || a.status}

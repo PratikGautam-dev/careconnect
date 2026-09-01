@@ -1,5 +1,6 @@
 import { CalendarCheck, CalendarX, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { formatTimeOnly } from "@/lib/formatDate";
 
 type ActivityItem = {
   label: string;
@@ -14,10 +15,6 @@ const ICONS: Record<string, typeof CalendarCheck> = {
   "Cancelled appointment": CalendarX,
   "Rescheduled appointment": RefreshCw,
 };
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { hour: "numeric", minute: "2-digit" });
-}
 
 export function ActivityFeed({ items }: { items: ActivityItem[] }) {
   return (
@@ -39,7 +36,7 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
                     <span className="font-semibold">{item.phone}</span> — {item.label.toLowerCase()} with{" "}
                     {item.doctor_name} ({item.department_name})
                   </p>
-                  <p className="text-hint">{formatTime(item.at)}</p>
+                  <p className="text-hint">{formatTimeOnly(item.at)}</p>
                 </div>
               </li>
             );

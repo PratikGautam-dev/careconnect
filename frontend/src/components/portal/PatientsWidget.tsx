@@ -1,12 +1,8 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
+import { formatDate } from "@/lib/formatDate";
 
 type Patient = { id: number; phone: string; name: string | null; last_visit: string | null; visit_count: number };
-
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
 
 export function PatientsWidget({ patients }: { patients: Patient[] }) {
   return (

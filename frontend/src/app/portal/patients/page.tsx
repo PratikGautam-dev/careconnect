@@ -11,11 +11,7 @@ import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePatients } from "@/hooks/usePatients";
-
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
+import { formatDate } from "@/lib/formatDate";
 
 export default function PortalPatientsPage() {
   const router = useRouter();

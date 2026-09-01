@@ -1,0 +1,238 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { portalFetch } from "@/lib/portalAuth";
+
+const DEFAULT_CANCEL_MESSAGE = "Your appointment has been cancelled.";
+const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
+
+export type Appointment = {
+  id: number;
+  phone: string;
+  department_name: string;
+  doctor_name: string;
+  scheduled_at: string;
+  status: string;
+  source: string;
+  reference_id: string | null;
+  patient_display_id: string | null;
+  appointment_type_id: string | null;
+  video_link: string | null;
+};
+
+export type Department = { id: string; name: string };
+export type Doctor = { id: string; name: string };
+export type Slot = { id: string; label: string };
+export type NewBookingContext = {
+  departments: Department[];
+  doctors_by_department: Record<string, Doctor[]>;
+  slots_by_doctor: Record<string, Record<string, Slot[]>>;
+};
+
+// docs/per-appointment-type-flow-plan.md's fixed catalog (db/repositories/
+// appointment_types.py's DEFAULT_APPOINTMENT_TYPES) -- there's no portal CRUD
+// for appointment types (seeded once, at onboarding), so this mirrors that
+// same fixed id->label mapping rather than fetching it from a new endpoint.
+export const TYPE_LABELS: Record<string, string> = {
+  new: "New Consultation",
+  followup: "Follow-up",
+  tele: "Tele-consultation",
+  second_opinion: "Second Opinion",
+  diagnostic: "Diagnostic",
+  lab: "Lab Test",
+  daycare: "Daycare",
+};
+
+function typeBucket(a: Appointment) {
+  return a.appointment_type_id && a.appointment_type_id in TYPE_LABELS ? a.appointment_type_id : "other";
+}
+
+/** Loads + owns every mutation on the /portal/appointments list -- cancel,
+ * reschedule, attendance marking, delete -- plus the search/status/type
+ * filters and the cancel/reschedule inline panels' own form state. */
+export function useAppointments(ready: boolean) {
+  const router = useRouter();
+  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelPanelId, setCancelPanelId] = useState<number | null>(null);
+  const [cancelMessage, setCancelMessage] = useState(DEFAULT_CANCEL_MESSAGE);
+
+  const [reschedulePanelId, setReschedulePanelId] = useState<number | null>(null);
+  const [reschedulingId, setReschedulingId] = useState<number | null>(null);
+  const [rescheduleCtx, setRescheduleCtx] = useState<NewBookingContext | null>(null);
+  const [rescheduleErrors, setRescheduleErrors] = useState<string[]>([]);
+  const [rescheduleMessage, setRescheduleMessage] = useState(DEFAULT_RESCHEDULE_MESSAGE);
+  const [rDepartmentId, setRDepartmentId] = useState("");
+  const [rDoctorId, setRDoctorId] = useState("");
+  const [rDate, setRDate] = useState("");
+  const [rSlotId, setRSlotId] = useState("");
+  const [markingAttendanceId, setMarkingAttendanceId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Item 2 (Spec.md Section 0): search (patient phone / doctor / department
+  // name) + status filter -- computed client-side, same reasoning the
+  // doctors page uses (this list is already bounded to 500 rows by the
+  // backend, small enough that a server round-trip per keystroke isn't
+  // needed).
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  // Divides the appointments list by type (New Consultation, Follow-up,
+  // Tele-consultation, ...) as its own tab row -- "other" covers any
+  // appointment predating appointment_type_id (never backfilled, so an
+  // old row is legitimately typeless, not a bug).
+  const [typeFilter, setTypeFilter] = useState("all");
+
+  const load = useCallback(async () => {
+    const result = await portalFetch("/api/portal/bookings");
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setError(result.error);
+      return;
+    }
+    setAppointments((result.data as { appointments: Appointment[] }).appointments);
+  }, [router]);
+
+  useEffect(() => {
+    if (ready) load();
+  }, [ready, load]);
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: appointments?.length ?? 0 };
+    for (const a of appointments || []) {
+      const bucket = typeBucket(a);
+      counts[bucket] = (counts[bucket] || 0) + 1;
+    }
+    return counts;
+  }, [appointments]);
+
+  const filteredAppointments = useMemo(() => {
+    if (!appointments) return appointments;
+    const q = searchQuery.trim().toLowerCase();
+    return appointments.filter((a) => {
+      if (typeFilter !== "all" && typeBucket(a) !== typeFilter) return false;
+      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        a.phone.toLowerCase().includes(q) ||
+        a.doctor_name.toLowerCase().includes(q) ||
+        a.department_name.toLowerCase().includes(q) ||
+        (a.reference_id || "").toLowerCase().includes(q) ||
+        (a.patient_display_id || "").toLowerCase().includes(q)
+      );
+    });
+  }, [appointments, searchQuery, statusFilter, typeFilter]);
+
+  // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
+  // real status" gap -- a still-'booked' appointment whose scheduled time
+  // has already passed gets an inline "Did the patient visit?" prompt,
+  // computed from fields the list already has (no separate fetch needed).
+  async function handleAttendance(id: number, attended: boolean) {
+    setMarkingAttendanceId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/attendance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attended }),
+    });
+    setMarkingAttendanceId(null);
+    if (result.ok) load();
+  }
+
+  // Item 3 (Spec.md Section 0): soft-delete only, per this project's
+  // never-hard-delete convention -- restricted server-side to non-'booked'
+  // rows (cancel it first), same guard reflected here by only offering the
+  // button once status !== "booked".
+  async function handleDelete(id: number) {
+    if (!window.confirm("Delete this appointment record? This can't be undone from the portal.")) return;
+    setDeletingId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/delete`, { method: "POST" });
+    setDeletingId(null);
+    if (result.ok) load();
+  }
+
+  function openCancelPanel(id: number) {
+    setReschedulePanelId(null);
+    setCancelPanelId(id);
+    setCancelMessage(DEFAULT_CANCEL_MESSAGE);
+  }
+
+  function closeCancelPanel() {
+    setCancelPanelId(null);
+  }
+
+  async function handleCancel(id: number) {
+    setCancellingId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: cancelMessage.trim() }),
+    });
+    setCancellingId(null);
+    setCancelPanelId(null);
+    if (result.ok) load();
+  }
+
+  async function openReschedulePanel(id: number) {
+    setCancelPanelId(null);
+    setReschedulePanelId(id);
+    setRescheduleMessage(DEFAULT_RESCHEDULE_MESSAGE);
+    setRescheduleErrors([]);
+    setRDepartmentId("");
+    setRDoctorId("");
+    setRDate("");
+    setRSlotId("");
+    if (!rescheduleCtx) {
+      // Reuses the exact same context endpoint /portal/new-booking already
+      // reads department/doctor/slot options from -- no separate endpoint,
+      // and staff can pick a different doctor for the reschedule, not just
+      // a different slot with the same one.
+      const result = await portalFetch("/api/portal/new-booking/context");
+      if (result.ok) setRescheduleCtx(result.data as NewBookingContext);
+    }
+  }
+
+  function closeReschedulePanel() {
+    setReschedulePanelId(null);
+  }
+
+  async function handleReschedule(id: number) {
+    setReschedulingId(id);
+    setRescheduleErrors([]);
+    const result = await portalFetch(`/api/portal/bookings/${id}/reschedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        department_id: rDepartmentId, doctor_id: rDoctorId, slot_id: rSlotId,
+        message: rescheduleMessage.trim(),
+      }),
+    });
+    setReschedulingId(null);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setRescheduleErrors([result.error]);
+      return;
+    }
+    const data = result.data as { errors?: string[] };
+    if (data.errors?.length) {
+      setRescheduleErrors(data.errors);
+      return;
+    }
+    setReschedulePanelId(null);
+    load();
+  }
+
+  const rDoctors = rDepartmentId && rescheduleCtx ? rescheduleCtx.doctors_by_department[rDepartmentId] || [] : [];
+  const rDatesForDoctor = rDoctorId && rescheduleCtx ? Object.keys(rescheduleCtx.slots_by_doctor[rDoctorId] || {}).sort() : [];
+  const rSlotsForDate = rDoctorId && rDate && rescheduleCtx ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] || [] : [];
+
+  return {
+    appointments, error, filteredAppointments, typeCounts,
+    searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
+    cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
+    reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
+    rDepartmentId, setRDepartmentId, rDoctorId, setRDoctorId, rDate, setRDate, rSlotId, setRSlotId,
+    rDoctors, rDatesForDoctor, rSlotsForDate,
+    openReschedulePanel, closeReschedulePanel, handleReschedule,
+    markingAttendanceId, handleAttendance,
+    deletingId, handleDelete,
+  };
+}
