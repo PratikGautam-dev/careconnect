@@ -43,11 +43,15 @@ def _get_or_create_account_in_session(
                     updated_at=text("now()::text"),
                 )
             )
+        account_language = session.execute(
+            select(CareConnectAccount.language).where(CareConnectAccount.id == identity.care_connect_account_id)
+        ).scalar_one()
         return {
             "id": identity.care_connect_account_id,
             "provider_user_id": identity.provider_user_id,
             "username": username if username is not None else identity.username,
             "phone_number": phone_number if phone_number is not None else identity.phone_number,
+            "language": account_language,
         }
     # Core insert() with no columns set (not an ORM instance's own
     # save-object path) -- matches "INSERT ... DEFAULT VALUES" exactly, so
@@ -71,7 +75,7 @@ def _get_or_create_account_in_session(
     )
     return {
         "id": account_id, "provider_user_id": provider_user_id,
-        "username": username, "phone_number": phone_number,
+        "username": username, "phone_number": phone_number, "language": None,
     }
 
 
@@ -86,8 +90,9 @@ def _get_or_create_account_in_conn(
     separate nested one. get_or_create_account() is the top-level entry point
     for every other caller (webhook/dispatch.py, once per inbound message)."""
     row = conn.execute(
-        "SELECT care_connect_account_id, provider_user_id, username, phone_number "
-        "FROM whatsapp_identities WHERE provider_user_id = ?",
+        "SELECT wi.care_connect_account_id, wi.provider_user_id, wi.username, wi.phone_number, ca.language "
+        "FROM whatsapp_identities wi JOIN care_connect_accounts ca ON ca.id = wi.care_connect_account_id "
+        "WHERE wi.provider_user_id = ?",
         (provider_user_id,),
     ).fetchone()
     if row is not None:
@@ -103,6 +108,7 @@ def _get_or_create_account_in_conn(
             "id": row["care_connect_account_id"], "provider_user_id": row["provider_user_id"],
             "username": username if username is not None else row["username"],
             "phone_number": phone_number if phone_number is not None else row["phone_number"],
+            "language": row["language"],
         }
     account_row = conn.execute("INSERT INTO care_connect_accounts DEFAULT VALUES RETURNING id").fetchone()
     assert account_row is not None  # INSERT ... RETURNING always returns the inserted row
@@ -118,7 +124,10 @@ def _get_or_create_account_in_conn(
         "VALUES (?, ?, ?, ?)",
         (account_id, provider_user_id, username, phone_number),
     )
-    return {"id": account_id, "provider_user_id": provider_user_id, "username": username, "phone_number": phone_number}
+    return {
+        "id": account_id, "provider_user_id": provider_user_id, "username": username, "phone_number": phone_number,
+        "language": None,
+    }
 
 
 def get_or_create_account(provider_user_id: str, phone_number: str | None = None, username: str | None = None) -> dict:
@@ -148,3 +157,15 @@ def get_or_create_account(provider_user_id: str, phone_number: str | None = None
         session.rollback()
         raise
     return result
+
+
+def set_account_language(care_connect_account_id: int, language: str) -> None:
+    """Language selection follow-up (confirmed with the user): persists a
+    chosen language once, globally, onto the account -- flows/router.py
+    calls this from _handle_awaiting_language on every choice (first-time
+    picker AND the "Change Language" menu item alike), so it's never
+    re-asked just because a session timed out. See CareConnectAccount.language's
+    own docstring for the "global, not per-hospital" scoping decision."""
+    session = get_session()
+    session.execute(update(CareConnectAccount).where(CareConnectAccount.id == care_connect_account_id).values(language=language))
+    session.commit()

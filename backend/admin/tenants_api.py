@@ -28,6 +28,7 @@ from db.connection import IntegrityError
 from flows import _FEATURE_MENU, REAL_FEATURES
 from portal.capabilities import ALL_CAPABILITIES, DEFAULT_CAPABILITIES_BY_TYPE, get_capabilities
 from portal.deps import get_current_super_admin
+from webhook.dispatch import invalidate_whatsapp_client
 
 _VALID_TENANT_TYPES = set(DEFAULT_CAPABILITIES_BY_TYPE.keys())
 
@@ -286,6 +287,16 @@ async def update_tenant(
                 "each hospital must have its own phone_number_id for message routing to work correctly."
             ]
         }, status_code=400)
+
+    # webhook/dispatch.py caches one WhatsAppClient per hospital for the life
+    # of the process, built from whatsapp_phone_number_id+access_token --
+    # without this, a token rotation (or a phone_number_id change) saved here
+    # wouldn't take effect until the process happened to restart (see that
+    # cache's own module-level comment). Only these two fields matter to it;
+    # everything else this route can change (name, features, offsets, ...) is
+    # read fresh from the DB on every message already.
+    if new_access_token != hospital.access_token or whatsapp_phone_number_id != hospital.whatsapp_phone_number_id:
+        invalidate_whatsapp_client(tenant_id)
 
     # Audit trail (tenant-capability-gating-plan.md's follow-up): only the
     # access/billing-relevant fields that actually changed, not the full

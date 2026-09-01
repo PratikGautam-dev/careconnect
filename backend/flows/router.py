@@ -204,13 +204,29 @@ async def _enter_idle(
     core/patient_identity.py returns an actual resolved patient (not None --
     None means it already sent its own message and this call must stop) does
     the menu itself get shown, now with that patient's "Patient: X / Patient
-    Code: Y" header (Section 20)."""
+    Code: Y" header (Section 20).
+
+    Language-persistence follow-up (confirmed with the user): `language`
+    being None here no longer means "show the picker" outright -- it means
+    "not known for THIS session" (a fresh session, or one that just timed
+    out). The CareConnect account itself may already have a language saved
+    from a previous conversation (_handle_awaiting_language persists it
+    there, not just on the session) -- checked here, once, before falling
+    back to the picker, so a returning patient is never re-asked just
+    because their session expired. identify_contact() is idempotent/cheap
+    (already called once per message by handle_incoming above) -- this is
+    the same "re-resolve rather than thread five more params through"
+    precedent flows/patient_identity.py's own _start_registration() uses."""
     if not language_prompt_enabled:
         resolved_language = default_language
     elif language is None:
-        sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
-        await _send_language_picker(wa, phone, default_language=default_language)
-        return
+        account_language = connector.identify_contact(phone, phone_number=phone).get("language")
+        if account_language in SUPPORTED_LANGUAGES:
+            resolved_language = account_language
+        else:
+            sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
+            await _send_language_picker(wa, phone, default_language=default_language)
+            return
     else:
         resolved_language = language
 
@@ -243,6 +259,13 @@ async def _handle_awaiting_language(
         sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
         await _send_language_picker(wa, phone, default_language=default_language)
         return
+    # Language-persistence follow-up (confirmed with the user): saved once,
+    # globally, on the CareConnect account -- reached from BOTH the
+    # first-time picker (a brand-new session) and the "Change Language" main
+    # menu item, so either path updates the same durable value, never just
+    # this session.
+    account = connector.identify_contact(phone, phone_number=phone)
+    connector.set_account_language(account["id"], chosen)
     sessions.set(hospital_id, phone, STATE_IDLE, {}, language=chosen)
     # Reachable only via STATE_AWAITING_LANGUAGE, which _enter_idle only ever
     # sets when language_prompt_enabled is True (see its own branch above) --
@@ -551,7 +574,8 @@ async def handle_incoming(
     IDENTIFICATION, resolved on every message before anything else --
     provider_user_id defaults to `phone` when not given (today's WhatsApp
     Cloud API webhook has no identifier distinct from the phone number; see
-    webhook/dispatch.py), so every pre-existing caller/test that doesn't pass
+    webhook/dispatch.py), so every pre-existing caller/test that doesn'whatsapp_phone_number_id != hospital.whatsapp_phone_number_id:
+        invalidate_whatsapp_client(tenant_id)t pass
     these gets identical behavior to before this was added.
 
     dpdp_consent_required (DPDP Act consent gate, db/schema.sql's own

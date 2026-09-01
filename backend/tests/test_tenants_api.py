@@ -251,3 +251,48 @@ def test_total_bookings_stat_counts_every_booking_across_hospitals(hospital_id, 
 def test_total_bookings_stat_requires_secret(hospital_id):
     resp = client.get("/api/admin/stats/total-bookings")
     assert resp.status_code == 401
+
+
+def test_updating_the_access_token_evicts_the_cached_whatsapp_client(hospital_id, super_admin_headers):
+    """webhook/dispatch.py's _wa_clients caches one WhatsAppClient per
+    hospital for the life of the process -- without an explicit eviction, a
+    token rotation saved here would silently keep failing against Meta
+    (401) until the process happened to restart. Simulates "a message
+    already came in and built/cached a client" by seeding _wa_clients
+    directly, then asserts saving a new token here evicts it."""
+    import webhook.dispatch as dispatch
+
+    before = db.get_hospital(hospital_id)
+    sentinel = object()
+    dispatch._wa_clients[hospital_id] = sentinel
+
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
+        "name": before.name,
+        "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
+        "access_token": "rotated-token-xyz",
+        "data_tier": "tier1",
+    })
+    assert resp.status_code == 200, resp.text
+    assert hospital_id not in dispatch._wa_clients
+
+
+def test_updating_unrelated_fields_leaves_the_cached_whatsapp_client_alone(hospital_id, super_admin_headers):
+    """The eviction is targeted -- a save that leaves both
+    access_token AND whatsapp_phone_number_id unchanged (blank token field =
+    "keep current", per this endpoint's own rule) must not throw away a
+    perfectly good cached client just because some other field (name, in
+    this case) changed."""
+    import webhook.dispatch as dispatch
+
+    before = db.get_hospital(hospital_id)
+    sentinel = object()
+    dispatch._wa_clients[hospital_id] = sentinel
+
+    resp = client.post(f"/api/admin/tenants/{hospital_id}", headers=super_admin_headers, json={
+        "name": "Renamed But Same Credentials",
+        "whatsapp_phone_number_id": before.whatsapp_phone_number_id,
+        "access_token": "",  # blank -> keep current, per this endpoint's own rule
+        "data_tier": "tier1",
+    })
+    assert resp.status_code == 200, resp.text
+    assert dispatch._wa_clients.get(hospital_id) is sentinel

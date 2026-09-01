@@ -15,6 +15,9 @@ class Tier1Connector(Connector):
     def get_max_active_patient_links(self):
         return repo.get_max_active_patient_links()
 
+    def set_account_language(self, care_connect_account_id, language):
+        repo.set_account_language(care_connect_account_id, language)
+
     def get_appointment_types(self, hospital_id):
         return repo.get_appointment_types(hospital_id)
 

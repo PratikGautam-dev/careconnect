@@ -102,7 +102,8 @@ async def test_registering_someone_else_asks_for_and_stores_their_own_contact_nu
     assert len(linked) == 1
     assert linked[0]["relationship_label"] == "Other"
     patient = db.get_patient(hospital_id, linked[0]["id"])
-    assert patient["phone"] == "9876543210"  # the family member's own number, not the messaging phone
+    # stored with the "91" country code prepended, same shape as a messaging phone
+    assert patient["phone"] == "919876543210"
 
 
 @pytest.mark.asyncio
@@ -118,8 +119,8 @@ async def test_invalid_contact_number_is_rejected_and_reprompted(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Kumar"), connector=connector, enabled_features=["booking"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
-    # Too short, and letters -- both rejected, state unchanged.
-    for bad in ("12345", "98765abcde"):
+    # Too short, letters, and a leading zero -- all rejected, state unchanged.
+    for bad in ("12345", "98765abcde", "0123456789"):
         await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(bad), connector=connector, enabled_features=["booking"])
         assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
@@ -304,6 +305,15 @@ async def test_patient_list_never_shows_the_self_or_other_relationship_label(hos
     )
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    # Adding a patient now lands on the main menu, not a patient list --
+    # Manage Patients' own patient list is the Remove Patient screen.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_REMOVE_ROW_ID),
         connector=connector, enabled_features=["manage_patients"],
     )
 

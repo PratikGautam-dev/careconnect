@@ -16,6 +16,7 @@ from core.translations.booking import (
     BOOKING_NOT_CONFIRMED,
     CANCEL_BUTTON,
     CONSENT_DECLINED,
+    DEPARTMENT_APPOINTMENT_CONFLICT,
     DUPLICATE_BOOKING_TEXT,
     INVALID_PATIENT_AGE,
     INVALID_PATIENT_NAME,
@@ -218,9 +219,26 @@ async def _handle_awaiting_department(
                     connector, hospital_id, context.get("active_patient_id"), dept["id"],
                 )
                 if conflict is not None:
-                    await wa.send_text(phone, t(conflict, language))
-                    sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, context)
-                    await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+                    # Confirmed with the user: instead of re-showing the
+                    # department list, drop straight to the main menu (same
+                    # Main Menu/Cancel/Reschedule quick-action shape as
+                    # DuplicateBookingError below), showing the CONFLICTING
+                    # appointment's own doctor/date so the patient knows
+                    # exactly what to manage.
+                    sessions.reset(hospital_id, phone)
+                    when = conflict.scheduled_at.strftime("%A, %d %B at %H:%M")
+                    await wa.send_buttons(
+                        to=phone,
+                        body_text=t(
+                            DEPARTMENT_APPOINTMENT_CONFLICT, language,
+                            department_name=conflict.department_name, doctor_name=conflict.doctor_name, when=when,
+                        ),
+                        buttons=[
+                            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
+                            {"id": _manage_cancel_id(conflict.id), "title": t(CANCEL_BUTTON, language)},
+                            {"id": _manage_reschedule_id(conflict.id), "title": t(RESCHEDULE_SHORT, language)},
+                        ],
+                    )
                     return
             # Bug fix (Section 3.3 "Go back" follow-up): this branch used to
             # build new_context from scratch with no **context spread, unlike
