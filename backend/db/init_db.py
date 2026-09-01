@@ -784,6 +784,11 @@ def init_db_on_connection(conn) -> int:
     # person messages), not re-asked every session timeout. NULL (every
     # existing row) means "never chosen yet", same as today's behavior.
     conn.execute("ALTER TABLE care_connect_accounts ADD COLUMN IF NOT EXISTS language TEXT")
+    # Migration 0019: handoff auto-resolve -- hospitals.handoff_auto_resolve_hours
+    # (nullable, per-hospital threshold) + handoff_requests.resolved_by
+    # ('auto' vs. a staff member's hashed session token).
+    conn.execute("ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS handoff_auto_resolve_hours INTEGER")
+    conn.execute("ALTER TABLE handoff_requests ADD COLUMN IF NOT EXISTS resolved_by TEXT")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

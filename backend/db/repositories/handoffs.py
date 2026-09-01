@@ -11,6 +11,20 @@ from sqlalchemy.engine import CursorResult
 from db.connection import get_session
 from db.orm_models import HandoffMessage, HandoffRequest
 
+# Messages page follow-up: an open handoff with no new activity from either
+# side for this many hours auto-resolves (see auto_resolve_stale_handoffs()
+# below) unless a hospital has its own hospitals.handoff_auto_resolve_hours
+# set. Same "nullable column + code-level default" shape as
+# session_timeout_minutes's own 30-minute fallback.
+DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS = 24
+
+# Sentinel written to handoff_requests.resolved_by when the scheduler (not a
+# staff member) resolves a handoff -- distinguishes it from a real staff
+# session's hashed token (portal/deps.py's _session_id(), the same value
+# patient_visit_notes.created_by_session_id already uses), so the Messages
+# page can tell "staff actually handled this" from "it just timed out."
+AUTO_RESOLVED_BY = "auto"
+
 # --- Human handoff queue -- fed by flows.py's reception_handoff feature and
 # core/main.py's unexpected-exception catch (see db/schema.sql's own comment
 # on handoff_requests for why these two unrelated triggers share one table). ---
@@ -43,20 +57,30 @@ def create_handoff_request(hospital_id: int, phone: str, reason: str, message_te
 
 def get_handoff_requests(
     hospital_id: int, status: str | None = "open", limit: int = 100, date_str: str | None = None,
+    reason: str | None = None,
 ) -> list[dict]:
     """status=None returns every request regardless of state (for a staff
     member reviewing history); the default "open" is the actual work queue.
     Item 6 (Spec.md Section 0): date_str ("YYYY-MM-DD"), when given, scopes
     to requests created on that one calendar day. Item 3: soft-deleted
     requests (deleted_at IS NOT NULL) are always excluded, same convention
-    _APPOINTMENT_SELECT enforces for appointments."""
+    _APPOINTMENT_SELECT enforces for appointments.
+
+    Messages page follow-up: reason ("patient_requested"/"system_error"),
+    when given, scopes to just that trigger -- the Messages page's "Errored"
+    tab passes reason="system_error" with status=None (any status, not just
+    open) so a staff member can still see a bot error that's already been
+    resolved, not just currently-open ones."""
     session = get_session()
     stmt = select(
         HandoffRequest.id, HandoffRequest.phone, HandoffRequest.reason, HandoffRequest.message_text,
         HandoffRequest.status, HandoffRequest.created_at, HandoffRequest.resolved_at,
+        HandoffRequest.resolved_by,
     ).where(HandoffRequest.hospital_id == hospital_id, HandoffRequest.deleted_at.is_(None))
     if status is not None:
         stmt = stmt.where(HandoffRequest.status == status)
+    if reason is not None:
+        stmt = stmt.where(HandoffRequest.reason == reason)
     if date_str:
         # created_at is stamped by Postgres's own `now()::text` default
         # (space-separated, "YYYY-MM-DD HH:MM:SS.ffffff+TZ" -- NOT the
@@ -164,15 +188,114 @@ def get_handoff_messages(hospital_id: int, handoff_request_id: int) -> list[dict
     return [dict(r._mapping) for r in rows]
 
 
-def resolve_handoff_request(hospital_id: int, handoff_id: int) -> bool:
+def resolve_handoff_request(hospital_id: int, handoff_id: int, resolved_by: str | None = None) -> bool:
+    """resolved_by: the resolving staff member's hashed session token
+    (portal/deps.py's _session_id()), or AUTO_RESOLVED_BY for the scheduler
+    (auto_resolve_stale_handoffs() below) -- distinguishes a real staff
+    resolution from an unattended timeout. Defaults to None only for
+    backward compatibility with any not-yet-updated caller; every real call
+    site (portal_resolve_handoff(), the auto-resolve job) passes one
+    explicitly."""
     session = get_session()
     result = cast(CursorResult, session.execute(
         update(HandoffRequest)
         .where(HandoffRequest.id == handoff_id, HandoffRequest.hospital_id == hospital_id, HandoffRequest.status == "open")
-        .values(status="resolved", resolved_at=datetime.now().isoformat())
+        .values(status="resolved", resolved_at=datetime.now().isoformat(), resolved_by=resolved_by)
     ))
     session.commit()
     return result.rowcount > 0
+
+
+def bulk_resolve_handoff_requests(hospital_id: int, handoff_ids: list[int], resolved_by: str) -> list[int]:
+    """Messages page bulk action -- resolves every id in `handoff_ids` that
+    actually belongs to this hospital and is currently open, silently
+    ignoring the rest (a stale id from a page that hasn't refreshed, an id
+    belonging to another hospital, an already-resolved one) rather than
+    erroring the whole batch over one bad id. Returns the ids actually
+    resolved, so the caller can report exactly what happened."""
+    if not handoff_ids:
+        return []
+    session = get_session()
+    rows = session.execute(
+        update(HandoffRequest)
+        .where(
+            HandoffRequest.id.in_(handoff_ids), HandoffRequest.hospital_id == hospital_id,
+            HandoffRequest.status == "open",
+        )
+        .values(status="resolved", resolved_at=datetime.now().isoformat(), resolved_by=resolved_by)
+        .returning(HandoffRequest.id)
+    ).all()
+    session.commit()
+    return [r[0] for r in rows]
+
+
+def bulk_soft_delete_handoffs(hospital_id: int, handoff_ids: list[int]) -> list[int]:
+    """Messages page bulk action -- same hospital-scoped, ignore-the-rest
+    semantics as bulk_resolve_handoff_requests() above. Soft-delete only
+    (deleted_at set), matching soft_delete_handoff()'s own established
+    convention -- no status restriction, same reasoning that function's own
+    docstring already gives."""
+    if not handoff_ids:
+        return []
+    session = get_session()
+    rows = session.execute(
+        update(HandoffRequest)
+        .where(
+            HandoffRequest.id.in_(handoff_ids), HandoffRequest.hospital_id == hospital_id,
+            HandoffRequest.deleted_at.is_(None),
+        )
+        .values(deleted_at=datetime.now().isoformat())
+        .returning(HandoffRequest.id)
+    ).all()
+    session.commit()
+    return [r[0] for r in rows]
+
+
+def auto_resolve_stale_handoffs(hospital_id: int, threshold_hours: int, now: datetime | None = None) -> list[int]:
+    """Messages page follow-up: auto-resolves every OPEN handoff at this
+    hospital whose thread has had no activity (from either side) in the
+    last `threshold_hours` -- called per-hospital by
+    /internal/auto-resolve-handoffs (webhook/cron_routes.py), same external-
+    cron-triggered pattern as send_reminders()/top_up_slots_for_hospital().
+
+    "No activity" is judged by the THREAD (handoff_messages), not
+    handoff_requests.created_at alone -- a patient or staff member replying
+    keeps a handoff alive past its original creation time, and
+    create_handoff_request() always inserts the trigger message as the
+    thread's first row, so every handoff has at least one handoff_messages
+    row to check against; there's no separate "never had any messages" edge
+    case to handle. A NOT EXISTS (no message at or after the cutoff) is
+    exactly "nothing happened recently enough," in one query rather than a
+    separate MAX(created_at) aggregation per handoff.
+
+    resolved_by is stamped AUTO_RESOLVED_BY, never a staff session id, so
+    the Messages page/dashboard can always tell an auto-resolve apart from
+    a real staff member's action. Returns the ids actually resolved."""
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=threshold_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    session = get_session()
+    stale_ids = [
+        row[0] for row in session.execute(
+            select(HandoffRequest.id).where(
+                HandoffRequest.hospital_id == hospital_id, HandoffRequest.status == "open",
+                HandoffRequest.deleted_at.is_(None), HandoffRequest.created_at < cutoff,
+                ~select(HandoffMessage.id).where(
+                    HandoffMessage.handoff_request_id == HandoffRequest.id,
+                    HandoffMessage.created_at >= cutoff,
+                ).exists(),
+            )
+        ).all()
+    ]
+    if not stale_ids:
+        return []
+    resolved_at = datetime.now().isoformat()
+    session.execute(
+        update(HandoffRequest)
+        .where(HandoffRequest.id.in_(stale_ids))
+        .values(status="resolved", resolved_at=resolved_at, resolved_by=AUTO_RESOLVED_BY)
+    )
+    session.commit()
+    return stale_ids
 
 
 def soft_delete_handoff(hospital_id: int, handoff_id: int) -> bool:

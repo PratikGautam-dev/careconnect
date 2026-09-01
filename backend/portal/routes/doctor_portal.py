@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 import db.repository as db
 from portal.deps import _authenticate_doctor, get_current_staff
 from portal.routes.bookings import _appointment_json
+from portal.routes.patients import _patient_json
 
 router = APIRouter()
 
@@ -88,6 +89,14 @@ def _owned_appointment_or_error(hospital_id: int, doctor_id: str, appointment_id
 
 @router.get("/api/doctor/appointments/{appointment_id}")
 async def doctor_appointment_detail(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Beyond the bare appointment row, also resolves the owning patient's
+    record (name/DOB/etc, same shape /api/portal/patients/{id} returns) and
+    this patient's visit-note history -- a doctor actually needs to SEE who
+    they're seeing, not just an id; neither is part of _appointment_json()'s
+    shared shape with the staff portal's own appointments list. (Restored
+    here after being lost from a concurrent branch merge -- see this
+    module's own doctor-frontend-restoration note in Spec.md Section 0; the
+    frontend at /doctor/appointments/[id] has always expected this shape.)"""
     ctx, err = _require_doctor(authorization)
     if err:
         return err
@@ -95,7 +104,13 @@ async def doctor_appointment_detail(appointment_id: int, authorization: str | No
     appointment, err = _owned_appointment_or_error(hospital.id, doctor_id, appointment_id)
     if err:
         return err
-    return JSONResponse({"appointment": _appointment_json(appointment)})
+    patient = db.get_patient(hospital.id, appointment.patient_id) if appointment.patient_id else None
+    notes = db.get_patient_visit_notes(hospital.id, appointment.patient_id) if appointment.patient_id else []
+    return JSONResponse({
+        "appointment": _appointment_json(appointment),
+        "patient": _patient_json(patient) if patient else None,
+        "notes": notes,
+    })
 
 
 @router.post("/api/doctor/appointments/{appointment_id}/attendance")

@@ -10,6 +10,38 @@ import { DaycareDurationOptions } from "@/components/portal/DaycareDurationOptio
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePortalSettings, type AuditEntry } from "@/hooks/usePortalSettings";
+import { portalFetch } from "@/lib/portalAuth";
+
+type Settings = {
+  name: string;
+  welcome_message_text: string;
+  reminder_offsets_hours: string;
+  reminder_template_name: string;
+  // Section 12.13: self-serve bot customization.
+  enabled_features: string[];
+  closing_message_text: string;
+  business_hours_text: string;
+  default_language: "en" | "hi";
+  language_prompt_enabled: boolean;
+  session_timeout_minutes: number;
+  // Messages page follow-up: how long an open "Talk to Reception" handoff
+  // can go with no activity from either side before it auto-resolves.
+  handoff_auto_resolve_hours: number;
+  // CareConnect architecture doc alignment (Spec.md Section 0).
+  require_patient_confirmation: boolean;
+  privacy_notice_text: string;
+};
+
+// type AuditEntry = {
+//   id: number;
+//   actor_level: string;
+//   action: string;
+//   entity_type: string | null;
+//   entity_id: string | null;
+//   before_value: Record<string, unknown> | null;
+//   after_value: Record<string, unknown> | null;
+//   created_at: string;
+// };
 
 function formatAuditChanges(entry: AuditEntry): string {
   const keys = new Set([
@@ -153,6 +185,24 @@ export default function PortalSettingsPage() {
                   max={120}
                   value={settings.session_timeout_minutes}
                   onChange={(e) => setSettings({ ...settings, session_timeout_minutes: Number(e.target.value) })}
+                />
+              </Field>
+            </Card>
+
+            <Card className="p-space-5">
+              <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Handoff auto-resolve</h2>
+              <p className="mb-space-3 text-[12.5px] text-ink-400">
+                An open &quot;Talk to Reception&quot; conversation with no new messages from either side for this long is
+                automatically marked Resolved, instead of sitting open indefinitely.
+              </p>
+              <Field label="Auto-resolve after (hours)" htmlFor="handoff_auto_resolve_hours" hint="Between 1 and 168 hours (1 week).">
+                <Input
+                  id="handoff_auto_resolve_hours"
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={settings.handoff_auto_resolve_hours}
+                  onChange={(e) => setSettings({ ...settings, handoff_auto_resolve_hours: Number(e.target.value) })}
                 />
               </Field>
             </Card>

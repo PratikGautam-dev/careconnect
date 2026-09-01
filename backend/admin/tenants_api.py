@@ -274,6 +274,7 @@ async def update_tenant(
             default_language=hospital.default_language,
             language_prompt_enabled=hospital.language_prompt_enabled,
             session_timeout_minutes=hospital.session_timeout_minutes,
+            handoff_auto_resolve_hours=hospital.handoff_auto_resolve_hours,
             require_patient_confirmation=hospital.require_patient_confirmation,
             privacy_notice_text=hospital.privacy_notice_text,
             tenant_type=tenant_type,

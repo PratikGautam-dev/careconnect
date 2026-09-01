@@ -397,6 +397,222 @@ def test_delete_handoff_removes_it_from_listing(two_hospitals):
     assert handoff["id"] not in {h["id"] for h in listing.json()["handoffs"]}
 
 
+# --- Messages page follow-up: auto-resolve, Errored tab, bulk actions ---
+
+def _backdate_handoff(handoff_id: int, when):
+    """Same pattern test_stale_open_handoff_no_longer_silences_the_bot
+    (tests/test_slot_blocking_soft_delete_and_refs.py) already uses -- a
+    direct UPDATE via the raw connection, since create_handoff_request()
+    itself has no way to backdate a row (created_at is a DB-side default)."""
+    conn = db.get_connection()
+    conn.execute(
+        "UPDATE handoff_requests SET created_at = ? WHERE id = ?", (when.strftime("%Y-%m-%d %H:%M:%S"), handoff_id),
+    )
+
+
+def _backdate_handoff_messages(handoff_id: int, when):
+    conn = db.get_connection()
+    conn.execute(
+        "UPDATE handoff_messages SET created_at = ? WHERE handoff_request_id = ?",
+        (when.strftime("%Y-%m-%d %H:%M:%S"), handoff_id),
+    )
+
+
+def test_resolve_handoff_records_a_real_staff_session_not_auto(two_hospitals):
+    a = two_hospitals["a"]
+    handoff = db.create_handoff_request(a["id"], "919876500010", reason="patient_requested")
+
+    resp = client.post(f"/api/portal/handoffs/{handoff['id']}/resolve", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+
+    row = next(h for h in db.get_handoff_requests(a["id"], status=None) if h["id"] == handoff["id"])
+    assert row["resolved_by"] not in (None, "auto")
+
+
+def test_auto_resolve_fires_after_threshold_not_before(hospital_id):
+    from datetime import datetime, timedelta, timezone
+
+    stale = db.create_handoff_request(hospital_id, "919876500011", reason="patient_requested")
+    fresh = db.create_handoff_request(hospital_id, "919876500012", reason="patient_requested")
+
+    old_time = datetime.now(timezone.utc) - timedelta(hours=48)
+    _backdate_handoff(stale["id"], old_time)
+    _backdate_handoff_messages(stale["id"], old_time)
+
+    resolved_ids = db.auto_resolve_stale_handoffs(hospital_id, threshold_hours=24)
+    assert stale["id"] in resolved_ids
+    assert fresh["id"] not in resolved_ids
+
+    stale_row = next(h for h in db.get_handoff_requests(hospital_id, status=None) if h["id"] == stale["id"])
+    assert stale_row["status"] == "resolved"
+    assert stale_row["resolved_by"] == "auto"
+
+    fresh_row = next(h for h in db.get_handoff_requests(hospital_id, status=None) if h["id"] == fresh["id"])
+    assert fresh_row["status"] == "open"
+    assert fresh_row["resolved_by"] is None
+
+
+def test_auto_resolve_skips_a_handoff_with_recent_reply_despite_old_creation(hospital_id):
+    """The staleness check is about THREAD activity, not just when the
+    handoff was originally created -- a handoff created long ago but replied
+    to recently must NOT auto-resolve."""
+    from datetime import datetime, timedelta, timezone
+
+    handoff = db.create_handoff_request(hospital_id, "919876500013", reason="patient_requested")
+    old_time = datetime.now(timezone.utc) - timedelta(hours=48)
+    _backdate_handoff(handoff["id"], old_time)
+    _backdate_handoff_messages(handoff["id"], old_time)
+    # A fresh reply keeps the thread alive.
+    db.add_handoff_message(hospital_id, handoff["id"], "outbound", "Still looking into this for you.")
+
+    resolved_ids = db.auto_resolve_stale_handoffs(hospital_id, threshold_hours=24)
+    assert handoff["id"] not in resolved_ids
+    row = next(h for h in db.get_handoff_requests(hospital_id, status=None) if h["id"] == handoff["id"])
+    assert row["status"] == "open"
+
+
+def test_auto_resolve_only_touches_open_handoffs_at_this_hospital(two_hospitals):
+    from datetime import datetime, timedelta, timezone
+
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    old_time = datetime.now(timezone.utc) - timedelta(hours=48)
+
+    other_hospital = db.create_handoff_request(b["id"], "919876500014", reason="patient_requested")
+    _backdate_handoff(other_hospital["id"], old_time)
+    _backdate_handoff_messages(other_hospital["id"], old_time)
+
+    already_resolved = db.create_handoff_request(a["id"], "919876500015", reason="patient_requested")
+    _backdate_handoff(already_resolved["id"], old_time)
+    _backdate_handoff_messages(already_resolved["id"], old_time)
+    db.resolve_handoff_request(a["id"], already_resolved["id"], resolved_by="a-staff-session")
+
+    resolved_ids = db.auto_resolve_stale_handoffs(a["id"], threshold_hours=24)
+    assert other_hospital["id"] not in resolved_ids
+    assert already_resolved["id"] not in resolved_ids  # already resolved, not re-touched
+
+    still_open = db.get_handoff_requests(b["id"], status="open")
+    assert any(h["id"] == other_hospital["id"] for h in still_open)
+
+
+def test_internal_auto_resolve_endpoint_requires_secret(hospital_id):
+    resp = client.post("/internal/auto-resolve-handoffs")
+    assert resp.status_code == 403
+    resp = client.post("/internal/auto-resolve-handoffs", headers={"X-Internal-Secret": "wrong"})
+    assert resp.status_code == 403
+
+
+def test_internal_auto_resolve_endpoint_uses_per_hospital_threshold(two_hospitals):
+    """Hospital A gets a short 1-hour threshold via its own settings;
+    Hospital B keeps the default -- confirms the per-hospital
+    handoff_auto_resolve_hours setting (not a single global constant) is
+    what the internal endpoint actually reads."""
+    from datetime import datetime, timedelta, timezone
+
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    hospital_a = db.get_hospital(a["id"])
+    db.update_hospital(
+        a["id"], name=hospital_a.name, whatsapp_phone_number_id=hospital_a.whatsapp_phone_number_id,
+        access_token=hospital_a.access_token, app_secret=hospital_a.app_secret, timezone=hospital_a.timezone,
+        session_timeout_minutes=hospital_a.session_timeout_minutes, handoff_auto_resolve_hours=1,
+        tenant_type=hospital_a.tenant_type, admin_capabilities=hospital_a.admin_capabilities,
+    )
+
+    old_time = datetime.now(timezone.utc) - timedelta(hours=3)
+    handoff_a = db.create_handoff_request(a["id"], "919876500016", reason="patient_requested")
+    _backdate_handoff(handoff_a["id"], old_time)
+    _backdate_handoff_messages(handoff_a["id"], old_time)
+    handoff_b = db.create_handoff_request(b["id"], "919876500017", reason="patient_requested")
+    _backdate_handoff(handoff_b["id"], old_time)
+    _backdate_handoff_messages(handoff_b["id"], old_time)
+
+    resp = client.post("/internal/auto-resolve-handoffs", headers={"X-Internal-Secret": os.environ["INTERNAL_SECRET"]})
+    assert resp.status_code == 200, resp.text
+
+    row_a = next(h for h in db.get_handoff_requests(a["id"], status=None) if h["id"] == handoff_a["id"])
+    assert row_a["status"] == "resolved"  # 3h old > A's 1h threshold
+    row_b = next(h for h in db.get_handoff_requests(b["id"], status=None) if h["id"] == handoff_b["id"])
+    assert row_b["status"] == "open"  # 3h old < B's 24h (default) threshold
+
+
+def test_errored_tab_returns_system_error_regardless_of_status(two_hospitals):
+    a = two_hospitals["a"]
+    errored = db.create_handoff_request(a["id"], "919876500018", reason="system_error", message_text="boom")
+    db.resolve_handoff_request(a["id"], errored["id"], resolved_by="a-staff-session")
+    requested = db.create_handoff_request(a["id"], "919876500019", reason="patient_requested")
+
+    resp = client.get("/api/portal/handoffs?status=all&reason=system_error", headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    ids = {h["id"] for h in resp.json()["handoffs"]}
+    assert errored["id"] in ids  # shown even though already resolved
+    assert requested["id"] not in ids
+
+
+def test_bulk_resolve_acts_on_exactly_the_selected_ids(two_hospitals):
+    a = two_hospitals["a"]
+    h1 = db.create_handoff_request(a["id"], "919876500020", reason="patient_requested")
+    h2 = db.create_handoff_request(a["id"], "919876500021", reason="patient_requested")
+    h3 = db.create_handoff_request(a["id"], "919876500022", reason="patient_requested")
+
+    resp = client.post(
+        "/api/portal/handoffs/bulk-resolve", json={"handoff_ids": [h1["id"], h2["id"]]}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()["resolved"]) == {h1["id"], h2["id"]}
+
+    rows = {h["id"]: h for h in db.get_handoff_requests(a["id"], status=None)}
+    assert rows[h1["id"]]["status"] == "resolved"
+    assert rows[h2["id"]]["status"] == "resolved"
+    assert rows[h3["id"]]["status"] == "open"
+
+
+def test_bulk_resolve_cannot_target_another_hospitals_handoffs(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    handoff_b = db.create_handoff_request(b["id"], "919876500023", reason="patient_requested")
+
+    resp = client.post(
+        "/api/portal/handoffs/bulk-resolve", json={"handoff_ids": [handoff_b["id"]]}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["resolved"] == []
+
+    still_open = db.get_handoff_requests(b["id"], status="open")
+    assert any(h["id"] == handoff_b["id"] for h in still_open)
+
+
+def test_bulk_resolve_requires_nonempty_list(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post("/api/portal/handoffs/bulk-resolve", json={"handoff_ids": []}, headers=_auth(a["token"]))
+    assert resp.status_code == 400
+    resp = client.post("/api/portal/handoffs/bulk-resolve", json={}, headers=_auth(a["token"]))
+    assert resp.status_code == 400
+
+
+def test_bulk_delete_acts_on_exactly_the_selected_ids(two_hospitals):
+    a = two_hospitals["a"]
+    h1 = db.create_handoff_request(a["id"], "919876500024", reason="patient_requested")
+    h2 = db.create_handoff_request(a["id"], "919876500025", reason="patient_requested")
+
+    resp = client.post("/api/portal/handoffs/bulk-delete", json={"handoff_ids": [h1["id"]]}, headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == [h1["id"]]
+
+    listing = {h["id"] for h in db.get_handoff_requests(a["id"], status=None)}
+    assert h1["id"] not in listing  # soft-deleted, excluded from every listing
+    assert h2["id"] in listing
+
+
+def test_bulk_delete_cannot_target_another_hospitals_handoffs(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    handoff_b = db.create_handoff_request(b["id"], "919876500026", reason="patient_requested")
+
+    resp = client.post(
+        "/api/portal/handoffs/bulk-delete", json={"handoff_ids": [handoff_b["id"]]}, headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == []
+    assert any(h["id"] == handoff_b["id"] for h in db.get_handoff_requests(b["id"], status=None))
+
+
 def test_delete_booking_requires_non_booked_status(two_hospitals):
     a = two_hospitals["a"]
     appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490005555")

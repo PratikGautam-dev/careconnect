@@ -30,6 +30,7 @@ _HOSPITAL_COLUMNS = (
     HospitalRow.default_language, HospitalRow.language_prompt_enabled, HospitalRow.session_timeout_minutes,
     HospitalRow.require_patient_confirmation, HospitalRow.privacy_notice_text, HospitalRow.tenant_type,
     HospitalRow.admin_capabilities, HospitalRow.dpdp_consent_required, HospitalRow.display_id,
+    HospitalRow.handoff_auto_resolve_hours,
 )
 
 # --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
@@ -127,6 +128,7 @@ def _row_to_hospital(row) -> Hospital:
             True if row["language_prompt_enabled"] is None else bool(row["language_prompt_enabled"])
         ),
         session_timeout_minutes=row["session_timeout_minutes"],
+        handoff_auto_resolve_hours=row["handoff_auto_resolve_hours"],
         require_patient_confirmation=bool(row["require_patient_confirmation"]),
         privacy_notice_text=row["privacy_notice_text"],
         tenant_type=row["tenant_type"] or "hospital",
@@ -345,6 +347,7 @@ def update_hospital(
     default_language: str | None = None,
     language_prompt_enabled: bool = True,
     session_timeout_minutes: int | None = None,
+    handoff_auto_resolve_hours: int | None = None,
     require_patient_confirmation: bool = False,
     privacy_notice_text: str | None = None,
     tenant_type: str = "hospital",
@@ -412,6 +415,7 @@ def update_hospital(
                 feature_labels=feature_labels_json, closing_message_text=closing_message_text,
                 business_hours_text=business_hours_text, default_language=default_language,
                 language_prompt_enabled=int(language_prompt_enabled), session_timeout_minutes=session_timeout_minutes,
+                handoff_auto_resolve_hours=handoff_auto_resolve_hours,
                 require_patient_confirmation=bool(require_patient_confirmation), privacy_notice_text=privacy_notice_text,
                 tenant_type=tenant_type, admin_capabilities=admin_capabilities_json,
                 dpdp_consent_required=bool(dpdp_consent_required),

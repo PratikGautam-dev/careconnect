@@ -17,6 +17,9 @@ export type Settings = {
   // CareConnect architecture doc alignment (Spec.md Section 0).
   require_patient_confirmation: boolean;
   privacy_notice_text: string;
+
+  handoff_auto_resolve_hours: number;
+  
 };
 
 export type AuditEntry = {

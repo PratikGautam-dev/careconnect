@@ -288,6 +288,13 @@ class Hospital:
     default_language: str
     language_prompt_enabled: bool
     session_timeout_minutes: int | None
+    # Messages page follow-up: per-hospital threshold (hours) for
+    # auto-resolving a handoff with no new activity from either side --
+    # NULL means "use the code-level default" (see
+    # db/repositories/handoffs.py's DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS),
+    # same nullable-plus-code-default shape session_timeout_minutes itself
+    # already uses.
+    handoff_auto_resolve_hours: int | None
     # CareConnect architecture doc alignment (Spec.md Section 0): see
     # db/schema.sql's own column comments for what each controls.
     require_patient_confirmation: bool
