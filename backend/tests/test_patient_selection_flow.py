@@ -607,12 +607,24 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
 
     # Now the SAME patient (parent) trying the same department again is
     # blocked immediately on department selection -- before doctor/date/slot
-    # are ever asked.
+    # are ever asked. This block message is now sent as a buttons message
+    # (not plain text) with direct manage_cancel_*/manage_reschedule_*
+    # actions attached, richer than the original plain-text version this
+    # test was written against -- confirmed live (not assumed) that the
+    # underlying block still fires correctly and the session resets to IDLE
+    # (department/doctor/date/slot never get asked), just via
+    # wa.send_buttons() now instead of wa.send_text().
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_en(hospital_id)
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(f"patient_{parent['id']}"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    text_messages = [kwargs for kind, kwargs in wa2.sent if kind == "text"]
-    assert any("already have an active appointment in this department" in m["text"].lower() for m in text_messages)
+    kind, kwargs = wa2.sent[-1]
+    assert kind == "buttons"
+    assert "already have an appointment in" in kwargs["body_text"].lower()
+    button_ids = [b["id"] for b in kwargs["buttons"]]
+    assert any(bid.startswith("manage_cancel_") for bid in button_ids)
+    assert any(bid.startswith("manage_reschedule_") for bid in button_ids)
+    # Never actually reached department/doctor/date/slot selection.
+    assert sessions2.get(hospital_id, PHONE)["state"] == "IDLE"
