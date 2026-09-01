@@ -114,6 +114,13 @@ export default function PortalLoginPage() {
           </Button>
         </form>
 
+        <p className="mt-space-4 text-center text-[12.5px] text-ink-400">
+          Signing in as a doctor?{" "}
+          <a href="/doctor/login" className="font-semibold text-brand-600 hover:underline">
+            Doctor login
+          </a>
+        </p>
+
         <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
           Don&apos;t have a hospital account yet?{" "}
           <a href="/auth" className="font-semibold text-brand-600 hover:underline">
