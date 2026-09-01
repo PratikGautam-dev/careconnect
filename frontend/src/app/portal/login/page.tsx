@@ -42,7 +42,12 @@ export default function PortalLoginPage() {
         hospital: data.staff.hospital,
         permissions: data.permissions,
       });
-      router.push("/portal/dashboard");
+      // A doctor gets their own dashboard, not the shared staff portal --
+      // /portal/appointments and /portal/patients show every patient at the
+      // hospital with no per-doctor filtering (that scoping only exists on
+      // the dedicated /api/doctor/* routes), so a doctor landing there by
+      // default would defeat the whole point of a per-doctor login.
+      router.push(data.staff.role === "doctor" ? "/doctor/dashboard" : "/portal/dashboard");
     } catch {
       setStaffError("Couldn't reach the server. Please try again.");
     } finally {
