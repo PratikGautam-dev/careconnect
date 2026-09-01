@@ -196,6 +196,13 @@ curl -X POST https://your-app.railway.app/internal/send-reminders \
   -H "X-Internal-Secret: $INTERNAL_SECRET"
 ```
 
+Add a second cron job (e.g. once an hour) to auto-resolve stale "Talk to Reception" handoffs so an unanswered conversation doesn't sit open forever:
+
+```
+curl -X POST https://your-app.railway.app/internal/auto-resolve-handoffs \
+  -H "X-Internal-Secret: $INTERNAL_SECRET"
+```
+
 Any platform that runs Python + FastAPI works just as well; the app starts with:
 
 ```bash

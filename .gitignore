@@ -1,2 +1,24 @@
 .worktrees/
 assets/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# Env files -- never commit real secrets (see backend/.env.example for the
+# template every real .env/.env.production is generated from).
+.env
+.env.*.local
+.env.production
+
+# Local SQLite/dev artifacts and logs
+*.db
+*.log
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+node_modules/

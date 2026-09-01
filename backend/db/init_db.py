@@ -779,6 +779,11 @@ def init_db_on_connection(conn) -> int:
     # toggle. Defaults TRUE so no already-onboarded tenant loses access to
     # anything it could already use.
     conn.execute("ALTER TABLE appointment_types ADD COLUMN IF NOT EXISTS is_allowed BOOLEAN NOT NULL DEFAULT TRUE")
+    # Migration 0019: handoff auto-resolve -- hospitals.handoff_auto_resolve_hours
+    # (nullable, per-hospital threshold) + handoff_requests.resolved_by
+    # ('auto' vs. a staff member's hashed session token).
+    conn.execute("ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS handoff_auto_resolve_hours INTEGER")
+    conn.execute("ALTER TABLE handoff_requests ADD COLUMN IF NOT EXISTS resolved_by TEXT")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

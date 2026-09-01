@@ -266,6 +266,7 @@ class HandoffRequest(Base):
     created_at: Mapped[str]
     resolved_at: Mapped[str | None]
     deleted_at: Mapped[str | None]
+    resolved_by: Mapped[str | None]
 
 
 class HandoffMessage(Base):
@@ -318,6 +319,7 @@ class HospitalRow(Base):
     default_language: Mapped[str | None]
     language_prompt_enabled: Mapped[int | None]
     session_timeout_minutes: Mapped[int | None]
+    handoff_auto_resolve_hours: Mapped[int | None]
     is_active: Mapped[int]
     created_at: Mapped[str]
     patient_id_prefix: Mapped[str | None]

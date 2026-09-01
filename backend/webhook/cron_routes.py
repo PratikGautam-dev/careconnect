@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 import db.repository as db
 from connectors import ConnectorNotImplementedError, get_connector_for_hospital
 from core.config import get_settings
+from db.repositories.handoffs import DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS
 from reminders.scheduler import send_reminders
 from slots.scheduler import top_up_slots_for_hospital
 from webhook.dispatch import _get_whatsapp_client
@@ -65,3 +66,24 @@ async def trigger_slot_top_up(request: Request):
         for hospital in db.get_active_hospitals()
     }
     return {"generated": sum(generated_by_hospital.values()), "by_hospital": generated_by_hospital}
+
+
+@router.post("/internal/auto-resolve-handoffs")
+async def trigger_handoff_auto_resolve(request: Request):
+    """Messages page follow-up: hit by an external cron job, same pattern as
+    /internal/send-reminders/top-up-slots above. Auto-resolves every OPEN
+    handoff with no activity from either side past each hospital's own
+    handoff_auto_resolve_hours (or DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS if
+    unset) -- see db.auto_resolve_stale_handoffs()'s own docstring for what
+    "no activity" means."""
+    secret = request.headers.get("X-Internal-Secret", "")
+    if secret != INTERNAL_SECRET:
+        raise HTTPException(status_code=403)
+
+    resolved_by_hospital = {
+        hospital.name: len(db.auto_resolve_stale_handoffs(
+            hospital.id, hospital.handoff_auto_resolve_hours or DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS,
+        ))
+        for hospital in db.get_active_hospitals()
+    }
+    return {"resolved": sum(resolved_by_hospital.values()), "by_hospital": resolved_by_hospital}

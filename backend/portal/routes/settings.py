@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from admin.validation import _parse_offsets
 import db.repository as db
 from core.translations import SUPPORTED_LANGUAGES
+from db.repositories.handoffs import DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS
 from portal.deps import _authenticate, require_capability
 
 router = APIRouter()
@@ -14,6 +15,14 @@ router = APIRouter()
 # the DB constraint.
 _MIN_SESSION_TIMEOUT_MINUTES = 2
 _MAX_SESSION_TIMEOUT_MINUTES = 120
+
+# Messages page follow-up: bounds for hospitals.handoff_auto_resolve_hours,
+# same "validate here for a clean 400" reasoning as the session-timeout
+# bounds above. 1 hour minimum (shorter would risk auto-resolving a handoff
+# staff simply hasn't gotten to yet within a normal shift), 1 week maximum
+# (longer defeats the point of "don't leave it open indefinitely").
+_MIN_HANDOFF_AUTO_RESOLVE_HOURS = 1
+_MAX_HANDOFF_AUTO_RESOLVE_HOURS = 168
 
 
 @router.get("/api/portal/settings")
@@ -34,6 +43,7 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             "default_language": hospital.default_language,
             "language_prompt_enabled": hospital.language_prompt_enabled,
             "session_timeout_minutes": hospital.session_timeout_minutes or 30,
+            "handoff_auto_resolve_hours": hospital.handoff_auto_resolve_hours or DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS,
             # CareConnect architecture doc alignment (Spec.md Section 0):
             # unlike enabled_features (operator-only, /admin/edit-tenant),
             # these two ARE genuine self-serve bot customization -- same
@@ -75,6 +85,19 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
                 "error": f"session_timeout_minutes must be between {_MIN_SESSION_TIMEOUT_MINUTES} and {_MAX_SESSION_TIMEOUT_MINUTES}.",
             }, status_code=400)
 
+    handoff_hours_raw = payload.get("handoff_auto_resolve_hours")
+    if handoff_hours_raw in (None, ""):
+        handoff_auto_resolve_hours = None
+    else:
+        try:
+            handoff_auto_resolve_hours = int(handoff_hours_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "handoff_auto_resolve_hours must be a whole number of hours."}, status_code=400)
+        if not (_MIN_HANDOFF_AUTO_RESOLVE_HOURS <= handoff_auto_resolve_hours <= _MAX_HANDOFF_AUTO_RESOLVE_HOURS):
+            return JSONResponse({
+                "error": f"handoff_auto_resolve_hours must be between {_MIN_HANDOFF_AUTO_RESOLVE_HOURS} and {_MAX_HANDOFF_AUTO_RESOLVE_HOURS}.",
+            }, status_code=400)
+
     # Same restriction as portal.py's own settings form: credentials/data_tier/
     # portal_password_hash/enabled_features are never touched here, only
     # passed through unchanged -- WhatsApp connection details stay
@@ -105,6 +128,7 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         default_language=default_language,
         language_prompt_enabled=bool(payload.get("language_prompt_enabled", True)),
         session_timeout_minutes=session_timeout_minutes,
+        handoff_auto_resolve_hours=handoff_auto_resolve_hours,
         require_patient_confirmation=bool(payload.get("require_patient_confirmation", False)),
         privacy_notice_text=(payload.get("privacy_notice_text") or "").strip() or None,
         # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):

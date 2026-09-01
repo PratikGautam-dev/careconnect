@@ -20,6 +20,10 @@ type Handoff = {
   status: "open" | "resolved";
   created_at: string;
   resolved_at: string | null;
+  // Messages page follow-up: "auto" for the scheduler
+  // (/internal/auto-resolve-handoffs), a staff session's hashed token for a
+  // real manual resolve, or null (never resolved, or predates this column).
+  resolved_by: string | null;
 };
 
 // Two-way threading follow-up (Spec.md Section 0): a handoff's full
@@ -32,10 +36,15 @@ type HandoffMessage = {
   created_at: string;
 };
 
+// Messages page follow-up: "Errored" is a peer tab, not a status -- it shows
+// every system_error-triggered conversation regardless of resolved state
+// (status="all"), since a bot error worth following up on doesn't stop
+// being worth seeing just because it auto-resolved or got marked resolved.
 const FILTERS = [
-  { key: "open", label: "Open" },
-  { key: "resolved", label: "Resolved" },
-  { key: "all", label: "All" },
+  { key: "open", label: "Open", status: "open", reason: null },
+  { key: "resolved", label: "Resolved", status: "resolved", reason: null },
+  { key: "errored", label: "Errored", status: "all", reason: "system_error" },
+  { key: "all", label: "All", status: "all", reason: null },
 ] as const;
 
 // Item 4 (Spec.md Section 0): new incoming handoff requests don't push to
@@ -68,9 +77,15 @@ export default function PortalMessagesPage() {
   // Item 6 (Spec.md Section 0): status filtering already existed (the
   // Open/Resolved/All tabs above) -- this adds a date filter alongside it.
   const [dateFilter, setDateFilter] = useState("");
+  // Messages page follow-up: multi-select + bulk resolve/delete.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkActing, setBulkActing] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const qs = new URLSearchParams({ status: filter });
+    const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
+    const qs = new URLSearchParams({ status: active.status });
+    if (active.reason) qs.set("reason", active.reason);
     if (dateFilter) qs.set("date", dateFilter);
     const result = await portalFetch(`/api/portal/handoffs?${qs.toString()}`);
     if (!result.ok) {
@@ -94,6 +109,75 @@ export default function PortalMessagesPage() {
       setSelectedId(null);
     }
   }, [handoffs, selectedId]);
+
+  // Drops any selected id no longer present in the current list -- a poll
+  // refresh after a bulk action (or someone else resolving a handoff)
+  // shouldn't leave a stale checkbox "selected" for a row that's gone.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (!handoffs) return prev;
+      const visible = new Set(handoffs.map((h) => h.id));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [handoffs]);
+
+  // Switching tabs/date shows a different list entirely -- a selection made
+  // on "Open" shouldn't silently carry over and get bulk-acted-on from "All".
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filter, dateFilter]);
+
+  function toggleSelected(id: number, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(checked: boolean) {
+    setSelectedIds(checked ? new Set((handoffs ?? []).map((h) => h.id)) : new Set());
+  }
+
+  async function handleBulkResolve() {
+    if (selectedIds.size === 0) return;
+    setBulkActing(true);
+    setBulkError(null);
+    const result = await portalFetch("/api/portal/handoffs/bulk-resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handoff_ids: Array.from(selectedIds) }),
+    });
+    setBulkActing(false);
+    if (!result.ok) {
+      setBulkError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      return;
+    }
+    setSelectedIds(new Set());
+    load();
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} message record(s)? This can't be undone from the portal.`)) return;
+    setBulkActing(true);
+    setBulkError(null);
+    const result = await portalFetch("/api/portal/handoffs/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handoff_ids: Array.from(selectedIds) }),
+    });
+    setBulkActing(false);
+    if (!result.ok) {
+      setBulkError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      return;
+    }
+    setSelectedId(null);
+    setSelectedIds(new Set());
+    load();
+  }
 
   const selected = handoffs?.find((h) => h.id === selectedId) || null;
 
@@ -194,6 +278,33 @@ export default function PortalMessagesPage() {
           )}
         </div>
 
+        {selectedIds.size > 0 && (
+          <div className="mb-space-4 flex flex-wrap items-center gap-space-3 rounded-md border border-line bg-card px-space-3 py-space-2">
+            <span className="text-[12.5px] font-semibold text-ink-900">{selectedIds.size} selected</span>
+            <Button variant="secondary" size="md" onClick={handleBulkResolve} disabled={bulkActing}>
+              <Check size={14} /> Resolve selected
+            </Button>
+            <PermissionGate page="messages" action="delete">
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={bulkActing}
+                className="inline-flex items-center gap-space-1 rounded-md px-space-2 py-space-2 text-[12.5px] font-semibold text-ink-400 hover:text-error disabled:opacity-50"
+              >
+                <Trash2 size={14} /> Delete selected
+              </button>
+            </PermissionGate>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="ml-auto text-[12px] font-semibold text-ink-400 hover:text-ink-700"
+            >
+              Clear selection
+            </button>
+          </div>
+        )}
+        {bulkError && <p className="mb-space-4 text-[13px] text-error">{bulkError}</p>}
+
         {!handoffs ? (
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : handoffs.length === 0 ? (
@@ -206,16 +317,33 @@ export default function PortalMessagesPage() {
         ) : (
           <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-[340px_1fr]">
             <Card className="max-h-[calc(100vh-220px)] overflow-y-auto p-space-2">
+              <div className="flex items-center gap-space-2 border-b border-line px-space-2 pb-space-2">
+                <input
+                  type="checkbox"
+                  aria-label="Select all"
+                  checked={handoffs.length > 0 && selectedIds.size === handoffs.length}
+                  onChange={(e) => toggleSelectAll(e.target.checked)}
+                  className="h-4 w-4 shrink-0 accent-brand-600"
+                />
+                <span className="text-[11px] font-semibold text-ink-400">Select all</span>
+              </div>
               <ul className="space-y-space-1">
                 {handoffs.map((h) => {
                   const isSelected = h.id === selectedId;
                   return (
-                    <li key={h.id}>
+                    <li key={h.id} className="flex items-start gap-space-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select conversation with ${h.phone}`}
+                        checked={selectedIds.has(h.id)}
+                        onChange={(e) => toggleSelected(h.id, e.target.checked)}
+                        className="mt-space-3 h-4 w-4 shrink-0 accent-brand-600"
+                      />
                       <button
                         type="button"
                         onClick={() => setSelectedId(h.id)}
                         className={cn(
-                          "flex w-full flex-col items-start gap-space-1 rounded-md px-space-3 py-space-3 text-left transition-colors duration-150",
+                          "flex w-full min-w-0 flex-col items-start gap-space-1 rounded-md px-space-3 py-space-3 text-left transition-colors duration-150",
                           isSelected ? "bg-brand-50" : "hover:bg-black/[0.03]",
                         )}
                       >
@@ -231,8 +359,13 @@ export default function PortalMessagesPage() {
                         <p className="line-clamp-2 text-[12px] text-ink-600">
                           {h.message_text || (h.reason === "patient_requested" ? "Asked to talk to reception." : "System error.")}
                         </p>
-                        <div className="flex items-center gap-space-2">
+                        <div className="flex flex-wrap items-center gap-space-2">
                           <Badge tone={h.status === "open" ? "clay" : "success"}>{h.status === "open" ? "Open" : "Resolved"}</Badge>
+                          {h.status === "resolved" && (
+                            <span className="text-[10.5px] font-semibold text-ink-400">
+                              {h.resolved_by === "auto" ? "Auto-resolved" : h.resolved_by ? "Resolved by staff" : ""}
+                            </span>
+                          )}
                           <span className="text-[11px] text-ink-400">{formatTime(h.created_at)}</span>
                         </div>
                       </button>
@@ -268,7 +401,10 @@ export default function PortalMessagesPage() {
                           <Check size={14} /> Mark resolved
                         </Button>
                       ) : (
-                        <Badge tone="success">Resolved {selected.resolved_at ? formatTime(selected.resolved_at) : ""}</Badge>
+                        <Badge tone="success">
+                          {selected.resolved_by === "auto" ? "Auto-resolved" : "Resolved"}
+                          {selected.resolved_at ? ` ${formatTime(selected.resolved_at)}` : ""}
+                        </Badge>
                       )}
                       <PermissionGate page="messages" action="delete">
                         <button
