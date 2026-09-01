@@ -48,7 +48,7 @@ export default function PortalDashboardPage() {
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : (
           <>
-            <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mb-space-4 grid grid-cols-1 gap-space-4 md:grid-cols-2 lg:grid-cols-5">
               <StatTile label="Upcoming appointments" value={data.stats.upcoming_appointments} deltaPct={null} hint="Currently booked" />
               <StatTile label="Today's appointments" value={data.stats.today_appointments} deltaPct={data.stats.today_appointments_delta_pct} />
               <StatTile label="Confirmed" value={data.stats.confirmed_today} deltaPct={data.stats.confirmed_today_delta_pct} />

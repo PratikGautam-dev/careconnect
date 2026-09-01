@@ -36,7 +36,7 @@ function PlatformSettingsForm() {
   } = usePlatformSettings();
 
   return (
-    <div className="mx-auto max-w-[600px]">
+    <div>
       <div className="mb-space-5">
         <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Platform settings</h1>

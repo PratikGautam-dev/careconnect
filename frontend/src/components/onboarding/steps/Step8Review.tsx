@@ -33,7 +33,7 @@ function ReviewSection({
           Edit
         </button>
       </div>
-      <dl className="grid grid-cols-1 gap-x-space-4 gap-y-space-1 text-[13px] sm:grid-cols-[180px_1fr]">{children}</dl>
+      <dl className="grid grid-cols-1 gap-x-space-4 gap-y-space-1 text-[13px] md:grid-cols-[180px_1fr]">{children}</dl>
     </div>
   );
 }

@@ -36,8 +36,8 @@ function AuditLogList() {
   const { entries, error } = useAuditLog(hospitalIdParam, levelFilter);
 
   return (
-    <div className="mx-auto max-w-[1000px]">
-      <div className="mb-space-5 flex items-center justify-between">
+    <div>
+      <div className="mb-space-5 flex flex-col items-start gap-space-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">
@@ -48,7 +48,7 @@ function AuditLogList() {
         <select
           value={levelFilter}
           onChange={(e) => setLevelFilter(e.target.value as "" | "platform_admin" | "portal")}
-          className="h-10 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
+          className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:w-auto"
         >
           <option value="">All levels</option>
           <option value="platform_admin">Platform only</option>
@@ -73,8 +73,8 @@ function AuditLogList() {
           <ul className="divide-y divide-line">
             {entries.map((entry) => (
               <li key={entry.id} className="py-space-3 text-[12.5px]">
-                <div className="flex items-center justify-between gap-space-3">
-                  <div className="flex items-center gap-space-2">
+                <div className="flex flex-col gap-space-1 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
+                  <div className="flex flex-wrap items-center gap-space-2">
                     <span className="font-medium text-ink-900">{entry.action}</span>
                     <span
                       className={cn(

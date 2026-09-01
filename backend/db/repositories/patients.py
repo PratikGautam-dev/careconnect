@@ -5,11 +5,11 @@ see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime
 from typing import cast
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_connection, get_session
-from db.models import DuplicateSelfLinkError, TooManyLinkedPatientsError, _generate_patient_identifiers
+from db.models import STATUS_ATTENDED, DuplicateSelfLinkError, TooManyLinkedPatientsError, _generate_patient_identifiers
 from db.orm_models import AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
 from db.repositories.accounts import _get_or_create_account_in_conn
 
@@ -62,7 +62,11 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     most recent scheduled_at across every appointment (any status, same
     "staff want to see the full history" reasoning as
     get_all_appointments_for_hospital()), visit_count counts every
-    appointment row ever created for that patient, not just kept ones.
+    appointment row ever created for that patient, not just kept ones
+    (i.e. total ever booked, past or upcoming, any status). visited_count
+    is the subset actually marked status='attended' -- a real, staff-
+    confirmed outcome (Item 9, Spec.md Section 0), not a time-passed
+    heuristic.
 
     Joined on patient_id, NOT phone -- a phone-keyed join here would
     silently mis-attribute visits once patients.phone can be the patient's
@@ -74,10 +78,12 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     link regardless of whose phone did the booking."""
     last_visit = func.max(AppointmentRow.scheduled_at)
     visit_count = func.count(AppointmentRow.id)
+    visited_count = func.count(case((AppointmentRow.status == STATUS_ATTENDED, AppointmentRow.id)))
     stmt = (
         select(
             PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
             last_visit.label("last_visit"), visit_count.label("visit_count"),
+            visited_count.label("visited_count"),
         )
         .select_from(PatientRow)
         .outerjoin(
@@ -107,6 +113,7 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
         {
             "id": r.id, "phone": r.phone, "name": r.name, "patient_display_id": r.patient_display_id,
             "mrn": r.mrn, "last_visit": r.last_visit, "visit_count": r.visit_count,
+            "visited_count": r.visited_count,
         }
         for r in rows
     ]

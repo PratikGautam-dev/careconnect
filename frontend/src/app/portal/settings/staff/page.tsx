@@ -141,7 +141,7 @@ export default function StaffManagementPage() {
       <PermissionGate page="staff" action="write">
         {showForm && (
           <Card className="mb-space-4 p-space-4">
-            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-space-3 sm:grid-cols-2">
+            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-space-3 md:grid-cols-2">
               <Field label="Name" htmlFor="staff_name">
                 <Input id="staff_name" value={name} onChange={(e) => setName(e.target.value)} required />
               </Field>
@@ -176,7 +176,7 @@ export default function StaffManagementPage() {
                 </select>
               </Field>
               {role === "doctor" && (
-                <Field label="Doctor" htmlFor="staff_doctor" className="sm:col-span-2">
+                <Field label="Doctor" htmlFor="staff_doctor" className="md:col-span-2">
                   <select
                     id="staff_doctor"
                     value={doctorId}
@@ -192,8 +192,8 @@ export default function StaffManagementPage() {
                   </select>
                 </Field>
               )}
-              {formError && <p className="sm:col-span-2 text-[12.5px] font-medium text-error">{formError}</p>}
-              <div className="sm:col-span-2">
+              {formError && <p className="md:col-span-2 text-[12.5px] font-medium text-error">{formError}</p>}
+              <div className="md:col-span-2">
                 <Button type="submit" disabled={saving || !name || !email || !password} size="md">
                   {saving ? "Creating…" : "Create staff member"}
                 </Button>
@@ -211,7 +211,7 @@ export default function StaffManagementPage() {
         ) : (
           <ul className="divide-y divide-line">
             {staff.map((member) => (
-              <li key={member.id} className="flex items-center justify-between gap-space-3 py-space-3">
+              <li key={member.id} className="flex flex-col gap-space-2 py-space-3 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
                 <div>
                   <p className="text-[13.5px] font-semibold text-ink-900">{member.name}</p>
                   <p className="text-[12px] text-ink-600">{member.email}</p>

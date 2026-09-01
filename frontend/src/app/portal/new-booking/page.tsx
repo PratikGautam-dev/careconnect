@@ -34,7 +34,7 @@ export default function NewBookingPage() {
             <p className="text-[13px] text-ink-400">Loading…</p>
           ) : (
             <form onSubmit={handleSubmit}>
-              <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
                 <Field label="Patient name (optional)" htmlFor="patient_name">
                   <Input id="patient_name" value={patientName} onChange={(e) => setPatientName(e.target.value)} />
                 </Field>

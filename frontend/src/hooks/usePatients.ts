@@ -10,6 +10,7 @@ export type Patient = {
   mrn: string | null;
   last_visit: string | null;
   visit_count: number;
+  visited_count: number;
 };
 
 async function fetchPatients(search: string) {

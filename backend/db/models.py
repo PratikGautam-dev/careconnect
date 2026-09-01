@@ -93,7 +93,7 @@ _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
-           a.duration_hours
+           a.duration_hours, a.created_at
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -230,6 +230,12 @@ class Appointment:
     # stay length in hours (flows/booking/types/daycare.py's
     # on_booking_confirmed hook). None for every other appointment type.
     duration_hours: int | None = None
+    # When this row was actually booked (distinct from scheduled_at, the
+    # appointment's own time) -- the portal's appointments list shows both,
+    # since a walk-in booked same-day vs. one booked weeks ahead are
+    # different situations. NOT NULL/DB-default since schema.sql's baseline,
+    # so always present.
+    created_at: datetime | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -251,6 +257,7 @@ def _row_to_appointment(row) -> Appointment:
         consent_given_at=row["consent_given_at"],
         video_link=row["video_link"],
         duration_hours=row["duration_hours"],
+        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
     )
 
 

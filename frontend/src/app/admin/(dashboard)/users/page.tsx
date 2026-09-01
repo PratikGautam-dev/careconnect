@@ -24,7 +24,7 @@ function UsersOverview() {
   });
 
   return (
-    <div className="mx-auto max-w-[1000px]">
+    <div>
       <div className="mb-space-5">
         <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Users</h1>
@@ -34,8 +34,8 @@ function UsersOverview() {
         </p>
       </div>
 
-      <div className="mb-space-4 flex items-center gap-space-3">
-        <div className="relative max-w-[320px] flex-1">
+      <div className="mb-space-4 flex flex-col gap-space-2 sm:flex-row sm:items-center sm:gap-space-3">
+        <div className="relative w-full flex-1 sm:max-w-[320px]">
           <Search size={15} className="absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
           <Input
             placeholder="Search by hospital name"
@@ -44,25 +44,27 @@ function UsersOverview() {
             className="pl-9"
           />
         </div>
-        <select
-          value={tierFilter}
-          onChange={(e) => setTierFilter(e.target.value as typeof tierFilter)}
-          className="h-10 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
-        >
-          <option value="">All tiers</option>
-          <option value="tier1">Tier 1</option>
-          <option value="tier2">Tier 2</option>
-          <option value="tier3">Tier 3</option>
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="h-10 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
-        >
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
+        <div className="flex gap-space-2">
+          <select
+            value={tierFilter}
+            onChange={(e) => setTierFilter(e.target.value as typeof tierFilter)}
+            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+          >
+            <option value="">All tiers</option>
+            <option value="tier1">Tier 1</option>
+            <option value="tier2">Tier 2</option>
+            <option value="tier3">Tier 3</option>
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+          >
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
       </div>
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
@@ -72,7 +74,7 @@ function UsersOverview() {
       ) : filtered.length === 0 ? (
         <p className="py-space-4 text-center text-[13px] text-ink-400">No hospitals match this filter.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-space-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-space-3 md:grid-cols-2">
           {filtered.map((h) => (
             <Card
               key={h.id}
@@ -94,7 +96,7 @@ function UsersOverview() {
                   {h.is_active ? "Active" : "Inactive"}
                 </span>
               </div>
-              <div className="flex items-center gap-space-5 border-t border-line pt-space-3">
+              <div className="flex flex-wrap items-center gap-x-space-4 gap-y-space-2 border-t border-line pt-space-3">
                 <div className="flex items-center gap-space-1.5">
                   <UserCog size={14} className="text-ink-400" />
                   <span className="text-[13px] text-ink-700">{h.admin_count} admin{h.admin_count === 1 ? "" : "s"}</span>

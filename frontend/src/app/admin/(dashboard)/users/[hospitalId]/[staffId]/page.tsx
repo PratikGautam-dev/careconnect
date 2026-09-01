@@ -14,7 +14,7 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
   const { staff, error } = useStaffDetail(staffId);
 
   return (
-    <div className="mx-auto max-w-[700px]">
+    <div>
       <Link
         href={`/admin/users/${hospitalId}`}
         className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline"
@@ -28,7 +28,7 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
         <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-5 flex items-start justify-between">
+          <div className="mb-space-5 flex flex-col gap-space-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-eyebrow mb-space-1">{staff.hospital_name}</p>
               <h1 className="text-display">{staff.name}</h1>
@@ -49,7 +49,7 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
           </div>
 
           <Card className="mb-space-4 p-space-5">
-            <div className="grid grid-cols-2 gap-space-4">
+            <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2">
               <Field label="Email">
                 <p className="text-[13.5px] text-ink-900">{staff.email}</p>
               </Field>
@@ -65,7 +65,7 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
               {!staff.doctor_name ? (
                 <p className="text-[13px] text-ink-400">Not linked to a doctor record.</p>
               ) : (
-                <div className="grid grid-cols-2 gap-space-4">
+                <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2">
                   <Field label="Department">
                     <p className="text-[13.5px] text-ink-900">{staff.department_name || "—"}</p>
                   </Field>

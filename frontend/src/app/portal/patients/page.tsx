@@ -37,8 +37,8 @@ export default function PortalPatientsPage() {
         <h1 className="text-display mb-space-5">Patients</h1>
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
-        <div className="mb-space-4 flex items-center justify-between gap-space-4">
-          <div className="relative max-w-[360px] flex-1">
+        <div className="mb-space-4 flex flex-col gap-space-3 sm:flex-row sm:items-center sm:justify-between sm:gap-space-4">
+          <div className="relative w-full flex-1 sm:max-w-[360px]">
             <Search size={15} className="absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
             <Input
               placeholder="Search by name or phone"
@@ -92,7 +92,8 @@ export default function PortalPatientsPage() {
                     <th className="pb-space-2 font-semibold">Name</th>
                     <th className="pb-space-2 font-semibold">Phone</th>
                     <th className="pb-space-2 font-semibold">Last visit</th>
-                    <th className="pb-space-2 font-semibold">Visits</th>
+                    <th className="pb-space-2 font-semibold">Booked</th>
+                    <th className="pb-space-2 font-semibold">Visited</th>
                     <th className="pb-space-2 font-semibold"></th>
                     <th className="pb-space-2 font-semibold"></th>
                   </tr>
@@ -127,6 +128,7 @@ export default function PortalPatientsPage() {
                       <td className="py-space-2 text-ink-600">{p.phone}</td>
                       <td className="py-space-2 text-ink-600">{formatDate(p.last_visit)}</td>
                       <td className="py-space-2 tabular-nums text-ink-600">{p.visit_count}</td>
+                      <td className="py-space-2 tabular-nums text-ink-600">{p.visited_count}</td>
                       <td className="py-space-2 text-right">
                         <span className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-brand-600">
                           View <ChevronRight size={14} />

@@ -11,7 +11,6 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { clearAdminToken, getSuperAdmin } from "@/lib/adminAuth";
 
@@ -37,12 +36,15 @@ type Props = {
 };
 
 export function AdminSidebar({ active, open = false, onClose, collapsed = false, onToggleCollapsed }: Props) {
-  const router = useRouter();
   const superAdmin = getSuperAdmin();
 
   function handleLogout() {
     clearAdminToken();
-    router.push("/admin/tenants");
+    // Hard navigation, not router.push: /admin/tenants stays inside the same
+    // AdminSecretGate-gated layout, and that gate only checks for a token
+    // once on mount -- a client-side push would leave the page rendered as
+    // still logged in until something else happened to force a reload.
+    window.location.href = "/admin/tenants";
   }
 
   return (

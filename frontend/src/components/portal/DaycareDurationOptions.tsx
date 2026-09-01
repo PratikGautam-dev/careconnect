@@ -167,7 +167,7 @@ export function DaycareDurationOptions({ canManage }: { canManage: boolean }) {
                   </Button>
                 </div>
               ) : (
-                <div className="flex items-center justify-between gap-space-3">
+                <div className="flex flex-col gap-space-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-[13.5px] font-semibold text-ink-900">{option.label}</p>
                     <p className="text-[12px] text-ink-600">{option.hours} hour{option.hours === 1 ? "" : "s"}</p>

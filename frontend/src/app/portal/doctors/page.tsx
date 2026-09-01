@@ -119,7 +119,7 @@ export default function PortalDoctorsPage() {
                       const expanded = expandedId === doc.id;
                       return (
                         <li key={doc.id} className="py-space-3">
-                          <div className="flex items-center justify-between gap-space-3">
+                          <div className="flex flex-col gap-space-2 sm:flex-row sm:items-center sm:justify-between">
                             <div className="flex items-center gap-space-3">
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[13px] font-bold text-brand-700">
                                 {doc.name.trim().charAt(0).toUpperCase() || "?"}

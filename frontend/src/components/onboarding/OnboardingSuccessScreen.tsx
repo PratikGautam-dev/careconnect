@@ -11,7 +11,7 @@ const TIER_NOTES: Record<string, string> = {
 
 export function OnboardingSuccessScreen({ result }: { result: OnboardingSuccess }) {
   return (
-    <div className="mx-auto max-w-[640px] px-space-4 py-space-9">
+    <div className="px-space-4 py-space-9">
       <Card className="p-space-7 text-center">
         <div className="mx-auto mb-space-4 flex h-14 w-14 items-center justify-center rounded-full bg-success-tint text-success">
           <CheckCircle2 size={28} strokeWidth={2} />

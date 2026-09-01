@@ -134,6 +134,13 @@
 
   --font-display: var(--font-display);
   --font-body: var(--font-body);
+
+  /* --- Mobile-first breakpoint scale: real phones start at 320px, and
+     370px is where most modern phones (iPhone SE excepted) sit, so sm:
+     covers "small phone and up" rather than Tailwind's default tablet
+     cutoff. md/lg/xl/2xl are left at Tailwind's built-in defaults. --- */
+  --breakpoint-xs: 320px;
+  --breakpoint-sm: 370px;
 }
 
 /* ==========================================================================

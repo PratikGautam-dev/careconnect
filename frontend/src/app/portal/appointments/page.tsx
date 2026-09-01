@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import { CalendarClock, Plus, Search, Send, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -37,15 +38,32 @@ export default function PortalAppointmentsPage() {
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
     deletingId, handleDelete,
+    selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
+    pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,
   } = useAppointments(ready);
 
   return (
     <PortalShell hospital={hospital} active="appointments">
         <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
           <h1 className="text-display">Appointments</h1>
-          <Button href="/portal/new-booking">
-            <Plus size={15} /> New booking
-          </Button>
+          <div className="flex items-center gap-space-2">
+            {selectedAppointments.length > 0 && (
+              <PermissionGate page="appointments" action="delete">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  className="border-error/30 text-error hover:border-error hover:bg-error/10"
+                  onClick={() => setPendingDelete(selectedAppointments)}
+                >
+                  <Trash2 size={15} />
+                  Delete selected ({selectedAppointments.length})
+                </Button>
+              </PermissionGate>
+            )}
+            <Button href="/portal/new-booking">
+              <Plus size={15} /> New booking
+            </Button>
+          </div>
         </div>
 
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
@@ -109,7 +127,20 @@ export default function PortalAppointmentsPage() {
               <table className="w-full text-left text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
-                    <th className="pb-space-2 font-semibold">Time</th>
+                    <th className="w-8 pb-space-2 font-semibold">
+                      <PermissionGate page="appointments" action="delete">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={(e) => toggleSelectAll(e.target.checked)}
+                          disabled={deletableAppointments.length === 0}
+                          className="h-4 w-4 accent-brand-600"
+                          aria-label="Select all deletable appointments"
+                        />
+                      </PermissionGate>
+                    </th>
+                    <th className="pb-space-2 font-semibold">Appointment time</th>
+                    <th className="pb-space-2 font-semibold">Booked</th>
                     <th className="pb-space-2 font-semibold">Reference</th>
                     <th className="pb-space-2 font-semibold">Patient</th>
                     <th className="pb-space-2 font-semibold">Doctor</th>
@@ -125,7 +156,23 @@ export default function PortalAppointmentsPage() {
                   {(filteredAppointments || []).map((a) => (
                     <Fragment key={a.id}>
                       <tr className={cn("border-b border-line last:border-0", (cancelPanelId === a.id || reschedulePanelId === a.id) && "border-b-0")}>
+                        <td className="py-space-2" onClick={(e) => e.stopPropagation()}>
+                          {a.status !== "booked" && (
+                            <PermissionGate page="appointments" action="delete">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(a.id)}
+                                onChange={(e) => toggleSelected(a.id, e.target.checked)}
+                                className="h-4 w-4 accent-brand-600"
+                                aria-label={`Select appointment ${a.reference_id || a.id}`}
+                              />
+                            </PermissionGate>
+                          )}
+                        </td>
                         <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(a.scheduled_at)}</td>
+                        <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-400">
+                          {a.created_at ? formatShortDateTime(a.created_at) : "—"}
+                        </td>
                         <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">{a.reference_id || "—"}</td>
                         <td className="py-space-2 text-ink-900">
                           <div>{a.phone}</div>
@@ -238,9 +285,9 @@ export default function PortalAppointmentsPage() {
                       </tr>
                       {reschedulePanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={10} className="pb-space-3">
+                          <td colSpan={12} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
-                              <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 sm:grid-cols-2">
+                              <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 md:grid-cols-2">
                                 <div>
                                   <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Department</label>
                                   <select
@@ -355,7 +402,7 @@ export default function PortalAppointmentsPage() {
                       )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={10} className="pb-space-3">
+                          <td colSpan={12} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
                                 Message to send {a.phone} on WhatsApp
@@ -391,6 +438,23 @@ export default function PortalAppointmentsPage() {
             </div>
           )}
         </Card>
+
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          title={pendingDelete && pendingDelete.length > 1 ? `Delete ${pendingDelete.length} appointments?` : "Delete appointment?"}
+          message={
+            pendingDelete
+              ? `This will permanently delete ${
+                  pendingDelete.length > 1 ? `${pendingDelete.length} appointment records` : `the ${pendingDelete[0].reference_id || "selected"} appointment`
+                }. This action is irreversible.`
+              : ""
+          }
+          confirmLabel="Delete"
+          destructive
+          busy={bulkDeleting}
+          onConfirm={() => pendingDelete && runBulkDelete(pendingDelete)}
+          onCancel={() => setPendingDelete(null)}
+        />
     </PortalShell>
   );
 }

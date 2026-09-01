@@ -14,8 +14,8 @@ function TenantsList() {
   const { tenants, stalledSignups, error } = useTenants();
 
   return (
-    <div className="mx-auto max-w-[1000px]">
-      <div className="mb-space-5 flex items-center justify-between">
+    <div>
+      <div className="mb-space-5 flex flex-col items-start gap-space-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">All tenants</h1>
@@ -35,7 +35,7 @@ function TenantsList() {
         ) : (
           <ul className="divide-y divide-line">
             {tenants.map((t) => (
-              <li key={t.id} className="flex items-center justify-between py-space-3">
+              <li key={t.id} className="flex flex-col gap-space-2 py-space-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-[13.5px] font-semibold text-ink-900">{t.name}</p>
                   <p className="text-[12px] text-ink-600">
@@ -81,7 +81,7 @@ function TenantsList() {
         ) : (
           <ul className="divide-y divide-line">
             {stalledSignups.map((u) => (
-              <li key={u.id} className="flex items-center justify-between py-space-3">
+              <li key={u.id} className="flex flex-col gap-space-1 py-space-3 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
                 <div>
                   <p className="text-[13.5px] font-semibold text-ink-900">{u.name || u.email}</p>
                   {u.name && <p className="text-[12px] text-ink-600">{u.email}</p>}

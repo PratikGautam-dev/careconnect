@@ -19,7 +19,7 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
   const { staff, hospitalName, error } = useHospitalStaff(hospitalId, search, roleFilter, activeFilter);
 
   return (
-    <div className="mx-auto max-w-[1000px]">
+    <div>
       <Link href="/admin/users" className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline">
         ← All hospitals
       </Link>
@@ -32,8 +32,8 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
         </p>
       </div>
 
-      <div className="mb-space-4 flex items-center gap-space-3">
-        <div className="relative max-w-[320px] flex-1">
+      <div className="mb-space-4 flex flex-col gap-space-2 sm:flex-row sm:items-center sm:gap-space-3">
+        <div className="relative w-full flex-1 sm:max-w-[320px]">
           <Search size={15} className="absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
           <Input
             placeholder="Search by name or email"
@@ -42,25 +42,27 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
             className="pl-9"
           />
         </div>
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
-          className="h-10 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
-        >
-          <option value="">All roles</option>
-          <option value="admin">Admin</option>
-          <option value="receptionist">Receptionist</option>
-          <option value="doctor">Doctor</option>
-        </select>
-        <select
-          value={activeFilter}
-          onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
-          className="h-10 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
-        >
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
+        <div className="flex gap-space-2">
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
+            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+          >
+            <option value="">All roles</option>
+            <option value="admin">Admin</option>
+            <option value="receptionist">Receptionist</option>
+            <option value="doctor">Doctor</option>
+          </select>
+          <select
+            value={activeFilter}
+            onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
+            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+          >
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
       </div>
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
@@ -76,7 +78,7 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
               <li
                 key={s.id}
                 onClick={() => router.push(`/admin/users/${hospitalId}/${s.id}`)}
-                className="flex cursor-pointer items-center justify-between py-space-3 hover:bg-black/[0.02]"
+                className="flex cursor-pointer flex-col gap-space-2 py-space-3 hover:bg-black/[0.02] sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
                   <p className="text-[13.5px] font-semibold text-ink-900">{s.name}</p>

@@ -17,6 +17,7 @@ export type Appointment = {
   patient_display_id: string | null;
   appointment_type_id: string | null;
   video_link: string | null;
+  created_at: string | null;
 };
 
 export type Department = { id: string; name: string };
@@ -68,6 +69,9 @@ export function useAppointments(ready: boolean) {
   const [rSlotId, setRSlotId] = useState("");
   const [markingAttendanceId, setMarkingAttendanceId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<Appointment[] | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Item 2 (Spec.md Section 0): search (patient phone / doctor / department
   // name) + status filter -- computed client-side, same reasoning the
@@ -149,6 +153,49 @@ export function useAppointments(ready: boolean) {
     if (result.ok) load();
   }
 
+  // Bulk select + delete, same shape as usePatients' row checkboxes + "Delete
+  // selected" action -- restricted to non-'booked' rows since that's the same
+  // guard the single-row delete button (and the backend) already enforces;
+  // a 'booked' appointment can't be selected at all rather than silently
+  // failing once "Delete selected" is clicked.
+  const toggleSelected = (id: number, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const deletableAppointments = (filteredAppointments ?? appointments ?? []).filter((a) => a.status !== "booked");
+
+  const toggleSelectAll = (checked: boolean) => {
+    setSelected(checked ? new Set(deletableAppointments.map((a) => a.id)) : new Set());
+  };
+
+  const runBulkDelete = async (targets: Appointment[]) => {
+    setBulkDeleting(true);
+    const result = await portalFetch("/api/portal/bookings/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appointment_ids: targets.map((a) => a.id) }),
+    });
+    setBulkDeleting(false);
+    setPendingDelete(null);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setError(result.error);
+      return;
+    }
+    const deletedIds = new Set((result.data as { deleted: number[] }).deleted);
+    setAppointments((prev) => (prev ? prev.filter((a) => !deletedIds.has(a.id)) : prev));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      deletedIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
+
   function openCancelPanel(id: number) {
     setReschedulePanelId(null);
     setCancelPanelId(id);
@@ -224,6 +271,9 @@ export function useAppointments(ready: boolean) {
   const rDatesForDoctor = rDoctorId && rescheduleCtx ? Object.keys(rescheduleCtx.slots_by_doctor[rDoctorId] || {}).sort() : [];
   const rSlotsForDate = rDoctorId && rDate && rescheduleCtx ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] || [] : [];
 
+  const selectedAppointments = deletableAppointments.filter((a) => selected.has(a.id));
+  const allSelected = deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
+
   return {
     appointments, error, filteredAppointments, typeCounts,
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
@@ -234,5 +284,7 @@ export function useAppointments(ready: boolean) {
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
     deletingId, handleDelete,
+    selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
+    pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,
   };
 }

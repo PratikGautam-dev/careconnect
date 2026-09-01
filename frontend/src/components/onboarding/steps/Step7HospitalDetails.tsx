@@ -39,7 +39,7 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
       <p className="text-body mb-space-4">{desc}</p>
 
       <Field label="Type of practice">
-        <div className="grid grid-cols-1 gap-space-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-space-3 md:grid-cols-2">
           {TENANT_TYPE_OPTIONS.map(({ value, label, description, icon: Icon }) => {
             const selected = state.tenantType === value;
             return (
@@ -95,7 +95,7 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
 
       {bookingEnabled && (
         <>
-          <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
             <Field
               label="Reminder offsets (comma-separated hours)"
               htmlFor="reminder_offsets"

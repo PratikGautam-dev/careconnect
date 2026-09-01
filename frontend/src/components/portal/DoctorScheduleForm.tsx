@@ -110,7 +110,7 @@ export function DoctorScheduleForm({ departments, value, onChange, onSave, onCan
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[20px] font-bold text-brand-700">
             {initial}
           </div>
-          <div className="grid grid-cols-1 gap-space-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-space-2 md:grid-cols-2">
             <Input placeholder="Doctor name" value={value.name} onChange={(e) => set("name", e.target.value)} />
             <Input
               placeholder="Specialization"
@@ -131,7 +131,7 @@ export function DoctorScheduleForm({ departments, value, onChange, onSave, onCan
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-3">
         <Field label="Department" htmlFor="doctor_department" required>
           <select
             id="doctor_department"
@@ -229,7 +229,7 @@ export function DoctorScheduleForm({ departments, value, onChange, onSave, onCan
         </div>
       </Field>
 
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-3">
         <Field label="Slot duration" htmlFor="slot_duration" hint="minutes">
           <Input id="slot_duration" type="number" min={1} value={value.slot_duration_minutes} onChange={(e) => set("slot_duration_minutes", e.target.value)} />
         </Field>

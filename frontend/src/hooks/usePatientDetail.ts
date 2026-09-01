@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import { TYPE_LABELS } from "@/hooks/useAppointments";
+
+function visitTypeBucket(v: { appointment_type_id: string | null }) {
+  return v.appointment_type_id && v.appointment_type_id in TYPE_LABELS ? v.appointment_type_id : "other";
+}
 
 export type Patient = {
   id: number;
@@ -24,6 +29,10 @@ export type Visit = {
   scheduled_at: string;
   status: string;
   source: string;
+  reference_id: string | null;
+  appointment_type_id: string | null;
+  video_link: string | null;
+  created_at: string | null;
 };
 
 export type Note = {
@@ -67,6 +76,15 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   const [expandedVisit, setExpandedVisit] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
   const [savingNote, setSavingNote] = useState<number | null>(null);
+
+  // Visit history filters -- same shape as the main /portal/appointments
+  // table (search + status + type), plus a time filter this scoped-to-one-
+  // patient view adds on top since "upcoming vs past" is the natural first
+  // question for a single patient's history.
+  const [visitSearch, setVisitSearch] = useState("");
+  const [visitTimeFilter, setVisitTimeFilter] = useState<"all" | "upcoming" | "past">("all");
+  const [visitStatusFilter, setVisitStatusFilter] = useState("all");
+  const [visitTypeFilter, setVisitTypeFilter] = useState("all");
 
   const [generalNoteDraft, setGeneralNoteDraft] = useState("");
   const [savingGeneralNote, setSavingGeneralNote] = useState(false);
@@ -169,11 +187,51 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     }
   }
 
+  const visitTypeCounts = useMemo(() => {
+    const visits = data?.visit_history ?? [];
+    const counts: Record<string, number> = { all: visits.length };
+    for (const v of visits) {
+      const bucket = visitTypeBucket(v);
+      counts[bucket] = (counts[bucket] || 0) + 1;
+    }
+    return counts;
+  }, [data]);
+
+  // Snapshotted on load (not Date.now() inline in the memo below, which
+  // would call an impure function during render) -- close enough for an
+  // upcoming/past split on a page that isn't left open for hours.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    if (data) setNow(Date.now());
+  }, [data]);
+
+  const filteredVisits = useMemo(() => {
+    const visits = data?.visit_history ?? [];
+    const q = visitSearch.trim().toLowerCase();
+    return visits.filter((v) => {
+      if (now !== null) {
+        if (visitTimeFilter === "upcoming" && new Date(v.scheduled_at).getTime() < now) return false;
+        if (visitTimeFilter === "past" && new Date(v.scheduled_at).getTime() >= now) return false;
+      }
+      if (visitTypeFilter !== "all" && visitTypeBucket(v) !== visitTypeFilter) return false;
+      if (visitStatusFilter !== "all" && v.status !== visitStatusFilter) return false;
+      if (!q) return true;
+      return (
+        v.doctor_name.toLowerCase().includes(q) ||
+        v.department_name.toLowerCase().includes(q) ||
+        (v.reference_id || "").toLowerCase().includes(q)
+      );
+    });
+  }, [data, visitSearch, visitTimeFilter, visitStatusFilter, visitTypeFilter, now]);
+
   return {
     data, error,
     dob, setDob, gender, setGender, address, setAddress, savingDemographics, handleSaveDemographics,
     savingStatus, handleSetStatus,
     expandedVisit, setExpandedVisit, noteDraft, setNoteDraft, savingNote,
+    visitSearch, setVisitSearch, visitTimeFilter, setVisitTimeFilter,
+    visitStatusFilter, setVisitStatusFilter, visitTypeFilter, setVisitTypeFilter,
+    visitTypeCounts, filteredVisits,
     generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
     handleAddNote,
     fileInputRef, uploading, handleUpload,

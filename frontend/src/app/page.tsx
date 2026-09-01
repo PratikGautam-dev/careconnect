@@ -33,7 +33,7 @@ export default function LandingPage() {
     <>
     {/* Top nav: brand mark left, hospital login as a real button top-right
         -- previously just a small text link buried under the hero CTAs. */}
-    <header className="mx-auto flex max-w-[1440px] items-center justify-between px-space-4 py-space-4 md:px-space-7 lg:px-space-9">
+    <header className="flex flex-wrap items-center justify-between gap-space-3 px-space-4 py-space-4 md:px-space-7 lg:px-space-9">
       <a href="/" aria-label="CareConnect home">
         <BrandMark size="sm" />
       </a>
@@ -61,10 +61,10 @@ export default function LandingPage() {
           up over the copy without hiding the image entirely. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-br from-paper via-paper/75 to-paper/10 sm:from-paper/95 sm:via-paper/55 sm:to-transparent"
+        className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-br from-paper via-paper/75 to-paper/10 md:from-paper/95 md:via-paper/55 md:to-transparent"
       />
 
-      <div className="mx-auto max-w-[1440px] px-space-4 pt-space-2 pb-space-8 sm:pt-space-4 md:px-space-7 lg:px-space-9 lg:pt-space-5 lg:pb-space-9">
+      <div className="px-space-4 pt-space-2 pb-space-8 sm:pt-space-4 md:px-space-7 lg:px-space-9 lg:pt-space-5 lg:pb-space-9">
         <div className="grid grid-cols-1 items-center gap-space-7 lg:grid-cols-[1.15fr_0.85fr] lg:gap-space-9">
           <div>
             {/* Tagline */}
@@ -124,8 +124,8 @@ export default function LandingPage() {
     </main>
 
     <footer className="border-t border-line bg-paper">
-      <div className="mx-auto max-w-[1440px] px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
-        <div className="flex flex-col gap-space-6 sm:flex-row sm:justify-between">
+      <div className="px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
+        <div className="flex flex-col gap-space-6 md:flex-row md:justify-between">
           <div className="max-w-[320px]">
             <BrandMark size="sm" />
             <p className="mt-space-3 text-[13px] text-ink-600">
@@ -134,7 +134,7 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-space-6 sm:flex sm:gap-space-9">
+          <div className="grid grid-cols-2 gap-space-6 md:flex md:gap-space-9">
             <div>
               <p className="text-eyebrow mb-space-2">Product</p>
               <ul className="space-y-space-2 text-[13.5px] text-ink-600">

@@ -230,7 +230,7 @@ export default function PortalSettingsPage() {
             <ul className="divide-y divide-line">
               {auditEntries.map((entry) => (
                 <li key={entry.id} className="py-space-2 text-[12.5px]">
-                  <div className="flex items-center justify-between gap-space-3">
+                  <div className="flex flex-wrap items-center justify-between gap-space-3">
                     <span className="font-medium text-ink-900">{entry.action}</span>
                     <span className="shrink-0 text-ink-400">{entry.created_at}</span>
                   </div>
