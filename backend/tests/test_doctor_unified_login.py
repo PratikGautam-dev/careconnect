@@ -150,3 +150,54 @@ def test_unified_login_doctor_cannot_authenticate_against_shared_staff_portal_ro
     assert resp.status_code == 200
     doctor_ids_seen = {db.get_appointment(hospital_id, a["id"]).doctor_id for a in resp.json()["appointments"]}
     assert doctor_ids_seen == {doctor_id}
+
+
+# --- Doctor-portal follow-up (Spec.md Section 0): the sidebar redesign
+# added a real Dashboard, a full Appointments list, and a Patients list to
+# the doctor portal, matching the shared staff portal's own shape. These
+# three new endpoints get the same isolation proof as every other
+# /api/doctor/* route above: a doctor never sees another doctor's numbers,
+# appointments, or patients, regardless of which is asked for. ---
+
+def test_doctor_dashboard_stats_are_scoped_to_this_doctor_only(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Dash A", "dash.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Dash B", "dash.b@example.com", "pwB")
+    _book(hospital_id, doctor_a, "5490008881")
+    _book(hospital_id, doctor_b, "5490008882")
+    _book(hospital_id, doctor_b, "5490008883")
+
+    token_a = _staff_login("dash.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/dashboard", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["doctor"]["id"] == doctor_a
+    assert body["stats"]["today_appointments"] == 1  # not 3 (A's own + both of B's)
+    assert len(body["today_appointments"]) == 1
+
+
+def test_doctor_appointments_list_only_shows_this_doctors_own(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. List A", "list.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. List B", "list.b@example.com", "pwB")
+    appt_a = _book(hospital_id, doctor_a, "5490008884")
+    appt_b = _book(hospital_id, doctor_b, "5490008885")
+
+    token_a = _staff_login("list.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/appointments", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    ids = {a["id"] for a in resp.json()["appointments"]}
+    assert appt_a in ids
+    assert appt_b not in ids
+
+
+def test_doctor_patients_list_only_shows_patients_seen_by_this_doctor(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Pat A", "pat.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Pat B", "pat.b@example.com", "pwB")
+    _book(hospital_id, doctor_a, "5490008886")
+    _book(hospital_id, doctor_b, "5490008887")
+
+    token_a = _staff_login("pat.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/patients", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    phones = {p["phone"] for p in resp.json()["patients"]}
+    assert "5490008886" in phones
+    assert "5490008887" not in phones

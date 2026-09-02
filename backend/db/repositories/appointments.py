@@ -532,6 +532,24 @@ def get_doctor_appointments_today(hospital_id: int, doctor_id: str, now: datetim
     return [_row_to_appointment(r._mapping) for r in rows]
 
 
+def get_doctor_appointments(hospital_id: int, doctor_id: str, limit: int = 500) -> list[Appointment]:
+    """Doctor-portal follow-up: this doctor's own full appointment history
+    (any status, any date -- not just today), most recent first. The
+    /doctor/appointments page's list, same "every appointment this scope
+    owns" shape get_all_appointments_for_hospital() gives the shared staff
+    portal, just doctor_id-scoped instead of hospital-wide -- doctor_id
+    comes from the caller's own verified token (portal/routes/
+    doctor_portal.py's _require_doctor()), never a request parameter."""
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id)
+        .order_by(AppointmentRow.scheduled_at.desc())
+        .limit(limit)
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
 def mark_reminded(hospital_id: int, appointment_id: int, offset_hours: float) -> None:
     """Records that this offset's reminder was sent. ON CONFLICT DO NOTHING
     makes calling this twice for the same offset a safe no-op."""

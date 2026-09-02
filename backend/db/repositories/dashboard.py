@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import aliased
 
 from db.connection import get_session
-from db.models import STATUS_BOOKED, STATUS_CANCELLED, STATUS_RESCHEDULED
+from db.models import STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED
 from db.orm_models import AppointmentRow, Department, DoctorRow
 
 # --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
@@ -115,6 +115,41 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
         # real booking just came in reads as broken. No delta_pct: a plain
         # forward-looking count, not a daily rate, so a week-over-week
         # comparison doesn't mean the same thing here.
+        "upcoming_appointments": upcoming_count,
+    }
+
+
+def get_doctor_dashboard_stats(hospital_id: int, doctor_id: str, now: datetime | None = None) -> dict:
+    """Doctor-portal follow-up: a deliberately smaller stat set than
+    get_dashboard_stats() above -- a single doctor's own day doesn't need
+    week-over-week deltas or a department breakdown (they mostly work one
+    department already), just today's own numbers plus a forward-looking
+    upcoming count, same "no delta_pct, a plain count means something
+    different" reasoning get_dashboard_stats() itself documents for its own
+    upcoming_appointments field."""
+    now = now or datetime.now()
+    day_start = datetime.combine(now.date(), datetime.min.time()).isoformat()
+    day_end = datetime.combine(now.date(), datetime.max.time()).isoformat()
+    session = get_session()
+    today_statuses = [
+        r[0] for r in session.execute(
+            select(AppointmentRow.status).where(
+                AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+                AppointmentRow.scheduled_at >= day_start, AppointmentRow.scheduled_at <= day_end,
+            )
+        ).all()
+    ]
+    upcoming_count = session.execute(
+        select(func.count()).where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.status == STATUS_BOOKED, AppointmentRow.scheduled_at >= now.isoformat(),
+        )
+    ).scalar_one()
+    return {
+        "today_appointments": len(today_statuses),
+        "confirmed_today": sum(1 for s in today_statuses if s == STATUS_BOOKED),
+        "attended_today": sum(1 for s in today_statuses if s == STATUS_ATTENDED),
+        "no_shows_today": sum(1 for s in today_statuses if s == STATUS_NO_SHOW),
         "upcoming_appointments": upcoming_count,
     }
 

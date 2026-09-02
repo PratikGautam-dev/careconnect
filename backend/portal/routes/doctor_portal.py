@@ -74,6 +74,57 @@ async def doctor_appointments_today(authorization: str | None = Header(default=N
     return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
 
 
+@router.get("/api/doctor/dashboard")
+async def doctor_dashboard(authorization: str | None = Header(default=None)):
+    """Doctor-portal follow-up: a smaller, doctor-scoped counterpart to
+    /api/portal/dashboard -- same visual language (StatTile cards) on the
+    frontend, but every number here is this doctor's own, never
+    hospital-wide."""
+    ctx, err = _require_doctor(authorization)
+    if err:
+        return err
+    hospital, doctor_id = ctx
+    doctor = db.get_doctor_full(hospital.id, doctor_id)
+    if doctor is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    stats = db.get_doctor_dashboard_stats(hospital.id, doctor_id)
+    today = db.get_doctor_appointments_today(hospital.id, doctor_id)
+    return JSONResponse({
+        "doctor": doctor,
+        "hospital": {"id": hospital.id, "name": hospital.name},
+        "stats": stats,
+        "today_appointments": [_appointment_json(a) for a in today],
+    })
+
+
+@router.get("/api/doctor/appointments")
+async def doctor_appointments_list(authorization: str | None = Header(default=None)):
+    """Doctor-portal follow-up: this doctor's full appointment history (any
+    status, any date), not just today -- the /doctor/appointments page's
+    list, mirroring the shared /portal/appointments page's shape but
+    doctor_id-scoped instead of hospital-wide."""
+    ctx, err = _require_doctor(authorization)
+    if err:
+        return err
+    hospital, doctor_id = ctx
+    appointments = db.get_doctor_appointments(hospital.id, doctor_id)
+    return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+
+
+@router.get("/api/doctor/patients")
+async def doctor_patients_list(authorization: str | None = Header(default=None)):
+    """Doctor-portal follow-up: only patients this doctor has actually seen
+    -- see db.get_patients_for_doctor()'s own docstring for why this is a
+    dedicated, doctor_id-scoped query rather than the shared patients
+    directory with a filter bolted on."""
+    ctx, err = _require_doctor(authorization)
+    if err:
+        return err
+    hospital, doctor_id = ctx
+    patients = db.get_patients_for_doctor(hospital.id, doctor_id)
+    return JSONResponse({"patients": patients})
+
+
 def _owned_appointment_or_error(hospital_id: int, doctor_id: str, appointment_id: int):
     """Every route below that touches ONE specific appointment (attendance,
     video link, visit notes) must check the appointment actually belongs to
