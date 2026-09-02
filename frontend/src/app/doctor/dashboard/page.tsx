@@ -6,9 +6,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/portal/StatTile";
+import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { DoctorShell } from "@/components/doctor/DoctorShell";
+import { StatusDonut } from "@/components/doctor/StatusDonut";
 import { useDoctorGuard } from "@/components/doctor/useDoctorGuard";
 import { cn } from "@/lib/cn";
+import { formatShortDateTime } from "@/lib/formatDate";
 import { staffFetch } from "@/lib/staffAuth";
 
 type Appointment = {
@@ -17,6 +20,7 @@ type Appointment = {
   department_name: string;
   scheduled_at: string;
   status: string;
+  reference_id: string | null;
   patient_display_id: string | null;
   appointment_type_id: string | null;
   video_link: string | null;
@@ -31,6 +35,9 @@ type DashboardData = {
     upcoming_appointments: number;
   };
   today_appointments: Appointment[];
+  weekly_counts: { date: string; label: string; count: number }[];
+  status_breakdown: { status: string; count: number }[];
+  recent_appointments: Appointment[];
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -99,13 +106,18 @@ export default function DoctorDashboardPage() {
             <StatTile label="No-shows today" value={data.stats.no_shows_today} deltaPct={null} hint="" upIsGood={false} />
           </div>
 
+          <div className="mb-space-5 grid grid-cols-1 gap-space-4 lg:grid-cols-2">
+            <WeeklyTrendChart data={data.weekly_counts} />
+            <StatusDonut data={data.status_breakdown} />
+          </div>
+
           <h2 className="mb-space-3 text-[15px] font-bold text-ink-900">Today&apos;s appointments</h2>
           {data.today_appointments.length === 0 ? (
-            <Card className="p-space-6 text-center">
+            <Card className="mb-space-5 p-space-6 text-center">
               <p className="text-body">Nothing scheduled for today.</p>
             </Card>
           ) : (
-            <div className="space-y-space-2">
+            <div className="mb-space-5 space-y-space-2">
               {data.today_appointments.map((a) => (
                 <Link key={a.id} href={`/doctor/appointments/${a.id}`}>
                   <Card elevation="interactive" className="flex items-center gap-space-4 p-space-4">
@@ -134,6 +146,47 @@ export default function DoctorDashboardPage() {
                 </Link>
               ))}
             </div>
+          )}
+
+          <h2 className="mb-space-3 text-[15px] font-bold text-ink-900">Recent appointments</h2>
+          {data.recent_appointments.length === 0 ? (
+            <Card className="p-space-6 text-center">
+              <p className="text-body">No appointments yet.</p>
+            </Card>
+          ) : (
+            <Card className="overflow-x-auto p-0">
+              <table className="w-full text-[13.5px]">
+                <thead>
+                  <tr className="border-b border-line text-left text-label text-ink-400">
+                    <th className="px-space-4 py-space-3 font-medium">Date &amp; time</th>
+                    <th className="px-space-4 py-space-3 font-medium">Patient</th>
+                    <th className="px-space-4 py-space-3 font-medium">Reference</th>
+                    <th className="px-space-4 py-space-3 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recent_appointments.map((a) => (
+                    <tr key={a.id} className="border-b border-line last:border-0">
+                      <td className="px-space-4 py-space-3 text-ink-600">{formatShortDateTime(a.scheduled_at)}</td>
+                      <td className="px-space-4 py-space-3 font-semibold text-ink-900">
+                        {a.patient_display_id || a.phone}
+                      </td>
+                      <td className="px-space-4 py-space-3 text-ink-600">{a.reference_id || "—"}</td>
+                      <td className="px-space-4 py-space-3">
+                        <span
+                          className={cn(
+                            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+                            STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
+                          )}
+                        >
+                          {STATUS_LABELS[a.status] || a.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
           )}
         </>
       )}

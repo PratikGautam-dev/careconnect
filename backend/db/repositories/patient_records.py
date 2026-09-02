@@ -75,6 +75,30 @@ def get_patient_visit_notes(hospital_id: int, patient_id: int) -> list[dict]:
     return [dict(r._mapping) for r in rows]
 
 
+def get_patient_visit_notes_by_doctor(hospital_id: int, patient_id: int, doctor_id: str) -> list[dict]:
+    """Doctor-portal follow-up: the /doctor/patients/[id] page's own note
+    history -- only notes THIS doctor wrote (PatientVisitNote.doctor_id is
+    set on every note added via /api/doctor/appointments/{id}/notes), not
+    every note any staff member has ever added for this patient. Same
+    "personalised, not just filtered" scoping the rest of the doctor
+    portal already applies to appointments/patients."""
+    session = get_session()
+    rows = session.execute(
+        select(
+            PatientVisitNote.id, PatientVisitNote.patient_id, PatientVisitNote.appointment_id,
+            PatientVisitNote.doctor_id, DoctorRow.name.label("doctor_name"),
+            PatientVisitNote.note_text, PatientVisitNote.created_at, PatientVisitNote.created_by_session_id,
+        )
+        .outerjoin(DoctorRow, DoctorRow.id == PatientVisitNote.doctor_id)
+        .where(
+            PatientVisitNote.hospital_id == hospital_id, PatientVisitNote.patient_id == patient_id,
+            PatientVisitNote.doctor_id == doctor_id,
+        )
+        .order_by(PatientVisitNote.created_at.desc())
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
 def create_patient_document(
     hospital_id: int, patient_id: int, file_name: str, file_url: str,
     appointment_id: int | None = None, uploaded_by_session_id: str | None = None,

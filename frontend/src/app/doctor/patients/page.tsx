@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -88,6 +89,7 @@ export default function DoctorPatientsPage() {
                 <th className="px-space-4 py-space-3 font-medium">Patient ID</th>
                 <th className="px-space-4 py-space-3 font-medium">Last visit (with me)</th>
                 <th className="px-space-4 py-space-3 font-medium">Visits</th>
+                <th className="px-space-4 py-space-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -99,6 +101,11 @@ export default function DoctorPatientsPage() {
                   <td className="px-space-4 py-space-3 text-ink-600">{formatDate(p.last_visit)}</td>
                   <td className="px-space-4 py-space-3 tabular-nums text-ink-600">
                     {p.visited_count}/{p.visit_count}
+                  </td>
+                  <td className="px-space-4 py-space-3 text-right">
+                    <Link href={`/doctor/patients/${p.id}`} className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+                      View
+                    </Link>
                   </td>
                 </tr>
               ))}
