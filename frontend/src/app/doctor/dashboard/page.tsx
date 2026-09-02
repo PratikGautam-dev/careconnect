@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
+import { AppointmentCalendar } from "@/components/doctor/AppointmentCalendar";
 import { DoctorShell } from "@/components/doctor/DoctorShell";
-import { StatusDonut } from "@/components/doctor/StatusDonut";
 import { useDoctorGuard } from "@/components/doctor/useDoctorGuard";
 import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
@@ -36,7 +36,6 @@ type DashboardData = {
   };
   today_appointments: Appointment[];
   weekly_counts: { date: string; label: string; count: number }[];
-  status_breakdown: { status: string; count: number }[];
   recent_appointments: Appointment[];
 };
 
@@ -108,7 +107,7 @@ export default function DoctorDashboardPage() {
 
           <div className="mb-space-5 grid grid-cols-1 gap-space-4 lg:grid-cols-2">
             <WeeklyTrendChart data={data.weekly_counts} />
-            <StatusDonut data={data.status_breakdown} />
+            <AppointmentCalendar />
           </div>
 
           <h2 className="mb-space-3 text-[15px] font-bold text-ink-900">Today&apos;s appointments</h2>

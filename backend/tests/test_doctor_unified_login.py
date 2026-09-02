@@ -235,7 +235,7 @@ def test_doctor_patients_list_only_shows_patients_seen_by_this_doctor(hospital_i
 # --- Doctor-portal follow-up: dashboard trend/donut, the patient-detail
 # page, and the "running late" bulk-delay feature. ---
 
-def test_doctor_dashboard_weekly_and_status_breakdown_are_scoped(hospital_id):
+def test_doctor_dashboard_weekly_counts_and_recent_are_scoped(hospital_id):
     doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Trend A", "trend.a@example.com", "pwA")
     doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Trend B", "trend.b@example.com", "pwB")
     appt_a = _book(hospital_id, doctor_a, "5490009991")
@@ -247,9 +247,31 @@ def test_doctor_dashboard_weekly_and_status_breakdown_are_scoped(hospital_id):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert sum(p["count"] for p in body["weekly_counts"]) == 1  # only A's own booking
-    statuses = {s["status"]: s["count"] for s in body["status_breakdown"]}
-    assert statuses == {"attended": 1}
     assert len(body["recent_appointments"]) == 1
+
+
+def test_doctor_appointments_calendar_is_scoped_to_this_doctor_and_month(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Cal A", "cal.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Cal B", "cal.b@example.com", "pwB")
+    appt_a = _book(hospital_id, doctor_a, "5490009995")
+    _book(hospital_id, doctor_b, "5490009996")
+
+    token_a = _staff_login("cal.a@example.com", "pwA")["access_token"]
+    now = datetime.now()
+    resp = client.get(
+        f"/api/doctor/appointments/calendar?year={now.year}&month={now.month}", headers=_auth(token_a),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [a["id"] for a in body["appointments"]] == [appt_a]
+
+    # A different month has nothing for this doctor.
+    other_month = 1 if now.month != 1 else 2
+    resp = client.get(
+        f"/api/doctor/appointments/calendar?year={now.year}&month={other_month}", headers=_auth(token_a),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["appointments"] == []
 
 
 def test_doctor_patient_detail_requires_this_doctor_to_have_actually_seen_them(hospital_id):

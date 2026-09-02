@@ -592,24 +592,28 @@ def get_doctor_weekly_appointment_counts(hospital_id: int, doctor_id: str, now: 
     return points
 
 
-def get_doctor_status_breakdown(hospital_id: int, doctor_id: str, days: int = 30, now: datetime | None = None) -> list[dict]:
-    """Doctor-portal follow-up: this doctor's own appointment mix by status
-    over the last `days` days -- the doctor-dashboard donut. Status, not
-    department, is the meaningful breakdown for a single doctor (they
-    mostly work one department already, so a department donut would be
-    near-uniform)."""
-    now = now or datetime.now()
-    window_start = (now - timedelta(days=days)).isoformat()
+def get_doctor_appointments_for_month(
+    hospital_id: int, doctor_id: str, year: int, month: int,
+) -> list[Appointment]:
+    """Doctor-portal follow-up: every one of this doctor's appointments
+    falling within one calendar month (year/month, 1-12), for the dashboard's
+    calendar view -- replaces the 30-day status donut with something a
+    doctor can actually navigate month-to-month. Bounds computed the same
+    "next month's day 1, minus nothing" way get_doctor_weekly_appointment_
+    counts() computes a single day's bounds, just widened to a month."""
+    month_start = datetime(year, month, 1)
+    month_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
     session = get_session()
     rows = session.execute(
-        select(AppointmentRow.status, func.count().label("count"))
+        _appointment_select_stmt()
         .where(
             AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
-            AppointmentRow.scheduled_at >= window_start,
+            AppointmentRow.scheduled_at >= month_start.isoformat(),
+            AppointmentRow.scheduled_at < month_end.isoformat(),
         )
-        .group_by(AppointmentRow.status)
+        .order_by(AppointmentRow.scheduled_at.asc())
     ).all()
-    return [{"status": r.status, "count": r.count} for r in rows]
+    return [_row_to_appointment(r._mapping) for r in rows]
 
 
 def delay_doctor_remaining_today_appointments(

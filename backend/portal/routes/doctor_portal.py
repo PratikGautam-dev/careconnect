@@ -14,6 +14,7 @@ passing a different doctor_id). A route here structurally cannot be asked
 for "some other doctor's" data, because there is no parameter through
 which a caller could ever supply one."""
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
@@ -82,8 +83,10 @@ async def doctor_appointments_today(authorization: str | None = Header(default=N
 async def doctor_dashboard(authorization: str | None = Header(default=None)):
     """Doctor-portal follow-up: a smaller, doctor-scoped counterpart to
     /api/portal/dashboard -- same visual language (StatTile cards, a weekly
-    trend line, a donut) on the frontend, but every number here is this
-    doctor's own, never hospital-wide."""
+    trend line) on the frontend, but every number here is this doctor's own,
+    never hospital-wide. The calendar view lives at its own endpoint (see
+    doctor_appointments_calendar() below), not here -- it needs independent
+    month navigation, unlike this route's own 20s dashboard poll."""
     ctx, err = _require_doctor(authorization)
     if err:
         return err
@@ -94,7 +97,6 @@ async def doctor_dashboard(authorization: str | None = Header(default=None)):
     stats = db.get_doctor_dashboard_stats(hospital.id, doctor_id)
     today = db.get_doctor_appointments_today(hospital.id, doctor_id)
     weekly_counts = db.get_doctor_weekly_appointment_counts(hospital.id, doctor_id)
-    status_breakdown = db.get_doctor_status_breakdown(hospital.id, doctor_id)
     recent = db.get_doctor_appointments(hospital.id, doctor_id, limit=10)
     return JSONResponse({
         "doctor": doctor,
@@ -102,8 +104,31 @@ async def doctor_dashboard(authorization: str | None = Header(default=None)):
         "stats": stats,
         "today_appointments": [_appointment_json(a) for a in today],
         "weekly_counts": weekly_counts,
-        "status_breakdown": status_breakdown,
         "recent_appointments": [_appointment_json(a) for a in recent],
+    })
+
+
+@router.get("/api/doctor/appointments/calendar")
+async def doctor_appointments_calendar(
+    year: int | None = None, month: int | None = None, authorization: str | None = Header(default=None),
+):
+    """Doctor-portal follow-up: replaces the dashboard's old 30-day status
+    donut with an actual month calendar of this doctor's own appointments --
+    defaults to the current month, navigable via year/month query params."""
+    ctx, err = _require_doctor(authorization)
+    if err:
+        return err
+    hospital, doctor_id = ctx
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+    if not 1 <= month <= 12:
+        return JSONResponse({"error": "month must be between 1 and 12."}, status_code=400)
+    appointments = db.get_doctor_appointments_for_month(hospital.id, doctor_id, year, month)
+    return JSONResponse({
+        "year": year,
+        "month": month,
+        "appointments": [_appointment_json(a) for a in appointments],
     })
 
 
