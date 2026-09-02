@@ -418,6 +418,38 @@ def get_last_attended_appointment(hospital_id: int, patient_id: int) -> Appointm
     return _row_to_appointment(row._mapping) if row else None
 
 
+def get_followup_eligible_appointments(
+    hospital_id: int, patient_id: int, validity_days: int, now: datetime | None = None,
+) -> list[Appointment]:
+    """One row per department: that department's most recent STATUS_ATTENDED
+    appointment, only if still within validity_days of its own scheduled_at
+    (docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up --
+    hospital_settings.followup_validity_days). Newest first. Dedup by
+    department_id happens here in Python, not a SQL window function -- one
+    patient's attended-appointment history is always a small list, same
+    "keep it simple" precedent get_last_attended_appointment above sets."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(days=validity_days)
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id,
+            AppointmentRow.status == STATUS_ATTENDED, AppointmentRow.scheduled_at >= cutoff.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.desc())
+    ).all()
+    eligible: list[Appointment] = []
+    seen_departments: set[str] = set()
+    for row in rows:
+        appt = _row_to_appointment(row._mapping)
+        if appt.department_id in seen_departments:
+            continue
+        seen_departments.add(appt.department_id)
+        eligible.append(appt)
+    return eligible
+
+
 def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: datetime | None = None) -> list[Appointment]:
     """Still-booked appointments in [now, now+offset_hours] with no reminder
     sent yet for this specific offset -- a hospital can configure multiple

@@ -36,6 +36,18 @@ OnSelectedHook = Callable[..., Awaitable[Any]]
 # lives at context["daycare_duration_hours"]) -- most hooks (tele's) ignore it.
 OnBookingConfirmedHook = Callable[..., Awaitable["dict[str, Any] | None"]]
 
+# (context, hospital_id) -> the full confirm-card body text, overriding
+# _send_confirmation's generic CONFIRM_BOOKING_SUMMARY entirely (Confirm/
+# Cancel/Back buttons are unaffected). None (every type but Follow-up) means
+# the generic card is used as-is.
+ConfirmationSummaryBuilder = Callable[[dict, int], str]
+
+# (appointment, context, hospital_id) -> the full success-message body text,
+# overriding book.py's generic BOOKING_CONFIRMED entirely (the Reschedule/
+# Cancel/Main-Menu buttons are unaffected -- always sent the same way
+# regardless of this hook). None means the generic text.
+SuccessSummaryBuilder = Callable[["Any", dict, int], str]
+
 
 @dataclass(frozen=True)
 class TypeFlow:
@@ -51,6 +63,11 @@ class TypeFlow:
     # Optional post-creation hook (e.g. tele's video-link generation). None =
     # the confirmation notification is exactly what it is today.
     on_booking_confirmed: OnBookingConfirmedHook | None = None
+    # Optional overrides for the confirm-card/success-message body text
+    # (Follow-up's own card shape). None (every other type) = the generic
+    # templates every type has always used.
+    build_confirmation_summary: ConfirmationSummaryBuilder | None = None
+    build_success_summary: SuccessSummaryBuilder | None = None
 
     def first_step(self) -> str:
         return self.steps[0]

@@ -950,6 +950,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
         date_label=session["context"]["date_label"],
         time_label=session["context"]["slot_time"],
         patient_name="Ravi Kumar", patient_age=34, patient_code=patient_code,
+        fee_line="",  # no hospital_settings.new_consultation_fee configured for this test hospital
     )
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])

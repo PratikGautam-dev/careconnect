@@ -16,7 +16,11 @@ STATE_IDLE = "IDLE"
 STATE_AWAITING_APPOINTMENT_TYPE = "AWAITING_APPOINTMENT_TYPE"
 
 
-STATE_AWAITING_FOLLOWUP_CONFIRM = "AWAITING_FOLLOWUP_CONFIRM"
+# docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up: the
+# eligible-consultations LIST step (one row per department's most recent
+# ATTENDED appointment still within the hospital's eligibility window) --
+# replaces the earlier single-visit auto-select + confirm-before-date screen.
+STATE_AWAITING_FOLLOWUP_SELECTION = "AWAITING_FOLLOWUP_SELECTION"
 
 
 STATE_AWAITING_CONSENT = "AWAITING_CONSENT"

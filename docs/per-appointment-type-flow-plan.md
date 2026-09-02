@@ -135,44 +135,72 @@ Two New-Consultation-only booking rules, confirmed with the user:
 
 ### Step 2 — Follow-up (`followup.py`) — ✅ DONE
 
-Confirmed with the user: picking Follow-up skips department/doctor selection entirely and
-auto-selects the SAME doctor/department as the patient's most recent **attended** appointment
-(not just any past booking — a no-show or a still-upcoming booking doesn't count), then jumps
-straight to date selection. No previous attended appointment at all → told, sent back to
-appointment-type selection (Follow-up isn't offered without a real prior visit). Every screen
-this adds a Back button to, matching the existing convention everywhere else in the flow.
+Confirmed with the user: picking Follow-up shows every department's most recent **ATTENDED**
+appointment still within the hospital's own configurable eligibility window (not just any past
+booking — a no-show or a still-upcoming booking doesn't count, and an attended visit stops being
+eligible once it ages past the window). No eligible consultation at all (never attended anywhere,
+or every attended visit has expired) → told, sent back to appointment-type selection. Picking one
+auto-selects that department/doctor and skips straight to date selection — floored to strictly
+after that previous visit's own date, so a follow-up can never be booked for a date at or before
+the visit it follows. Confirmation and success then use Follow-up's own card text (Patient ID,
+Previous Visit, an optional Follow-up Fee line), not the generic cards every other type shares.
+Every screen has a Back button, matching the existing convention everywhere else in the flow.
 
-**How it was built** — a new `TypeFlow.on_selected` hook (`flows/booking/types/base.py`): an
-optional async `(wa, sessions, phone, hospital_id, connector, new_context, language) -> None`
-callable that fully replaces the default "proceed to `steps[0]`" behavior for a type that defines
-one. `None` (the default) leaves every other type's existing behavior untouched.
-- `db/repositories/appointments.py` — new `get_last_attended_appointment(hospital_id, patient_id)`
-  (STATUS_ATTENDED only, most recent by `scheduled_at`), exposed through `Connector`/`Tier1Connector`.
-- `flows/booking/types/followup.py` — `_on_followup_selected` (the `on_selected` hook): looks up
-  the last attended appointment, stashes its department/doctor + a formatted last-visit label into
-  context, and shows a new "Continue with Dr. X (Department)?" confirm screen
-  (`STATE_AWAITING_FOLLOWUP_CONFIRM`, Confirm + Back buttons) — or, if there's no last attended
-  appointment, sends the "no previous appointment" message and re-shows appointment-type
-  selection. Its own state handler (`_handle_awaiting_followup_confirm`) advances straight to
-  `STATE_AWAITING_DATE` on Confirm (pushing a history frame first, so Back from date selection
-  returns to this same confirm screen, not further back). `steps=NO_DOCTOR_FLOW` (not `FULL_FLOW`)
-  so shared bookkeeping (the change-selection menu) correctly hides "Change Department"/"Change
+**Per-hospital settings, not more `hospitals` columns** — a new `hospital_settings` table
+(`db/repositories/hospital_settings.py`, migration `0021_followup_eligibility_and_fees`), 1:1 with
+`hospitals`, created lazily on first read/write: `followup_validity_days` (NULL → 30-day code
+default), `followup_fee`, `new_consultation_fee` (stored now, not displayed anywhere yet —
+confirmed with the user; New Consultation's own cards keep their existing static-then-real fee
+line unrelated to this table). Portal-editable via `/api/portal/settings` and a new "Follow-up
+appointments" section on the settings page (`frontend/src/app/portal/settings/page.tsx`).
+
+**How it was built**:
+- `db/repositories/appointments.py` — new `get_followup_eligible_appointments(hospital_id,
+  patient_id, validity_days)`: most recent STATUS_ATTENDED appointment per department, only if
+  still within `validity_days` of its own `scheduled_at` (dedup done in Python, not a SQL window
+  function — one patient's attended history is always a small list). Exposed through
+  `Connector`/`Tier1Connector`.
+- `flows/booking/state.py` — `STATE_AWAITING_FOLLOWUP_SELECTION` (the eligible-list step) replaces
+  the earlier single-visit auto-select + confirm-before-date screen (`STATE_AWAITING_FOLLOWUP_CONFIRM`,
+  now removed).
+- `flows/booking/types/followup.py` — `_on_followup_selected` (the `on_selected` hook) fetches the
+  eligible list and either shows it (one row per department, `_appointment_row_id`/
+  `_parse_appointment_row_id` reused from the existing appointment-selection convention) or shows
+  the "no eligible consultation" screen. Its own state handler
+  (`_handle_awaiting_followup_selection`) resolves the tapped row back to a fresh eligibility
+  re-query (never trusts a stashed list — eligibility can genuinely change mid-conversation),
+  fills department/doctor/previous-visit-date into context, and jumps straight to
+  `STATE_AWAITING_DATE` with the new `min_date` floor. `steps=NO_DOCTOR_FLOW` (not `FULL_FLOW`) so
+  shared bookkeeping (the change-selection menu) correctly hides "Change Department"/"Change
   Doctor" here too, same as diagnostic/lab.
-- `flows/booking/book.py` — `_handle_awaiting_appointment_type` checks `flow.on_selected` first,
-  before the existing NO_DOCTOR_FLOW department-skip branch.
-- `flows/booking/messages.py` — `_resend_menu_for_state` gained a case for
-  `STATE_AWAITING_FOLLOWUP_CONFIRM` (lazy-imports `followup.py`, avoiding a cycle back through
-  `types.registry`), so a Back-navigation landing back on this state re-sends the confirm prompt
-  instead of going silent.
-- `flows/booking/dispatch.py` — registers the new state's handler in the shared `_HANDLERS` dict
-  (flows through to `flows/booking/__init__.py`'s `HANDLERS` and `flows/router.py`'s
-  `_BOOKING_STATE_HANDLERS` automatically, no separate registration needed there).
-- `core/translations.py` — `no_previous_appointment_for_followup` / `followup_confirm_prompt` (en/hi).
-- Tests: `tests/test_booking_flow.py`'s `test_followup_with_no_previous_visit_sends_back_to_appointment_type`,
-  `test_followup_confirm_screen_then_straight_to_date_selection`,
-  `test_followup_back_from_date_returns_to_followup_confirm_screen`. Updated
-  `tests/test_appointment_type_flows.py` for `followup`'s new `steps`/`on_selected` shape.
-- Full backend suite passing except the same pre-existing, unrelated reception-handoff failures.
+- `flows/booking/messages.py` — `_send_date_menu` gained an optional `min_date` parameter (dates
+  strictly after this "YYYY-MM-DD" string are kept; `None` for every other type is a no-op).
+  `_send_confirmation` checks a new `TypeFlow.build_confirmation_summary` hook first, using
+  Follow-up's own card text when set instead of the generic `CONFIRM_BOOKING_SUMMARY` (Confirm/
+  Cancel/Back buttons unchanged either way). `_resend_menu_for_state` gained a case for
+  `STATE_AWAITING_FOLLOWUP_SELECTION` (lazy re-fetches and resends the eligible list) and passes
+  the stashed `min_date` through on a `STATE_AWAITING_DATE` resend too.
+- `flows/booking/book.py` — `_create_booking_and_notify` checks a new `TypeFlow.build_success_summary`
+  hook, using Follow-up's own success text instead of the generic `BOOKING_CONFIRMED` (the
+  Reschedule/Cancel/Main-Menu buttons underneath are unaffected either way). The date-emptied-out
+  retry branch in `_handle_awaiting_time_slot` also passes `min_date` through.
+- `flows/booking/types/base.py` — two new optional `TypeFlow` hooks: `build_confirmation_summary`
+  `(context, hospital_id) -> str` and `build_success_summary` `(appointment, context, hospital_id)
+  -> str`. `None` (every type but Follow-up) means the generic templates are used as-is.
+- `flows/booking/dispatch.py` — registers `STATE_AWAITING_FOLLOWUP_SELECTION`'s handler in the
+  shared `_HANDLERS` dict.
+- `core/translations/booking.py` — `no_previous_appointment_for_followup`,
+  `followup_eligible_list_prompt`, `view_followup_options_button`, `followup_eligible_section_title`,
+  `followup_confirmation_summary`, `followup_appointment_confirmed` (en/hi); `followup_confirm_prompt`
+  removed (superseded by the eligible-list flow).
+- Tests: `tests/test_booking_flow.py`'s
+  `test_followup_eligible_list_then_selecting_one_goes_straight_to_date_selection`,
+  `test_followup_back_from_date_returns_to_eligible_list`,
+  `test_followup_with_no_previous_visit_sends_back_to_appointment_type` (rewritten for the new
+  flow); `tests/test_hospital_settings.py`'s new Follow-up fee tests; `tests/test_portal_api.py`'s
+  new settings tests for `followup_validity_days`/`followup_fee`/`new_consultation_fee`.
+- Full backend suite passing except the same pre-existing, unrelated reception-handoff and
+  patient-gender-step failures (both predate and are unrelated to this work).
 
 ### Step 3 — Tele Consultation (`tele_consultation.py`) — ✅ DONE
 

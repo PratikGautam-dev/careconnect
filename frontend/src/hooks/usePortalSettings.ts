@@ -19,7 +19,13 @@ export type Settings = {
   privacy_notice_text: string;
 
   handoff_auto_resolve_hours: number;
-  
+
+  // docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up: fees are
+  // "" (unset -- no fee line shown) or a numeric string, since a plain
+  // `number` type can't represent "no value entered" as distinct from 0.
+  followup_validity_days: number;
+  followup_fee: number | "";
+  new_consultation_fee: number | "";
 };
 
 export type AuditEntry = {
@@ -53,7 +59,11 @@ export function usePortalSettings(ready: boolean) {
       else setError(result.error);
       return;
     }
-    setSettings(result.data as Settings);
+    // followup_fee/new_consultation_fee come back as `null` when unset (no
+    // default to fall back to, unlike e.g. session_timeout_minutes) --
+    // coerced to "" here so the numeric <Input> below never renders "null".
+    const data = result.data as Settings & { followup_fee: number | null; new_consultation_fee: number | null };
+    setSettings({ ...data, followup_fee: data.followup_fee ?? "", new_consultation_fee: data.new_consultation_fee ?? "" });
   }, [router]);
 
   const loadAuditLog = useCallback(async () => {

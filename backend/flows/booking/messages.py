@@ -54,6 +54,7 @@ from core.translations.booking import (
     CONFIRM_DAYCARE_DURATION_LINE,
     CONSENT_AGREE_BUTTON,
     CONSENT_PROMPT,
+    CONSULTATION_FEE_LINE,
     DEPARTMENTS_SECTION_TITLE,
     DOCTOR_SELECTED_ASK_DATE,
     NO_DOCTORS_AVAILABLE,
@@ -88,7 +89,7 @@ from flows.booking.state import (
     CHANGE_DOCTOR, CHANGE_DURATION, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
     MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DAYCARE_DURATION,
     STATE_AWAITING_DEPARTMENT,
-    STATE_AWAITING_FOLLOWUP_CONFIRM,
+    STATE_AWAITING_FOLLOWUP_SELECTION,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
@@ -396,18 +397,24 @@ async def _send_slot_menu(
 
 async def _send_date_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, doctor_name: str, connector: Connector,
-    language: str = "en",
+    language: str = "en", min_date: str | None = None,
 ) -> None:
     """Section 12.12, booking flow's step 1 of the date/time split: the
     distinct dates (soonest first, since get_available_slots() is already
     sorted that way) this doctor has ANY bookable slot on, capped to Meta's
     10-row limit -- a doctor generates up to 14 days ahead
     (db/repository.py's _SLOT_DAYS_AHEAD), so this can legitimately exceed 10
-    distinct dates for a doctor who works every day."""
+    distinct dates for a doctor who works every day.
+
+    min_date (Follow-up only, docs/per-appointment-type-flow-plan.md Phase 2
+    Step 2 follow-up): dates strictly AFTER this "YYYY-MM-DD" string are kept
+    -- a follow-up must be booked after the visit it follows, never on the
+    same day or earlier. String comparison is safe since dates are always
+    this ISO shape. None (every other type) means no floor at all."""
     slots = connector.get_available_slots(hospital_id, doctor_id)
     dates_seen: list[str] = []
     for s in slots:
-        if s["date"] not in dates_seen:
+        if s["date"] not in dates_seen and (min_date is None or s["date"] > min_date):
             dates_seen.append(s["date"])
     rows = [{"id": d, "title": _date_label(d)} for d in dates_seen]
     rows = _cap_rows(rows, f"date menu for doctor {doctor_id}")
@@ -524,14 +531,42 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, hospital_id: int, c
     patient_code (Patient Code line, confirmed with the user) is the same
     patient_display_id shown everywhere else in the app -- fetched fresh
     here via active_patient_id rather than threaded through context, since
-    nothing upstream of this call currently stashes it there."""
+    nothing upstream of this call currently stashes it there.
+
+    flow.build_confirmation_summary (Follow-up's own card shape) fully
+    replaces the generic summary text below when set -- the Confirm/Cancel/
+    Back buttons at the end are unaffected either way."""
+    flow = get_type_flow(context.get("appointment_type_id"))
+    if flow.build_confirmation_summary is not None:
+        summary = flow.build_confirmation_summary(context, hospital_id)
+        await wa.send_buttons(
+            to=phone,
+            body_text=summary,
+            buttons=[
+                {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+                {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
+                {"id": BACK_ID, "title": t(BACK_OPTION, language)},
+            ],
+        )
+        return
     patient = db.get_patient(hospital_id, context.get("active_patient_id"))
+    # Fee line: only for "new" (New Consultation) bookings, and only when the
+    # hospital has actually configured a fee -- omitted entirely otherwise,
+    # not shown as a fake ₹0. Was a static "₹800 (if applicable)" placeholder
+    # before hospital_settings.new_consultation_fee existed as a real field.
+    fee_line = ""
+    if context.get("appointment_type_id") == "new":
+        new_consultation_fee = db.get_hospital_settings(hospital_id)["new_consultation_fee"]
+        if new_consultation_fee is not None:
+            amount = int(new_consultation_fee) if new_consultation_fee == int(new_consultation_fee) else new_consultation_fee
+            fee_line = t(CONSULTATION_FEE_LINE, language, amount=amount)
     summary = t(CONFIRM_BOOKING_SUMMARY, language,
         appointment_type_label=context.get("appointment_type_label"),
         department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
         patient_code=(patient.get("patient_display_id") if patient else None) or "—",
+        fee_line=fee_line,
     )
     # Daycare Phase 2: the chosen stay length, appended after the fixed
     # template above rather than folded into confirm_booking_summary itself
@@ -603,10 +638,10 @@ async def _resend_menu_for_state(
     actually sees the list to pick from again, not just a silent state change."""
     if state == STATE_AWAITING_APPOINTMENT_TYPE:
         await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
-    elif state == STATE_AWAITING_FOLLOWUP_CONFIRM:
+    elif state == STATE_AWAITING_FOLLOWUP_SELECTION:
         # Lazy import: avoids this module -> types.registry -> followup cycle.
-        from flows.booking.types.followup import _send_followup_confirm_prompt
-        await _send_followup_confirm_prompt(wa, phone, context, language=language)
+        from flows.booking.types.followup import _resend_followup_eligible_list
+        await _resend_followup_eligible_list(wa, phone, hospital_id, context, connector, language=language)
     elif state == STATE_AWAITING_DEPARTMENT:
         await _send_department_menu(wa, phone, hospital_id, connector, language=language)
     elif state == STATE_AWAITING_DOCTOR:
@@ -617,6 +652,7 @@ async def _resend_menu_for_state(
     elif state == STATE_AWAITING_DATE:
         await _send_date_menu(
             wa, phone, hospital_id, context["doctor_id"], context["doctor_name"], connector, language=language,
+            min_date=context.get("followup_previous_visit_date"),
         )
     elif state == STATE_AWAITING_TIME_SLOT:
         await _send_time_menu(

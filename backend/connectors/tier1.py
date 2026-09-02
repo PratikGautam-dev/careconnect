@@ -46,6 +46,9 @@ class Tier1Connector(Connector):
     def get_last_attended_appointment(self, hospital_id, patient_id):
         return repo.get_last_attended_appointment(hospital_id, patient_id)
 
+    def get_followup_eligible_appointments(self, hospital_id, patient_id, validity_days):
+        return repo.get_followup_eligible_appointments(hospital_id, patient_id, validity_days)
+
     def get_patient_info(self, hospital_id, phone):
         return repo.get_patient_by_phone(hospital_id, phone)
 

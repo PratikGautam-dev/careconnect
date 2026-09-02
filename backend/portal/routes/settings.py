@@ -5,6 +5,7 @@ from admin.validation import _parse_offsets
 import db.repository as db
 from core.translations import SUPPORTED_LANGUAGES
 from db.repositories.handoffs import DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS
+from db.repositories.hospital_settings import DEFAULT_FOLLOWUP_VALIDITY_DAYS
 from portal.deps import _authenticate, require_capability
 
 router = APIRouter()
@@ -24,12 +25,24 @@ _MAX_SESSION_TIMEOUT_MINUTES = 120
 _MIN_HANDOFF_AUTO_RESOLVE_HOURS = 1
 _MAX_HANDOFF_AUTO_RESOLVE_HOURS = 168
 
+# Follow-up eligibility window (docs/per-appointment-type-flow-plan.md Phase 2
+# Step 2 follow-up): same "validate here for a clean 400" reasoning as the
+# bounds above. 1 day minimum (0 would mean no follow-up is ever eligible);
+# 365 maximum is a generous ceiling against a fat-fingered entry.
+_MIN_FOLLOWUP_VALIDITY_DAYS = 1
+_MAX_FOLLOWUP_VALIDITY_DAYS = 365
+# Fee ceiling is just a fat-finger guard (₹1,000,000), not a considered
+# product limit -- consultation fees are always non-negative (DB CHECK
+# constraint already enforces that floor).
+_MAX_FEE = 1_000_000
+
 
 @router.get("/api/portal/settings")
 async def portal_get_settings(authorization: str | None = Header(default=None)):
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    hospital_settings = db.get_hospital_settings(hospital.id)
     return JSONResponse(
         {
             "name": hospital.name,
@@ -50,6 +63,12 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             # category as closing_message_text/business_hours_text above.
             "require_patient_confirmation": hospital.require_patient_confirmation,
             "privacy_notice_text": hospital.privacy_notice_text or "",
+            # docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up:
+            # per-hospital Follow-up settings (db/repositories/hospital_settings.py),
+            # not columns on `hospitals` itself.
+            "followup_validity_days": hospital_settings["followup_validity_days"] or DEFAULT_FOLLOWUP_VALIDITY_DAYS,
+            "followup_fee": hospital_settings["followup_fee"],
+            "new_consultation_fee": hospital_settings["new_consultation_fee"],
         },
         # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
         # -- rules out any browser/CDN-level HTTP caching of this
@@ -98,6 +117,37 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
                 "error": f"handoff_auto_resolve_hours must be between {_MIN_HANDOFF_AUTO_RESOLVE_HOURS} and {_MAX_HANDOFF_AUTO_RESOLVE_HOURS}.",
             }, status_code=400)
 
+    followup_days_raw = payload.get("followup_validity_days")
+    if followup_days_raw in (None, ""):
+        followup_validity_days = None
+    else:
+        try:
+            followup_validity_days = int(followup_days_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "followup_validity_days must be a whole number of days."}, status_code=400)
+        if not (_MIN_FOLLOWUP_VALIDITY_DAYS <= followup_validity_days <= _MAX_FOLLOWUP_VALIDITY_DAYS):
+            return JSONResponse({
+                "error": f"followup_validity_days must be between {_MIN_FOLLOWUP_VALIDITY_DAYS} and {_MAX_FOLLOWUP_VALIDITY_DAYS}.",
+            }, status_code=400)
+
+    def _parse_fee(raw, field_name):
+        if raw in (None, ""):
+            return None, None
+        try:
+            fee = float(raw)
+        except (TypeError, ValueError):
+            return None, JSONResponse({"error": f"{field_name} must be a number."}, status_code=400)
+        if not (0 <= fee <= _MAX_FEE):
+            return None, JSONResponse({"error": f"{field_name} must be between 0 and {_MAX_FEE}."}, status_code=400)
+        return fee, None
+
+    followup_fee, error = _parse_fee(payload.get("followup_fee"), "followup_fee")
+    if error:
+        return error
+    new_consultation_fee, error = _parse_fee(payload.get("new_consultation_fee"), "new_consultation_fee")
+    if error:
+        return error
+
     # Same restriction as portal.py's own settings form: credentials/data_tier/
     # portal_password_hash/enabled_features are never touched here, only
     # passed through unchanged -- WhatsApp connection details stay
@@ -141,6 +191,10 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         # Migration 0014: same "moved to platform_settings, pass through
         # unchanged" treatment as feature_labels above.
         dpdp_consent_required=hospital.dpdp_consent_required,
+    )
+    db.update_hospital_settings(
+        hospital.id, followup_validity_days=followup_validity_days,
+        followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
     )
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "settings.update",
