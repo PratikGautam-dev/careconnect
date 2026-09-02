@@ -286,7 +286,7 @@ async def _handle_awaiting_dpdp_consent(
     require_patient_confirmation: bool = False, dpdp_consent_required: bool = False,
 ) -> None:
     if reply["type"] == "interactive_reply" and reply["id"] == DPDP_DECLINE_ID:
-        await wa.send_text(phone, t(DPDP_DECLINED_MESSAGE, language))
+        await wa.send_text(phone, t(DPDP_DECLINED_MESSAGE, language, hospital_name=hospital_name))
         # Declining isn't a soft "ask again later" -- the whole conversation
         # restarts from language selection (keep_language=False, unlike
         # every other reset() call site) so agreeing to DPDP terms is a real

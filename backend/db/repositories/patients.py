@@ -9,8 +9,10 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_connection, get_session
-from db.models import STATUS_ATTENDED, DuplicateSelfLinkError, TooManyLinkedPatientsError, _generate_patient_identifiers
-from db.orm_models import AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
+from db.models import (
+    STATUS_ATTENDED, STATUS_BOOKED, DuplicateSelfLinkError, TooManyLinkedPatientsError, _generate_patient_identifiers,
+)
+from db.orm_models import AppointmentReminder, AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
 from db.repositories.accounts import _get_or_create_account_in_conn
 
 # --- Patients (Section 12.9 -- staff-created bookings need to search by name,
@@ -609,19 +611,39 @@ def update_patient_profile(hospital_id: int, patient_id: int, name: str, age: in
 
 def delete_patient_hard(hospital_id: int, patient_id: int) -> bool:
     """DEV/TESTING ONLY -- irreversibly removes the patient row plus every
-    row that references it (visit notes, documents, links). Appointments
-    are detached, not deleted: patient_id there is nullable, so booking/
-    scheduling history survives even though the patient it pointed to
-    doesn't. Swap the portal route to delete_patient_soft() before this
-    goes to production -- see that function's docstring."""
+    row that references it (visit notes, documents, links). Confirmed with
+    the user: a still-'booked' (upcoming) appointment is permanently
+    deleted outright, not just detached -- there's no patient left to show
+    up for it, and hard-deleting the row (rather than soft-deleting, which
+    stays restricted to already-resolved appointments elsewhere in this
+    app) also frees the doctor's slot for rebooking immediately. Every
+    OTHER appointment (cancelled/rescheduled/attended/no_show -- already-
+    resolved history) is still only detached (patient_id set NULL, row
+    kept), same as before, so that history survives the patient itself
+    being removed. Swap the portal route to delete_patient_soft() before
+    this goes to production -- see that function's docstring."""
     session = get_session()
+    upcoming_ids = [
+        row.id for row in session.execute(
+            select(AppointmentRow.id).where(
+                AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id,
+                AppointmentRow.status == STATUS_BOOKED,
+            )
+        ).all()
+    ]
+    # Visit notes/documents are deleted (by patient_id, below) before the
+    # appointment rows themselves so nothing is left referencing a
+    # about-to-be-removed appointment_id when the FK is checked.
+    session.execute(delete(PatientVisitNote).where(PatientVisitNote.hospital_id == hospital_id, PatientVisitNote.patient_id == patient_id))
+    session.execute(delete(PatientDocument).where(PatientDocument.hospital_id == hospital_id, PatientDocument.patient_id == patient_id))
+    if upcoming_ids:
+        session.execute(delete(AppointmentReminder).where(AppointmentReminder.appointment_id.in_(upcoming_ids)))
+        session.execute(delete(AppointmentRow).where(AppointmentRow.id.in_(upcoming_ids)))
     session.execute(
         update(AppointmentRow)
         .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id)
         .values(patient_id=None)
     )
-    session.execute(delete(PatientVisitNote).where(PatientVisitNote.hospital_id == hospital_id, PatientVisitNote.patient_id == patient_id))
-    session.execute(delete(PatientDocument).where(PatientDocument.hospital_id == hospital_id, PatientDocument.patient_id == patient_id))
     session.execute(delete(PatientLink).where(PatientLink.hospital_id == hospital_id, PatientLink.patient_id == patient_id))
     result = cast(CursorResult, session.execute(
         delete(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)

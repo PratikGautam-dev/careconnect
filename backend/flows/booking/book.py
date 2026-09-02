@@ -363,7 +363,7 @@ async def _handle_awaiting_time_slot(
             next_state = flow.next_step(STATE_AWAITING_TIME_SLOT)
             sessions.set(hospital_id, phone, next_state, new_context)
             if next_state == STATE_AWAITING_CONFIRMATION:
-                await _send_confirmation(wa, phone, new_context, language=language)
+                await _send_confirmation(wa, phone, hospital_id, new_context, language=language)
             else:
                 from flows.booking.types.daycare import _send_daycare_duration_menu
                 await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)
@@ -514,7 +514,15 @@ async def _create_booking_and_notify(
     # create_appointment() itself (db/repository.py) -- read back off
     # the returned Appointment rather than regenerated here, so the
     # id shown to the patient is the exact one actually stored.
-    summary = t(BOOKING_CONFIRMED, language, reference_id=appointment.reference_id)
+    summary = t(
+        BOOKING_CONFIRMED, language,
+        reference_id=appointment.reference_id,
+        patient_name=context.get("patient_name"),
+        department_name=appointment.department_name,
+        doctor_name=appointment.doctor_name,
+        date_label=appointment.scheduled_at.strftime("%A, %d %B %Y"),
+        time_label=appointment.scheduled_at.strftime("%I:%M %p"),
+    )
     # Tele-consultation Phase 2, revised per the user's own explicit
     # "soft-gate" call: the video link is generated and persisted right here
     # (needs appointment.id to attach it to), but deliberately NOT shown in
@@ -536,9 +544,9 @@ async def _create_booking_and_notify(
         to=phone,
         body_text=summary,
         buttons=[
-            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
-            {"id": _manage_cancel_id(appointment.id), "title": t(CANCEL_BUTTON, language)},
             {"id": _manage_reschedule_id(appointment.id), "title": t(RESCHEDULE_SHORT, language)},
+            {"id": _manage_cancel_id(appointment.id), "title": t(CANCEL_BUTTON, language)},
+            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
         ],
     )
     # STATE_BOOKED is terminal and resets to IDLE immediately, never written
@@ -583,7 +591,7 @@ async def _handle_awaiting_confirmation(
             await _send_change_selection_menu(wa, phone, hospital_id, connector, language=language, context=context)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, context)
-    await _send_confirmation(wa, phone, context, language=language)
+    await _send_confirmation(wa, phone, hospital_id, context, language=language)
 
 
 async def _handle_awaiting_consent(

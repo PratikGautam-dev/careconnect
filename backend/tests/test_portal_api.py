@@ -637,6 +637,37 @@ def test_delete_booking_cannot_target_other_hospitals_appointment(two_hospitals)
     assert resp.status_code == 404
 
 
+def test_deleting_patient_permanently_removes_upcoming_appointments(two_hospitals):
+    """Confirmed with the user: deleting a patient must not just detach an
+    upcoming (still-'booked') appointment -- it has to actually disappear,
+    since there's no patient left to show up for it. An already-resolved
+    appointment (cancelled here) is the existing "detach, don't delete"
+    behavior and must still survive as history with patient_id cleared."""
+    from sqlalchemy import select
+    from db.connection import get_session
+    from db.orm_models import AppointmentRow
+
+    a = two_hospitals["a"]
+    slots = db.get_slots(a["id"], a["doctor_id"])
+    upcoming = db.create_appointment(a["id"], "5490007777", a["department_id"], a["doctor_id"], datetime.fromisoformat(slots[0]["id"]))
+    resolved = db.create_appointment(a["id"], "5490007777", a["department_id"], a["doctor_id"], datetime.fromisoformat(slots[1]["id"]))
+    db.cancel_appointment(a["id"], resolved.id)
+    patient_id = upcoming.patient_id
+    assert patient_id is not None and resolved.patient_id == patient_id
+
+    resp = client.post("/api/portal/patients/delete", json={"patient_ids": [patient_id]}, headers=_auth(a["token"]))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == [patient_id]
+
+    session = get_session()
+    upcoming_row = session.execute(select(AppointmentRow).where(AppointmentRow.id == upcoming.id)).first()
+    assert upcoming_row is None, "upcoming appointment should be permanently deleted, not just detached"
+
+    resolved_row = session.execute(select(AppointmentRow).where(AppointmentRow.id == resolved.id)).first()
+    assert resolved_row is not None, "already-resolved appointment history should survive"
+    assert resolved_row[0].patient_id is None
+
+
 def test_doctor_slots_admin_view_and_block_endpoint(two_hospitals):
     a = two_hospitals["a"]
     slot = db.get_slots(a["id"], a["doctor_id"])[0]

@@ -72,6 +72,7 @@ from core.translations.patient_identity import (
     PATIENT_ALREADY_LINKED,
     PATIENT_CODE_LABEL,
     PATIENT_HEADER_LABEL,
+    PATIENT_SELECTED_CONFIRMATION,
     PATIENT_SELECTOR_BUTTON,
     PATIENT_SELECTOR_PROMPT,
     PATIENT_SELECTOR_SECTION_TITLE,
@@ -746,12 +747,20 @@ async def _create_or_link_patient(
 async def _send_single_patient_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, patient: dict, language: str,
 ) -> None:
-    """Sends the "Continue as X?" buttons, then the patient-list message
+    """Sends the "Current Patient: X" card, then the patient-list message
     right after, both under STATE_AWAITING_SINGLE_PATIENT_CONFIRM. Only
     reached today with exactly one linked patient and
     hospitals.require_patient_confirmation on -- the 2+ patient case goes
     through _send_patient_selector_for_resolution below instead, which has
-    no single candidate to name in a "Continue as X?" card."""
+    no single candidate to name in this card.
+
+    No separate "Confirm" button (confirmed with the user): with exactly one
+    linked patient there's nothing to choose between, so they're already the
+    active candidate -- CONFIRM_YES below (now labelled "Main Menu", not
+    "Confirm") just proceeds, same handling _handle_awaiting_single_patient_
+    confirm always had for it. "Back" re-opens the language picker -- the
+    only earlier screen this one can follow, since it's shown right after
+    language selection, before any main menu exists yet."""
     sessions.set(
         hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM, {"candidate_patient_id": patient["id"]},
         language=language,
@@ -761,8 +770,9 @@ async def _send_single_patient_confirm(
         body_text=t(SINGLE_PATIENT_CONFIRM, language, patient_name=patient["name"], patient_code=patient["patient_display_id"] or "—",
         ),
         buttons=[
-            {"id": CONFIRM_YES, "title": t(CONFIRM_BUTTON, language)},
+            {"id": CONFIRM_YES, "title": t(MAIN_MENU_BUTTON, language)},
             {"id": ADD_PATIENT_ENTRY_ID, "title": t(ADD_PATIENT_SHORT, language)},
+            {"id": BACK_ID, "title": t(BACK_OPTION, language)},
         ],
     )
     # patients = connector.list_active_patients(hospital_id, phone)
@@ -819,7 +829,7 @@ async def _handle_awaiting_single_patient_confirm(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Handles taps from either message sent by _send_single_patient_confirm:
-    the 2 buttons (Confirm/Add Patient) or a row from the patient list
+    the 3 buttons (Main Menu/Add Patient/Back) or a row from the patient list
     (a linked patient, or Manage Patients). Re-fetches and re-shows fresh on
     an unrecognized/stale tap (the patient list may have changed since)."""
     if reply["type"] == "interactive_reply":
@@ -832,13 +842,30 @@ async def _handle_awaiting_single_patient_confirm(
         if reply["id"] == ADD_PATIENT_ENTRY_ID:
             await _start_registration(wa, sessions, phone, hospital_id, connector, language)
             return
+        if reply["id"] == BACK_ID:
+            # Lazy import: flows.router imports this module at the top
+            # level, so importing it back here at module scope would cycle
+            # (same reason followup.py/daycare.py lazy-import messages.py).
+            from flows.router import STATE_AWAITING_LANGUAGE, _send_language_picker
+
+            sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
+            await _send_language_picker(wa, phone)
+            return
         if reply["id"] == MANAGE_PATIENTS_ENTRY_ID:
             await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
             return
         patient_id = _parse_patient_row_id(reply["id"])
         if patient_id is not None:
             patients = connector.list_active_patients(hospital_id, phone)
-            if any(p["id"] == patient_id for p in patients):
+            selected = next((p for p in patients if p["id"] == patient_id), None)
+            if selected is not None:
+                await wa.send_text(
+                    phone,
+                    t(
+                        PATIENT_SELECTED_CONFIRMATION, language,
+                        patient_name=selected["name"], patient_code=selected["patient_display_id"] or "—",
+                    ),
+                )
                 sessions.set(
                     hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
                     active_patient_id=patient_id,

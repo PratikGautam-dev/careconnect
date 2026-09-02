@@ -131,7 +131,7 @@ async def test_closing_message_appended_after_booking_confirmed(hospital_id):
     kind, kwargs = wa.sent[-1]
     # Item 3 (Spec.md Section 0): success message is now buttons, not text.
     assert kind == "buttons"
-    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "appointment confirmed" in kwargs["body_text"].lower()
     assert kwargs["body_text"].endswith("Thank you for choosing City Hospital. For emergencies, call 102.")
 
 

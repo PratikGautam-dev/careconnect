@@ -83,7 +83,7 @@ async def test_confirm_race_second_patient_gets_taken_message_and_updated_slot_l
     # Patient A confirms first -> succeeds. Item 3 (Spec.md Section 0): the
     # success message is now buttons, not plain text.
     await handle_incoming(wa, sessions_a, PHONE, hospital_id, tap("confirm"))
-    assert "booked successfully" in wa.sent[-1][1]["body_text"].lower()
+    assert "appointment confirmed" in wa.sent[-1][1]["body_text"].lower()
     assert sessions_a.get(hospital_id, PHONE) == {"state": "IDLE", "context": {}}
 
     # Patient B confirms the same doctor+slot next -> loses the race.
@@ -219,7 +219,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
 
     # A confirms first and wins the contested slot.
     await handle_incoming(wa, sessions_a, PHONE, hospital_id, tap("confirm"))
-    assert "booked successfully" in wa.sent[-1][1]["body_text"].lower()
+    assert "appointment confirmed" in wa.sent[-1][1]["body_text"].lower()
 
     # B confirms next -> loses the race, is shown alternate times for the
     # SAME doctor/date (not sent back to department/doctor/date selection).
@@ -248,7 +248,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
     # the earlier failed transaction) finally happens here, on the
     # successful booking.
     await handle_incoming(wa, sessions_b, OTHER_PHONE, hospital_id, tap("confirm"))
-    assert "booked successfully" in wa.sent[-1][1]["body_text"].lower()
+    assert "appointment confirmed" in wa.sent[-1][1]["body_text"].lower()
     booked = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
     b_appt = next(a for a in booked if a.phone == OTHER_PHONE and a.doctor_id == doctor_id)
     assert b_appt.scheduled_at.isoformat() == f"{same_day_alternate['date']}T{same_day_alternate['time']}:00"

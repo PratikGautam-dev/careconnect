@@ -14,6 +14,7 @@ top-level import here would be circular.
 """
 import logging
 
+import db.repository as db
 from connectors import Connector
 from core.translations import t
 from core.translations.menu import (
@@ -514,16 +515,23 @@ async def _handle_slot_taken(
     await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
 
 
-async def _send_confirmation(wa: WhatsAppClient, phone: str, context: dict, language: str = "en") -> None:
-    """Section 12.12: structured *bold*-markdown card matching the reference
-    screenshot -- see core/translations.py's confirm_booking_summary. Age
-    (Section 12.13 follow-up) is included too, even though the original
-    reference screenshot didn't have it -- explicitly requested."""
+async def _send_confirmation(wa: WhatsAppClient, phone: str, hospital_id: int, context: dict, language: str = "en") -> None:
+    """Section 12.12: structured card matching the reference screenshot --
+    see core/translations.py's confirm_booking_summary. Age (Section 12.13
+    follow-up) is included too, even though the original reference
+    screenshot didn't have it -- explicitly requested.
+
+    patient_code (Patient Code line, confirmed with the user) is the same
+    patient_display_id shown everywhere else in the app -- fetched fresh
+    here via active_patient_id rather than threaded through context, since
+    nothing upstream of this call currently stashes it there."""
+    patient = db.get_patient(hospital_id, context.get("active_patient_id"))
     summary = t(CONFIRM_BOOKING_SUMMARY, language,
         appointment_type_label=context.get("appointment_type_label"),
         department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
+        patient_code=(patient.get("patient_display_id") if patient else None) or "—",
     )
     # Daycare Phase 2: the chosen stay length, appended after the fixed
     # template above rather than folded into confirm_booking_summary itself

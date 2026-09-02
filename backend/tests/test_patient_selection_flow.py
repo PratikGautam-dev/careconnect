@@ -614,5 +614,6 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(f"patient_{parent['id']}"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    text_messages = [kwargs for kind, kwargs in wa2.sent if kind == "text"]
-    assert any("already have an active appointment in this department" in m["text"].lower() for m in text_messages)
+    kind, kwargs = wa2.sent[-1]
+    assert kind == "buttons"
+    assert department["name"].lower() in kwargs["body_text"].lower()

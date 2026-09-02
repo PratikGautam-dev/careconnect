@@ -51,6 +51,7 @@ RELATIONSHIP_GUARDIAN = "relationship_guardian"
 RELATIONSHIP_OTHER = "relationship_other"
 SINGLE_PATIENT_CONFIRM = "single_patient_confirm"
 MULTI_PATIENT_SELECTOR_PROMPT = "multi_patient_selector_prompt"
+PATIENT_SELECTED_CONFIRMATION = "patient_selected_confirmation"
 
 STRINGS: dict[str, dict[Language, str]] = {
     # The shared "who is this for" selector, shown whenever a phone has >1
@@ -172,8 +173,8 @@ STRINGS: dict[str, dict[Language, str]] = {
     # --- Section 11: optional single-linked-patient confirmation
     # (hospitals.require_patient_confirmation, default off) ---
     SINGLE_PATIENT_CONFIRM: {
-        "en": "Welcome to CareConnect.\n\nYou are accessing services for:\n\n*{patient_name}*\nPatient Id: {patient_code}\n\nContinue?",
-        "hi": "CareConnect में आपका स्वागत है।\n\nआप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n*{patient_name}*\nपेशेंट आईडी: {patient_code}\n\nजारी रखें?",
+        "en": "🏥 Welcome to CareConnect\n\nCurrent Patient: {patient_name}\nPatient ID: {patient_code}\n\nHow can we assist you today?",
+        "hi": "🏥 CareConnect में आपका स्वागत है\n\nवर्तमान मरीज़: {patient_name}\nपेशेंट आईडी: {patient_code}\n\nहम आज आपकी कैसे सहायता कर सकते हैं?",
     },
 
     # 2+ linked patients: no default candidate is picked (unlike
@@ -182,5 +183,15 @@ STRINGS: dict[str, dict[Language, str]] = {
     MULTI_PATIENT_SELECTOR_PROMPT: {
         "en": "Welcome to CareConnect.\n\nPlease select the patient.",
         "hi": "CareConnect में आपका स्वागत है।\n\nकृपया मरीज़ का चयन करें।",
+    },
+
+    # Sent right after a row is tapped in the 2+ linked-patient list
+    # (_handle_awaiting_single_patient_confirm's row-tap branch) -- confirms
+    # WHICH patient this conversation is now acting on before the main menu
+    # appears underneath it. Not shown for the exactly-one-patient case,
+    # which already has its own "Current Patient" card (SINGLE_PATIENT_CONFIRM).
+    PATIENT_SELECTED_CONFIRMATION: {
+        "en": "✅ Patient Selected\n\nYou are now accessing services for:\n\n{patient_name}\nPatient ID: {patient_code}",
+        "hi": "✅ मरीज़ चुना गया\n\nअब आप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n{patient_name}\nपेशेंट आईडी: {patient_code}",
     },
 }

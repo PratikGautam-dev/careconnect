@@ -377,8 +377,8 @@ async def test_free_text_in_awaiting_time_slot_resends_the_real_time_list(hospit
 async def test_full_happy_path_through_confirmation(hospital_id):
     """Patient identity/UX follow-up (Spec.md Section 0), confirmed with the
     user: name/age is now asked FIRST -- "Book Appointment" tap -> patient
-    name -> patient age -> department -> doctor (inline "You have selected
-    Dr. X" + date list) -> date -> time -> structured confirmation card ->
+    name -> patient age -> department -> doctor (inline "Dr. X selected ✅"
+    + date list) -> date -> time -> structured confirmation card ->
     success message with a generated reference_id."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
@@ -427,8 +427,9 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
     kwargs = _last_list(wa)
-    assert kwargs["body_text"].startswith("You have selected Dr. ")
-    assert "consulting date" in kwargs["body_text"]
+    assert kwargs["body_text"].startswith("Dr. ")
+    assert "selected" in kwargs["body_text"]
+    assert "appointment date" in kwargs["body_text"]
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"  # the follow-up Back button (Spec.md Section 0)
     all_slots = db.get_slots(hospital_id, doctor_id)
@@ -453,9 +454,10 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {"confirm", "cancel", BACK_ID}
     assert "*Confirm Booking Details:*" in kwargs["body_text"]
-    assert "🏥 *Dept:* Cardiology" in kwargs["body_text"]
-    assert "👤 *Patient:* Ravi Kumar" in kwargs["body_text"]
-    assert "🎂 *Age:* 34" in kwargs["body_text"]
+    assert "🏥 Department: Cardiology" in kwargs["body_text"]
+    assert "👤 Patient: Ravi Kumar" in kwargs["body_text"]
+    assert "🎂 Age: 34" in kwargs["body_text"]
+    assert "🆔 Patient Code:" in kwargs["body_text"]
 
     # Confirm -> booked, resets to IDLE, structured success message with a
     # generated reference_id. Item 3 (Spec.md Section 0): now sent as
@@ -463,9 +465,9 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "appointment confirmed" in kwargs["body_text"].lower()
     # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMYY>-<NNN>.
-    assert "Reference ID: *APT-" in kwargs["body_text"]
+    assert "Appointment ID: APT-" in kwargs["body_text"]
     button_ids = {b["id"] for b in kwargs["buttons"]}
     assert GOTO_MAIN_MENU in button_ids
     assert any(bid.startswith(MANAGE_CANCEL_PREFIX) for bid in button_ids)
@@ -481,7 +483,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert appt.doctor_id == doctor_id
     assert appt.scheduled_at.isoformat() == f"{slot['date']}T{slot['time']}:00"
     assert appt.reference_id is not None and appt.reference_id.startswith("APT-")
-    assert f"Reference ID: *{appt.reference_id}*" in kwargs["body_text"]
+    assert f"Appointment ID: {appt.reference_id}" in kwargs["body_text"]
 
     # ...and saved the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
@@ -1122,7 +1124,7 @@ async def test_new_consultation_allows_other_department_on_a_different_day(hospi
 
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "appointment confirmed" in kwargs["body_text"].lower()
     assert len(db.get_active_appointments_for_patient(hospital_id, patient["id"])) == 2
 
 
@@ -1139,14 +1141,14 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
 
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
-    # text (no previous visit) -> list (appointment types) -> buttons (Back to Menu follow-up)
-    kind, kwargs = wa.sent[-3]
-    assert kind == "text"
-    assert "couldn't find any previous" in kwargs["text"].lower()
-    kind, kwargs = wa.sent[-2]
-    assert kind == "list"
+    # A single buttons message: the "no previous visit" text plus Back/Main
+    # Menu -- both exit to the main menu, there's no earlier booking step.
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
+    assert "no previous consultation found" in kwargs["body_text"].lower()
+    assert "ravi kumar" in kwargs["body_text"].lower()
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert button_ids == {"nav_back", "goto_main_menu"}
 
 
 @pytest.mark.asyncio
@@ -1345,7 +1347,7 @@ async def test_tele_consultation_booking_generates_and_stores_a_video_link(hospi
 
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "appointment confirmed" in kwargs["body_text"].lower()
     assert "🎥" not in kwargs["body_text"]
     assert "meet.jit.si" not in kwargs["body_text"]
 
@@ -1416,7 +1418,7 @@ async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_i
 
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "appointment confirmed" in kwargs["body_text"].lower()
     assert "🎥" not in kwargs["body_text"]
     assert "meet.jit.si" not in kwargs["body_text"]
     assert "Video Consultation" not in kwargs["body_text"]
@@ -1506,7 +1508,7 @@ async def test_daycare_booking_asks_for_duration_and_stores_it(hospital_id):
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
     kind, kwargs = wa.sent[-1]
-    assert "booked successfully" in kwargs["body_text"].lower()
+    assert "appointment confirmed" in kwargs["body_text"].lower()
 
     due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
     appt = next(a for a in due if a.phone == PHONE)

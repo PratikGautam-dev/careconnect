@@ -73,8 +73,8 @@ STRINGS: dict[str, dict[Language, str]] = {
     # --- Booking: appointment type (shown right after patient resolution,
     # before department selection) ---
     SELECT_APPOINTMENT_TYPE: {
-        "en": "Please select what type of appointment you would like to book:",
-        "hi": "कृपया चुनें कि आप किस प्रकार की अपॉइंटमेंट बुक करना चाहेंगे:",
+        "en": "Please choose the type of consultation you would like to book.",
+        "hi": "कृपया वह परामर्श प्रकार चुनें जिसे आप बुक करना चाहते हैं।",
     },
     VIEW_APPOINTMENT_TYPES_BUTTON: {"en": "View Types", "hi": "प्रकार देखें"},
     APPOINTMENT_TYPES_SECTION_TITLE: {"en": "Appointment Type", "hi": "अपॉइंटमेंट प्रकार"},
@@ -93,7 +93,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
 
     # --- Booking: department/doctor/date/time menus ---
-    SELECT_DEPARTMENT: {"en": "Please select a medical department:", "hi": "कृपया एक चिकित्सा विभाग चुनें:"},
+    SELECT_DEPARTMENT: {"en": "Please choose the medical specialty you would like to consult.", "hi": "कृपया वह चिकित्सा विशेषज्ञता चुनें जिसके लिए आप परामर्श लेना चाहते हैं।"},
     VIEW_DEPARTMENTS_BUTTON: {"en": "View Departments", "hi": "विभाग देखें"},
     DEPARTMENTS_SECTION_TITLE: {"en": "Departments", "hi": "विभाग"},
 
@@ -115,8 +115,11 @@ STRINGS: dict[str, dict[Language, str]] = {
     # ("You have selected Dr. Dr. Anjali Rao."), caught live via a full
     # conversation trace before this shipped.
     DOCTOR_SELECTED_ASK_DATE: {
-        "en": "You have selected {doctor_name}. Now please select a consulting date:",
-        "hi": "आपने {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
+        # Previous body (kept for reference, not deleted):
+        # "en": "You have selected {doctor_name}. Now please select a consulting date:",
+        # "hi": "आपने {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
+        "en": "{doctor_name} selected ✅\nPlease choose your preferred appointment date.",
+        "hi": "{doctor_name} चुने गए ✅\nकृपया अपनी पसंदीदा अपॉइंटमेंट की तारीख चुनें।",
     },
     VIEW_DATES_BUTTON: {"en": "View Dates", "hi": "तारीखें देखें"},
     AVAILABLE_DATES_SECTION_TITLE: {"en": "Available Dates", "hi": "उपलब्ध तारीखें"},
@@ -175,30 +178,30 @@ STRINGS: dict[str, dict[Language, str]] = {
     # name/age is asked FIRST (before department selection), that framing
     # was actively misleading, caught live and dropped.
     ASK_BOOKING_FOR: {
-        "en": "Are you registering yourself, or someone else?",
-        "hi": "क्या आप अपना पंजीकरण कर रहे हैं, या किसी और का?",
+        "en": "Who would you like to book this appointment for?",
+        "hi": "आप यह अपॉइंटमेंट किसके लिए बुक करना चाहेंगे?",
     },
     BOOKING_FOR_SELF_BUTTON: {"en": "Myself", "hi": "मैं खुद"},
     BOOKING_FOR_OTHER_BUTTON: {"en": "Someone Else", "hi": "कोई और"},
     ASK_PATIENT_NAME: {
-        "en": "Please type the patient's full name in the chat box below and send it:",
-        "hi": "कृपया चैट बॉक्स में मरीज़ का पूरा नाम टाइप करें और भेजें:",
+        "en": "Please enter the patient's full name.",
+        "hi": "कृपया मरीज का पूरा नाम दर्ज करें।",
     },
     INVALID_PATIENT_NAME: {
         "en": "Please enter a valid name using letters only (4–50 characters).",
         "hi": "कृपया केवल अक्षरों का उपयोग करके एक मान्य नाम दर्ज करें (4–50 अक्षर)।",
     },
     ASK_PATIENT_CONTACT_NUMBER: {
-        "en": "Please share {patient_name}'s 10-digit contact number:",
-        "hi": "कृपया {patient_name} का 10 अंकों का संपर्क नंबर बताएं:",
+        "en": "Please enter the patient's age.",
+        "hi": "कृपया मरीज की आयु दर्ज करें।",
     },
     INVALID_PATIENT_CONTACT_NUMBER: {
         "en": "Please enter a valid 10-digit contact number, digits only, not starting with 0.",
         "hi": "कृपया केवल अंकों में एक मान्य 10 अंकों का संपर्क नंबर दर्ज करें, जो 0 से शुरू न हो।",
     },
     ASK_PATIENT_AGE: {
-        "en": "Please share the patient's age:",
-        "hi": "कृपया मरीज़ की उम्र बताएं:",
+        "en": "Please select the patient's gender.",
+        "hi": "कृपया मरीज का लिंग चुनें।",
     },
     INVALID_PATIENT_AGE: {
         "en": "Please enter a valid age (a number between 0 and 100).",
@@ -230,24 +233,58 @@ STRINGS: dict[str, dict[Language, str]] = {
     # APPOINTMENT_TYPE as the very first booking step now, before this
     # confirmation can ever be reached.
     CONFIRM_BOOKING_SUMMARY: {
-        "en": "*Confirm Booking Details:*\n"
-              "📋 *Type:* {appointment_type_label}\n"
-              "👤 *Patient:* {patient_name}\n"
-              "🎂 *Age:* {patient_age}\n"
-              "🏥 *Dept:* {department_name}\n"
-              "👨‍⚕️ *Doctor:* {doctor_name}\n"
-              "📅 *Date:* {date_label}\n"
-              "🕐 *Slot:* {time_label}\n\n"
-              "Please confirm this appointment:",
-        "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
-              "📋 *प्रकार:* {appointment_type_label}\n"
-              "👤 *मरीज़:* {patient_name}\n"
-              "🎂 *उम्र:* {patient_age}\n"
-              "🏥 *विभाग:* {department_name}\n"
-              "👨‍⚕️ *डॉक्टर:* {doctor_name}\n"
-              "📅 *तारीख:* {date_label}\n"
-              "🕐 *स्लॉट:* {time_label}\n\n"
-              "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
+        # Previous body (kept for reference, not deleted -- same
+        # already-established convention as dpdp_consent.py/this hospital's
+        # other recently-restyled templates):
+        # "en": "*Confirm Booking Details:*\n"
+        #       "📋 *Type:* {appointment_type_label}\n"
+        #       "👤 *Patient:* {patient_name}\n"
+        #       "🎂 *Age:* {patient_age}\n"
+        #       "🏥 *Dept:* {department_name}\n"
+        #       "👨‍⚕️ *Doctor:* {doctor_name}\n"
+        #       "📅 *Date:* {date_label}\n"
+        #       "🕐 *Slot:* {time_label}\n\n"
+        #       "Please confirm this appointment:",
+        # "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
+        #       "📋 *प्रकार:* {appointment_type_label}\n"
+        #       "👤 *मरीज़:* {patient_name}\n"
+        #       "🎂 *उम्र:* {patient_age}\n"
+        #       "🏥 *विभाग:* {department_name}\n"
+        #       "👨‍⚕️ *डॉक्टर:* {doctor_name}\n"
+        #       "📅 *तारीख:* {date_label}\n"
+        #       "🕐 *स्लॉट:* {time_label}\n\n"
+        #       "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
+        # Consultation Fee is a static placeholder line (confirmed with the
+        # user) -- there's no fee/pricing field anywhere on appointment_types
+        # or hospitals to source a real amount from yet.
+        "en": (
+            "*Confirm Booking Details:*\n"
+            "👤 Patient: {patient_name}\n"
+            "🆔 Patient Code: {patient_code}\n"
+            "🎂 Age: {patient_age}\n"
+            "📋 Appointment Type: {appointment_type_label}\n"
+            "🏥 Department: {department_name}\n"
+            "👨‍⚕️ Doctor: {doctor_name}\n"
+            "📅 Date: {date_label}\n"
+            "🕐 Time: {time_label}\n\n"
+            "💰 Consultation Fee: ₹800\n"
+            "(if applicable)\n\n"
+            "Please review the details before confirming your appointment."
+        ),
+        "hi": (
+            "*बुकिंग विवरण की पुष्टि करें:*\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🆔 पेशेंट कोड: {patient_code}\n"
+            "🎂 उम्र: {patient_age}\n"
+            "📋 अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
+            "🏥 विभाग: {department_name}\n"
+            "👨‍⚕️ डॉक्टर: {doctor_name}\n"
+            "📅 तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n\n"
+            "💰 परामर्श शुल्क: ₹800\n"
+            "(यदि लागू हो)\n\n"
+            "कृपया अपॉइंटमेंट की पुष्टि करने से पहले विवरण की समीक्षा करें।"
+        ),
     },
     CONFIRM_BUTTON: {"en": "Confirm", "hi": "पुष्टि करें"},
     CANCEL_BUTTON: {"en": "Cancel", "hi": "रद्द करें"},
@@ -266,12 +303,30 @@ STRINGS: dict[str, dict[Language, str]] = {
     CHANGE_TIME_OPTION: {"en": "Time", "hi": "समय"},
     CHANGE_DURATION_OPTION: {"en": "Duration", "hi": "अवधि"},
     BOOKING_CONFIRMED: {
-        "en": "✅ *Consulting Booked successfully!*\n\n"
-              "Reference ID: *{reference_id}*\n"
-              "Your appointment is registered. We look forward to seeing you.",
-        "hi": "✅ *परामर्श सफलतापूर्वक बुक हो गया!*\n\n"
-              "संदर्भ आईडी: *{reference_id}*\n"
-              "आपकी अपॉइंटमेंट पंजीकृत हो गई है। हम आपसे मिलने के लिए उत्सुक हैं।",
+        "en": (
+            "✅ Appointment Confirmed\n\n"
+            "Your appointment has been successfully booked.\n\n"
+            "Appointment ID: {reference_id}\n"
+            "Patient: {patient_name}\n"
+            "Department: {department_name}\n"
+            "Doctor: {doctor_name}\n"
+            "Date: {date_label}\n"
+            "Time: {time_label}\n\n"
+            "Please arrive 15 minutes before your appointment.\n"
+            "We look forward to seeing you."
+        ),
+        "hi": (
+            "✅ अपॉइंटमेंट की पुष्टि हो गई\n\n"
+            "आपकी अपॉइंटमेंट सफलतापूर्वक बुक हो गई है।\n\n"
+            "अपॉइंटमेंट आईडी: {reference_id}\n"
+            "मरीज़: {patient_name}\n"
+            "विभाग: {department_name}\n"
+            "डॉक्टर: {doctor_name}\n"
+            "तारीख: {date_label}\n"
+            "समय: {time_label}\n\n"
+            "कृपया अपनी अपॉइंटमेंट से 15 मिनट पहले पहुंचें।\n"
+            "हम आपसे मिलने के लिए उत्सुक हैं।"
+        ),
     },
     BOOKING_NOT_CONFIRMED: {
         "en": "Okay, I've cancelled this booking. Send any message to start over.",
@@ -310,8 +365,19 @@ STRINGS: dict[str, dict[Language, str]] = {
     # docs/per-appointment-type-flow-plan.md Phase 2 Step 2:
     # flows/booking/types/followup.py.
     NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP: {
-        "en": "We couldn't find any previous completed appointment for you, so Follow-up isn't available yet. Please choose New Consultation instead.",
-        "hi": "हमें आपकी कोई पिछली पूर्ण अपॉइंटमेंट नहीं मिली, इसलिए फॉलो-अप अभी उपलब्ध नहीं है। कृपया इसके बजाय नई परामर्श चुनें।",
+        # Previous body (kept for reference, not deleted):
+        # "en": "We couldn't find any previous completed appointment for you, so Follow-up isn't available yet. Please choose New Consultation instead.",
+        # "hi": "हमें आपकी कोई पिछली पूर्ण अपॉइंटमेंट नहीं मिली, इसलिए फॉलो-अप अभी उपलब्ध नहीं है। कृपया इसके बजाय नई परामर्श चुनें।",
+        "en": (
+            "No Previous Consultation Found\n"
+            "We couldn't find any completed consultation for {name}.\n\n"
+            "A follow-up appointment can only be booked after a previous consultation. Please book a New Consultation instead."
+        ),
+        "hi": (
+            "कोई पिछला परामर्श नहीं मिला\n"
+            "हमें {name} के लिए कोई पूर्ण परामर्श नहीं मिला।\n\n"
+            "फॉलो-अप अपॉइंटमेंट केवल पिछले परामर्श के बाद ही बुक की जा सकती है। कृपया इसके बजाय नई परामर्श बुक करें।"
+        ),
     },
     FOLLOWUP_CONFIRM_PROMPT: {
         "en": "Book a follow-up with {doctor_name} ({department_name})?\nYour last visit was on {last_visit_label}.",

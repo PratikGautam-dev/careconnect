@@ -7,8 +7,8 @@ appointment-type selection.
 messages.py imports are lazy (inside functions) to avoid a circular import:
 this module -> types.registry -> this module."""
 from flows.booking.state import (
-    BACK_ID, CONFIRM_YES, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_FOLLOWUP_CONFIRM,
-    _HISTORY_KEY, _push_history,
+    BACK_ID, CONFIRM_YES, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE,
+    STATE_AWAITING_FOLLOWUP_CONFIRM, _HISTORY_KEY, _push_history,
 )
 from flows.booking.types.base import NO_DOCTOR_FLOW, TypeFlow
 from core.translations import t
@@ -18,6 +18,7 @@ from core.translations.booking import (
     NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP,
 )
 from core.translations.common import BACK_OPTION
+from core.translations.menu import MAIN_MENU_BUTTON
 
 
 async def _send_followup_confirm_prompt(wa, phone: str, context: dict, language: str = "en") -> None:
@@ -42,14 +43,22 @@ async def _on_followup_selected(
 ) -> None:
     """TypeFlow.on_selected hook: replaces the normal "go to steps[0]"
     behavior for Follow-up."""
-    from flows.booking.messages import _send_appointment_type_menu
-
     patient_id = context.get("active_patient_id")
     last = connector.get_last_attended_appointment(hospital_id, patient_id) if patient_id is not None else None
     if last is None:
-        await wa.send_text(phone, t(NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP, language))
+        # Back and Main Menu both just exit to the main menu here -- there's
+        # no earlier booking step before appointment-type selection for Back
+        # to meaningfully return to (BACK_ID's own handler at
+        # STATE_AWAITING_APPOINTMENT_TYPE already does exactly this).
         sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
-        await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
+        await wa.send_buttons(
+            to=phone,
+            body_text=t(NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP, language, name=context.get("patient_name")),
+            buttons=[
+                {"id": BACK_ID, "title": t(BACK_OPTION, language)},
+                {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
+            ],
+        )
         return
     new_context = {
         **context,

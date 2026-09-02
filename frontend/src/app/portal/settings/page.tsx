@@ -10,38 +10,6 @@ import { DaycareDurationOptions } from "@/components/portal/DaycareDurationOptio
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePortalSettings, type AuditEntry } from "@/hooks/usePortalSettings";
-import { portalFetch } from "@/lib/portalAuth";
-
-type Settings = {
-  name: string;
-  welcome_message_text: string;
-  reminder_offsets_hours: string;
-  reminder_template_name: string;
-  // Section 12.13: self-serve bot customization.
-  enabled_features: string[];
-  closing_message_text: string;
-  business_hours_text: string;
-  default_language: "en" | "hi";
-  language_prompt_enabled: boolean;
-  session_timeout_minutes: number;
-  // Messages page follow-up: how long an open "Talk to Reception" handoff
-  // can go with no activity from either side before it auto-resolves.
-  handoff_auto_resolve_hours: number;
-  // CareConnect architecture doc alignment (Spec.md Section 0).
-  require_patient_confirmation: boolean;
-  privacy_notice_text: string;
-};
-
-// type AuditEntry = {
-//   id: number;
-//   actor_level: string;
-//   action: string;
-//   entity_type: string | null;
-//   entity_id: string | null;
-//   before_value: Record<string, unknown> | null;
-//   after_value: Record<string, unknown> | null;
-//   created_at: string;
-// };
 
 function formatAuditChanges(entry: AuditEntry): string {
   const keys = new Set([

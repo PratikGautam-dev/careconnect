@@ -71,7 +71,7 @@ async def _handle_awaiting_daycare_duration(
                 _HISTORY_KEY: _push_history(context, STATE_AWAITING_DAYCARE_DURATION),
             }
             sessions.set(hospital_id, phone, STATE_AWAITING_CONFIRMATION, new_context)
-            await _send_confirmation(wa, phone, new_context, language=language)
+            await _send_confirmation(wa, phone, hospital_id, new_context, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_DAYCARE_DURATION, context)
     await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)

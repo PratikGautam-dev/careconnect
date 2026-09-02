@@ -290,6 +290,52 @@ async def test_single_patient_confirmation_shown_when_hospital_requires_it(hospi
 
 
 @pytest.mark.asyncio
+async def test_single_patient_confirmation_has_no_confirm_button_and_back_reopens_language_picker(hospital_id):
+    """Confirmed with the user: with exactly one linked patient there's
+    nothing to choose between, so no separate "Confirm" button -- just
+    Main Menu (still CONFIRM_YES internally, relabelled) / Add Patient /
+    Back, with Back re-opening the language picker (the only earlier screen
+    this one can follow)."""
+    connector = flows._DEFAULT_CONNECTOR
+    h = db.get_hospital(hospital_id)
+    db.update_hospital(
+        hospital_id, name=h.name, whatsapp_phone_number_id=h.whatsapp_phone_number_id,
+        access_token=h.access_token, app_secret=h.app_secret, timezone=h.timezone,
+        welcome_message_text=h.welcome_message_text, reminder_offsets_hours=h.reminder_offsets_hours,
+        reminder_template_name=h.reminder_template_name, data_tier=h.data_tier,
+        external_api_base_url=h.external_api_base_url, external_api_key=h.external_api_key,
+        portal_password_hash=h.portal_password_hash, enabled_features=h.enabled_features,
+        feature_labels=h.feature_labels, closing_message_text=h.closing_message_text,
+        business_hours_text=h.business_hours_text, default_language=h.default_language,
+        language_prompt_enabled=h.language_prompt_enabled, session_timeout_minutes=h.session_timeout_minutes,
+        require_patient_confirmation=True,
+    )
+    db.create_patient_profile(hospital_id, PHONE, "Abhi", 30, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        require_patient_confirmation=True,
+    )
+    kwargs = _last_buttons(wa)
+    assert "Current Patient: Abhi" in kwargs["body_text"]
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert button_ids == {patient_identity.CONFIRM_YES, patient_identity.ADD_PATIENT_ENTRY_ID, patient_identity.BACK_ID}
+    confirm_button = next(b for b in kwargs["buttons"] if b["id"] == patient_identity.CONFIRM_YES)
+    assert confirm_button["title"] != "Confirm"
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BACK_ID), connector=connector, enabled_features=["booking"],
+        require_patient_confirmation=True,
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_LANGUAGE"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert {b["id"] for b in kwargs["buttons"]} == {"lang_en", "lang_hi"}
+
+
+@pytest.mark.asyncio
 async def test_multi_patient_resolution_shows_list_directly_with_no_default(hospital_id):
     """2+ linked patients: no candidate is auto-picked and no "Continue as
     X?" card is shown -- just the list (welcome text folded into its body)
@@ -320,7 +366,8 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     assert button_ids == {patient_identity.ADD_PATIENT_ENTRY_ID}
     assert patient_identity.CONFIRM_YES not in button_ids
 
-    # Tapping a row activates that patient directly, no intermediate confirm.
+    # Tapping a row activates that patient directly -- no Yes/No gate, but a
+    # "Patient Selected" text confirms which one before the main menu shows.
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity._patient_row_id(raj["id"])),
         connector=connector, enabled_features=["booking"],
@@ -328,6 +375,8 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["active_patient_id"] == raj["id"]
+    text_messages = [kwargs["text"] for kind, kwargs in wa.sent if kind == "text"]
+    assert any("Patient Selected" in m and "Raj" in m and raj["patient_display_id"] in m for m in text_messages)
 
 
 @pytest.mark.asyncio

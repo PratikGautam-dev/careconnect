@@ -10,6 +10,10 @@ export type Handoff = {
   status: "open" | "resolved";
   created_at: string;
   resolved_at: string | null;
+  // Messages page follow-up: "auto" for the scheduler
+  // (/internal/auto-resolve-handoffs), a staff session's hashed token for a
+  // real manual resolve, or null (never resolved, or predates this column).
+  resolved_by: string | null;
 };
 
 // Two-way threading follow-up (Spec.md Section 0): a handoff's full
@@ -22,10 +26,15 @@ export type HandoffMessage = {
   created_at: string;
 };
 
+// Messages page follow-up: "Errored" is a peer tab, not a status -- it shows
+// every system_error-triggered conversation regardless of resolved state
+// (status="all"), since a bot error worth following up on doesn't stop
+// being worth seeing just because it auto-resolved or got marked resolved.
 export const FILTERS = [
-  { key: "open", label: "Open" },
-  { key: "resolved", label: "Resolved" },
-  { key: "all", label: "All" },
+  { key: "open", label: "Open", status: "open", reason: null },
+  { key: "resolved", label: "Resolved", status: "resolved", reason: null },
+  { key: "errored", label: "Errored", status: "all", reason: "system_error" },
+  { key: "all", label: "All", status: "all", reason: null },
 ] as const;
 
 // Item 4 (Spec.md Section 0): new incoming handoff requests don't push to
@@ -37,8 +46,8 @@ export const FILTERS = [
 const POLL_INTERVAL_MS = 12_000;
 
 /** Loads + owns every mutation on the /portal/messages (handoffs) page:
- * list + status/date filters, thread polling for the selected conversation,
- * reply send, resolve, delete. */
+ * list + status/date filters, multi-select + bulk resolve/delete, thread
+ * polling for the selected conversation, reply send, single resolve/delete. */
 export function useMessages(ready: boolean) {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("open");
@@ -54,9 +63,15 @@ export function useMessages(ready: boolean) {
   // Item 6 (Spec.md Section 0): status filtering already existed (the
   // Open/Resolved/All tabs above) -- this adds a date filter alongside it.
   const [dateFilter, setDateFilter] = useState("");
+  // Messages page follow-up: multi-select + bulk resolve/delete.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkActing, setBulkActing] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const qs = new URLSearchParams({ status: filter });
+    const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
+    const qs = new URLSearchParams({ status: active.status });
+    if (active.reason) qs.set("reason", active.reason);
     if (dateFilter) qs.set("date", dateFilter);
     const result = await portalFetch(`/api/portal/handoffs?${qs.toString()}`);
     if (!result.ok) {
@@ -80,6 +95,75 @@ export function useMessages(ready: boolean) {
       setSelectedId(null);
     }
   }, [handoffs, selectedId]);
+
+  // Drops any selected id no longer present in the current list -- a poll
+  // refresh after a bulk action (or someone else resolving a handoff)
+  // shouldn't leave a stale checkbox "selected" for a row that's gone.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (!handoffs) return prev;
+      const visible = new Set(handoffs.map((h) => h.id));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [handoffs]);
+
+  // Switching tabs/date shows a different list entirely -- a selection made
+  // on "Open" shouldn't silently carry over and get bulk-acted-on from "All".
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filter, dateFilter]);
+
+  function toggleSelected(id: number, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(checked: boolean) {
+    setSelectedIds(checked ? new Set((handoffs ?? []).map((h) => h.id)) : new Set());
+  }
+
+  async function handleBulkResolve() {
+    if (selectedIds.size === 0) return;
+    setBulkActing(true);
+    setBulkError(null);
+    const result = await portalFetch("/api/portal/handoffs/bulk-resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handoff_ids: Array.from(selectedIds) }),
+    });
+    setBulkActing(false);
+    if (!result.ok) {
+      setBulkError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      return;
+    }
+    setSelectedIds(new Set());
+    load();
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} message record(s)? This can't be undone from the portal.`)) return;
+    setBulkActing(true);
+    setBulkError(null);
+    const result = await portalFetch("/api/portal/handoffs/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handoff_ids: Array.from(selectedIds) }),
+    });
+    setBulkActing(false);
+    if (!result.ok) {
+      setBulkError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      return;
+    }
+    setSelectedId(null);
+    setSelectedIds(new Set());
+    load();
+  }
 
   const selected = handoffs?.find((h) => h.id === selectedId) || null;
 
@@ -151,5 +235,7 @@ export function useMessages(ready: boolean) {
     thread, threadError,
     resolvingId, handleResolve,
     deletingId, handleDelete,
+    selectedIds, toggleSelected, toggleSelectAll,
+    bulkActing, bulkError, handleBulkResolve, handleBulkDelete,
   };
 }

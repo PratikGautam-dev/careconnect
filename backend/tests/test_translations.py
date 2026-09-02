@@ -97,38 +97,50 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
 
 
 def test_confirmation_card_renders_structured_markdown_in_both_languages():
-    """Section 12.12: the confirm_booking_summary/booking_confirmed cards --
-    fixed emoji, WhatsApp *bold* markers, and every field interpolated --
-    must render correctly (and identically in shape) in both languages."""
+    """Confirmation-card restyle (confirmed with the user): "Emoji Label:
+    value" lines (plain, no *bold* per field -- just the *Confirm Booking
+    Details:* heading), a Patient Code line (patient_display_id, fetched by
+    the caller and passed in as patient_code), and a static Consultation Fee
+    placeholder -- must render correctly (and identically in shape) in both
+    languages."""
     summary_en = t(CONFIRM_BOOKING_SUMMARY, "en",
         appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
-        time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
+        time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
     )
     assert "*Confirm Booking Details:*" in summary_en
-    assert "🏥 *Dept:* Cardiology" in summary_en
-    assert "👨‍⚕️ *Doctor:* Anjali Rao" in summary_en
-    assert "📅 *Date:* Sat, Aug 8" in summary_en
-    assert "🕐 *Slot:* 10:00" in summary_en
-    assert "👤 *Patient:* Ravi Kumar" in summary_en
-    assert "🎂 *Age:* 34" in summary_en
-    # Item 10 (Spec.md Section 0): patient name/age must come FIRST, ahead of
-    # department/doctor/date/time.
-    assert summary_en.index("👤 *Patient:*") < summary_en.index("🏥 *Dept:*")
-    assert summary_en.index("🎂 *Age:*") < summary_en.index("👨‍⚕️ *Doctor:*")
+    assert "👤 Patient: Ravi Kumar" in summary_en
+    assert "🆔 Patient Code: DCCP-2026-00020" in summary_en
+    assert "🎂 Age: 34" in summary_en
+    assert "📋 Appointment Type: New Consultation" in summary_en
+    assert "🏥 Department: Cardiology" in summary_en
+    assert "👨‍⚕️ Doctor: Anjali Rao" in summary_en
+    assert "📅 Date: Sat, Aug 8" in summary_en
+    assert "🕐 Time: 10:00" in summary_en
+    assert "💰 Consultation Fee: ₹800" in summary_en
+    # Item 10 (Spec.md Section 0): patient name/code/age must come FIRST,
+    # ahead of department/doctor/date/time.
+    assert summary_en.index("Patient:") < summary_en.index("Department:")
+    assert summary_en.index("Age:") < summary_en.index("Doctor:")
 
     summary_hi = t(CONFIRM_BOOKING_SUMMARY, "hi",
         appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
-        time_label="10:00", patient_name="Ravi Kumar", patient_age=34,
+        time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
     )
-    for emoji in ("🏥", "👨‍⚕️", "📅", "🕐", "👤", "🎂"):
-        assert emoji in summary_hi
-    assert "Cardiology" in summary_hi and "Ravi Kumar" in summary_hi
+    assert "Cardiology" in summary_hi and "Ravi Kumar" in summary_hi and "DCCP-2026-00020" in summary_hi
 
-    confirmed_en = t(BOOKING_CONFIRMED, "en", reference_id="apt_1754650184123")
-    assert "✅ *Consulting Booked successfully!*" in confirmed_en
-    assert "Reference ID: *apt_1754650184123*" in confirmed_en
+    confirmed_en = t(
+        BOOKING_CONFIRMED, "en", reference_id="apt_1754650184123", patient_name="Ravi Kumar",
+        department_name="Cardiology", doctor_name="Dr. Anjali Rao", date_label="Saturday, 08 August 2026",
+        time_label="10:00 AM",
+    )
+    assert "✅ Appointment Confirmed" in confirmed_en
+    assert "Appointment ID: apt_1754650184123" in confirmed_en
 
-    confirmed_hi = t(BOOKING_CONFIRMED, "hi", reference_id="apt_1754650184123")
+    confirmed_hi = t(
+        BOOKING_CONFIRMED, "hi", reference_id="apt_1754650184123", patient_name="Ravi Kumar",
+        department_name="Cardiology", doctor_name="Dr. Anjali Rao", date_label="Saturday, 08 August 2026",
+        time_label="10:00 AM",
+    )
     assert "✅" in confirmed_hi and "apt_1754650184123" in confirmed_hi
