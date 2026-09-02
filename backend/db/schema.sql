@@ -911,7 +911,11 @@ CREATE TABLE IF NOT EXISTS patient_documents (
     file_url TEXT NOT NULL,
     uploaded_at TEXT NOT NULL DEFAULT (now()::text),
     uploaded_by_session_id TEXT,
-    sent_to_whatsapp_at TEXT
+    sent_to_whatsapp_at TEXT,
+    -- WhatsApp menu restructuring: Reports & Prescriptions' "View
+    -- Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+    -- this. 'other' for every document uploaded before this column existed.
+    document_type TEXT NOT NULL DEFAULT 'other'
 );
 CREATE INDEX IF NOT EXISTS idx_patient_documents_hospital_patient ON patient_documents(hospital_id, patient_id);
 

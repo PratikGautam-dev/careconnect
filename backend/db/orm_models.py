@@ -370,6 +370,9 @@ class PatientDocument(Base):
     uploaded_at: Mapped[str]
     uploaded_by_session_id: Mapped[str | None]
     sent_to_whatsapp_at: Mapped[str | None]
+    # Migration 0022 -- prescription/lab_report/diagnostic_report/other, see
+    # db/migrations/versions/0022_patient_document_type.py.
+    document_type: Mapped[str]
 
 
 class PatientRow(Base):

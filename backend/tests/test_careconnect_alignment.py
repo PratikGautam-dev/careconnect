@@ -82,7 +82,7 @@ async def test_main_menu_shows_patient_name_and_mrn_header(hospital_id):
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "IDLE", {}, language="en")
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
 
     kwargs = _last_list(wa)
     assert "Ravi Kumar" in kwargs["body_text"]
@@ -108,19 +108,19 @@ async def test_duplicate_match_offers_link_existing_or_different_patient(hospita
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)  # 0 linked patients on THIS phone -> registration
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_BOOKING_FOR
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_DUPLICATE_DECISION
@@ -138,18 +138,18 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_LINK_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_LINK_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
@@ -172,18 +172,18 @@ async def test_different_patient_creates_a_genuinely_new_profile(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_DIFFERENT_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_DIFFERENT_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
 
     linked = connector.list_active_patients(hospital_id, PHONE)
@@ -198,16 +198,16 @@ async def test_no_match_creates_the_patient_directly_once_gender_is_collected(ho
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_SELF_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_SELF_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Someone Unique"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("52"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Someone Unique"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("52"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
     linked = connector.list_active_patients(hospital_id, PHONE)
@@ -237,7 +237,7 @@ async def test_single_patient_auto_continues_by_default(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
 
     # Straight to the menu -- no confirmation step shown.
     _last_list(wa)
@@ -270,7 +270,7 @@ async def test_single_patient_confirmation_shown_when_hospital_requires_it(hospi
     # itself takes it as a plain parameter, it doesn't re-read the hospital
     # row on every call.
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         require_patient_confirmation=True,
     )
 
@@ -281,7 +281,7 @@ async def test_single_patient_confirmation_shown_when_hospital_requires_it(hospi
 
     # Confirming proceeds to the menu.
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.CONFIRM_YES), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.CONFIRM_YES), connector=connector, enabled_features=["book_doctor_appointment"],
         require_patient_confirmation=True,
     )
     session = sessions.get(hospital_id, PHONE)
@@ -315,7 +315,7 @@ async def test_single_patient_confirmation_has_no_confirm_button_and_back_reopen
     sessions = _sessions_en(hospital_id)
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         require_patient_confirmation=True,
     )
     kwargs = _last_buttons(wa)
@@ -326,7 +326,7 @@ async def test_single_patient_confirmation_has_no_confirm_button_and_back_reopen
     assert confirm_button["title"] != "Confirm"
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BACK_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BACK_ID), connector=connector, enabled_features=["book_doctor_appointment"],
         require_patient_confirmation=True,
     )
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_LANGUAGE"
@@ -347,7 +347,7 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
     list_kwargs = _last_list(wa)
@@ -370,7 +370,7 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     # "Patient Selected" text confirms which one before the main menu shows.
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity._patient_row_id(raj["id"])),
-        connector=connector, enabled_features=["booking"],
+        connector=connector, enabled_features=["book_doctor_appointment"],
     )
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
@@ -393,7 +393,7 @@ async def test_multi_patient_returning_to_menu_reprompts_instead_of_defaulting(h
     sessions.set(hospital_id, PHONE, "IDLE", {}, language="en", active_patient_id=abhi["id"])
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(flows.GOTO_MAIN_MENU), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(flows.GOTO_MAIN_MENU), connector=connector, enabled_features=["book_doctor_appointment"],
     )
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
@@ -435,7 +435,7 @@ async def test_blocked_patient_forces_registration_not_silent_use(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_NAME
 
@@ -463,23 +463,23 @@ async def test_booking_confirm_rejects_a_since_unlinked_patient(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id, active_patient_id=patient["id"])
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["book_doctor_appointment"])
     slots = db.get_slots(hospital_id, doctor_id)
     date_str = slots[0]["date"]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["book_doctor_appointment"])
     slot = [s for s in slots if s["date"] == date_str][0]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
 
     # The link is broken mid-flow (e.g. unlinked from another device/session).
     db.unlink_patient(hospital_id, PHONE, patient["id"])
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["book_doctor_appointment"])
 
     kind, kwargs = wa.sent[-1]
     assert kind == "text"
@@ -559,7 +559,7 @@ async def test_dpdp_consent_shown_after_language_before_patient_resolution(hospi
     sessions = _sessions_en(hospital_id)
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     assert sessions.get(hospital_id, PHONE)["state"] == flows.STATE_AWAITING_DPDP_CONSENT
@@ -577,11 +577,11 @@ async def test_dpdp_consent_agree_proceeds_and_is_remembered(hospital_id):
     sessions = _sessions_en(hospital_id)
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(flows.DPDP_AGREE_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(flows.DPDP_AGREE_ID), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     # Proceeds straight through to the resolved-patient IDLE menu, not stuck
@@ -594,7 +594,7 @@ async def test_dpdp_consent_agree_proceeds_and_is_remembered(hospital_id):
     wa2 = FakeWhatsAppClient()
     fresh_sessions = _sessions_en(hospital_id)
     await flows.handle_incoming(
-        wa2, fresh_sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa2, fresh_sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     assert not any(kind == "buttons" and "DPDP" in kwargs["body_text"] for kind, kwargs in wa2.sent)
@@ -608,11 +608,11 @@ async def test_dpdp_consent_decline_restarts_from_language_selection(hospital_id
     sessions = _sessions_en(hospital_id)
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(flows.DPDP_DECLINE_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(flows.DPDP_DECLINE_ID), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     assert db.has_agreed_to_dpdp_consent(hospital_id, PHONE) is False
@@ -625,7 +625,7 @@ async def test_dpdp_consent_decline_restarts_from_language_selection(hospital_id
 
     # Picking a language again re-asks for DPDP consent.
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(flows.LANGUAGE_ROW_EN), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(flows.LANGUAGE_ROW_EN), connector=connector, enabled_features=["book_doctor_appointment"],
         dpdp_consent_required=True,
     )
     assert sessions.get(hospital_id, PHONE)["state"] == flows.STATE_AWAITING_DPDP_CONSENT
@@ -641,6 +641,6 @@ async def test_dpdp_consent_off_by_default_leaves_flow_unchanged(hospital_id):
     sessions = _sessions_en(hospital_id)
 
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"

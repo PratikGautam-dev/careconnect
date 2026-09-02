@@ -333,6 +333,43 @@ def test_upload_empty_file_rejected(two_hospitals, patient_a):
     assert resp.status_code == 400
 
 
+def test_upload_without_document_type_defaults_to_other(two_hospitals, patient_a):
+    """WhatsApp menu restructuring: a caller that doesn't pass document_type
+    (e.g. an older client) gets today's behavior unchanged -- 'other', not a
+    400."""
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/patients/{patient_a['id']}/documents", headers=_auth(a["token"]),
+        files={"file": ("bloodwork.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+    )
+    assert resp.status_code == 200
+    doc = resp.json()["document"]
+    assert doc["document_type"] == "other"
+
+
+def test_upload_with_a_valid_document_type_is_categorized(two_hospitals, patient_a):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/patients/{patient_a['id']}/documents", headers=_auth(a["token"]),
+        files={"file": ("rx.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+        data={"document_type": "prescription"},
+    )
+    assert resp.status_code == 200
+    doc = resp.json()["document"]
+    assert doc["document_type"] == "prescription"
+    assert db.get_patient_documents(a["id"], patient_a["id"], document_type="prescription") != []
+
+
+def test_upload_with_an_invalid_document_type_is_rejected(two_hospitals, patient_a):
+    a = two_hospitals["a"]
+    resp = client.post(
+        f"/api/portal/patients/{patient_a['id']}/documents", headers=_auth(a["token"]),
+        files={"file": ("rx.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+        data={"document_type": "not_a_real_category"},
+    )
+    assert resp.status_code == 400
+
+
 # --- portal/routes/documents.py: send to WhatsApp ---
 
 

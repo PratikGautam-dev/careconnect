@@ -59,16 +59,16 @@ def _sessions_en(hospital_id, phone=PHONE):
 async def _register_via_chat(wa, sessions, hospital_id, connector, phone, booking_for_id, name, contact_number=None, age=30):
     """Drives the real chat flow: "hi" -> Myself/Someone Else -> name ->
     [contact number, Someone Else only] -> age -> gender -> create."""
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, tap(booking_for_id), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(name), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, tap(booking_for_id), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(name), connector=connector, enabled_features=["book_doctor_appointment"])
     if booking_for_id == patient_identity.BOOKING_FOR_OTHER_ID:
         await flows.handle_incoming(
-            wa, sessions, phone, hospital_id, text_reply(contact_number), connector=connector, enabled_features=["booking"],
+            wa, sessions, phone, hospital_id, text_reply(contact_number), connector=connector, enabled_features=["book_doctor_appointment"],
         )
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, phone, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, phone, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
 
 
@@ -112,19 +112,19 @@ async def test_invalid_contact_number_is_rejected_and_reprompted(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Kumar"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Kumar"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
     # Too short, letters, and a leading zero -- all rejected, state unchanged.
     for bad in ("12345", "98765abcde", "0123456789"):
-        await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(bad), connector=connector, enabled_features=["booking"])
+        await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(bad), connector=connector, enabled_features=["book_doctor_appointment"])
         assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_AGE
 
 

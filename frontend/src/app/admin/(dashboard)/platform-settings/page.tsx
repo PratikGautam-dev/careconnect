@@ -8,13 +8,15 @@ import { Input } from "@/components/ui/Input";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 const FEATURE_DISPLAY_NAMES: Record<string, string> = {
-  booking: "Book Appointment",
+  book_doctor_appointment: "Book Doctor Appointment",
+  tests_diagnostics: "Tests & Diagnostics",
   reschedule: "Reschedule Appointment",
   cancel: "Cancel Appointment",
   view_appointments: "My Appointments",
   reports_prescriptions: "Reports & Prescriptions",
   manage_patients: "Manage Patients",
   consent_privacy: "Consent & Privacy",
+  manage_language: "Manage Language",
   hospital_info: "Hospital Information",
   reception_handoff: "Talk to Reception",
   faq: "FAQ / Information",

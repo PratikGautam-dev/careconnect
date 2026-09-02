@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Header, UploadFile
+from fastapi import APIRouter, File, Form, Header, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 import db.repository as db
@@ -8,10 +8,17 @@ from portal.deps import _authenticate, _session_id
 
 router = APIRouter()
 
+# WhatsApp menu restructuring: Reports & Prescriptions' "View
+# Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+# exactly these -- kept in sync by hand with core/translations/my_details.py's
+# REPORTS_MENU_VIEW_* row labels.
+_VALID_DOCUMENT_TYPES = {"prescription", "lab_report", "diagnostic_report", "other"}
+
 
 @router.post("/api/portal/patients/{patient_id}/documents")
 async def portal_upload_patient_document(
-    patient_id: int, file: UploadFile = File(...), authorization: str | None = Header(default=None),
+    patient_id: int, file: UploadFile = File(...), document_type: str = Form("other"),
+    authorization: str | None = Header(default=None),
 ):
     hospital = _authenticate(authorization)
     if hospital is None:
@@ -20,6 +27,8 @@ async def portal_upload_patient_document(
         return JSONResponse({"error": "No such patient."}, status_code=404)
     if not file.filename:
         return JSONResponse({"error": "A file is required."}, status_code=400)
+    if document_type not in _VALID_DOCUMENT_TYPES:
+        return JSONResponse({"error": f"Unrecognized document type \"{document_type}\"."}, status_code=400)
 
     content = await file.read()
     if not content:
@@ -31,7 +40,7 @@ async def portal_upload_patient_document(
     )
     document = db.create_patient_document(
         hospital.id, patient_id, file.filename, storage_key,
-        uploaded_by_session_id=_session_id(authorization),
+        uploaded_by_session_id=_session_id(authorization), document_type=document_type,
     )
     return JSONResponse({"document": document})
 

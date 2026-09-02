@@ -296,7 +296,7 @@ def test_onboarding_sets_reduced_capabilities_for_a_clinic(hospital_id, user_aut
         "app_secret": "clinic-secret",
         "reminder_offsets_hours": "24",
         "portal_password": "clinic-bookings-pw",
-        "enabled_features": ["booking"],
+        "enabled_features": ["book_doctor_appointment"],
         "data_tier": "tier1",
         "departments": [{
             "name": "General",
@@ -330,7 +330,7 @@ def test_onboarding_defaults_to_hospital_type_when_omitted(hospital_id, user_aut
         "whatsapp_phone_number_id": "LEGACY_PHONE_ID",
         "reminder_offsets_hours": "24",
         "portal_password": "legacy-pw",
-        "enabled_features": ["booking"],
+        "enabled_features": ["book_doctor_appointment"],
         "data_tier": "tier1",
         "departments": [{
             "name": "General",
@@ -366,7 +366,7 @@ def test_daycare_is_active_by_default_for_hospital_but_not_clinic(hospital_id, u
         "whatsapp_phone_number_id": "DAYCARE_CLINIC_PHONE_ID",
         "reminder_offsets_hours": "24",
         "portal_password": "daycare-clinic-pw",
-        "enabled_features": ["booking"],
+        "enabled_features": ["book_doctor_appointment"],
         "data_tier": "tier1",
         "departments": [{
             "name": "General",
@@ -422,7 +422,7 @@ def test_clinic_can_turn_on_daycare_once_granted_the_capability(user_auth_header
         "whatsapp_phone_number_id": "GROWING_CLINIC_PHONE_ID",
         "reminder_offsets_hours": "24",
         "portal_password": "apttype-pw2",
-        "enabled_features": ["booking"],
+        "enabled_features": ["book_doctor_appointment"],
         "data_tier": "tier1",
         "departments": [{
             "name": "General",

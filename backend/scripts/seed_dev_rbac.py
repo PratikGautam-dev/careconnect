@@ -103,7 +103,7 @@ def _get_or_create_dev_hospital():
         return hospital
     hospital = db.create_hospital(
         _DEV_HOSPITAL_NAME, _DEV_WHATSAPP_PHONE_NUMBER_ID,
-        enabled_features=["booking", "reschedule", "cancel", "view_appointments"],
+        enabled_features=["book_doctor_appointment", "tests_diagnostics", "reschedule", "cancel", "view_appointments"],
     )
     print(f"Created hospital #{hospital.id}: {hospital.name}")
     return hospital

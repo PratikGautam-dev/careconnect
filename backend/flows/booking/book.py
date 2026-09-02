@@ -56,7 +56,7 @@ def _first_available_resource(connector: Connector, hospital_id: int) -> tuple[d
 
 async def _start_booking_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
-    active_patient_id: int | None = None,
+    active_patient_id: int | None = None, category: "frozenset[str] | None" = None, next_action: str = "booking",
 ) -> None:
     """CareConnect architecture doc alignment (Spec.md Section 0): when
     `active_patient_id` is given (flows.py's real-traffic path, resolved
@@ -93,24 +93,132 @@ async def _start_booking_flow(
     still exercised directly by tests/test_booking_flow.py as a standalone
     unit of the state machine -- see this module's docstring) so both entry
     points stay behaviorally identical rather than drifting apart."""
+    booking_category = list(category) if category else None
     if active_patient_id is not None:
         patients = connector.list_active_patients(hospital_id, phone)
         match = next((p for p in patients if p["id"] == active_patient_id), None)
         if match is not None:
-            await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, match, "booking", language=language)
+            await _select_patient_and_continue(
+                wa, sessions, phone, hospital_id, connector, match, next_action, language=language,
+                booking_category=booking_category,
+            )
             return
         # Defensive only -- shouldn't happen, since flows.py only ever
         # passes an active_patient_id it just validated. Fall through to
         # the normal resolution below rather than silently failing.
     patients = connector.list_active_patients(hospital_id, phone)
     if not patients:
-        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": "booking"})
+        sessions.set(
+            hospital_id, phone, STATE_AWAITING_PATIENT_NAME,
+            {"patient_flow_next": next_action, "patient_flow_category": booking_category},
+        )
         await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
         return
     if len(patients) == 1:
-        await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patients[0], "booking", language=language)
+        await _select_patient_and_continue(
+            wa, sessions, phone, hospital_id, connector, patients[0], next_action, language=language,
+            booking_category=booking_category,
+        )
         return
-    await _send_patient_selector(wa, sessions, phone, hospital_id, connector, "booking", language=language)
+    await _send_patient_selector(
+        wa, sessions, phone, hospital_id, connector, next_action, language=language, booking_category=booking_category,
+    )
+
+
+async def _proceed_with_appointment_type(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt_type: dict, new_context: dict,
+    connector: Connector, language: str = "en",
+) -> None:
+    """Everything that happens once an appointment type is settled --
+    factored out of _handle_awaiting_appointment_type so
+    _start_booking_for_preselected_type (Book Report Review, which never
+    shows a type list at all) can reuse it too. Callers build `new_context`
+    themselves (with or without a _HISTORY_KEY frame, per their own
+    situation) and pass it in already-formed."""
+    # A type with its own on_selected hook (e.g. followup.py) fully
+    # owns what happens next -- checked before the skip branch below.
+    flow = get_type_flow(appt_type["id"])
+    if flow.on_selected is not None:
+        await flow.on_selected(wa, sessions, phone, hospital_id, connector, new_context, language)
+        return
+    # No department/doctor step at all (diagnostic, lab): auto-resolve
+    # a resource instead of asking, regardless of tenant shape.
+    if STATE_AWAITING_DEPARTMENT not in flow.steps:
+        resource = _first_available_resource(connector, hospital_id)
+        if resource is None:
+            await _notify_no_doctors_available(wa, sessions, hospital_id, phone, appt_type["label"], language=language)
+            return
+        dept, doctor = resource
+        new_context = {
+            **new_context,
+            "department_id": dept["id"], "department_name": dept["name"],
+            "doctor_id": doctor["id"], "doctor_name": doctor["name"],
+        }
+        sessions.set(hospital_id, phone, flow.first_step(), new_context)
+        await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
+        return
+    # Single-doctor tenant (a clinic, per tenant-capability-gating-
+    # plan.md -- onboarded with exactly one department and one
+    # doctor): asking a clinic's patient to pick a department then a
+    # doctor when there's only ever one of each is pure friction, so
+    # skip straight to date selection with both auto-selected. Not
+    # gated on tenant_type directly -- this module only ever talks to
+    # `connector`, never db/repository.py or Hospital -- so it's
+    # phrased as "there's only one real choice," which happens to be
+    # exactly the clinic case and degrades safely if a hospital ever
+    # legitimately has one department with one doctor too. Back
+    # navigation needs no special-casing: since STATE_AWAITING_
+    # DEPARTMENT/DOCTOR frames are simply never pushed here, popping
+    # history naturally returns straight to appointment type.
+    departments = connector.get_departments(hospital_id)
+    if len(departments) == 1:
+        only_dept = departments[0]
+        doctors = connector.get_doctors(hospital_id, only_dept["id"])
+        if len(doctors) == 1:
+            only_doctor = doctors[0]
+            if not connector.get_available_slots(hospital_id, only_doctor["id"]):
+                await _notify_no_slots_available(wa, sessions, hospital_id, phone, only_doctor["name"], language=language)
+                return
+            new_context = {
+                **new_context,
+                "department_id": only_dept["id"], "department_name": only_dept["name"],
+                "doctor_id": only_doctor["id"], "doctor_name": only_doctor["name"],
+            }
+            sessions.set(hospital_id, phone, STATE_AWAITING_DATE, new_context)
+            await _send_date_menu(wa, phone, hospital_id, only_doctor["id"], only_doctor["name"], connector, language=language)
+            return
+        if not doctors:
+            await _notify_no_doctors_available(wa, sessions, hospital_id, phone, only_dept["name"], language=language)
+            return
+    sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, new_context)
+    await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+
+
+async def _start_booking_for_preselected_type(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, appointment_type_id: str,
+    active_patient: dict, language: str = "en",
+) -> None:
+    """Reports & Prescriptions' "Book Report Review" row: its category has
+    exactly one type (db.REPORT_REVIEW_TYPE_ID), so showing a 1-row type
+    list would be pure friction -- this skips straight past the type-LIST
+    step into whatever picking that type normally does next
+    (_proceed_with_appointment_type). No _HISTORY_KEY frame is pushed: no
+    list screen was ever shown, so there's nothing for Back to pop to (same
+    "frames simply never pushed" precedent the clinic single-doctor
+    auto-skip above already established)."""
+    appt_type = _find_by_id(connector.get_appointment_types(hospital_id), appointment_type_id)
+    if appt_type is None:
+        sessions.reset(hospital_id, phone)
+        await _send_main_menu(wa, phone, "the hospital", language=language)
+        return
+    new_context = {
+        "active_patient_id": active_patient["id"], "patient_name": active_patient["name"],
+        "patient_age": active_patient["age"],
+        "appointment_type_id": appt_type["id"],
+        "appointment_type_label": appt_type["label"],
+        "appointment_type_requires_consent": appt_type["requires_consent"],
+    }
+    await _proceed_with_appointment_type(wa, sessions, phone, hospital_id, appt_type, new_context, connector, language=language)
 
 
 async def _handle_awaiting_appointment_type(
@@ -138,66 +246,12 @@ async def _handle_awaiting_appointment_type(
                 "appointment_type_requires_consent": appt_type["requires_consent"],
                 _HISTORY_KEY: history,
             }
-            # A type with its own on_selected hook (e.g. followup.py) fully
-            # owns what happens next -- checked before the skip branch below.
-            flow = get_type_flow(appt_type["id"])
-            if flow.on_selected is not None:
-                await flow.on_selected(wa, sessions, phone, hospital_id, connector, new_context, language)
-                return
-            # No department/doctor step at all (diagnostic, lab): auto-resolve
-            # a resource instead of asking, regardless of tenant shape.
-            if STATE_AWAITING_DEPARTMENT not in flow.steps:
-                resource = _first_available_resource(connector, hospital_id)
-                if resource is None:
-                    await _notify_no_doctors_available(wa, sessions, hospital_id, phone, appt_type["label"], language=language)
-                    return
-                dept, doctor = resource
-                new_context = {
-                    **new_context,
-                    "department_id": dept["id"], "department_name": dept["name"],
-                    "doctor_id": doctor["id"], "doctor_name": doctor["name"],
-                }
-                sessions.set(hospital_id, phone, flow.first_step(), new_context)
-                await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
-                return
-            # Single-doctor tenant (a clinic, per tenant-capability-gating-
-            # plan.md -- onboarded with exactly one department and one
-            # doctor): asking a clinic's patient to pick a department then a
-            # doctor when there's only ever one of each is pure friction, so
-            # skip straight to date selection with both auto-selected. Not
-            # gated on tenant_type directly -- this module only ever talks to
-            # `connector`, never db/repository.py or Hospital -- so it's
-            # phrased as "there's only one real choice," which happens to be
-            # exactly the clinic case and degrades safely if a hospital ever
-            # legitimately has one department with one doctor too. Back
-            # navigation needs no special-casing: since STATE_AWAITING_
-            # DEPARTMENT/DOCTOR frames are simply never pushed here, popping
-            # history naturally returns straight to appointment type.
-            departments = connector.get_departments(hospital_id)
-            if len(departments) == 1:
-                only_dept = departments[0]
-                doctors = connector.get_doctors(hospital_id, only_dept["id"])
-                if len(doctors) == 1:
-                    only_doctor = doctors[0]
-                    if not connector.get_available_slots(hospital_id, only_doctor["id"]):
-                        await _notify_no_slots_available(wa, sessions, hospital_id, phone, only_doctor["name"], language=language)
-                        return
-                    new_context = {
-                        **new_context,
-                        "department_id": only_dept["id"], "department_name": only_dept["name"],
-                        "doctor_id": only_doctor["id"], "doctor_name": only_doctor["name"],
-                    }
-                    sessions.set(hospital_id, phone, STATE_AWAITING_DATE, new_context)
-                    await _send_date_menu(wa, phone, hospital_id, only_doctor["id"], only_doctor["name"], connector, language=language)
-                    return
-                if not doctors:
-                    await _notify_no_doctors_available(wa, sessions, hospital_id, phone, only_dept["name"], language=language)
-                    return
-            sessions.set(hospital_id, phone, STATE_AWAITING_DEPARTMENT, new_context)
-            await _send_department_menu(wa, phone, hospital_id, connector, language=language)
+            await _proceed_with_appointment_type(wa, sessions, phone, hospital_id, appt_type, new_context, connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
-    await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
+    await _send_appointment_type_menu(
+        wa, phone, hospital_id, connector, language=language, category=context.get("appointment_type_category"),
+    )
 
 
 async def _handle_awaiting_department(
@@ -430,6 +484,7 @@ async def _handle_awaiting_patient_age(
         await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("patient_name", "")))
         return
     next_action = context.get("patient_flow_next", "booking")
+    booking_category = context.get("patient_flow_category")
     try:
         patient = connector.create_patient_profile(hospital_id, phone, context["patient_name"], age)
     except TooManyLinkedPatientsError:
@@ -440,7 +495,10 @@ async def _handle_awaiting_patient_age(
             sessions.reset(hospital_id, phone)
             await _send_main_menu(wa, phone, "the hospital", language=language)
         return
-    await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patient, next_action, language=language)
+    await _select_patient_and_continue(
+        wa, sessions, phone, hospital_id, connector, patient, next_action, language=language,
+        booking_category=booking_category,
+    )
 
 
 async def _create_booking_and_notify(

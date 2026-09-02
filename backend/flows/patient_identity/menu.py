@@ -4,15 +4,17 @@
 from flows.common import cap_rows
 from core.translations import t
 from core.translations.menu import (
-    FEATURE_BOOKING,
+    FEATURE_BOOK_DOCTOR_APPOINTMENT,
     FEATURE_CANCEL,
     FEATURE_CONSENT_PRIVACY,
     FEATURE_FAQ,
     FEATURE_HOSPITAL_INFO,
+    FEATURE_MANAGE_LANGUAGE,
     FEATURE_MENU_UNAVAILABLE,
     FEATURE_RECEPTION_HANDOFF,
     FEATURE_REPORTS_PRESCRIPTIONS,
     FEATURE_RESCHEDULE,
+    FEATURE_TESTS_DIAGNOSTICS,
     FEATURE_VIEW_APPOINTMENTS,
     MAIN_MENU_BUTTON,
     MAIN_MENU_SECTION_TITLE,
@@ -27,13 +29,15 @@ from flows.patient_identity.state import MAIN_MENU_BACK_ROW
 # feature key -> (menu row id, menu row title translation key). Order here is
 # the order rows appear in the main menu.
 _FEATURE_MENU = {
-    "booking": ("menu_book", FEATURE_BOOKING),
+    "book_doctor_appointment": ("menu_book", FEATURE_BOOK_DOCTOR_APPOINTMENT),
+    "tests_diagnostics": ("menu_tests_diagnostics", FEATURE_TESTS_DIAGNOSTICS),
     "reschedule": ("menu_reschedule", FEATURE_RESCHEDULE),
     "cancel": ("menu_cancel", FEATURE_CANCEL),
     "view_appointments": ("menu_view_appointments", FEATURE_VIEW_APPOINTMENTS),
     "reports_prescriptions": ("menu_reports_prescriptions", FEATURE_REPORTS_PRESCRIPTIONS),
     "manage_patients": ("menu_manage_patients", "feature_manage_patients"),
     "consent_privacy": ("menu_consent_privacy", FEATURE_CONSENT_PRIVACY),
+    "manage_language": ("menu_manage_language", FEATURE_MANAGE_LANGUAGE),
     "hospital_info": ("menu_hospital_info", FEATURE_HOSPITAL_INFO),
     "reception_handoff": ("menu_reception", FEATURE_RECEPTION_HANDOFF),
     "faq": ("menu_faq_bot", FEATURE_FAQ),

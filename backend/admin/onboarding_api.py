@@ -212,7 +212,7 @@ async def submit_onboarding(
     departments, dept_errors, dept_warnings = _validate_departments(payload.departments)
     topics, topic_errors = _validate_topics(payload.topics)
 
-    if "booking" in payload.enabled_features:
+    if "book_doctor_appointment" in payload.enabled_features or "tests_diagnostics" in payload.enabled_features:
         errors.extend(dept_errors)
         if not departments:
             errors.append("At least one department with at least one doctor is required.")
@@ -287,7 +287,7 @@ async def submit_onboarding(
     ])
 
     created_departments = []
-    if "booking" in payload.enabled_features:
+    if "book_doctor_appointment" in payload.enabled_features or "tests_diagnostics" in payload.enabled_features:
         for dept in departments:
             created_dept = db.create_department(hospital.id, dept["name"])
             created_doctors = [

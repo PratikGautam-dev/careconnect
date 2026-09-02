@@ -52,7 +52,6 @@ from flows.patient_identity.state import (
     BACK_ID,
     BOOKING_FOR_OTHER_ID,
     BOOKING_FOR_SELF_ID,
-    CHANGE_LANGUAGE_ROW,
     CONFIRM_NO,
     CONFIRM_YES,
     CONSENT_TOGGLE_MARKETING_ID,

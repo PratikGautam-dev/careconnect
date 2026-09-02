@@ -86,7 +86,6 @@ from flows.patient_identity import (
     _send_dynamic_menu,
     _start_manage_patients,
     ALL_FEATURES,
-    CHANGE_LANGUAGE_ROW,
     MAIN_MENU_BACK_ROW,
     REAL_FEATURES,
 )
@@ -112,9 +111,14 @@ from core.translations.my_details import (
     MY_DETAILS_DOCUMENT_SEND_FAILED,
     MY_DETAILS_DOCUMENT_SENT,
     MY_DETAILS_NOT_FOUND,
-    MY_DETAILS_NOT_PROVIDED,
-    MY_DETAILS_NO_APPOINTMENTS_YET,
-    MY_DETAILS_SUMMARY,
+    REPORTS_MENU_BOOK_REPORT_REVIEW,
+    REPORTS_MENU_BUTTON,
+    REPORTS_MENU_PROMPT,
+    REPORTS_MENU_SECTION_TITLE,
+    REPORTS_MENU_VIEW_DIAGNOSTIC_REPORTS,
+    REPORTS_MENU_VIEW_LAB_REPORTS,
+    REPORTS_MENU_VIEW_PRESCRIPTIONS,
+    REPORTS_NO_DOCUMENTS_IN_CATEGORY,
     VIEW_DOCUMENTS_BUTTON,
 )
 from core.translations.patient_identity import BACK_TO_MENU_OPTION
@@ -318,17 +322,15 @@ async def _handle_awaiting_dpdp_consent(
     )
 
 
+STATE_AWAITING_REPORTS_MENU = "AWAITING_REPORTS_MENU"
 STATE_AWAITING_REPORTS_DOCUMENT = "AWAITING_REPORTS_DOCUMENT"
 
-_REPORTS_STATUS_KEYS = {
-    db.STATUS_BOOKED: "status_booked",
-    db.STATUS_CANCELLED: "status_cancelled",
-    db.STATUS_RESCHEDULED: "status_rescheduled",
-    db.STATUS_ATTENDED: "status_attended",
-    db.STATUS_NO_SHOW: "status_no_show",
-}
-
 _REPORTS_DOC_PREFIX = "reportdoc_"
+
+REPORTS_MENU_PRESCRIPTIONS_ROW = "reportsmenu_prescriptions"
+REPORTS_MENU_LAB_ROW = "reportsmenu_lab_reports"
+REPORTS_MENU_DIAGNOSTIC_ROW = "reportsmenu_diagnostic_reports"
+REPORTS_MENU_BOOK_REVIEW_ROW = "reportsmenu_book_review"
 
 
 def _reports_document_row_id(document_id: int) -> str:
@@ -344,64 +346,98 @@ def _parse_reports_document_row_id(row_id: str) -> int | None:
         return None
 
 
-async def _send_reports_prescriptions(
+async def _send_reports_menu(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, active_patient_id: int, language: str = "en",
 ) -> None:
-    """CareConnect architecture doc alignment (Spec.md Section 0), Section
-    20's "Reports & Prescriptions" menu item -- the same self-service
-    "fetch my own record" reply the earlier "My Details" feature already
-    built (Patient ID/Code, name, age, a short summary, then any documents on
-    file), just renamed/repositioned to match the doc's exact menu item and
-    now genuinely scoped to the ACTIVE patient (`db.get_patient()`, by id)
+    """WhatsApp menu restructuring: Reports & Prescriptions' own 4-row
+    submenu -- replaces the old one-shot combined patient-summary +
+    uncategorized document list entirely (see this module's docstring
+    history for the prior _send_reports_prescriptions behavior)."""
+    rows = [
+        {"id": REPORTS_MENU_PRESCRIPTIONS_ROW, "title": t(REPORTS_MENU_VIEW_PRESCRIPTIONS, language)},
+        {"id": REPORTS_MENU_LAB_ROW, "title": t(REPORTS_MENU_VIEW_LAB_REPORTS, language)},
+        {"id": REPORTS_MENU_DIAGNOSTIC_ROW, "title": t(REPORTS_MENU_VIEW_DIAGNOSTIC_REPORTS, language)},
+        {"id": REPORTS_MENU_BOOK_REVIEW_ROW, "title": t(REPORTS_MENU_BOOK_REPORT_REVIEW, language)},
+        {"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)},
+    ]
+    sessions.set(hospital_id, phone, STATE_AWAITING_REPORTS_MENU, {"patient_id": active_patient_id})
+    await wa.send_list(
+        to=phone,
+        body_text=t(REPORTS_MENU_PROMPT, language),
+        button_text=t(REPORTS_MENU_BUTTON, language),
+        sections=[{"title": t(REPORTS_MENU_SECTION_TITLE, language), "rows": rows}],
+    )
+
+
+async def _send_filtered_documents(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, patient_id: int, document_type: str,
+    language: str = "en",
+) -> None:
+    """One of Reports & Prescriptions' 3 "View X" rows -- a real filtered
+    query against patient_documents.document_type (added for this
+    restructuring), scoped to the ACTIVE patient (`db.get_patient()`, by id)
     rather than `get_patient_by_phone()` -- now that multiple patients can
     share a phone, the old phone-scoped lookup could show the WRONG family
     member's record. Deliberately calls db.repository directly rather than
     through connectors.py -- patient records/documents are a Tier-1-only
     concept never abstracted through the Connector interface, same
-    precedent portal/routes/documents.py's own send-to-WhatsApp endpoint already
-    established for this exact data."""
-    patient = db.get_patient(hospital_id, active_patient_id)
+    precedent portal/routes/documents.py's own send-to-WhatsApp endpoint
+    already established for this exact data."""
+    patient = db.get_patient(hospital_id, patient_id)
     if patient is None:
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t(MY_DETAILS_NOT_FOUND, language))
         return
 
-    visits = db.get_patient_visit_history(hospital_id, patient["id"])
-    if visits:
-        most_recent = visits[0]
-        status_key = _REPORTS_STATUS_KEYS.get(most_recent.status, most_recent.status)
-        most_recent_line = (
-            f"{t(status_key, language)} — {most_recent.doctor_name}, {most_recent.scheduled_at.strftime('%d %b %Y')}"
-        )
-    else:
-        most_recent_line = t(MY_DETAILS_NO_APPOINTMENTS_YET, language)
-
-    age_display = str(patient["age"]) if patient.get("age") is not None else t(MY_DETAILS_NOT_PROVIDED, language)
-    name_display = patient["name"] or t(MY_DETAILS_NOT_PROVIDED, language)
-    summary_lines = "\n".join([
-        f"*{t('my_details_field_patient_id', language)}:* {patient['patient_display_id'] or '—'}",
-        f"*{t('my_details_field_name', language)}:* {name_display}",
-        f"*{t('my_details_field_age', language)}:* {age_display}",
-        f"*{t('my_details_field_total_appointments', language)}:* {len(visits)}",
-        f"*{t('my_details_field_most_recent', language)}:* {most_recent_line}",
-    ])
-    await wa.send_text(phone, t(MY_DETAILS_SUMMARY, language, summary_lines=summary_lines))
-
-    documents = db.get_patient_documents(hospital_id, patient["id"])
+    documents = db.get_patient_documents(hospital_id, patient["id"], document_type=document_type)
     if not documents:
-        sessions.reset(hospital_id, phone)
+        await wa.send_text(phone, t(REPORTS_NO_DOCUMENTS_IN_CATEGORY, language))
+        await _send_reports_menu(wa, sessions, phone, hospital_id, patient["id"], language=language)
         return
 
     rows = [{"id": _reports_document_row_id(d["id"]), "title": d["file_name"]} for d in documents]
     rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = cap_rows(rows, f"reports & prescriptions documents for patient {patient['id']}")
-    sessions.set(hospital_id, phone, STATE_AWAITING_REPORTS_DOCUMENT, {"patient_id": patient["id"]})
+    sessions.set(
+        hospital_id, phone, STATE_AWAITING_REPORTS_DOCUMENT,
+        {"patient_id": patient["id"], "document_type": document_type},
+    )
     await wa.send_list(
         to=phone,
         body_text=t(MY_DETAILS_DOCUMENTS_HEADER, language),
         button_text=t(VIEW_DOCUMENTS_BUTTON, language),
         sections=[{"title": t(DOCUMENTS_SECTION_TITLE, language), "rows": rows}],
     )
+
+
+async def _handle_awaiting_reports_menu(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
+    language: str = "en",
+) -> None:
+    patient_id = context.get("patient_id")
+    if patient_id is None:
+        sessions.reset(hospital_id, phone)
+        await wa.send_text(phone, t(MY_DETAILS_NOT_FOUND, language))
+        return
+    if reply["type"] == "interactive_reply":
+        rid = reply["id"]
+        if rid == REPORTS_MENU_PRESCRIPTIONS_ROW:
+            await _send_filtered_documents(wa, sessions, phone, hospital_id, patient_id, "prescription", language=language)
+            return
+        if rid == REPORTS_MENU_LAB_ROW:
+            await _send_filtered_documents(wa, sessions, phone, hospital_id, patient_id, "lab_report", language=language)
+            return
+        if rid == REPORTS_MENU_DIAGNOSTIC_ROW:
+            await _send_filtered_documents(wa, sessions, phone, hospital_id, patient_id, "diagnostic_report", language=language)
+            return
+        if rid == REPORTS_MENU_BOOK_REVIEW_ROW:
+            await start_booking_flow(
+                wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=patient_id,
+                next_action="book_report_review",
+            )
+            return
+    # Stale/unrecognized tap -- re-show fresh rather than acting on it.
+    await _send_reports_menu(wa, sessions, phone, hospital_id, patient_id, language=language)
 
 
 async def _handle_awaiting_reports_document(
@@ -418,8 +454,14 @@ async def _handle_awaiting_reports_document(
     if document is None or document["patient_id"] != patient_id:
         # Stale/unrecognized tap, or the list went stale between send and
         # reply -- re-fetch and re-show fresh rather than acting on a stale
-        # id (Phase 8's established "recheck dynamic data" discipline).
-        await _send_reports_prescriptions(wa, sessions, phone, hospital_id, patient_id, language=language)
+        # id (Phase 8's established "recheck dynamic data" discipline). Same
+        # filtered category as the list that was actually shown, not the
+        # unfiltered combined list.
+        document_type = context.get("document_type")
+        if document_type is not None:
+            await _send_filtered_documents(wa, sessions, phone, hospital_id, patient_id, document_type, language=language)
+        else:
+            await _send_reports_menu(wa, sessions, phone, hospital_id, patient_id, language=language)
         return
 
     storage = get_storage()
@@ -456,8 +498,17 @@ async def _start_feature(
     patient-scoped branch now threads `active_patient_id` (resolved once,
     up front, by _enter_idle() -- Section 13's "Active Patient Context")
     into the sub-flow instead of letting it re-derive identity itself."""
-    if key == "booking":
-        await start_booking_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
+    if key == "book_doctor_appointment":
+        await start_booking_flow(
+            wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id,
+            category=db.BOOK_DOCTOR_APPOINTMENT_CATEGORY,
+        )
+        return
+    if key == "tests_diagnostics":
+        await start_booking_flow(
+            wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id,
+            category=db.TESTS_DIAGNOSTICS_CATEGORY,
+        )
         return
     if key == "reschedule":
         await start_reschedule_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
@@ -482,10 +533,14 @@ async def _start_feature(
                 wa, sessions, phone, hospital_id, hospital_name, [key], language, connector,
             )
             return
-        await _send_reports_prescriptions(wa, sessions, phone, hospital_id, active_patient_id, language=language)
+        await _send_reports_menu(wa, sessions, phone, hospital_id, active_patient_id, language=language)
         return
     if key == "manage_patients":
         await patient_identity._start_manage_patients(wa, sessions, phone, hospital_id, connector, language=language)
+        return
+    if key == "manage_language":
+        sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
+        await _send_language_picker(wa, phone, default_language=language)
         return
     if key == "consent_privacy":
         if active_patient_id is None:
@@ -574,8 +629,7 @@ async def handle_incoming(
     IDENTIFICATION, resolved on every message before anything else --
     provider_user_id defaults to `phone` when not given (today's WhatsApp
     Cloud API webhook has no identifier distinct from the phone number; see
-    webhook/dispatch.py), so every pre-existing caller/test that doesn'whatsapp_phone_number_id != hospital.whatsapp_phone_number_id:
-        invalidate_whatsapp_client(tenant_id)t pass
+    webhook/dispatch.py), so every pre-existing caller/test that doesn't pass
     these gets identical behavior to before this was added.
 
     dpdp_consent_required (DPDP Act consent gate, db/schema.sql's own
@@ -689,6 +743,12 @@ async def handle_incoming(
         )
         return
 
+    if state == STATE_AWAITING_REPORTS_MENU:
+        await _handle_awaiting_reports_menu(
+            wa, sessions, phone, hospital_id, reply, context, connector, language=language or "en",
+        )
+        return
+
     if state == STATE_AWAITING_REPORTS_DOCUMENT:
         await _handle_awaiting_reports_document(
             wa, sessions, phone, hospital_id, reply, context, language=language or "en",
@@ -737,17 +797,6 @@ async def handle_incoming(
     # _enter_idle, which gates on language being chosen first, then patient
     # identity).
     if reply["type"] == "interactive_reply":
-        # Item 4: "Change Language" mid-conversation -- re-shows the same
-        # bilingual picker a fresh session sees, without resetting anything
-        # else about the session (there's nothing else to preserve at IDLE
-        # anyway). Only offered when the hospital hasn't disabled the picker
-        # entirely (matches _send_dynamic_menu not showing the row at all in
-        # that case, but re-checked here too since a stale/replayed tap could
-        # otherwise still reach this branch after settings changed).
-        if reply["id"] == CHANGE_LANGUAGE_ROW and language_prompt_enabled:
-            sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
-            await _send_language_picker(wa, phone, default_language=default_language)
-            return
         # Main menu's own "Back" (confirmed with the user): opens Manage
         # Patients -- view/add/unlink, and switch which linked patient is
         # active (see core/patient_identity.py's own manage-patients-action

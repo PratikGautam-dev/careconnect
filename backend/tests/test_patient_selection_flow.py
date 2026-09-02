@@ -72,7 +72,7 @@ def _last_buttons(wa):
     raise AssertionError("no buttons message was sent")
 
 
-async def _add_patient_via_chat(wa, sessions, hospital_id, connector, name, age, phone=PHONE, enabled=("booking",)):
+async def _add_patient_via_chat(wa, sessions, hospital_id, connector, name, age, phone=PHONE, enabled=("book_doctor_appointment",)):
     """Drives "Book Appointment" -> name -> age through flows.handle_incoming
     to create one real patient profile the way a real conversation would --
     used to seed multiple linked patients before testing selection."""
@@ -101,9 +101,9 @@ async def test_single_linked_patient_booking_is_unchanged_zero_friction(hospital
     # patient -- auto-selected again, no selector shown.
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_en(hospital_id)
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions2.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["book_doctor_appointment"])
     session2 = sessions2.get(hospital_id, PHONE)
     assert session2["state"] == "AWAITING_DEPARTMENT"
     assert session2["context"]["patient_name"] == "Ravi Kumar"
@@ -183,7 +183,7 @@ async def test_sixth_patient_is_blocked_with_a_clear_message(hospital_id):
     for i in range(5):
         db.create_patient_profile(hospital_id, PHONE, f"Family Member {i}", 20 + i)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_SELECTION"
     # At the cap: the selector does NOT even offer "+ Add Patient".
     row_ids = _row_ids(_last_list(wa))
@@ -226,14 +226,14 @@ async def test_patient_selection_scopes_booking_to_the_chosen_patient(hospital_i
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_PATIENT_SELECTION"
     row_ids = _row_ids(_last_list(wa))
     assert f"patient_{child['id']}" in row_ids
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"patient_{child['id']}"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"patient_{child['id']}"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["book_doctor_appointment"])
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DEPARTMENT"
     assert session["context"]["active_patient_id"] == child["id"]
@@ -586,18 +586,18 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"patient_{child['id']}"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"patient_{child['id']}"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["book_doctor_appointment"])
     department = db.get_departments(hospital_id)[0]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id), connector=connector, enabled_features=["book_doctor_appointment"])
     slots = db.get_slots(hospital_id, doctor_id)
     date_str = slots[0]["date"]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str), connector=connector, enabled_features=["book_doctor_appointment"])
     other_slot = [s for s in slots if s["date"] == date_str][-1]
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(other_slot["id"]), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(other_slot["id"]), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["book_doctor_appointment"])
 
     # A different linked patient (the child) booking the same doctor is
     # allowed through -- success, not a duplicate-block message.
@@ -616,10 +616,10 @@ async def test_duplicate_booking_check_composes_correctly_with_patient_selection
     # wa.send_buttons() now instead of wa.send_text().
     wa2 = FakeWhatsAppClient()
     sessions2 = _sessions_en(hospital_id)
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(f"patient_{parent['id']}"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("menu_book"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(f"patient_{parent['id']}"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap(department["id"]), connector=connector, enabled_features=["book_doctor_appointment"])
     kind, kwargs = wa2.sent[-1]
     assert kind == "buttons"
     assert department["name"].lower() in kwargs["body_text"].lower()

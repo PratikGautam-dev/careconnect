@@ -34,6 +34,20 @@ const STATUS_LABELS: Record<string, string> = {
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
+// WhatsApp menu restructuring: Reports & Prescriptions' "View
+// Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+// this -- kept in sync by hand with portal/routes/documents.py's
+// _VALID_DOCUMENT_TYPES.
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  prescription: "Prescription", lab_report: "Lab Report", diagnostic_report: "Diagnostic Report", other: "Other",
+};
+const DOCUMENT_TYPE_OPTIONS = [
+  { value: "prescription", label: "Prescription" },
+  { value: "lab_report", label: "Lab Report" },
+  { value: "diagnostic_report", label: "Diagnostic Report" },
+  { value: "other", label: "Other" },
+];
+
 export default function PatientDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -47,7 +61,7 @@ export default function PatientDetailPage() {
     expandedVisit, setExpandedVisit, noteDraft, setNoteDraft, savingNote,
     generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
     handleAddNote,
-    fileInputRef, uploading, handleUpload,
+    fileInputRef, uploading, handleUpload, documentType, setDocumentType,
     sendingDocId, sendError, handleSendToWhatsapp,
     visitSearch, setVisitSearch, visitTimeFilter, setVisitTimeFilter,
     visitStatusFilter, setVisitStatusFilter, visitTypeFilter, setVisitTypeFilter,
@@ -316,12 +330,25 @@ export default function PatientDetailPage() {
             </Card>
 
             <Card className="p-space-4">
-              <div className="mb-space-3 flex items-center justify-between">
+              <div className="mb-space-3 flex items-center justify-between gap-space-2">
                 <h3 className="text-label font-bold text-ink-900">Documents</h3>
-                <label className="flex cursor-pointer items-center gap-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
-                  <Upload size={14} /> {uploading ? "Uploading…" : "Upload document"}
-                  <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
-                </label>
+                <div className="flex items-center gap-space-2">
+                  <select
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                    disabled={uploading}
+                    aria-label="Document type"
+                    className="h-8 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                  >
+                    {DOCUMENT_TYPE_OPTIONS.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                  <label className="flex cursor-pointer items-center gap-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
+                    <Upload size={14} /> {uploading ? "Uploading…" : "Upload document"}
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+                  </label>
+                </div>
               </div>
               {documents.length === 0 ? (
                 <p className="py-space-4 text-center text-[13px] text-ink-400">No documents yet.</p>
@@ -335,7 +362,7 @@ export default function PatientDetailPage() {
                           <div className="overflow-hidden">
                             <p className="truncate text-[13px] font-semibold text-ink-900">{doc.file_name}</p>
                             <p className="text-hint">
-                              Uploaded {formatDate(doc.uploaded_at)}
+                              {DOCUMENT_TYPE_LABELS[doc.document_type] ?? doc.document_type} · Uploaded {formatDate(doc.uploaded_at)}
                               {doc.sent_to_whatsapp_at ? ` · Sent ${formatDate(doc.sent_to_whatsapp_at)}` : ""}
                             </p>
                           </div>

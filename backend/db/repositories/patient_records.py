@@ -101,7 +101,7 @@ def get_patient_visit_notes_by_doctor(hospital_id: int, patient_id: int, doctor_
 
 def create_patient_document(
     hospital_id: int, patient_id: int, file_name: str, file_url: str,
-    appointment_id: int | None = None, uploaded_by_session_id: str | None = None,
+    appointment_id: int | None = None, uploaded_by_session_id: str | None = None, document_type: str = "other",
 ) -> dict:
     session = get_session()
     row = session.execute(
@@ -109,6 +109,7 @@ def create_patient_document(
         .values(
             hospital_id=hospital_id, patient_id=patient_id, appointment_id=appointment_id,
             file_name=file_name, file_url=file_url, uploaded_by_session_id=uploaded_by_session_id,
+            document_type=document_type,
         )
         .returning(PatientDocument.id, PatientDocument.uploaded_at)
     ).first()
@@ -117,21 +118,29 @@ def create_patient_document(
     return {
         "id": row.id, "patient_id": patient_id, "appointment_id": appointment_id, "file_name": file_name,
         "file_url": file_url, "uploaded_at": row.uploaded_at, "uploaded_by_session_id": uploaded_by_session_id,
-        "sent_to_whatsapp_at": None,
+        "sent_to_whatsapp_at": None, "document_type": document_type,
     }
 
 
-def get_patient_documents(hospital_id: int, patient_id: int) -> list[dict]:
+def get_patient_documents(hospital_id: int, patient_id: int, document_type: str | None = None) -> list[dict]:
+    """document_type (WhatsApp menu restructuring): when given, only
+    documents in that category are returned -- powers Reports &
+    Prescriptions' "View Prescriptions/Lab Reports/Diagnostic Reports"
+    submenu rows. None (the portal's own document list) returns every
+    category, unfiltered."""
     session = get_session()
-    rows = session.execute(
+    stmt = (
         select(
             PatientDocument.id, PatientDocument.patient_id, PatientDocument.appointment_id,
             PatientDocument.file_name, PatientDocument.file_url, PatientDocument.uploaded_at,
             PatientDocument.uploaded_by_session_id, PatientDocument.sent_to_whatsapp_at,
+            PatientDocument.document_type,
         )
         .where(PatientDocument.hospital_id == hospital_id, PatientDocument.patient_id == patient_id)
-        .order_by(PatientDocument.uploaded_at.desc())
-    ).all()
+    )
+    if document_type is not None:
+        stmt = stmt.where(PatientDocument.document_type == document_type)
+    rows = session.execute(stmt.order_by(PatientDocument.uploaded_at.desc())).all()
     return [dict(r._mapping) for r in rows]
 
 

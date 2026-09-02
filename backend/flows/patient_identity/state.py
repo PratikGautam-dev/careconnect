@@ -16,12 +16,8 @@ CONFIRM_NO = "cancel"
 BACK_ID = "identity_nav_back"
 
 # Main menu's own "Back" -- opens Manage Patients. Handled in
-# flows/router.py's IDLE dispatch, same as CHANGE_LANGUAGE_ROW.
+# flows/router.py's IDLE dispatch.
 MAIN_MENU_BACK_ROW = "menu_back_manage_patients"
-
-# Always appended to the main menu (unless the hospital disables the language
-# picker) -- not a per-hospital feature toggle.
-CHANGE_LANGUAGE_ROW = "menu_change_language"
 
 _PATIENT_ROW_PREFIX = "idpat_"
 _UNLINK_ROW_PREFIX = "idunlink_"

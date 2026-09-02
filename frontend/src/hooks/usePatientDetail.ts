@@ -54,6 +54,7 @@ export type PatientDocument = {
   uploaded_at: string;
   uploaded_by_session_id: string | null;
   sent_to_whatsapp_at: string | null;
+  document_type: string;
 };
 
 export type DetailData = { patient: Patient; visit_history: Visit[]; notes: Note[]; documents: PatientDocument[] };
@@ -91,6 +92,10 @@ export function usePatientDetail(patientId: string, ready: boolean) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // WhatsApp menu restructuring: Reports & Prescriptions' "View
+  // Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+  // this -- picked once here, applied to whichever file is chosen next.
+  const [documentType, setDocumentType] = useState("other");
   const [sendingDocId, setSendingDocId] = useState<number | null>(null);
   const [sendError, setSendError] = useState<Record<number, string>>({});
 
@@ -163,6 +168,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("document_type", documentType);
     const result = await portalFetch(`/api/portal/patients/${patientId}/documents`, {
       method: "POST",
       body: formData,
@@ -234,7 +240,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     visitTypeCounts, filteredVisits,
     generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
     handleAddNote,
-    fileInputRef, uploading, handleUpload,
+    fileInputRef, uploading, handleUpload, documentType, setDocumentType,
     sendingDocId, sendError, handleSendToWhatsapp,
   };
 }
