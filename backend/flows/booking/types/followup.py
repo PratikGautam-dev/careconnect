@@ -12,6 +12,7 @@ Reschedule/Cancel/Main-Menu buttons underneath are unchanged either way.
 
 messages.py imports are lazy (inside functions) to avoid a circular import:
 this module -> types.registry -> this module."""
+
 import db.repository as db
 from flows.booking.state import (
     BACK_ID, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE,

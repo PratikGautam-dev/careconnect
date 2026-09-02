@@ -194,20 +194,20 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "कृपया मरीज का पूरा नाम दर्ज करें।",
     },
     INVALID_PATIENT_NAME: {
-        "en": "Please enter a valid name using letters only (4–50 characters).",
-        "hi": "कृपया केवल अक्षरों का उपयोग करके एक मान्य नाम दर्ज करें (4–50 अक्षर)।",
+        "en": "Please enter a valid name using letters only (3–50 characters).",
+        "hi": "कृपया केवल अक्षरों का उपयोग करके एक मान्य नाम दर्ज करें (3–50 अक्षर)।",
     },
     ASK_PATIENT_CONTACT_NUMBER: {
-        "en": "Please enter the patient's age.",
-        "hi": "कृपया मरीज की आयु दर्ज करें।",
+        "en": "Please enter the patient's contact number",
+        "hi": "कृपया मरीज का संपर्क नंबर दर्ज करें।",
     },
     INVALID_PATIENT_CONTACT_NUMBER: {
         "en": "Please enter a valid 10-digit contact number, digits only, not starting with 0.",
         "hi": "कृपया केवल अंकों में एक मान्य 10 अंकों का संपर्क नंबर दर्ज करें, जो 0 से शुरू न हो।",
     },
     ASK_PATIENT_AGE: {
-        "en": "Please select the patient's gender.",
-        "hi": "कृपया मरीज का लिंग चुनें।",
+        "en": "Please select the patient's age.",
+        "hi": "कृपया मरीज की आयु दर्ज करें।",
     },
     INVALID_PATIENT_AGE: {
         "en": "Please enter a valid age (a number between 0 and 100).",
@@ -270,7 +270,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": (
             "*Confirm Booking Details:*\n"
             "👤 Patient: {patient_name}\n"
-            "🆔 Patient Code: {patient_code}\n"
+            "🆔 Patient Id: {patient_code}\n"
             "🎂 Age: {patient_age}\n"
             "📋 Appointment Type: {appointment_type_label}\n"
             "🏥 Department: {department_name}\n"
@@ -283,7 +283,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": (
             "*बुकिंग विवरण की पुष्टि करें:*\n"
             "👤 मरीज़: {patient_name}\n"
-            "🆔 पेशेंट कोड: {patient_code}\n"
+            "🆔 पेशेंट आईडी: {patient_code}\n"
             "🎂 उम्र: {patient_age}\n"
             "📋 अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
             "🏥 विभाग: {department_name}\n"
@@ -312,26 +312,26 @@ STRINGS: dict[str, dict[Language, str]] = {
     CHANGE_DURATION_OPTION: {"en": "Duration", "hi": "अवधि"},
     BOOKING_CONFIRMED: {
         "en": (
-            "✅ Appointment Confirmed\n\n"
+            "✅ *Appointment Confirmed*\n\n"
             "Your appointment has been successfully booked.\n\n"
-            "Appointment ID: {reference_id}\n"
-            "Patient: {patient_name}\n"
-            "Department: {department_name}\n"
-            "Doctor: {doctor_name}\n"
-            "Date: {date_label}\n"
-            "Time: {time_label}\n\n"
+            "🆔 Appointment ID: {reference_id}\n"
+            "👤 Patient: {patient_name}\n"
+            "🏥 Department: {department_name}\n"
+            "👨‍⚕️ Doctor: {doctor_name}\n"
+            "📅 Date: {date_label}\n"
+            "🕐 Time: {time_label}\n\n"
             "Please arrive 15 minutes before your appointment.\n"
             "We look forward to seeing you."
         ),
         "hi": (
-            "✅ अपॉइंटमेंट की पुष्टि हो गई\n\n"
+            "✅ *अपॉइंटमेंट की पुष्टि हो गई*\n\n"
             "आपकी अपॉइंटमेंट सफलतापूर्वक बुक हो गई है।\n\n"
-            "अपॉइंटमेंट आईडी: {reference_id}\n"
-            "मरीज़: {patient_name}\n"
-            "विभाग: {department_name}\n"
-            "डॉक्टर: {doctor_name}\n"
-            "तारीख: {date_label}\n"
-            "समय: {time_label}\n\n"
+            "🆔 अपॉइंटमेंट आईडी: {reference_id}\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🏥 विभाग: {department_name}\n"
+            "👨‍⚕️ डॉक्टर: {doctor_name}\n"
+            "📅 तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n\n"
             "कृपया अपनी अपॉइंटमेंट से 15 मिनट पहले पहुंचें।\n"
             "हम आपसे मिलने के लिए उत्सुक हैं।"
         ),
@@ -392,13 +392,13 @@ STRINGS: dict[str, dict[Language, str]] = {
     # ATTENDED appointment still within the hospital's eligibility window.
     FOLLOWUP_ELIGIBLE_LIST_PROMPT: {
         "en": (
-            "✅ Follow-up Consultation Available\n\n"
+            "✅ *Follow-up Consultation Available*\n\n"
             "Below are {patient_name}'s latest eligible consultations for follow-up.\n"
             "For each department, only the most recent consultation is shown.\n\n"
             "Please select the consultation you would like to continue with."
         ),
         "hi": (
-            "✅ फॉलो-अप परामर्श उपलब्ध है\n\n"
+            "✅ *फॉलो-अप परामर्श उपलब्ध है*\n\n"
             "नीचे {patient_name} के फॉलो-अप के लिए नवीनतम योग्य परामर्श दिए गए हैं।\n"
             "प्रत्येक विभाग के लिए, केवल सबसे हालिया परामर्श दिखाया गया है।\n\n"
             "कृपया वह परामर्श चुनें जिसके साथ आप आगे बढ़ना चाहेंगे।"
@@ -412,54 +412,54 @@ STRINGS: dict[str, dict[Language, str]] = {
     # fee_line uses.
     FOLLOWUP_CONFIRMATION_SUMMARY: {
         "en": (
-            "📋 Confirm Follow-up Appointment\n\n"
-            "Patient: {patient_name}\n"
-            "Patient ID: {patient_code}\n"
-            "Appointment Type: {appointment_type_label}\n"
-            "Department: {department_name}\n"
-            "Doctor: {doctor_name}\n"
-            "Previous Visit: {previous_visit_label}\n"
-            "Appointment Date: {date_label}\n"
-            "Time: {time_label}\n"
+            "📋 *Confirm Follow-up Appointment*\n\n"
+            "👤 Patient: {patient_name}\n"
+            "🆔 Patient ID: {patient_code}\n"
+            "📋 Appointment Type: {appointment_type_label}\n"
+            "🏥 Department: {department_name}\n"
+            "👨‍⚕️ Doctor: {doctor_name}\n"
+            "🔁 Previous Visit: {previous_visit_label}\n"
+            "📅 Appointment Date: {date_label}\n"
+            "🕐 Time: {time_label}\n"
             "{fee_line}\n"
             "Please review the details before confirming."
         ),
         "hi": (
-            "📋 फॉलो-अप अपॉइंटमेंट की पुष्टि करें\n\n"
-            "मरीज़: {patient_name}\n"
-            "मरीज़ आईडी: {patient_code}\n"
-            "अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
-            "विभाग: {department_name}\n"
-            "डॉक्टर: {doctor_name}\n"
-            "पिछली मुलाकात: {previous_visit_label}\n"
-            "अपॉइंटमेंट तारीख: {date_label}\n"
-            "समय: {time_label}\n"
+            "📋 *फॉलो-अप अपॉइंटमेंट की पुष्टि करें*\n\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🆔 मरीज़ आईडी: {patient_code}\n"
+            "📋 अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
+            "🏥 विभाग: {department_name}\n"
+            "👨‍⚕️ डॉक्टर: {doctor_name}\n"
+            "🔁 पिछली मुलाकात: {previous_visit_label}\n"
+            "📅 अपॉइंटमेंट तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n"
             "{fee_line}\n"
             "कृपया पुष्टि करने से पहले विवरण की समीक्षा करें।"
         ),
     },
     FOLLOWUP_APPOINTMENT_CONFIRMED: {
         "en": (
-            "✅ Follow-up Appointment Confirmed\n\n"
+            "✅ *Follow-up Appointment Confirmed*\n\n"
             "Your follow-up consultation has been successfully booked.\n\n"
-            "Appointment ID: {reference_id}\n"
-            "Patient: {patient_name}\n"
-            "Doctor: {doctor_name}\n"
-            "Department: {department_name}\n"
-            "Date: {date_label}\n"
-            "Time: {time_label}\n\n"
+            "🆔 Appointment ID: {reference_id}\n"
+            "👤 Patient: {patient_name}\n"
+            "👨‍⚕️ Doctor: {doctor_name}\n"
+            "🏥 Department: {department_name}\n"
+            "📅 Date: {date_label}\n"
+            "🕐 Time: {time_label}\n\n"
             "Please arrive 15 minutes before your appointment.\n\n"
             "We look forward to seeing you."
         ),
         "hi": (
-            "✅ फॉलो-अप अपॉइंटमेंट की पुष्टि हो गई\n\n"
+            "✅ *फॉलो-अप अपॉइंटमेंट की पुष्टि हो गई*\n\n"
             "आपका फॉलो-अप परामर्श सफलतापूर्वक बुक हो गया है।\n\n"
-            "अपॉइंटमेंट आईडी: {reference_id}\n"
-            "मरीज़: {patient_name}\n"
-            "डॉक्टर: {doctor_name}\n"
-            "विभाग: {department_name}\n"
-            "तारीख: {date_label}\n"
-            "समय: {time_label}\n\n"
+            "🆔 अपॉइंटमेंट आईडी: {reference_id}\n"
+            "👤 मरीज़: {patient_name}\n"
+            "👨‍⚕️ डॉक्टर: {doctor_name}\n"
+            "🏥 विभाग: {department_name}\n"
+            "📅 तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n\n"
             "कृपया अपनी अपॉइंटमेंट से 15 मिनट पहले पहुंचें।\n\n"
             "हम आपसे मिलने के लिए उत्सुक हैं।"
         ),

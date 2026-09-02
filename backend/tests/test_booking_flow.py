@@ -457,7 +457,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     assert "🏥 Department: Cardiology" in kwargs["body_text"]
     assert "👤 Patient: Ravi Kumar" in kwargs["body_text"]
     assert "🎂 Age: 34" in kwargs["body_text"]
-    assert "🆔 Patient Code:" in kwargs["body_text"]
+    assert "🆔 Patient Id:" in kwargs["body_text"]
 
     # Confirm -> booked, resets to IDLE, structured success message with a
     # generated reference_id. Item 3 (Spec.md Section 0): now sent as

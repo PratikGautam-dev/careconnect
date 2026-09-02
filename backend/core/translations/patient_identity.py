@@ -126,7 +126,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     # label text AND the kwarg name at every call site below even though the
     # value passed was always patient_display_id -- renamed throughout to
     # avoid that confusion.
-    PATIENT_CODE_LABEL: {"en": "Patient Code:", "hi": "पेशेंट कोड:"},
+    PATIENT_CODE_LABEL: {"en": "Patient ID:", "hi": "पेशेंट आईडी:"},
     PATIENT_SELECTOR_PROMPT: {
         "en": "Who are you accessing CareConnect for?",
         "hi": "आप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
@@ -145,9 +145,9 @@ STRINGS: dict[str, dict[Language, str]] = {
 
     # --- Sections 8-10: duplicate-patient detection before creating a new profile ---
     DUPLICATE_PATIENT_FOUND: {
-        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nPatient Code: {patient_code}\n\n"
+        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nPatient ID: {patient_code}\n\n"
               "Would you like to link this profile, or is this a different patient?",
-        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nपेशेंट कोड: {patient_code}\n\n"
+        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nपेशेंट आईडी: {patient_code}\n\n"
               "क्या आप इस प्रोफ़ाइल को लिंक करना चाहेंगे, या यह एक अलग मरीज़ है?",
     },
     DUPLICATE_LINK_BUTTON: {"en": "Link Existing", "hi": "लिंक करें"},

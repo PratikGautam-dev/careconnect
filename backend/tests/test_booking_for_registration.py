@@ -217,6 +217,13 @@ async def test_readding_the_same_name_and_contact_from_your_own_phone_is_blocked
         wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
         connector=connector, enabled_features=["manage_patients"],
     )
+    # The first "Chandu" was registered as "Other" (BOOKING_FOR_OTHER_ID
+    # above, to give it its own contact number) -- the account has no "Self"
+    # patient yet, so the Myself/Someone Else question fires again here too.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("Chandu"), connector=connector, enabled_features=["manage_patients"],
     )

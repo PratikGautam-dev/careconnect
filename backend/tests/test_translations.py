@@ -115,7 +115,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     )
     assert "*Confirm Booking Details:*" in summary_en
     assert "👤 Patient: Ravi Kumar" in summary_en
-    assert "🆔 Patient Code: DCCP-2026-00020" in summary_en
+    assert "🆔 Patient Id: DCCP-2026-00020" in summary_en
     assert "🎂 Age: 34" in summary_en
     assert "📋 Appointment Type: New Consultation" in summary_en
     assert "🏥 Department: Cardiology" in summary_en
@@ -151,7 +151,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
         department_name="Cardiology", doctor_name="Dr. Anjali Rao", date_label="Saturday, 08 August 2026",
         time_label="10:00 AM",
     )
-    assert "✅ Appointment Confirmed" in confirmed_en
+    assert "✅ *Appointment Confirmed*" in confirmed_en
     assert "Appointment ID: apt_1754650184123" in confirmed_en
 
     confirmed_hi = t(
