@@ -5,6 +5,7 @@ Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
 from datetime import datetime, timedelta
 from typing import cast
 
+import sqlalchemy.exc
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
@@ -530,6 +531,142 @@ def get_doctor_appointments_today(hospital_id: int, doctor_id: str, now: datetim
         .order_by(AppointmentRow.scheduled_at.asc())
     ).all()
     return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def get_doctor_appointments(hospital_id: int, doctor_id: str, limit: int = 500) -> list[Appointment]:
+    """Doctor-portal follow-up: this doctor's own full appointment history
+    (any status, any date -- not just today), most recent first. The
+    /doctor/appointments page's list, same "every appointment this scope
+    owns" shape get_all_appointments_for_hospital() gives the shared staff
+    portal, just doctor_id-scoped instead of hospital-wide -- doctor_id
+    comes from the caller's own verified token (portal/routes/
+    doctor_portal.py's _require_doctor()), never a request parameter."""
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id)
+        .order_by(AppointmentRow.scheduled_at.desc())
+        .limit(limit)
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def get_doctor_appointments_for_patient(hospital_id: int, doctor_id: str, patient_id: int) -> list[Appointment]:
+    """Doctor-portal follow-up: the /doctor/patients/[id] detail page's own
+    appointment-history list -- deliberately scoped to appointments WITH
+    THIS DOCTOR only, not the patient's whole hospital history (which may
+    include other doctors) -- same "personalised, not just filtered"
+    discipline get_patients_for_doctor()'s own docstring already applies.
+    An empty result is also how the route decides this doctor has never
+    actually seen this patient at all (a 404, not silently empty data)."""
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.patient_id == patient_id,
+        )
+        .order_by(AppointmentRow.scheduled_at.desc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def get_doctor_weekly_appointment_counts(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[dict]:
+    """Doctor-portal follow-up: same one-point-per-day-for-the-last-7-days
+    shape as get_weekly_appointment_counts() (dashboard.py), doctor_id-scoped
+    instead of hospital-wide, for the doctor dashboard's own trend chart."""
+    now = now or datetime.now()
+    session = get_session()
+    points = []
+    for offset in range(6, -1, -1):
+        day = (now - timedelta(days=offset)).date()
+        day_start = datetime.combine(day, datetime.min.time()).isoformat()
+        day_end = datetime.combine(day, datetime.max.time()).isoformat()
+        count = session.execute(
+            select(func.count()).where(
+                AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+                AppointmentRow.scheduled_at >= day_start, AppointmentRow.scheduled_at <= day_end,
+            )
+        ).scalar_one()
+        points.append({"date": day.isoformat(), "label": day.strftime("%a"), "count": count})
+    return points
+
+
+def get_doctor_appointments_for_month(
+    hospital_id: int, doctor_id: str, year: int, month: int,
+) -> list[Appointment]:
+    """Doctor-portal follow-up: every one of this doctor's appointments
+    falling within one calendar month (year/month, 1-12), for the dashboard's
+    calendar view -- replaces the 30-day status donut with something a
+    doctor can actually navigate month-to-month. Bounds computed the same
+    "next month's day 1, minus nothing" way get_doctor_weekly_appointment_
+    counts() computes a single day's bounds, just widened to a month."""
+    month_start = datetime(year, month, 1)
+    month_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.scheduled_at >= month_start.isoformat(),
+            AppointmentRow.scheduled_at < month_end.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def delay_doctor_remaining_today_appointments(
+    hospital_id: int, doctor_id: str, minutes: int, now: datetime | None = None,
+) -> list[tuple[Appointment, datetime]]:
+    """"Running late" follow-up: shifts every one of this doctor's still-
+    'booked' appointments later TODAY (scheduled_at > now, same calendar
+    day) forward by `minutes` -- the actual feature is "I'm running late,
+    push everyone after me back," not a general bulk-reschedule tool, so
+    this deliberately never touches a different day or a non-'booked'
+    (cancelled/attended/no_show) row.
+
+    Processed LATEST-first, one UPDATE per row, so each row's new
+    (doctor_id, scheduled_at) slot is either past every other still-unshifted
+    appointment (the current latest, moving into open time) or a slot the
+    previous iteration just vacated -- avoiding a transient collision with
+    the partial unique booked-slot index that a naive earliest-first bulk
+    shift could hit. A single row's shift failing (a genuine, currently
+    unexplained collision) is skipped rather than aborting the whole
+    batch -- this is a real-time "I'm late" action a doctor is taking
+    between patients, not a transaction that should roll back over one
+    unlucky row. Returns (appointment, new_scheduled_at) pairs for every
+    row that WAS successfully shifted, so the caller knows exactly who to
+    notify -- never guessed from the input list, since that could now
+    include a row that failed."""
+    now = now or datetime.now()
+    day_end = datetime.combine(now.date(), datetime.max.time())
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.status == STATUS_BOOKED,
+            AppointmentRow.scheduled_at > now.isoformat(), AppointmentRow.scheduled_at <= day_end.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.desc())
+    ).all()
+    appointments = [_row_to_appointment(r._mapping) for r in rows]
+
+    shifted: list[tuple[Appointment, datetime]] = []
+    for appointment in appointments:
+        new_time = appointment.scheduled_at + timedelta(minutes=minutes)
+        try:
+            session.execute(
+                update(AppointmentRow).where(AppointmentRow.id == appointment.id)
+                .values(scheduled_at=new_time.isoformat())
+            )
+            session.commit()
+            shifted.append((appointment, new_time))
+        except sqlalchemy.exc.IntegrityError:
+            session.rollback()
+            continue
+    return shifted
 
 
 def mark_reminded(hospital_id: int, appointment_id: int, offset_hours: float) -> None:

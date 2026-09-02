@@ -128,6 +128,50 @@ def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
     return list_patients(hospital_id, search=None, limit=limit)
 
 
+def get_patients_for_doctor(hospital_id: int, doctor_id: str, limit: int = 500) -> list[dict]:
+    """Doctor-portal follow-up: only patients this DOCTOR has actually seen,
+    with last_visit/visit_count/visited_count scoped to appointments WITH
+    THIS DOCTOR specifically -- deliberately not
+    _patients_with_visit_stats_stmt() reused as-is, since that joins every
+    appointment a patient has at the hospital (any doctor); "last visit"
+    here must mean "last visit with me," not the patient's whole hospital
+    history, and a patient who's never seen this doctor must not appear at
+    all (an INNER join on doctor_id, not the shared helper's OUTER join).
+    doctor_id comes from the caller's own verified token, never a request
+    parameter -- same discipline as every other /api/doctor/* query."""
+    last_visit = func.max(AppointmentRow.scheduled_at)
+    visit_count = func.count(AppointmentRow.id)
+    visited_count = func.count(case((AppointmentRow.status == STATUS_ATTENDED, AppointmentRow.id)))
+    session = get_session()
+    rows = session.execute(
+        select(
+            PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
+            last_visit.label("last_visit"), visit_count.label("visit_count"),
+            visited_count.label("visited_count"),
+        )
+        .select_from(PatientRow)
+        .join(
+            AppointmentRow,
+            and_(
+                AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.patient_id == PatientRow.id,
+                AppointmentRow.doctor_id == doctor_id,
+            ),
+        )
+        .where(PatientRow.hospital_id == hospital_id)
+        .group_by(PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn)
+        .order_by(last_visit.desc().nulls_last(), PatientRow.name.nulls_last(), PatientRow.phone)
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": r.id, "phone": r.phone, "name": r.name, "patient_display_id": r.patient_display_id,
+            "mrn": r.mrn, "last_visit": r.last_visit, "visit_count": r.visit_count,
+            "visited_count": r.visited_count,
+        }
+        for r in rows
+    ]
+
+
 # --- Patient records (Section 12.10: visit history, notes, documents) ---
 
 _PATIENT_COLUMNS = (

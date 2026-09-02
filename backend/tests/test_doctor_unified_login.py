@@ -34,12 +34,28 @@ os.environ.setdefault("DOCTOR_SECRET", "test-doctor-secret")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 os.environ.setdefault("SUPER_ADMIN_JWT_SECRET", "test-super-admin-jwt-secret")
 
+import pytest  # noqa: E402
+
 import db.repository as db  # noqa: E402
+from core.whatsapp import WhatsAppClient  # noqa: E402
 from db.repositories.hospitals import hash_portal_password  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from main import app  # noqa: E402
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def fake_whatsapp_send(monkeypatch):
+    """Same shape as test_portal_api.py's own fixture -- records every
+    WhatsAppClient.send_text() call, no real HTTP call ever happens."""
+    calls = []
+
+    async def fake_send_text(self, to, text):
+        calls.append({"to": to, "text": text})
+
+    monkeypatch.setattr(WhatsAppClient, "send_text", fake_send_text)
+    return calls
 
 
 def _auth(token: str) -> dict:
@@ -65,6 +81,9 @@ def _staff_login(email: str, password: str) -> dict:
     return resp.json()
 
 
+_book_call_count = 0
+
+
 def _book(hospital_id: int, doctor_id: str, phone: str) -> int:
     # A directly-computed near-future timestamp, not db.get_slots()[0] --
     # slot generation's first available slot can legitimately fall on
@@ -74,7 +93,17 @@ def _book(hospital_id: int, doctor_id: str, phone: str) -> int:
     # through no fault of the isolation logic under test.
     # create_appointment() doesn't require the slot to pre-exist in
     # doctor_slots, only that capacity/quota checks pass.
-    scheduled_at = datetime.now().replace(second=0, microsecond=0) + timedelta(minutes=30)
+    #
+    # An incrementing per-call minute offset (not just "+30 minutes,
+    # rounded to the minute") -- two calls for the SAME doctor within the
+    # same test, close enough together to land in the same real-world
+    # minute (routine at test speed), would otherwise collide on the
+    # partial unique booked-slot index and fail with a spurious
+    # IntegrityError that has nothing to do with whatever isolation
+    # property the test is actually checking.
+    global _book_call_count
+    _book_call_count += 1
+    scheduled_at = datetime.now().replace(second=0, microsecond=0) + timedelta(minutes=30 + _book_call_count)
     appointment = db.create_appointment(hospital_id, phone, "cardiology", doctor_id, scheduled_at)
     return appointment.id
 
@@ -150,3 +179,181 @@ def test_unified_login_doctor_cannot_authenticate_against_shared_staff_portal_ro
     assert resp.status_code == 200
     doctor_ids_seen = {db.get_appointment(hospital_id, a["id"]).doctor_id for a in resp.json()["appointments"]}
     assert doctor_ids_seen == {doctor_id}
+
+
+# --- Doctor-portal follow-up (Spec.md Section 0): the sidebar redesign
+# added a real Dashboard, a full Appointments list, and a Patients list to
+# the doctor portal, matching the shared staff portal's own shape. These
+# three new endpoints get the same isolation proof as every other
+# /api/doctor/* route above: a doctor never sees another doctor's numbers,
+# appointments, or patients, regardless of which is asked for. ---
+
+def test_doctor_dashboard_stats_are_scoped_to_this_doctor_only(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Dash A", "dash.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Dash B", "dash.b@example.com", "pwB")
+    _book(hospital_id, doctor_a, "5490008881")
+    _book(hospital_id, doctor_b, "5490008882")
+    _book(hospital_id, doctor_b, "5490008883")
+
+    token_a = _staff_login("dash.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/dashboard", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["doctor"]["id"] == doctor_a
+    assert body["stats"]["today_appointments"] == 1  # not 3 (A's own + both of B's)
+    assert len(body["today_appointments"]) == 1
+
+
+def test_doctor_appointments_list_only_shows_this_doctors_own(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. List A", "list.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. List B", "list.b@example.com", "pwB")
+    appt_a = _book(hospital_id, doctor_a, "5490008884")
+    appt_b = _book(hospital_id, doctor_b, "5490008885")
+
+    token_a = _staff_login("list.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/appointments", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    ids = {a["id"] for a in resp.json()["appointments"]}
+    assert appt_a in ids
+    assert appt_b not in ids
+
+
+def test_doctor_patients_list_only_shows_patients_seen_by_this_doctor(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Pat A", "pat.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Pat B", "pat.b@example.com", "pwB")
+    _book(hospital_id, doctor_a, "5490008886")
+    _book(hospital_id, doctor_b, "5490008887")
+
+    token_a = _staff_login("pat.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/patients", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    phones = {p["phone"] for p in resp.json()["patients"]}
+    assert "5490008886" in phones
+    assert "5490008887" not in phones
+
+
+# --- Doctor-portal follow-up: dashboard trend/donut, the patient-detail
+# page, and the "running late" bulk-delay feature. ---
+
+def test_doctor_dashboard_weekly_counts_and_recent_are_scoped(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Trend A", "trend.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Trend B", "trend.b@example.com", "pwB")
+    appt_a = _book(hospital_id, doctor_a, "5490009991")
+    _book(hospital_id, doctor_b, "5490009992")
+    db.mark_attendance(hospital_id, appt_a, True)
+
+    token_a = _staff_login("trend.a@example.com", "pwA")["access_token"]
+    resp = client.get("/api/doctor/dashboard", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert sum(p["count"] for p in body["weekly_counts"]) == 1  # only A's own booking
+    assert len(body["recent_appointments"]) == 1
+
+
+def test_doctor_appointments_calendar_is_scoped_to_this_doctor_and_month(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Cal A", "cal.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Cal B", "cal.b@example.com", "pwB")
+    appt_a = _book(hospital_id, doctor_a, "5490009995")
+    _book(hospital_id, doctor_b, "5490009996")
+
+    token_a = _staff_login("cal.a@example.com", "pwA")["access_token"]
+    now = datetime.now()
+    resp = client.get(
+        f"/api/doctor/appointments/calendar?year={now.year}&month={now.month}", headers=_auth(token_a),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [a["id"] for a in body["appointments"]] == [appt_a]
+
+    # A different month has nothing for this doctor.
+    other_month = 1 if now.month != 1 else 2
+    resp = client.get(
+        f"/api/doctor/appointments/calendar?year={now.year}&month={other_month}", headers=_auth(token_a),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["appointments"] == []
+
+
+def test_doctor_patient_detail_requires_this_doctor_to_have_actually_seen_them(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Detail A", "detail.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Detail B", "detail.b@example.com", "pwB")
+    appt_b = _book(hospital_id, doctor_b, "5490009993")
+    patient_b_id = db.get_appointment(hospital_id, appt_b).patient_id
+
+    token_a = _staff_login("detail.a@example.com", "pwA")["access_token"]
+    resp = client.get(f"/api/doctor/patients/{patient_b_id}", headers=_auth(token_a))
+    assert resp.status_code == 404
+
+
+def test_doctor_patient_detail_shows_only_notes_this_doctor_wrote(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Notes A", "notes.a@example.com", "pwA")
+    appt_a = _book(hospital_id, doctor_a, "5490009994")
+    patient_id = db.get_appointment(hospital_id, appt_a).patient_id
+    # A note from someone else entirely (no doctor_id) must not show up here.
+    db.create_patient_visit_note(hospital_id, patient_id, "Reception note, not from a doctor.")
+
+    token_a = _staff_login("notes.a@example.com", "pwA")["access_token"]
+    resp = client.post(
+        f"/api/doctor/appointments/{appt_a}/notes", json={"note_text": "Dr. A's own note."}, headers=_auth(token_a),
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.get(f"/api/doctor/patients/{patient_id}", headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    note_texts = {n["note_text"] for n in body["notes"]}
+    assert "Dr. A's own note." in note_texts
+    assert "Reception note, not from a doctor." not in note_texts
+    assert len(body["appointments"]) == 1
+
+
+def test_running_late_shifts_only_this_doctors_remaining_today_appointments_and_notifies(hospital_id, fake_whatsapp_send):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Late A", "late.a@example.com", "pwA")
+    doctor_b = _make_doctor_staff_user(hospital_id, "Dr. Late B", "late.b@example.com", "pwB")
+    appt_a = _book(hospital_id, doctor_a, "5490009995")
+    appt_b = _book(hospital_id, doctor_b, "5490009996")
+    original_time_a = db.get_appointment(hospital_id, appt_a).scheduled_at
+    original_time_b = db.get_appointment(hospital_id, appt_b).scheduled_at
+
+    token_a = _staff_login("late.a@example.com", "pwA")["access_token"]
+    resp = client.post("/api/doctor/appointments/delay", json={"minutes": 20}, headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["notified"] == 1
+    assert [a["id"] for a in body["appointments"]] == [appt_a]
+
+    shifted = db.get_appointment(hospital_id, appt_a)
+    assert shifted.scheduled_at == original_time_a + timedelta(minutes=20)
+    untouched = db.get_appointment(hospital_id, appt_b)
+    assert untouched.scheduled_at == original_time_b  # doctor B's own appointment is completely unaffected
+    assert len(fake_whatsapp_send) == 1
+    assert fake_whatsapp_send[0]["to"] == "5490009995"
+
+
+def test_running_late_does_not_shift_a_past_or_already_attended_appointment(hospital_id, fake_whatsapp_send):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Late C", "late.c@example.com", "pwC")
+    appt_past = _book(hospital_id, doctor_a, "5490009997")
+    # Backdate it to earlier today so it's no longer "remaining."
+    db.get_connection().execute(
+        "UPDATE appointments SET scheduled_at = ? WHERE id = ?",
+        ((datetime.now() - timedelta(minutes=5)).isoformat(), appt_past),
+    )
+    appt_attended = _book(hospital_id, doctor_a, "5490009998")
+    db.mark_attendance(hospital_id, appt_attended, True)
+
+    token_a = _staff_login("late.c@example.com", "pwC")["access_token"]
+    resp = client.post("/api/doctor/appointments/delay", json={"minutes": 15}, headers=_auth(token_a))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["notified"] == 0
+    assert fake_whatsapp_send == []
+
+
+def test_running_late_validates_minutes(hospital_id):
+    doctor_a = _make_doctor_staff_user(hospital_id, "Dr. Late D", "late.d@example.com", "pwD")
+    token_a = _staff_login("late.d@example.com", "pwD")["access_token"]
+    resp = client.post("/api/doctor/appointments/delay", json={"minutes": 0}, headers=_auth(token_a))
+    assert resp.status_code == 400
+    resp = client.post("/api/doctor/appointments/delay", json={"minutes": 999}, headers=_auth(token_a))
+    assert resp.status_code == 400
+    resp = client.post("/api/doctor/appointments/delay", json={}, headers=_auth(token_a))
+    assert resp.status_code == 400
