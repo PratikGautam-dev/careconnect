@@ -6,7 +6,6 @@ single-patient confirmation card, and the 2+-linked-patients selector."""
 from connectors import Connector
 from core.translations import t
 from core.translations.common import BACK_OPTION
-from core.translations.menu import MAIN_MENU_BUTTON
 from core.translations.patient_identity import (
     ADD_PATIENT_SHORT,
     MULTI_PATIENT_SELECTOR_PROMPT,
@@ -14,12 +13,14 @@ from core.translations.patient_identity import (
     PATIENT_SELECTOR_BUTTON,
     PATIENT_SELECTOR_PROMPT,
     PATIENT_SELECTOR_SECTION_TITLE,
+    PLEASE_ADD_NEW_PATIENT,
     SINGLE_PATIENT_CONFIRM,
 )
 from core.whatsapp import WhatsAppClient
 
 from flows.common import cap_rows
 from flows.patient_identity.manage_patients import _start_manage_patients
+from flows.patient_identity.menu import _send_menu_list
 from flows.patient_identity.registration import _start_registration
 from flows.patient_identity.state import (
     ADD_PATIENT_ENTRY_ID,
@@ -36,6 +37,8 @@ from flows.patient_identity.state import (
 async def get_or_prompt_for_active_patient(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector,
     language: str = "en", require_patient_confirmation: bool = False,
+    hospital_name: str = "the hospital", enabled_features: list[str] | None = None,
+    feature_labels: dict[str, str] | None = None,
 ) -> dict | None:
     """Called once per conversation, before the main menu is ever shown.
     Returns the resolved active patient immediately for the already-resolved
@@ -75,7 +78,10 @@ async def get_or_prompt_for_active_patient(
         sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patients[0]["id"])
         return patients[0]
     if len(patients) == 1:
-        await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, patients[0], language)
+        await _send_single_patient_confirm(
+            wa, sessions, phone, hospital_id, connector, patients[0], language,
+            hospital_name, enabled_features or [], feature_labels,
+        )
     else:
         await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
     return None
@@ -83,55 +89,43 @@ async def get_or_prompt_for_active_patient(
 
 # --- Single-linked-patient confirmation (hospital-configurable) ---
 #
-# Sends two messages together, in one turn: a 2-button "Continue as X?"
-# (Confirm / Add Patient), immediately followed by the plain patient-list
-# picker -- so the list is always visible, with no extra "Patient List"
-# button tap needed to reveal it first. Both messages reply into the same
-# state; tapping a patient row there sets them active immediately, with no
-# further "what do you want to do with X" step (that step is Manage-
-# Patients-only, in manage_patients.py).
+# Sends two messages together, in one turn: the real main menu list itself
+# (naming the now-active patient in its body), immediately followed by an
+# "Add Patient" / "Back" nudge -- no gating tap required to reach the menu.
 
 async def _send_single_patient_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, patient: dict, language: str,
+    hospital_name: str, enabled_features: list[str], feature_labels: dict[str, str] | None = None,
 ) -> None:
-    """Sends the "Current Patient: X" card, then the patient-list message
-    right after, both under STATE_AWAITING_SINGLE_PATIENT_CONFIRM. Only
-    reached today with exactly one linked patient and
-    hospitals.require_patient_confirmation on -- the 2+ patient case goes
-    through _send_patient_selector_for_resolution below instead, which has
-    no single candidate to name in this card.
+    """Exactly one linked patient with hospitals.require_patient_confirmation
+    on: the patient becomes active immediately (no separate "Confirm" tap --
+    with only one candidate there's nothing to choose between) and the real
+    main menu list is sent right away, its body text naming them
+    (SINGLE_PATIENT_CONFIRM, in place of the list's own generic body). A
+    separate follow-up buttons message underneath offers Add Patient / Back,
+    in case this isn't the right patient -- not a gate blocking the menu,
+    just a nudge alongside it. "Back" re-opens the language picker, the only
+    earlier screen this point in the conversation can follow.
 
-    No separate "Confirm" button (confirmed with the user): with exactly one
-    linked patient there's nothing to choose between, so they're already the
-    active candidate -- CONFIRM_YES below (now labelled "Main Menu", not
-    "Confirm") just proceeds, same handling _handle_awaiting_single_patient_
-    confirm always had for it. "Back" re-opens the language picker -- the
-    only earlier screen this one can follow, since it's shown right after
-    language selection, before any main menu exists yet."""
-    sessions.set(
-        hospital_id, phone, STATE_AWAITING_SINGLE_PATIENT_CONFIRM, {"candidate_patient_id": patient["id"]},
-        language=language,
+    The 2+ patient case goes through _send_patient_selector_for_resolution
+    below instead, which has no single candidate to auto-activate."""
+    sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patient["id"])
+    await _send_menu_list(
+        wa, phone, hospital_name, enabled_features, language=language,
+        feature_labels=feature_labels, active_patient=patient,
+        body_text_override=t(
+            SINGLE_PATIENT_CONFIRM, language,
+            patient_name=patient["name"], patient_code=patient["patient_display_id"] or "—",
+        ),
     )
     await wa.send_buttons(
         to=phone,
-        body_text=t(SINGLE_PATIENT_CONFIRM, language, patient_name=patient["name"], patient_code=patient["patient_display_id"] or "—",
-        ),
+        body_text=t(PLEASE_ADD_NEW_PATIENT, language),
         buttons=[
-            {"id": CONFIRM_YES, "title": t(MAIN_MENU_BUTTON, language)},
             {"id": ADD_PATIENT_ENTRY_ID, "title": t(ADD_PATIENT_SHORT, language)},
             {"id": BACK_ID, "title": t(BACK_OPTION, language)},
         ],
     )
-    # patients = connector.list_active_patients(hospital_id, phone)
-    # rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    # rows.append({"id": MANAGE_PATIENTS_ENTRY_ID, "title": t(MANAGE_PATIENTS_SHORT, language)})
-    # rows = cap_rows(rows, "patient selector")
-    # await wa.send_list(
-    #     to=phone,
-    #     body_text=t(PATIENT_SELECTOR_PROMPT, language),
-    #     button_text=t(PATIENT_SELECTOR_BUTTON, language),
-    #     sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
-    # )
 
 
 async def _send_patient_selector_for_resolution(
@@ -175,12 +169,19 @@ async def _handle_awaiting_single_patient_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Handles taps from either message sent by _send_single_patient_confirm:
-    the 3 buttons (Main Menu/Add Patient/Back) or a row from the patient list
-    (a linked patient, or Manage Patients). Re-fetches and re-shows fresh on
-    an unrecognized/stale tap (the patient list may have changed since)."""
+    """Handles taps from _send_patient_selector_for_resolution's messages
+    (Add Patient, or a row from the patient list -- a linked patient, or
+    Manage Patients). Re-fetches and re-shows fresh on an unrecognized/stale
+    tap (the patient list may have changed since).
+
+    CONFIRM_YES below is only reachable from an already-sent, older message
+    from before this state stopped being used for the exactly-one-linked-
+    patient case (_send_single_patient_confirm now activates that patient
+    immediately and shows the real menu, never entering this state) --
+    kept as a harmless stale-tap fallback, same precedent as the
+    MANAGE_PATIENTS_ENTRY_ID branch below."""
     if reply["type"] == "interactive_reply":
-        if reply["id"] == CONFIRM_YES:
+        if reply["id"] == CONFIRM_YES and "candidate_patient_id" in context:
             sessions.set(
                 hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
                 active_patient_id=context["candidate_patient_id"],
@@ -220,7 +221,13 @@ async def _handle_awaiting_single_patient_confirm(
                 return
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) == 1:
-        await _send_single_patient_confirm(wa, sessions, phone, hospital_id, connector, patients[0], language)
+        # Same "set IDLE, let router.py's post-dispatch check show the real
+        # menu" convention every other identity handler that fully resolves
+        # the active patient already uses (manage_patients.py,
+        # registration.py) -- hospital_name/enabled_features aren't
+        # available in this handler's fixed dispatch signature to build the
+        # menu list here directly.
+        sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patients[0]["id"])
     elif len(patients) > 1:
         await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
     else:

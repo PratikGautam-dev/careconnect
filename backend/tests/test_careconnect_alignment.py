@@ -274,28 +274,25 @@ async def test_single_patient_confirmation_shown_when_hospital_requires_it(hospi
         require_patient_confirmation=True,
     )
 
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
-    kwargs = _last_buttons(wa)
-    assert "Ravi Kumar" in kwargs["body_text"]
-    assert patient["patient_display_id"] in kwargs["body_text"]
-
-    # Confirming proceeds to the menu.
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.CONFIRM_YES), connector=connector, enabled_features=["book_doctor_appointment"],
-        require_patient_confirmation=True,
-    )
+    # The patient is activated immediately -- no separate confirm tap -- and
+    # the real main menu list is sent right away, naming them in its body.
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["active_patient_id"] == patient["id"]
+    list_kwargs = _last_list(wa)
+    assert "Ravi Kumar" in list_kwargs["body_text"]
+    assert patient["patient_display_id"] in list_kwargs["body_text"]
+    row_ids = {row["id"] for row in list_kwargs["sections"][0]["rows"]}
+    assert "menu_book" in row_ids
 
 
 @pytest.mark.asyncio
-async def test_single_patient_confirmation_has_no_confirm_button_and_back_reopens_language_picker(hospital_id):
-    """Confirmed with the user: with exactly one linked patient there's
-    nothing to choose between, so no separate "Confirm" button -- just
-    Main Menu (still CONFIRM_YES internally, relabelled) / Add Patient /
-    Back, with Back re-opening the language picker (the only earlier screen
-    this one can follow)."""
+async def test_single_patient_confirmation_shows_menu_list_plus_add_patient_nudge(hospital_id):
+    """Confirmed with the user: exactly one linked patient needs no gating
+    "Continue as X?" tap -- the real menu list is shown immediately (its
+    body naming the current patient), followed by a separate "Please add
+    new patient" message offering Add Patient / Back, with Back re-opening
+    the language picker (the only earlier screen this point can follow)."""
     connector = flows._DEFAULT_CONNECTOR
     h = db.get_hospital(hospital_id)
     db.update_hospital(
@@ -318,12 +315,11 @@ async def test_single_patient_confirmation_has_no_confirm_button_and_back_reopen
         wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
         require_patient_confirmation=True,
     )
-    kwargs = _last_buttons(wa)
-    assert "Current Patient: Abhi" in kwargs["body_text"]
-    button_ids = {b["id"] for b in kwargs["buttons"]}
-    assert button_ids == {patient_identity.CONFIRM_YES, patient_identity.ADD_PATIENT_ENTRY_ID, patient_identity.BACK_ID}
-    confirm_button = next(b for b in kwargs["buttons"] if b["id"] == patient_identity.CONFIRM_YES)
-    assert confirm_button["title"] != "Confirm"
+    list_kwargs = _last_list(wa)
+    assert "Current Patient: Abhi" in list_kwargs["body_text"]
+    buttons_kwargs = _last_buttons(wa)
+    button_ids = {b["id"] for b in buttons_kwargs["buttons"]}
+    assert button_ids == {patient_identity.ADD_PATIENT_ENTRY_ID, patient_identity.BACK_ID}
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.BACK_ID), connector=connector, enabled_features=["book_doctor_appointment"],
@@ -333,6 +329,40 @@ async def test_single_patient_confirmation_has_no_confirm_button_and_back_reopen
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {"lang_en", "lang_hi"}
+
+
+@pytest.mark.asyncio
+async def test_single_patient_confirmation_add_patient_button_starts_registration(hospital_id):
+    """The other button on the same follow-up message: Add Patient starts
+    registration for a second linked patient, from IDLE (not a dedicated
+    resolution state, since the menu is already live by this point)."""
+    connector = flows._DEFAULT_CONNECTOR
+    h = db.get_hospital(hospital_id)
+    db.update_hospital(
+        hospital_id, name=h.name, whatsapp_phone_number_id=h.whatsapp_phone_number_id,
+        access_token=h.access_token, app_secret=h.app_secret, timezone=h.timezone,
+        welcome_message_text=h.welcome_message_text, reminder_offsets_hours=h.reminder_offsets_hours,
+        reminder_template_name=h.reminder_template_name, data_tier=h.data_tier,
+        external_api_base_url=h.external_api_base_url, external_api_key=h.external_api_key,
+        portal_password_hash=h.portal_password_hash, enabled_features=h.enabled_features,
+        feature_labels=h.feature_labels, closing_message_text=h.closing_message_text,
+        business_hours_text=h.business_hours_text, default_language=h.default_language,
+        language_prompt_enabled=h.language_prompt_enabled, session_timeout_minutes=h.session_timeout_minutes,
+        require_patient_confirmation=True,
+    )
+    db.create_patient_profile(hospital_id, PHONE, "Abhi", 30, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
+        require_patient_confirmation=True,
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.ADD_PATIENT_ENTRY_ID), connector=connector,
+        enabled_features=["book_doctor_appointment"], require_patient_confirmation=True,
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] != "IDLE"
 
 
 @pytest.mark.asyncio

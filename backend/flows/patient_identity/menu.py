@@ -60,14 +60,22 @@ def _patient_header(active_patient: dict | None, language: str) -> str:
     return f"*{t(PATIENT_HEADER_LABEL, language)}* {active_patient['name']}\n*{t(PATIENT_CODE_LABEL, language)}* {patient_code}\n\n"
 
 
-async def _send_dynamic_menu(
+async def _send_menu_list(
     wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
-    feature_labels: dict[str, str] | None = None, language_prompt_enabled: bool = True,
-    active_patient: dict | None = None,
-) -> None:
-    """Sends the hospital's main menu: one row per enabled feature, capped to
-    WhatsApp's row limit, with the patient header on top and a separate
-    "Back" buttons message underneath (a list can't carry its own back row)."""
+    feature_labels: dict[str, str] | None = None, active_patient: dict | None = None,
+    body_text_override: str | None = None,
+) -> bool:
+    """Sends just the list half of the main menu (one row per enabled
+    feature, capped to WhatsApp's row limit, patient header on top). Split
+    out of _send_dynamic_menu so resolution.py's single-linked-patient
+    confirmation can show this same list immediately, followed by its own
+    "Add Patient" nudge instead of the generic Back-buttons message below.
+    body_text_override lets that same confirmation replace the generic
+    patient-header + "How can we assist you today?" body with its own
+    "Current Patient: X" welcome text -- the list's rows/button/section are
+    otherwise identical either way. Returns False (having sent the "not set
+    up yet" text instead) when no rows apply -- callers must skip any
+    follow-up buttons message in that case."""
     feature_labels = feature_labels or {}
     rows = [
         {"id": row_id, "title": feature_labels.get(key) or t(title_key, language)}
@@ -76,15 +84,33 @@ async def _send_dynamic_menu(
     ]
     if not rows:
         await wa.send_text(phone, t(FEATURE_MENU_UNAVAILABLE, language, hospital_name=hospital_name))
-        return
+        return False
     rows = cap_rows(rows, f"main menu for {hospital_name}")
-    body_text = _patient_header(active_patient, language) + t(WELCOME_MENU, language, hospital_name=hospital_name)
+    body_text = body_text_override or (
+        _patient_header(active_patient, language) + t(WELCOME_MENU, language, hospital_name=hospital_name)
+    )
     await wa.send_list(
         to=phone,
         body_text=body_text,
         button_text=t(MAIN_MENU_BUTTON, language),
         sections=[{"title": t(MAIN_MENU_SECTION_TITLE, language), "rows": rows}],
     )
+    return True
+
+
+async def _send_dynamic_menu(
+    wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
+    feature_labels: dict[str, str] | None = None, language_prompt_enabled: bool = True,
+    active_patient: dict | None = None,
+) -> None:
+    """Sends the hospital's main menu list, then a separate "Back" buttons
+    message underneath (a list can't carry its own back row)."""
+    sent = await _send_menu_list(
+        wa, phone, hospital_name, enabled_features, language=language,
+        feature_labels=feature_labels, active_patient=active_patient,
+    )
+    if not sent:
+        return
     # Its own follow-up buttons message right under the list, not a row
     # hidden inside it (WhatsApp collapses a list to just its button_text
     # until tapped).

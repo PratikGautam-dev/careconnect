@@ -50,6 +50,7 @@ RELATIONSHIP_SPOUSE = "relationship_spouse"
 RELATIONSHIP_GUARDIAN = "relationship_guardian"
 RELATIONSHIP_OTHER = "relationship_other"
 SINGLE_PATIENT_CONFIRM = "single_patient_confirm"
+PLEASE_ADD_NEW_PATIENT = "please_add_new_patient"
 MULTI_PATIENT_SELECTOR_PROMPT = "multi_patient_selector_prompt"
 PATIENT_SELECTED_CONFIRMATION = "patient_selected_confirmation"
 
@@ -172,9 +173,19 @@ STRINGS: dict[str, dict[Language, str]] = {
 
     # --- Section 11: optional single-linked-patient confirmation
     # (hospitals.require_patient_confirmation, default off) ---
+    # Used as the main menu LIST's own body text for this specific case
+    # (overriding _send_menu_list's generic patient-header + "How can we
+    # assist you today?" body) -- the patient is already active by the time
+    # this is shown, so the list itself both names them and offers the menu.
     SINGLE_PATIENT_CONFIRM: {
         "en": "🏥 Welcome to CareConnect\n\nCurrent Patient: {patient_name}\nPatient ID: {patient_code}\n\nHow can we assist you today?",
         "hi": "🏥 CareConnect में आपका स्वागत है\n\nवर्तमान मरीज़: {patient_name}\nपेशेंट आईडी: {patient_code}\n\nहम आज आपकी कैसे सहायता कर सकते हैं?",
+    },
+    # Sent as a separate follow-up buttons message right under that list --
+    # an offer to switch patient, not a gate blocking the menu.
+    PLEASE_ADD_NEW_PATIENT: {
+        "en": "Please add new patient",
+        "hi": "कृपया नया मरीज़ जोड़ें",
     },
 
     # 2+ linked patients: no default candidate is picked (unlike

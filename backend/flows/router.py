@@ -241,6 +241,7 @@ async def _enter_idle(
     active_patient = await patient_identity.get_or_prompt_for_active_patient(
         wa, sessions, phone, hospital_id, connector, language=resolved_language,
         require_patient_confirmation=require_patient_confirmation,
+        hospital_name=hospital_name, enabled_features=enabled_features, feature_labels=feature_labels,
     )
     if active_patient is None:
         return
@@ -803,6 +804,17 @@ async def handle_incoming(
         # handler).
         if reply["id"] == MAIN_MENU_BACK_ROW and language is not None:
             await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
+            return
+        # The single-linked-patient confirmation's own follow-up buttons
+        # message (patient_identity._send_single_patient_confirm) -- sent
+        # alongside the main menu list, from IDLE, not a dedicated state, so
+        # these two ids are handled here rather than via _HANDLERS.
+        if reply["id"] == patient_identity.ADD_PATIENT_ENTRY_ID and language is not None:
+            await patient_identity._start_registration(wa, sessions, phone, hospital_id, connector, language)
+            return
+        if reply["id"] == patient_identity.BACK_ID and language is not None:
+            sessions.set(hospital_id, phone, STATE_AWAITING_LANGUAGE, {})
+            await _send_language_picker(wa, phone, default_language=default_language)
             return
         feature_key = _ROW_ID_TO_FEATURE.get(reply["id"])
         if feature_key is not None and feature_key in enabled_features and language is not None:

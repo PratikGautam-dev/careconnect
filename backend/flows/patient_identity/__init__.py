@@ -102,6 +102,7 @@ from flows.patient_identity.menu import (
     _ROW_ID_TO_FEATURE,
     _patient_header,
     _send_dynamic_menu,
+    _send_menu_list,
     ALL_FEATURES,
     REAL_FEATURES,
 )
