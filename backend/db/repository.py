@@ -40,6 +40,7 @@ from db.repositories.faq import *  # noqa: F401,F403
 from db.repositories.handoffs import *  # noqa: F401,F403
 from db.repositories.audit_logs import *  # noqa: F401,F403
 from db.repositories.platform_settings import *  # noqa: F401,F403
+from db.repositories.hospital_settings import *  # noqa: F401,F403
 from db.repositories.staff_users import *  # noqa: F401,F403
 from db.repositories.role_permissions import *  # noqa: F401,F403
 from db.repositories.super_admins import *  # noqa: F401,F403

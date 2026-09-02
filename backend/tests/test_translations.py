@@ -5,6 +5,7 @@ from core.translations.booking import (
     BOOKING_CONFIRMED,
     CONFIRM_BOOKING_SUMMARY,
     CONFIRM_BUTTON,
+    CONSULTATION_FEE_LINE,
 )
 from core.translations.common import PLEASE_CHOOSE
 
@@ -100,13 +101,17 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     """Confirmation-card restyle (confirmed with the user): "Emoji Label:
     value" lines (plain, no *bold* per field -- just the *Confirm Booking
     Details:* heading), a Patient Code line (patient_display_id, fetched by
-    the caller and passed in as patient_code), and a static Consultation Fee
-    placeholder -- must render correctly (and identically in shape) in both
-    languages."""
+    the caller and passed in as patient_code), and a fee_line (built by the
+    caller via CONSULTATION_FEE_LINE when hospital_settings.
+    new_consultation_fee is configured, "" otherwise -- see
+    flows/booking/messages.py's _send_confirmation) -- must render correctly
+    (and identically in shape) in both languages."""
+    fee_line_en = t(CONSULTATION_FEE_LINE, "en", amount=800)
     summary_en = t(CONFIRM_BOOKING_SUMMARY, "en",
         appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
+        fee_line=fee_line_en,
     )
     assert "*Confirm Booking Details:*" in summary_en
     assert "👤 Patient: Ravi Kumar" in summary_en
@@ -123,10 +128,21 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     assert summary_en.index("Patient:") < summary_en.index("Department:")
     assert summary_en.index("Age:") < summary_en.index("Doctor:")
 
+    # fee_line="" (hospital hasn't configured a fee, or not a New Consultation
+    # booking): the line is omitted entirely, not shown as a fake ₹0.
+    summary_no_fee = t(CONFIRM_BOOKING_SUMMARY, "en",
+        appointment_type_label="New Consultation",
+        department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
+        time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
+        fee_line="",
+    )
+    assert "Consultation Fee" not in summary_no_fee
+
     summary_hi = t(CONFIRM_BOOKING_SUMMARY, "hi",
         appointment_type_label="New Consultation",
         department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
+        fee_line=t(CONSULTATION_FEE_LINE, "hi", amount=800),
     )
     assert "Cardiology" in summary_hi and "Ravi Kumar" in summary_hi and "DCCP-2026-00020" in summary_hi
 

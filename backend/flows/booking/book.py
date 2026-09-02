@@ -375,7 +375,10 @@ async def _handle_awaiting_time_slot(
         # doctor) -- step back to date selection rather than a full reset,
         # so the patient picks a different date instead of starting over.
         sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
-        await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
+        await _send_date_menu(
+            wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language,
+            min_date=context.get("followup_previous_visit_date"),
+        )
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, context)
     await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
@@ -514,15 +517,21 @@ async def _create_booking_and_notify(
     # create_appointment() itself (db/repository.py) -- read back off
     # the returned Appointment rather than regenerated here, so the
     # id shown to the patient is the exact one actually stored.
-    summary = t(
-        BOOKING_CONFIRMED, language,
-        reference_id=appointment.reference_id,
-        patient_name=context.get("patient_name"),
-        department_name=appointment.department_name,
-        doctor_name=appointment.doctor_name,
-        date_label=appointment.scheduled_at.strftime("%A, %d %B %Y"),
-        time_label=appointment.scheduled_at.strftime("%I:%M %p"),
-    )
+    # flow.build_success_summary (Follow-up's own card shape) fully replaces
+    # the generic text below when set -- the Reschedule/Cancel/Main-Menu
+    # buttons further down are unaffected either way.
+    if flow.build_success_summary is not None:
+        summary = flow.build_success_summary(appointment, context, hospital_id)
+    else:
+        summary = t(
+            BOOKING_CONFIRMED, language,
+            reference_id=appointment.reference_id,
+            patient_name=context.get("patient_name"),
+            department_name=appointment.department_name,
+            doctor_name=appointment.doctor_name,
+            date_label=appointment.scheduled_at.strftime("%A, %d %B %Y"),
+            time_label=appointment.scheduled_at.strftime("%I:%M %p"),
+        )
     # Tele-consultation Phase 2, revised per the user's own explicit
     # "soft-gate" call: the video link is generated and persisted right here
     # (needs appointment.id to attach it to), but deliberately NOT shown in

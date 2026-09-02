@@ -19,7 +19,7 @@ pairs, no cascade, no lazy-loading. A column only gets ForeignKey() here if
 the table actually has that REFERENCES clause in schema.sql; a few TEXT
 columns that look like foreign keys (e.g. appointments.appointment_type_id)
 aren't DB-enforced and are deliberately left plain to match."""
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Numeric
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -603,3 +603,30 @@ class PlatformSettings(Base):
     # as JSON text, same convention as HospitalRow.feature_labels.
     feature_labels: Mapped[str | None]
     dpdp_consent_required: Mapped[bool]
+
+
+class HospitalSettings(Base):
+    """db/schema.sql's hospital_settings table (migration 0021) -- a
+    PER-HOSPITAL counterpart to platform_settings above: exactly one row per
+    hospital (hospital_id is both the primary key and the FK, 1:1), holding
+    self-serve settings that don't belong as more columns on the already very
+    wide `hospitals` table (confirmed with the user). Row is created lazily,
+    on first read or write (db/repositories/hospital_settings.py's
+    get_hospital_settings()), not at hospital-creation time -- so this is
+    safe to introduce without touching every hospital-creation code path
+    (create_hospital(), db/seed.py, admin onboarding)."""
+    __tablename__ = "hospital_settings"
+
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), primary_key=True)
+    # Follow-up eligibility window: an ATTENDED appointment stops being
+    # eligible for Follow-up this many days after its own scheduled_at. NULL
+    # means "use the 30-day code-level default" (db/repositories/
+    # appointments.py's DEFAULT_FOLLOWUP_VALIDITY_DAYS).
+    followup_validity_days: Mapped[int | None]
+    # Fee lines shown on Follow-up's confirm/success cards (followup_fee) and
+    # reserved for New Consultation's cards once that's wired up
+    # (new_consultation_fee, stored but not displayed yet -- confirmed with
+    # the user). NULL means "no fee configured," which omits the fee line
+    # entirely rather than showing a fake ₹0.
+    followup_fee: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    new_consultation_fee: Mapped[float | None] = mapped_column(Numeric(10, 2))

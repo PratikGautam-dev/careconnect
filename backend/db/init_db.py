@@ -789,6 +789,32 @@ def init_db_on_connection(conn) -> int:
     # ('auto' vs. a staff member's hashed session token).
     conn.execute("ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS handoff_auto_resolve_hours INTEGER")
     conn.execute("ALTER TABLE handoff_requests ADD COLUMN IF NOT EXISTS resolved_by TEXT")
+    # Migration 0021: hospital_settings -- per-hospital self-serve settings
+    # table (not more columns on `hospitals`), starting with Follow-up's
+    # eligibility window + fee lines. See that migration's own docstring.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS hospital_settings ("
+        "hospital_id INTEGER PRIMARY KEY REFERENCES hospitals(id), "
+        "followup_validity_days INTEGER, "
+        "followup_fee NUMERIC(10, 2), "
+        "new_consultation_fee NUMERIC(10, 2)"
+        ")"
+    )
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_followup_validity_days_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_followup_validity_days_check "
+        "CHECK (followup_validity_days IS NULL OR followup_validity_days > 0)"
+    )
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_followup_fee_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_followup_fee_check "
+        "CHECK (followup_fee IS NULL OR followup_fee >= 0)"
+    )
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_new_consultation_fee_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_new_consultation_fee_check "
+        "CHECK (new_consultation_fee IS NULL OR new_consultation_fee >= 0)"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

@@ -1451,6 +1451,12 @@ def test_settings_get_includes_new_customization_fields_with_safe_defaults(two_h
     assert data["default_language"] == "en"
     assert data["language_prompt_enabled"] is True
     assert data["session_timeout_minutes"] == 30
+    # docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up:
+    # db/repositories/hospital_settings.py's own table -- 30-day code default,
+    # fees unset (None, not 0 -- omits the fee line rather than showing ₹0).
+    assert data["followup_validity_days"] == 30
+    assert data["followup_fee"] is None
+    assert data["new_consultation_fee"] is None
 
 
 def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
@@ -1464,6 +1470,9 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
         "default_language": "hi",
         "language_prompt_enabled": False,
         "session_timeout_minutes": 45,
+        "followup_validity_days": 14,
+        "followup_fee": 500,
+        "new_consultation_fee": 300,
     }
     resp = client.post("/api/portal/settings", json=payload, headers=_auth(a["token"]))
     assert resp.status_code == 200
@@ -1475,6 +1484,52 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
     assert data["default_language"] == "hi"
     assert data["language_prompt_enabled"] is False
     assert data["session_timeout_minutes"] == 45
+    assert data["followup_validity_days"] == 14
+    assert data["followup_fee"] == 500
+    assert data["new_consultation_fee"] == 300
+
+
+def test_settings_post_rejects_followup_validity_days_out_of_bounds(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "followup_validity_days": 0},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "followup_validity_days": 400},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_settings_post_rejects_negative_fee(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "followup_fee": -1},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_settings_post_blank_fee_clears_it(two_hospitals):
+    a = two_hospitals["a"]
+    client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "followup_fee": 500},
+        headers=_auth(a["token"]),
+    )
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "followup_fee": ""},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200
+    data = client.get("/api/portal/settings", headers=_auth(a["token"])).json()
+    assert data["followup_fee"] is None
 
 
 def test_settings_get_no_store_cache_header(two_hospitals):
@@ -1555,13 +1610,16 @@ def test_settings_customization_isolated_across_hospitals(two_hospitals):
     client.post(
         "/api/portal/settings",
         json={"welcome_message_text": "", "reminder_offsets_hours": "24", "reminder_template_name": "",
-              "closing_message_text": "Hospital A only.", "default_language": "hi"},
+              "closing_message_text": "Hospital A only.", "default_language": "hi", "followup_fee": 500},
         headers=_auth(a["token"]),
     )
 
     b_settings = client.get("/api/portal/settings", headers=_auth(b["token"])).json()
     assert b_settings["closing_message_text"] == ""
     assert b_settings["default_language"] == "en"
+    # db/repositories/hospital_settings.py's own table -- keyed by hospital_id,
+    # same isolation as every other per-hospital setting above.
+    assert b_settings["followup_fee"] is None
 
 
 # --- Doctor break/quota fields + leave management (JSON equivalents of the

@@ -153,8 +153,8 @@ async def test_no_closing_message_configured_leaves_standard_text_unchanged(hosp
 
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert "Your appointment is registered. We look forward to seeing you." in kwargs["body_text"]
-    assert kwargs["body_text"].count("\n\n") == 1  # no extra appended block
+    assert "Appointment Confirmed" in kwargs["body_text"]
+    assert kwargs["body_text"].rstrip().endswith("We look forward to seeing you.")  # no extra appended block
 
 
 @pytest.mark.asyncio
@@ -403,3 +403,50 @@ async def test_editing_welcome_message_never_wipes_existing_customizations(hospi
     assert final.default_language == "hi"
     assert final.language_prompt_enabled is False
     assert final.session_timeout_minutes == 20
+
+
+# --- Follow-up settings: hospital_settings table (docs/per-appointment-type-
+# flow-plan.md Phase 2 Step 2 follow-up), not columns on `hospitals` ---
+
+def _confirmation_context(appointment_type_id="new"):
+    return {
+        "appointment_type_id": appointment_type_id, "appointment_type_label": "New Consultation",
+        "department_name": "Cardiology", "doctor_name": "Dr. X", "date_label": "Sat, Aug 8",
+        "slot_time": "10:00 AM", "patient_name": "Ravi Kumar", "patient_age": 34,
+    }
+
+
+@pytest.mark.asyncio
+async def test_no_configured_new_consultation_fee_omits_the_fee_line(hospital_id):
+    from flows.booking.messages import _send_confirmation
+
+    wa = FakeWhatsAppClient()
+    await _send_confirmation(wa, PHONE, hospital_id, _confirmation_context(), language="en")
+    kind, kwargs = wa.sent[-1]
+    assert kind == "buttons"
+    assert "Consultation Fee" not in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_configured_new_consultation_fee_shows_on_confirm_card(hospital_id):
+    from flows.booking.messages import _send_confirmation
+
+    db.update_hospital_settings(hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=500)
+    wa = FakeWhatsAppClient()
+    await _send_confirmation(wa, PHONE, hospital_id, _confirmation_context(), language="en")
+    kind, kwargs = wa.sent[-1]
+    assert "💰 Consultation Fee: ₹500" in kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_new_consultation_fee_not_shown_for_other_appointment_types(hospital_id):
+    """new_consultation_fee is New-Consultation-specific -- a hospital
+    configuring it must not make it appear on a tele-consultation's (or any
+    other type's) confirm card, which shares the same generic template."""
+    from flows.booking.messages import _send_confirmation
+
+    db.update_hospital_settings(hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=500)
+    wa = FakeWhatsAppClient()
+    await _send_confirmation(wa, PHONE, hospital_id, _confirmation_context(appointment_type_id="tele"), language="en")
+    kind, kwargs = wa.sent[-1]
+    assert "Consultation Fee" not in kwargs["body_text"]

@@ -27,6 +27,7 @@ SELECT_DAYCARE_DURATION = "select_daycare_duration"
 VIEW_DURATIONS_BUTTON = "view_durations_button"
 DAYCARE_DURATIONS_SECTION_TITLE = "daycare_durations_section_title"
 CONFIRM_DAYCARE_DURATION_LINE = "confirm_daycare_duration_line"
+CONSULTATION_FEE_LINE = "consultation_fee_line"
 SELECT_SLOT = "select_slot"
 VIEW_SLOTS_BUTTON = "view_slots_button"
 AVAILABLE_SLOTS_SECTION_TITLE = "available_slots_section_title"
@@ -66,7 +67,11 @@ DEPARTMENT_APPOINTMENT_CONFLICT = "department_appointment_conflict"
 NEW_CONSULTATION_DEPARTMENT_CONFLICT = "new_consultation_department_conflict"
 NEW_CONSULTATION_SAME_DAY_CONFLICT = "new_consultation_same_day_conflict"
 NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP = "no_previous_appointment_for_followup"
-FOLLOWUP_CONFIRM_PROMPT = "followup_confirm_prompt"
+FOLLOWUP_ELIGIBLE_LIST_PROMPT = "followup_eligible_list_prompt"
+VIEW_FOLLOWUP_OPTIONS_BUTTON = "view_followup_options_button"
+FOLLOWUP_ELIGIBLE_SECTION_TITLE = "followup_eligible_section_title"
+FOLLOWUP_CONFIRMATION_SUMMARY = "followup_confirmation_summary"
+FOLLOWUP_APPOINTMENT_CONFIRMED = "followup_appointment_confirmed"
 MANAGE_APPOINTMENT_PROMPT = "manage_appointment_prompt"
 
 STRINGS: dict[str, dict[Language, str]] = {
@@ -140,6 +145,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     VIEW_DURATIONS_BUTTON: {"en": "View Durations", "hi": "अवधि देखें"},
     DAYCARE_DURATIONS_SECTION_TITLE: {"en": "Duration", "hi": "अवधि"},
     CONFIRM_DAYCARE_DURATION_LINE: {"en": "⏱ *Duration:* {duration_label}", "hi": "⏱ *अवधि:* {duration_label}"},
+    CONSULTATION_FEE_LINE: {"en": "💰 Consultation Fee: ₹{amount}\n\n", "hi": "💰 परामर्श शुल्क: ₹{amount}\n\n"},
 
     SELECT_SLOT: {
         "en": "Please select a time slot with {doctor_name}:",
@@ -254,9 +260,13 @@ STRINGS: dict[str, dict[Language, str]] = {
         #       "📅 *तारीख:* {date_label}\n"
         #       "🕐 *स्लॉट:* {time_label}\n\n"
         #       "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
-        # Consultation Fee is a static placeholder line (confirmed with the
-        # user) -- there's no fee/pricing field anywhere on appointment_types
-        # or hospitals to source a real amount from yet.
+        # fee_line: "💰 Consultation Fee: ₹{amount}\n\n" when hospital_settings.
+        # new_consultation_fee is configured for a "new" (New Consultation)
+        # booking, "" otherwise (flows/booking/messages.py's _send_confirmation
+        # builds it) -- was a static "₹800 (if applicable)" placeholder before
+        # a real per-hospital fee field existed; now sourced for real, and
+        # omitted entirely (not shown as ₹0) when unset or not a New
+        # Consultation booking.
         "en": (
             "*Confirm Booking Details:*\n"
             "👤 Patient: {patient_name}\n"
@@ -267,8 +277,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "👨‍⚕️ Doctor: {doctor_name}\n"
             "📅 Date: {date_label}\n"
             "🕐 Time: {time_label}\n\n"
-            "💰 Consultation Fee: ₹800\n"
-            "(if applicable)\n\n"
+            "{fee_line}"
             "Please review the details before confirming your appointment."
         ),
         "hi": (
@@ -281,8 +290,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "👨‍⚕️ डॉक्टर: {doctor_name}\n"
             "📅 तारीख: {date_label}\n"
             "🕐 समय: {time_label}\n\n"
-            "💰 परामर्श शुल्क: ₹800\n"
-            "(यदि लागू हो)\n\n"
+            "{fee_line}"
             "कृपया अपॉइंटमेंट की पुष्टि करने से पहले विवरण की समीक्षा करें।"
         ),
     },
@@ -379,9 +387,82 @@ STRINGS: dict[str, dict[Language, str]] = {
             "फॉलो-अप अपॉइंटमेंट केवल पिछले परामर्श के बाद ही बुक की जा सकती है। कृपया इसके बजाय नई परामर्श बुक करें।"
         ),
     },
-    FOLLOWUP_CONFIRM_PROMPT: {
-        "en": "Book a follow-up with {doctor_name} ({department_name})?\nYour last visit was on {last_visit_label}.",
-        "hi": "क्या {doctor_name} ({department_name}) के साथ फॉलो-अप बुक करें?\nआपकी पिछली मुलाकात {last_visit_label} को हुई थी।",
+    # docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up: the
+    # eligible-consultations list -- one row per department's most recent
+    # ATTENDED appointment still within the hospital's eligibility window.
+    FOLLOWUP_ELIGIBLE_LIST_PROMPT: {
+        "en": (
+            "✅ Follow-up Consultation Available\n\n"
+            "Below are {patient_name}'s latest eligible consultations for follow-up.\n"
+            "For each department, only the most recent consultation is shown.\n\n"
+            "Please select the consultation you would like to continue with."
+        ),
+        "hi": (
+            "✅ फॉलो-अप परामर्श उपलब्ध है\n\n"
+            "नीचे {patient_name} के फॉलो-अप के लिए नवीनतम योग्य परामर्श दिए गए हैं।\n"
+            "प्रत्येक विभाग के लिए, केवल सबसे हालिया परामर्श दिखाया गया है।\n\n"
+            "कृपया वह परामर्श चुनें जिसके साथ आप आगे बढ़ना चाहेंगे।"
+        ),
+    },
+    VIEW_FOLLOWUP_OPTIONS_BUTTON: {"en": "View Options", "hi": "विकल्प देखें"},
+    FOLLOWUP_ELIGIBLE_SECTION_TITLE: {"en": "Eligible Consultations", "hi": "योग्य परामर्श"},
+    # fee_line: CONSULTATION_FEE_LINE-shaped ("💰 ...Fee: ₹{amount}\n\n") when
+    # hospital_settings.followup_fee is configured, "" otherwise -- same
+    # omit-rather-than-fake-₹0 discipline CONFIRM_BOOKING_SUMMARY's own
+    # fee_line uses.
+    FOLLOWUP_CONFIRMATION_SUMMARY: {
+        "en": (
+            "📋 Confirm Follow-up Appointment\n\n"
+            "Patient: {patient_name}\n"
+            "Patient ID: {patient_code}\n"
+            "Appointment Type: {appointment_type_label}\n"
+            "Department: {department_name}\n"
+            "Doctor: {doctor_name}\n"
+            "Previous Visit: {previous_visit_label}\n"
+            "Appointment Date: {date_label}\n"
+            "Time: {time_label}\n"
+            "{fee_line}\n"
+            "Please review the details before confirming."
+        ),
+        "hi": (
+            "📋 फॉलो-अप अपॉइंटमेंट की पुष्टि करें\n\n"
+            "मरीज़: {patient_name}\n"
+            "मरीज़ आईडी: {patient_code}\n"
+            "अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
+            "विभाग: {department_name}\n"
+            "डॉक्टर: {doctor_name}\n"
+            "पिछली मुलाकात: {previous_visit_label}\n"
+            "अपॉइंटमेंट तारीख: {date_label}\n"
+            "समय: {time_label}\n"
+            "{fee_line}\n"
+            "कृपया पुष्टि करने से पहले विवरण की समीक्षा करें।"
+        ),
+    },
+    FOLLOWUP_APPOINTMENT_CONFIRMED: {
+        "en": (
+            "✅ Follow-up Appointment Confirmed\n\n"
+            "Your follow-up consultation has been successfully booked.\n\n"
+            "Appointment ID: {reference_id}\n"
+            "Patient: {patient_name}\n"
+            "Doctor: {doctor_name}\n"
+            "Department: {department_name}\n"
+            "Date: {date_label}\n"
+            "Time: {time_label}\n\n"
+            "Please arrive 15 minutes before your appointment.\n\n"
+            "We look forward to seeing you."
+        ),
+        "hi": (
+            "✅ फॉलो-अप अपॉइंटमेंट की पुष्टि हो गई\n\n"
+            "आपका फॉलो-अप परामर्श सफलतापूर्वक बुक हो गया है।\n\n"
+            "अपॉइंटमेंट आईडी: {reference_id}\n"
+            "मरीज़: {patient_name}\n"
+            "डॉक्टर: {doctor_name}\n"
+            "विभाग: {department_name}\n"
+            "तारीख: {date_label}\n"
+            "समय: {time_label}\n\n"
+            "कृपया अपनी अपॉइंटमेंट से 15 मिनट पहले पहुंचें।\n\n"
+            "हम आपसे मिलने के लिए उत्सुक हैं।"
+        ),
     },
     # Item 6 (Spec.md Section 0): shown after tapping one appointment in "My
     # Appointments" -- the same quick-action buttons item 3/5 use.

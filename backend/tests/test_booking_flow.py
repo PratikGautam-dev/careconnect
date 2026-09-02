@@ -1152,16 +1152,16 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
 
 
 @pytest.mark.asyncio
-async def test_followup_confirm_screen_then_straight_to_date_selection(hospital_id):
-    """The core Follow-up behavior: auto-selects the SAME doctor/department
-    as the patient's last attended appointment, shows a confirm screen (with
-    a Back button), then on confirm jumps straight to date selection -- no
-    department/doctor prompt at all."""
+async def test_followup_eligible_list_then_selecting_one_goes_straight_to_date_selection(hospital_id):
+    """The core Follow-up behavior (docs/per-appointment-type-flow-plan.md
+    Phase 2 Step 2 follow-up): shows an eligible-consultations list (one row
+    per department's most recent ATTENDED visit within the eligibility
+    window), and picking one auto-selects that department/doctor and jumps
+    straight to date selection -- no department/doctor prompt at all."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
     past_appt = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.now() - timedelta(days=10), patient_id=patient["id"],
@@ -1172,24 +1172,24 @@ async def test_followup_confirm_screen_then_straight_to_date_selection(hospital_
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_FOLLOWUP_CONFIRM"
-    assert session["context"]["doctor_id"] == doctor_id
-    assert session["context"]["department_id"] == "cardiology"
+    assert session["state"] == "AWAITING_FOLLOWUP_SELECTION"
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == {f"appt_{past_appt.id}"}
     kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert {b["id"] for b in kwargs["buttons"]} == {"confirm", BACK_ID}
+    assert kind == "buttons"  # the list's own follow-up Back button
 
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{past_appt.id}"))
 
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["doctor_id"] == doctor_id
+    assert session["context"]["department_id"] == "cardiology"
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"  # the date list's own follow-up Back button
 
 
 @pytest.mark.asyncio
-async def test_followup_back_from_date_returns_to_followup_confirm_screen(hospital_id):
+async def test_followup_back_from_date_returns_to_eligible_list(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
@@ -1201,16 +1201,15 @@ async def test_followup_back_from_date_returns_to_followup_confirm_screen(hospit
     db.mark_attendance(hospital_id, past_appt.id, True)
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{past_appt.id}"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
 
     session = sessions.get(hospital_id, PHONE)
-    assert session["state"] == "AWAITING_FOLLOWUP_CONFIRM"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert {b["id"] for b in kwargs["buttons"]} == {"confirm", BACK_ID}
+    assert session["state"] == "AWAITING_FOLLOWUP_SELECTION"
+    kwargs = _last_list(wa)
+    assert _row_ids(kwargs) == {f"appt_{past_appt.id}"}
 
     # And Back from THERE returns to appointment-type selection.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
@@ -1395,8 +1394,8 @@ async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_i
 
     if appointment_type_id == "followup":
         # Follow-up has no department/doctor step of its own -- it needs a
-        # prior ATTENDED appointment to auto-select from (see this file's
-        # own test_followup_confirm_screen_then_straight_to_date_selection).
+        # prior ATTENDED appointment to auto-select from (see this file's own
+        # test_followup_eligible_list_then_selecting_one_goes_straight_to_date_selection).
         patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
         doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
         past_appt = db.create_appointment(
@@ -1405,7 +1404,7 @@ async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_i
         db.mark_attendance(hospital_id, past_appt.id, True)
         sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
-        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))  # followup's own "use this doctor?" confirm
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{past_appt.id}"))  # pick the eligible consultation
         doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]
         all_slots = db.get_slots(hospital_id, doctor_id)
         date_str = all_slots[0]["date"]
