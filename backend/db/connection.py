@@ -267,9 +267,21 @@ def set_session(session: Session) -> None:
 
 
 def reset_session() -> None:
+    """Discards the shared Session (and, via .close(), returns/invalidates
+    its underlying DBAPI connection) so the NEXT get_session() call builds a
+    fresh one. Deliberately swallows any exception from .close() itself --
+    called from main.py's _rollback_shared_session_on_error after a request
+    already failed with an unrelated error (e.g. Neon closed the connection
+    server-side, so .close()'s own attempt to send a clean shutdown over
+    that dead socket can raise too) -- the goal here is only to guarantee
+    `_session` ends up None so the NEXT request gets a working session,
+    never to raise a second error on top of the first."""
     global _session
     if _session is not None:
-        _session.close()
+        try:
+            _session.close()
+        except Exception:
+            pass
     _session = None
 
 

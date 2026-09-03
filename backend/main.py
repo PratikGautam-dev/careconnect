@@ -34,6 +34,7 @@ from admin.tenants_api import router as tenants_api_router
 from admin.users_api import router as users_api_router
 from portal.routes import router as portal_api_router
 from auth.google_oauth import AUTH_SECRET, router as user_auth_router
+from auth.google_calendar_oauth import router as google_calendar_oauth_router
 
 # core/logging_config.py's own module docstring covers the full reasoning --
 # in short, every logger in this app (core.whatsapp, webhook.routes, ...)
@@ -140,20 +141,33 @@ async def _rollback_shared_session_on_error(request, call_next):
     (a bad query, a constraint violation, a stale column) leaves the SAME
     shared session stuck for every request afterward -- including ones with
     nothing to do with whatever failed originally -- raising
-    sqlalchemy.exc.PendingRollbackError until the process restarts. Rolling
-    back here, once, right after the exception propagates out of the route
-    handler, is the fix: it doesn't change what response this request gets
-    (the exception still propagates to Starlette's normal error handling),
-    it just leaves the shared session clean for the next one."""
+    sqlalchemy.exc.PendingRollbackError until the process restarts.
+
+    Production incident: a plain .rollback() isn't enough for the OTHER way
+    this session gets stuck -- Neon (serverless Postgres) closing the
+    underlying connection server-side after a period of inactivity
+    ("SSL connection has been closed unexpectedly", sqlalchemy.exc.
+    OperationalError). pool_pre_ping=True on the engine can't catch this,
+    because this Session never returns its connection to the pool between
+    requests (get_session() hands back the SAME Session/connection for the
+    process lifetime) -- pre_ping only re-validates a connection AT
+    CHECKOUT, which happens exactly once here. .rollback() on an already-
+    dead connection just fails silently (caught below) and leaves that same
+    dead connection wired in for every request after it, forever, until the
+    whole process restarts. reset_session() (db/connection.py) is the real
+    fix for that case: it discards the Session outright, so the NEXT
+    get_session() call builds a fresh one bound to a fresh pool checkout
+    (where pre_ping DOES get to run). Using it here unconditionally instead
+    of a plain rollback() is a strict superset -- it also clears the
+    poisoned-transaction case above, just via a fresh Session instead of a
+    rolled-back one, at the negligible cost of one extra connection
+    checkout on the next request."""
     try:
         return await call_next(request)
     except Exception:
-        from db.connection import get_session
+        from db.connection import reset_session
 
-        try:
-            get_session().rollback()
-        except Exception:
-            pass
+        reset_session()
         raise
 
 # Next.js frontend (frontend/) runs on a separate origin/port (localhost:3000
@@ -197,6 +211,7 @@ app.include_router(platform_settings_api_router)
 app.include_router(super_auth_router)
 app.include_router(portal_api_router)
 app.include_router(user_auth_router)
+app.include_router(google_calendar_oauth_router)
 app.include_router(webhook_router)
 app.include_router(cron_router)
 

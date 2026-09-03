@@ -17,6 +17,7 @@ dependencies = [
     "google-api-python-client==2.143.0",
     "google-auth==2.34.0",
     "Authlib==1.3.2",  # Section 15: Google OAuth sign-in for hospital onboarding/portal login (user_auth.py)
+    "cryptography==50.0.0",  # core/crypto.py -- Fernet encryption-at-rest for Google Calendar OAuth tokens. Was already an installed transitive dep of Authlib; pinned directly now that it's imported by our own code.
     "itsdangerous==2.2.0",  # Starlette's SessionMiddleware (needed by Authlib's OAuth state/nonce handshake)
     "mercadopago==2.3.0",
     "pytz==2024.2",

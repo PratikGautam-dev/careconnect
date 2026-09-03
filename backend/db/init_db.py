@@ -1049,6 +1049,24 @@ def init_db_on_connection(conn) -> int:
         "ALTER TABLE appointments ADD CONSTRAINT appointments_lab_status_check "
         "CHECK (lab_status IS NULL OR lab_status IN ('booked', 'sample_collected', 'processing', 'report_ready'))"
     )
+    # Migration 0027: google_calendar_connections -- Google Meet integration,
+    # alongside (not replacing) the existing Jitsi tele-consultation link.
+    # Renumbered 0022 -> 0025 -> 0027 across two separate migration-number
+    # collisions with concurrent branches forked from the same parent. See
+    # that migration's own docstring.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS google_calendar_connections ("
+        "doctor_id TEXT PRIMARY KEY REFERENCES doctors(id), "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "google_email TEXT, "
+        "encrypted_access_token TEXT NOT NULL, "
+        "encrypted_refresh_token TEXT NOT NULL, "
+        "access_token_expires_at TEXT NOT NULL, "
+        "calendar_id TEXT NOT NULL DEFAULT 'primary', "
+        "connected_at TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL"
+        ")"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

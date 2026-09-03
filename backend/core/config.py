@@ -83,6 +83,23 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     FRONTEND_ORIGIN: str = "http://localhost:3000"
 
+    # Google Meet integration (alongside the existing Jitsi tele-consultation
+    # link, not replacing it) -- a SEPARATE OAuth client from GOOGLE_CLIENT_ID/
+    # SECRET above (confirmed with the user), since that one resolves hospital-
+    # owner sign-in identity and must never carry the Calendar scope. All three
+    # default to "" like every other optional secret in this file: the app
+    # boots cleanly with them unset (core/crypto.py, auth/google_calendar_oauth.py,
+    # modules/google_calendar.py all check for empty/missing explicitly at the
+    # point of use and degrade to a clean error/fallback, never a crash).
+    GOOGLE_CALENDAR_CLIENT_ID: str = ""
+    GOOGLE_CALENDAR_CLIENT_SECRET: str = ""
+    # Fernet key (44-char urlsafe-base64, e.g. Fernet.generate_key()) encrypting
+    # google_calendar_connections' stored access/refresh tokens at rest -- see
+    # core/crypto.py. Unset means the feature is simply unconfigured, not a
+    # crash: nothing decrypts anything until a doctor actually connects, which
+    # itself is blocked with a clean error until this is set.
+    CALENDAR_TOKEN_ENCRYPTION_KEY: str = ""
+
     # core/storage.py -- omit S3_BUCKET and uploads fall back to local disk.
     S3_BUCKET: str | None = None
     S3_REGION: str | None = None

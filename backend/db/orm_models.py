@@ -765,3 +765,36 @@ class HospitalSettings(Base):
     # Test booking's price review, same "unset omits the line" convention as
     # the two fees above.
     home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
+
+
+class GoogleCalendarConnection(Base):
+    """db/schema.sql's google_calendar_connections table (migration 0025) --
+    Google Meet integration, alongside (not replacing) the existing Jitsi
+    tele-consultation link. One row per doctor (doctor_id is both the primary
+    key and the FK, 1:1) -- a row's mere EXISTENCE is what "this doctor is
+    connected" means (unlike HospitalSettings above, no row is ever created
+    lazily/blank; db/repositories/google_calendar.py only ever inserts one
+    once the OAuth dance in auth/google_calendar_oauth.py actually succeeds).
+
+    access_token/refresh_token are Fernet-encrypted (core/crypto.py) before
+    they ever reach this table -- stored as opaque TEXT, same "everything
+    opaque is TEXT" convention as every other blob in this file, never the
+    raw token. access_token_expires_at is ISO-8601 TEXT like every other
+    timestamp column in this file, not DateTime (see the module docstring)."""
+    __tablename__ = "google_calendar_connections"
+
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"), primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    # The connected Google account's own email -- display-only (the "Connected
+    # as ___" line in the doctor-schedule UI), never used to look anything up.
+    google_email: Mapped[str | None]
+    encrypted_access_token: Mapped[str]
+    encrypted_refresh_token: Mapped[str]
+    access_token_expires_at: Mapped[str]
+    # Which of the doctor's own Google calendars new Meet events are created
+    # on -- "primary" for every connection today (no calendar picker built
+    # yet), kept as its own column so that UI can be added later without a
+    # schema change.
+    calendar_id: Mapped[str]
+    connected_at: Mapped[str]
+    updated_at: Mapped[str]

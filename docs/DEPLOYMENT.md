@@ -250,6 +250,23 @@ the `booking`/patient-records features are used:**
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Credentials for the bucket.                                                                                                                                                                                                                                                                                                                 |
 | `LOCAL_STORAGE_DIR`                         | Local-disk fallback directory when `S3_BUCKET` isn't set. Default `local_storage`. **On a container deployment this directory is ephemeral unless you mount a volume at it** — worth setting `S3_BUCKET` for anything beyond a quick smoke test, since a redeploy would otherwise silently lose every previously uploaded patient document. |
 
+**Optional — Google Meet integration (`modules/google_calendar.py`,
+`auth/google_calendar_oauth.py`), alongside the existing Jitsi
+tele-consultation link, only relevant if a doctor wants to connect their own
+Google account:**
+
+| Variable                                                          | Purpose                                                                                                                                                                                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET`     | A **separate** OAuth client from `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` above (its own entry in Google Cloud Console, Calendar scope only) — a leaked credential for one must never work for the other.  |
+| `CALENDAR_TOKEN_ENCRYPTION_KEY`                                   | Fernet key encrypting stored Calendar access/refresh tokens at rest. Generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.                            |
+
+All three default to `""`. With any of them unset, the app boots completely
+normally and the doctor-schedule page's "Connect Google Calendar" card shows
+an "isn't configured yet" message instead of a connect button — every
+tele-consultation booking keeps using the existing Jitsi link exactly as
+before. Nothing needs a placeholder value; leave them genuinely blank until
+you have real ones.
+
 **Optional — first-run seeding only** (`db/init_db.py` uses these to create
 a starter hospital row _if the database is completely empty_; irrelevant on
 every deploy after the first, and irrelevant at all if you onboard hospitals

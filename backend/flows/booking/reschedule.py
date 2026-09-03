@@ -266,9 +266,7 @@ async def _handle_awaiting_reschedule_confirm(
             # slot (reminders/scheduler.py) has a real link to include.
             flow = get_type_flow(new_appointment.appointment_type_id)
             if flow.on_booking_confirmed is not None:
-                await flow.on_booking_confirmed(
-                    new_appointment.id, hospital_id, context.get("active_patient_id"), connector, context,
-                )
+                await flow.on_booking_confirmed(new_appointment, connector, context)
             summary = t(APPOINTMENT_RESCHEDULED, language,
                 doctor_name=context.get("doctor_name"), slot_label=context.get("slot_label"),
             )

@@ -51,7 +51,7 @@ export function clearStaffSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 type FetchResult =
   | { ok: true; data: unknown }

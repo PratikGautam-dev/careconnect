@@ -27,13 +27,17 @@ DepartmentValidator = Callable[[object, int, "int | None", str], "Any | None"]
 # Fully replaces the default "go to flow.first_step()" behavior.
 OnSelectedHook = Callable[..., Awaitable[Any]]
 
-# (appointment_id, hospital_id, patient_id, connector, context) -> an
-# optional dict of extra context (e.g. {"video_link": "..."}), or None. Run
-# right after connector.create_booking() succeeds, before the confirmation
-# message is built -- None (the default) means the notification is
-# byte-identical to every type without this hook. `context` is the booking
-# session context at that exact point (e.g. daycare's chosen duration
-# lives at context["daycare_duration_hours"]) -- most hooks (tele's) ignore it.
+# (appointment, connector, context) -> an optional dict of extra context
+# (e.g. {"video_link": "..."}), or None. Run right after
+# connector.create_booking() succeeds, before the confirmation message is
+# built -- None (the default) means the notification is byte-identical to
+# every type without this hook. `appointment` is the just-created/rescheduled
+# db.models.Appointment row (its .id/.hospital_id/.doctor_id/.scheduled_at
+# cover what every hook so far has needed -- no separate id/hospital_id/
+# patient_id params, since they're all already on this object). `context` is
+# the booking session context at that exact point (e.g. daycare's chosen
+# duration lives at context["daycare_duration_hours"]) -- most hooks (tele's)
+# ignore it.
 OnBookingConfirmedHook = Callable[..., Awaitable["dict[str, Any] | None"]]
 
 # (context, hospital_id) -> the full confirm-card body text, overriding
