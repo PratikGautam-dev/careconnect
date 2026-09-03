@@ -1,15 +1,33 @@
 "use client";
 
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
+import { DoctorDashboardView } from "@/components/portal/DoctorDashboardView";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { usePortalDashboard } from "@/hooks/usePortalDashboard";
+import { getStaffSession } from "@/lib/staffAuth";
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
 
 export default function PortalDashboardPage() {
+  // Doctors get their own dashboard content (today's appointments, their own
+  // stats) instead of the hospital-wide widgets below -- same shared
+  // PortalShell/nav either way, per the RBAC-driven consolidation.
+  const session = getStaffSession();
+  if (session?.role === "doctor") {
+    return (
+      <PortalShell hospital={session.hospital} active="dashboard">
+        <DoctorDashboardView />
+      </PortalShell>
+    );
+  }
+
+  return <HospitalDashboard />;
+}
+
+function HospitalDashboard() {
   const { data, error, hospital } = usePortalDashboard();
 
   if (error) {

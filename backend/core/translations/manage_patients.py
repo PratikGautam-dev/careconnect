@@ -54,8 +54,17 @@ STRINGS: dict[str, dict[Language, str]] = {
               "होंगे — आप उन्हें कभी भी दोबारा जोड़ सकते हैं।",
     },
     PATIENT_UNLINKED: {
-        "en": "{patient_name} has been removed from this number.",
-        "hi": "{patient_name} को इस नंबर से हटा दिया गया है।",
+        # Previous body (kept for reference, not deleted):
+        # "en": "{patient_name} has been removed from this number.",
+        # "hi": "{patient_name} को इस नंबर से हटा दिया गया है।",
+        "en": (
+            "✅ {patient_name} has been removed from this WhatsApp number.\n\n"
+            "Their Patient ID, medical records, and appointment history remain unchanged."
+        ),
+        "hi": (
+            "✅ {patient_name} को इस व्हाट्सएप नंबर से हटा दिया गया है।\n\n"
+            "उनकी पेशेंट आईडी, मेडिकल रिकॉर्ड और अपॉइंटमेंट इतिहास अपरिवर्तित रहेंगे।"
+        ),
     },
     PATIENT_REMOVAL_CANCELLED: {
         "en": "No changes made — {patient_name} is still linked.",

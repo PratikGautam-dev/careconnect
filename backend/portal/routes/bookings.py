@@ -9,7 +9,7 @@ import db.repository as db
 from auth.session import _build_new_booking_context
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
-from portal.deps import _authenticate, get_current_staff, require_permission
+from portal.deps import _authenticate, _authenticate_with_role, get_current_staff, require_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -77,10 +77,16 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
 
 @router.get("/api/portal/bookings")
 async def portal_bookings(authorization: str | None = Header(default=None)):
-    hospital = _authenticate(authorization)
+    """Scoped to the caller's own appointments when role=="doctor" -- this
+    route is now shared by the doctor portal too, and a doctor must never
+    see another doctor's patients/appointments through it."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    appointments = db.get_all_appointments_for_hospital(hospital.id)
+    if role == "doctor" and doctor_id is not None:
+        appointments = db.get_doctor_appointments(hospital.id, doctor_id)
+    else:
+        appointments = db.get_all_appointments_for_hospital(hospital.id)
     validity_days = db.get_followup_validity_days(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a, validity_days) for a in appointments]})
 

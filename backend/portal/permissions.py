@@ -30,10 +30,11 @@ PAGE_MESSAGES = "messages"
 PAGE_SETTINGS = "settings"
 PAGE_STAFF = "staff"  # staff management page (create/deactivate staff_users)
 PAGE_ROLES = "roles"  # roles & permissions editor (this module's own admin UI)
+PAGE_SCHEDULE = "schedule"  # a doctor's own working hours/breaks/leave editor
 
 ALL_PAGES = {
     PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_PATIENTS, PAGE_DOCTORS,
-    PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES,
+    PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE,
 }
 ACTIONS = ("view", "write", "delete")
 
@@ -61,6 +62,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_SETTINGS: dict(_NONE),
         PAGE_STAFF: dict(_NONE),
         PAGE_ROLES: dict(_NONE),
+        PAGE_SCHEDULE: dict(_NONE),
     },
     "doctor": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
@@ -71,6 +73,11 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_SETTINGS: dict(_NONE),
         PAGE_STAFF: dict(_NONE),
         PAGE_ROLES: dict(_NONE),
+        # Own-schedule self-service (working days/hours/breaks/leave) --
+        # off by default for admin/receptionist, toggleable via Roles &
+        # Permissions since admin already manages any doctor's schedule
+        # through /portal/doctors regardless.
+        PAGE_SCHEDULE: dict(_VIEW_WRITE),
     },
 }
 
