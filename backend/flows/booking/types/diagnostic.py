@@ -1,6 +1,7 @@
 # flows/booking/types/diagnostic.py
-"""Diagnostic: skips department/doctor selection. book.py auto-resolves a
-resource via _first_available_resource. Phase 2: add a real test/panel step."""
-from flows.booking.types.base import NO_DOCTOR_FLOW, TypeFlow
+"""Diagnostic Test (docs/per-appointment-type-flow-plan.md Phase 2 Step 5):
+test -> variant -> resource-linked date/time -> confirm. See
+_diagnostic_shared.py for the actual implementation, shared with lab.py."""
+from flows.booking.types._diagnostic_shared import make_flow
 
-FLOW = TypeFlow(type_id="diagnostic", steps=NO_DOCTOR_FLOW)
+FLOW = make_flow("diagnostic")

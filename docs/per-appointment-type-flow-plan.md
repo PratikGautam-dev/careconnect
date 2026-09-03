@@ -326,15 +326,182 @@ expressible, and hospitals price/label these differently).
   it.
 - Full backend suite passing (674 tests, no regressions).
 
-### Step 5+ — remaining types (not started, one at a time, each awaiting confirmation first)
+### Step 5 — Diagnostic Test & Lab Test (`_diagnostic_shared.py`) — ✅ DONE
 
-Concrete hooks the Phase-1 structure sets up for these, per type file:
-- `lab.py` / `diagnostic.py`: insert a new `STATE_AWAITING_TEST_SELECTION` step before
-  `STATE_AWAITING_DATE` (pick which test/panel, if the hospital wants that granularity).
+Built from a detailed business spec (test → variant → resource-linked date/time → prep
+instructions folded into review → confirm). Confirmed with the user directly, overriding this
+doc's own "one type at a time" pacing: Diagnostic Test and Lab Test are structurally identical
+(same journey, same catalog/resource needs, differing only in which `diagnostic_tests.category`
+they list) and the live WhatsApp menu already presents them as siblings under "Tests &
+Diagnostics" — so both landed together, sharing one implementation, rather than as two separate
+passes. Resource (machine/equipment) scheduling got full parity with the existing doctor-scheduling
+stack (own weekly hours/breaks/leave, generated slots, portal management UI) — confirmed with the
+user over a lighter "coarse daily capacity" alternative. Prescription-status tracking (spec'd but
+not built) and real payment collection (no gateway exists in this codebase) were both explicitly
+deferred out of scope for this pass.
+
+**How it was built**:
+- New tables (migration `0025`): `diagnostic_tests` (id, hospital_id, category
+  `'diagnostic'|'lab'`, name, resource_id nullable, is_active, sort_order) + `diagnostic_test_variants`
+  (test_id, label, price, preparation_instructions, is_active, sort_order) — every test has ≥1
+  variant, price/prep always live on the variant, never the test, so there's no "sometimes on
+  test, sometimes on variant" split downstream. `diagnostic_resources` (+ `diagnostic_resource_leave`
+  / `diagnostic_resource_slots`) mirror `doctors`/`doctor_leave`/`doctor_slots` column-for-column,
+  so `generate_slots_for_resource()` (`db/repositories/diagnostic_resources.py`) reuses
+  `generate_slots_for_doctor()`'s algorithm directly. Seeded per hospital
+  (`_backfill_diagnostic_tests`): 8 default diagnostic tests / 7 default lab tests, each with one
+  "Standard" variant, `resource_id` NULL until a hospital links a real machine.
+- `appointments.doctor_id` became nullable (a resource-bound booking has no doctor at all) — new
+  `resource_id`/`diagnostic_test_id`/`diagnostic_test_variant_id` FKs plus
+  `diagnostic_test_label`/`diagnostic_variant_label`/`diagnostic_price` snapshots (same
+  denormalization convention as `patient_name`), a `CHECK (doctor_id IS NOT NULL OR resource_id IS
+  NOT NULL)`, and a resource-scoped sibling of the doctor double-booking unique index
+  (`ux_appointments_resource_slot_ordinal_booked`). `create_appointment()`
+  (`db/repositories/appointments.py`) gained a parallel resource-keyed branch for the advisory
+  lock/quota/booking-ordinal logic — additive, the existing doctor-keyed path is untouched. Only
+  `resource_id` goes through `create_appointment()` itself (it participates in the locking); the
+  rest (`diagnostic_test_id`/variant/labels/price) are set post-creation via
+  `set_appointment_diagnostic_details()`, same pattern as daycare's `set_appointment_duration`.
+- `flows/booking/types/_diagnostic_shared.py` (new) — the one shared implementation `diagnostic.py`
+  and `lab.py` both point their `FLOW` at (`make_flow("diagnostic"|"lab")`); every handler derives
+  which category to query from `context["appointment_type_id"]`, which already equals
+  `diagnostic_tests.category`. New `STATE_AWAITING_DIAGNOSTIC_TEST`/`STATE_AWAITING_DIAGNOSTIC_VARIANT`
+  states (`_STEPS` inserts both before `STATE_AWAITING_DATE`); `on_selected` hook bypasses the
+  generic department/doctor entry logic entirely (same mechanism `followup.py` uses); a test with
+  exactly one variant auto-skips the variant screen (same single-choice-auto-skip convention used
+  elsewhere); `build_confirmation_summary`/`build_success_summary` produce the spec's own card text
+  (no prescription-status line, per the scope decision above); `on_booking_confirmed` persists the
+  chosen variant/price/labels.
+- `flows/booking/book.py`/`messages.py`/`reschedule.py` — the shared date/time handlers
+  (`_handle_awaiting_date`/`_handle_awaiting_time_slot`, `_send_date_menu`/`_send_time_menu`, and
+  reschedule's own equivalents) all gained a small `context["resource_id"]` branch: when set, slot
+  lookups go through `get_available_resource_slots` instead of `get_available_slots`; when unset
+  (every other type), behavior is byte-identical to before. A resource-less diagnostic/lab test
+  originally fell back to `_first_available_resource` (any doctor with open slots) — **removed in
+  a later follow-up** (confirmed with the user directly: a lab/diagnostic booking must never
+  silently attach to an unrelated doctor's calendar) — see the Step 5 follow-up entry below for
+  the current "not available" treatment. `Connector`/`Tier1Connector.reschedule_booking()` carries
+  `resource_id`/the diagnostic snapshot fields forward from the old appointment, same precedent as
+  `duration_hours`.
+- Portal: new `manage_diagnostic_resources` capability (`portal/capabilities.py`, hospital-tier
+  only, same weight as `manage_doctors`) with a one-time backfill appending it onto already-
+  backfilled hospitals' `admin_capabilities` (unlike `role_permissions`, that column is a
+  materialized snapshot, not computed with a per-key fallback, so a newly-added capability needs
+  its own backfill step). Test/variant catalog CRUD reuses `manage_appointment_types` (same
+  screen area as daycare's own catalog). New `portal/routes/diagnostic_tests.py` (tests + variants
+  CRUD) and `diagnostic_resources.py` (resource CRUD + slots/leave, mirroring `doctors.py`'s own
+  routes). New `PAGE_DIAGNOSTIC_TESTS` in `portal/permissions.py` (off by default for
+  receptionist/doctor — no backfill needed, `get_permission_matrix()` already falls back to the
+  default per-page-key at read time). Frontend: new "Diagnostic Tests" nav item/page
+  (`/portal/diagnostic-tests`) with a Tests column (`DiagnosticTestsManager.tsx`, category
+  tabs + nested variant CRUD) and a Resources column (`DiagnosticResourcesManager.tsx` +
+  `ResourceSlotManager.tsx`/`ResourceLeaveManager.tsx`, generalizing `DoctorSlotManager.tsx`'s shape).
+- Tests: `tests/test_diagnostic_resources.py` (new) — resource CRUD/slot generation, multi-variant
+  selection, resource double-booking rejection, reschedule carry-forward, resource-less fallback.
+  `tests/test_appointment_type_flows.py`/`test_booking_flow.py` updated for diagnostic/lab's new
+  step tuple and their own success-card wording.
+- Full backend suite passing (801 tests, no regressions, real Postgres via testcontainers).
+  Frontend: `tsc --noEmit` and `next build` both clean; not yet manually exercised in a running
+  browser against a live backend.
+
+### Step 5 follow-up — Lab Test splits off into its own basket flow — ✅ DONE
+
+The user supplied a separate, more detailed business spec specifically for Lab Test (multi-test
+basket, a collection-method choice with serviceability-gated home sample collection, an itemized
+price review, a post-booking report lifecycle) and confirmed it should be built as given, with
+proper reuse and without breaking Diagnostic Test's already-shipped single-item flow. Lab Test no
+longer shares `_diagnostic_shared.py` with Diagnostic Test — `diagnostic.py` is untouched;
+`flows/booking/types/lab.py` is now a real module with its own steps.
+
+**How it was built**:
+- New migration `0026`: `lab_service_areas` (hospital-configurable serviceable PIN codes, same
+  open-catalog shape as `daycare_duration_options`), `appointment_lab_tests` (the basket — N rows
+  per one `appointments` row, one per selected test+variant, snapshot columns same convention as
+  `diagnostic_test_label`), new `appointments` columns `collection_method`/`collection_address`/
+  `collection_pincode`/`home_collection_charge`/`lab_status` (all only ever set for a Lab Test
+  booking — Diagnostic Test's existing singular `diagnostic_test_id`/variant/label/price columns
+  are untouched, still meaning "the one item" for that type), and `hospital_settings.
+  home_collection_charge` (same convention as `followup_fee`/`new_consultation_fee`).
+- A Lab Test basket resolves to a single `resource_id` — the first basket item with one configured
+  — reusing the entire resource-scheduling engine built for Diagnostic Test verbatim (no second
+  scheduling engine). Resource resolution + date-menu advancement was factored out of
+  `_diagnostic_shared.py`'s `_proceed_with_variant` into a shared `resolve_resource_and_advance_to_
+  date()` helper, called by both Diagnostic Test's single-item path and Lab Test's basket path.
+
+### Step 5 follow-up #2 — removed the any-doctor fallback entirely — ✅ DONE
+
+Confirmed with the user directly: neither Diagnostic Test nor Lab Test should ever silently borrow
+an unrelated doctor's calendar to find a bookable slot — a lab/diagnostic booking's availability
+must reflect its OWN linked resource's real capacity, full stop. `resolve_resource_and_advance_to_
+date()` (`_diagnostic_shared.py`) no longer calls `book.py`'s `_first_available_resource()` when a
+test has no resource linked (or its linked resource has been deactivated/removed) — it now shows
+the same "no slots available right now" message an unconfigured doctor (one with no working hours
+set, hence zero generated slots) already produces elsewhere in this app, then returns to the main
+menu. `_first_available_resource()` itself is untouched and still used by `book.py`'s own generic
+`_proceed_with_appointment_type()` fallback branch (a safety net for a hypothetical future
+custom hospital appointment type with no department step of its own — not reachable by any
+built-in type today, all of which set their own `on_selected` hook).
+
+**The real consequence**: every hospital's *seeded default* diagnostic/lab tests have no resource
+linked out of the box, so this makes them genuinely unbookable until an admin creates a resource
+in the portal and links it to each test — same as a freshly onboarded doctor with no hours set is
+unbookable until someone configures their schedule. This is an intentional, discussed trade-off,
+not an oversight.
+
+Updated `tests/test_diagnostic_resources.py`'s `test_resource_less_test_falls_back_to_any_doctor_
+with_open_slots` (renamed, now asserts the new "not available, no appointment created" behavior)
+and added `test_deactivated_resource_also_shows_not_available`. `tests/test_booking_flow.py`'s
+`_book_through_confirmation` helper and 3 more of its own diagnostic-specific tests now create and
+link a resource before driving a booking through (a resource-less test can no longer reach date
+selection at all). `tests/test_lab_test_basket.py`'s flow-level tests now link one shared resource
+to every lab test via a new `_link_all_lab_tests_to_resource()` helper for the same reason. Full
+backend suite passing (821 tests, no regressions).
+- `lab.py`'s own states: `STATE_AWAITING_LAB_TEST` (repeatable — an "Add Another Test?"/"Done,
+  Continue" loop after each add) → `STATE_AWAITING_LAB_TEST_VARIANT` (a genuinely new state, not a
+  reuse of `STATE_AWAITING_DIAGNOSTIC_VARIANT` — that one assigns a single variant and proceeds
+  straight to date; Lab Test's appends to a growing basket and loops) → `STATE_AWAITING_COLLECTION_
+  METHOD` (visit vs. home, buttons) → for home: `STATE_AWAITING_COLLECTION_PINCODE` (serviceability
+  check via `is_pincode_serviceable()`, with a "Visit Hospital/Lab instead" fallback rather than a
+  dead end on a non-serviceable PIN) → `STATE_AWAITING_COLLECTION_ADDRESS` → the existing date/time
+  steps. Confirmation card is itemized (each test+variant+price line, home-collection charge line,
+  total) with a single fasting/preparation paragraph built from the union of non-blank
+  `preparation_instructions` across the basket, omitted entirely when none of the selected tests
+  need one.
+- Report lifecycle rides on two existing mechanisms rather than a new one: staff advance
+  `booked → sample_collected → processing` one step at a time via a new `/api/portal/bookings/
+  {id}/lab-status` route (never lets staff set `report_ready` directly); uploading a `lab_report`
+  document against the appointment (`portal/routes/documents.py` — `patient_documents.
+  appointment_id` already existed) automatically sets `report_ready` and sends a WhatsApp
+  notification synchronously in that same route, reusing the exact `WhatsAppClient(...)` +
+  `send_text()` pattern already used a few lines below for "Send to WhatsApp" — no cron job, since
+  the staff upload click IS the trigger.
+- `Tier1Connector.reschedule_booking()` carries `collection_method`/`address`/`pincode`/
+  `home_collection_charge` forward the same way as `duration_hours`/the diagnostic snapshot fields;
+  the basket itself (a child table) is copied via a new `copy_lab_basket()`. `lab_status`
+  deliberately resets to `'booked'` on the new row rather than carrying forward as-is — the new
+  slot's own report lifecycle starts fresh.
+- Discount/package pricing: explicitly out of scope, same "don't build unrequested infrastructure"
+  call already made for payment gateway/prescription-status.
+- Tests: new `tests/test_lab_test_basket.py` — multi-test basket happy path, already-added-test
+  exclusion, fasting paragraph shown/omitted correctly, serviceable/non-serviceable home collection
+  (with the visit fallback), reschedule carrying the basket+collection details forward,
+  `lab_service_areas` CRUD, the lab-status advance endpoint's forward-only guard, and the
+  document-upload → report-ready → WhatsApp-notification trigger (mocked send). Updated
+  `test_appointment_type_flows.py`/`test_booking_flow.py`'s shared `_book_through_confirmation`
+  helper for Lab Test's now-distinct step shape — Diagnostic Test's own tests
+  (`test_diagnostic_resources.py`) are untouched and still pass.
+- Full backend suite passing (819 tests, no regressions, real Postgres via testcontainers).
+  Frontend: `tsc --noEmit`, `eslint`, and `next build` all clean (new
+  `LabServiceAreasManager.tsx` on the Settings page, a "Lab Status" column + advance action on the
+  Appointments page, a `home_collection_charge` field on Settings); not yet manually exercised in a
+  running browser against a live backend.
+
+### Step 6+ — remaining types (not started, one at a time, each awaiting confirmation first)
+
 - `second_opinion.py`: an optional document-upload step before confirmation.
 
-None of this is implemented yet — listed only so the Phase-1 file layout is judged against where
-Phase 2 work will actually land, and each is only started once the user confirms it.
+Not implemented yet — listed only so the Phase-1 file layout is judged against where the
+remaining Phase 2 work will land; only started once the user confirms it.
 
 ## Files touched (Phase 1)
 

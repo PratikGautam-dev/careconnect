@@ -577,6 +577,79 @@ CREATE TABLE IF NOT EXISTS daycare_duration_options (
     sort_order INTEGER NOT NULL DEFAULT 0
 );
 
+-- Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): a
+-- bookable machine/equipment, independent of any doctor -- schedule columns
+-- mirror `doctors`' own (working_days/working_hours/breaks/etc.) so
+-- generate_slots_for_resource() can reuse generate_slots_for_doctor()'s
+-- algorithm unchanged. department_id is nullable -- a shared imaging centre
+-- resource need not belong to one clinical department.
+CREATE TABLE IF NOT EXISTS diagnostic_resources (
+    id TEXT PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    department_id TEXT REFERENCES departments(id),
+    name TEXT NOT NULL,
+    working_days TEXT NOT NULL DEFAULT '',
+    working_hours TEXT NOT NULL DEFAULT '',
+    slot_duration_minutes INTEGER NOT NULL DEFAULT 30,
+    breaks TEXT NOT NULL DEFAULT '',
+    max_bookings_per_slot INTEGER NOT NULL DEFAULT 1,
+    daily_booking_limit INTEGER,
+    effective_from TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- Mirrors doctor_leave -- one row per whole-day-unavailable date for a resource.
+CREATE TABLE IF NOT EXISTS diagnostic_resource_leave (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    resource_id TEXT NOT NULL REFERENCES diagnostic_resources(id),
+    date TEXT NOT NULL,
+    reason TEXT,
+    UNIQUE(resource_id, date)
+);
+
+-- Mirrors doctor_slots -- real, persisted bookable slots generated from a
+-- resource's own working pattern above.
+CREATE TABLE IF NOT EXISTS diagnostic_resource_slots (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    resource_id TEXT NOT NULL REFERENCES diagnostic_resources(id),
+    scheduled_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    blocked BOOLEAN NOT NULL DEFAULT FALSE,
+    block_reason TEXT,
+    UNIQUE(resource_id, scheduled_at)
+);
+
+-- The catalog a patient picks from for Diagnostic Test / Lab Test (Phase 2
+-- Step 5) -- same "hospital-editable catalog" shape as daycare_duration_
+-- options above. category discriminates which of the two menus lists it.
+-- resource_id is optional: unset means slot availability falls back to
+-- the existing any-doctor-with-open-slots behavior (_first_available_resource).
+CREATE TABLE IF NOT EXISTS diagnostic_tests (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    category TEXT NOT NULL CHECK (category IN ('diagnostic', 'lab')),
+    name TEXT NOT NULL,
+    resource_id TEXT REFERENCES diagnostic_resources(id),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- Every test has >=1 variant -- price/preparation_instructions always live
+-- here, never on diagnostic_tests itself, so there's no "sometimes on test,
+-- sometimes on variant" split for the booking flow to special-case.
+CREATE TABLE IF NOT EXISTS diagnostic_test_variants (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    test_id INTEGER NOT NULL REFERENCES diagnostic_tests(id),
+    label TEXT NOT NULL,
+    price NUMERIC(10, 2),
+    preparation_instructions TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_type_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS consent_given_at TEXT;
 -- Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md): a
@@ -602,6 +675,69 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER;
 -- the normal window OR today is still on/before this date. NULL (the
 -- default) means no override has ever been granted for this visit.
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_override_until TEXT;
+
+-- Diagnostic/Lab Phase 2: doctor_id is no longer always the schedulable
+-- resource -- a machine-bound booking (resource_id set) has no doctor at
+-- all, so the old NOT NULL would force a fake doctor onto it. Existing
+-- ALTER TABLE ... DROP NOT NULL is idempotent (safe to re-run).
+ALTER TABLE appointments ALTER COLUMN doctor_id DROP NOT NULL;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS resource_id TEXT REFERENCES diagnostic_resources(id);
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id);
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_variant_id INTEGER REFERENCES diagnostic_test_variants(id);
+-- Snapshots, same denormalization convention as patient_name/patient_phone --
+-- survive a later catalog rename/re-price untouched.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_label TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_variant_label TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_price NUMERIC(10, 2);
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk;
+ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_chk
+    CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL);
+
+-- Lab Test Phase 2 follow-up: unlike Diagnostic Test (one test, one machine,
+-- one slot), a Lab Test booking is a multi-test basket with a collection-
+-- method choice (visit vs. home sample) -- appointment_lab_tests holds the
+-- basket (N rows per one appointments row); the singular diagnostic_test_id/
+-- variant/label/price columns above are untouched, still meaning "the one
+-- item" for a Diagnostic Test booking. lab_service_areas is a hospital-
+-- configurable list of serviceable PIN codes for home collection.
+CREATE TABLE IF NOT EXISTS lab_service_areas (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    pincode TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE(hospital_id, pincode)
+);
+
+CREATE TABLE IF NOT EXISTS appointment_lab_tests (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+    diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id),
+    diagnostic_test_variant_id INTEGER REFERENCES diagnostic_test_variants(id),
+    test_label TEXT NOT NULL,
+    variant_label TEXT NOT NULL,
+    price NUMERIC(10, 2),
+    preparation_instructions TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_appointment_lab_tests_appointment ON appointment_lab_tests(appointment_id);
+
+-- Collection details + the post-booking report lifecycle -- only ever set
+-- for a Lab Test booking. lab_status: booked -> sample_collected ->
+-- processing -> report_ready (the last transition is automatic, fired when
+-- staff upload a lab_report document against this appointment -- see
+-- portal/routes/documents.py).
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_method TEXT;
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_collection_method_check;
+ALTER TABLE appointments ADD CONSTRAINT appointments_collection_method_check
+    CHECK (collection_method IS NULL OR collection_method IN ('visit', 'home'));
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_address TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_pincode TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS home_collection_charge NUMERIC(10, 2);
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS lab_status TEXT;
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_lab_status_check;
+ALTER TABLE appointments ADD CONSTRAINT appointments_lab_status_check
+    CHECK (lab_status IS NULL OR lab_status IN ('booked', 'sample_collected', 'processing', 'report_ready'));
+
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
@@ -798,6 +934,14 @@ DROP INDEX IF EXISTS ux_appointments_doctor_slot_booked;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_doctor_slot_ordinal_booked
     ON appointments(doctor_id, scheduled_at, booking_ordinal)
     WHERE status = 'booked';
+
+-- Same guarantee as above, for resource-bound bookings (Diagnostic/Lab
+-- Phase 2) -- a separate index since resource_id is NULL for every
+-- doctor-bound appointment (a partial index on doctor_id already excludes
+-- those rows the other way).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked
+    ON appointments(resource_id, scheduled_at, booking_ordinal)
+    WHERE status = 'booked' AND resource_id IS NOT NULL;
 
 -- Present per Section 4's schema, but NOT wired up in this build — core/history.py's
 -- Redis/in-memory session store (get_session_store()) remains the actual mechanism

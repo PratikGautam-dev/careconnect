@@ -3,6 +3,7 @@
 import {
   CalendarCheck,
   CalendarClock,
+  FlaskConical,
   LayoutDashboard,
   LogOut,
   MessageCircle,
@@ -16,7 +17,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
-import { hasPermission } from "@/lib/staffAuth";
+import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 
 // Staff/Branches/Reports/Calendar/Departments were removed (not just hidden)
 // -- Calendar had no backend and no near-term plan to build one; Departments
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
   { key: "schedule", label: "Schedule", icon: CalendarClock, href: "/portal/schedule", pageKey: "schedule" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
+  { key: "diagnostic_tests", label: "Diagnostic Tests", icon: FlaskConical, href: "/portal/diagnostic-tests", pageKey: "diagnostic_tests" },
   { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages", pageKey: "messages" },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },
   { key: "staff", label: "Staff", icon: Users, href: "/portal/settings/staff", pageKey: "staff" },
@@ -46,6 +48,12 @@ type Props = {
 
 export function PortalSidebar({ hospital, active, open = false, onClose }: Props) {
   const router = useRouter();
+  // Resolved once, here, via the real hook -- hasPermission below is a
+  // plain function taking this value, safe to call inside .filter() (a real
+  // hook can't be called in a loop). null on the server and on the client's
+  // own first render pass (same value both places -- no hydration mismatch),
+  // then the real session an instant later.
+  const session = useStaffSession();
 
   function handleLogout() {
     clearPortalSession();
@@ -88,13 +96,12 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.filter(
-            // Per-page-key permission check (hasPermission is the same
-            // plain localStorage read as usePermission, aliased so eslint's
-            // rules-of-hooks check doesn't flag calling it inside a loop).
-            // Fails OPEN the same way the old hardcoded "doctors" capability
-            // check did -- this is only a UI convenience, the backend's 403
-            // is the real enforcement.
-            (item) => hasPermission(item.pageKey, "view"),
+            // Per-page-key permission check (hasPermission is a plain
+            // function here, not the usePermission hook, since it's called
+            // once per item inside this loop). Fails OPEN the same way the
+            // old hardcoded "doctors" capability check did -- this is only a
+            // UI convenience, the backend's 403 is the real enforcement.
+            (item) => hasPermission(session, item.pageKey, "view"),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

@@ -25,6 +25,7 @@ from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, GLOBAL_SCOPE_KEY, genera
 from db.repositories.accounts import _get_or_create_account_in_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
 from db.repositories.daycare_duration_options import DEFAULT_DAYCARE_DURATION_OPTIONS
+from db.repositories.diagnostic_tests import CATEGORY_DIAGNOSTIC, CATEGORY_LAB, DEFAULT_DIAGNOSTIC_TESTS, DEFAULT_LAB_TESTS
 from db.models import DEFAULT_MAX_ACTIVE_PATIENT_LINKS
 from db.repository import _generate_patient_identifiers, _get_or_create_hospital_short_code
 
@@ -357,6 +358,39 @@ def _backfill_daycare_duration_options(conn) -> None:
     conn.commit()
 
 
+def _backfill_diagnostic_tests(conn) -> None:
+    """Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step
+    5): seeds DEFAULT_DIAGNOSTIC_TESTS/DEFAULT_LAB_TESTS for every hospital
+    that doesn't already have ANY row in either category -- same "has-any"
+    gating as _backfill_daycare_duration_options above (an open, hospital-
+    editable catalog, not a fixed one re-keyed by id). Each seeded test gets
+    one default "Standard" variant, resource_id NULL, price/prep unset --
+    hospitals link a real resource and set pricing/instructions afterward
+    via the portal."""
+    hospitals = conn.execute("SELECT id FROM hospitals").fetchall()
+    for hospital in hospitals:
+        hospital_id = hospital["id"]
+        for category, names in ((CATEGORY_DIAGNOSTIC, DEFAULT_DIAGNOSTIC_TESTS), (CATEGORY_LAB, DEFAULT_LAB_TESTS)):
+            has_any = conn.execute(
+                "SELECT 1 FROM diagnostic_tests WHERE hospital_id = ? AND category = ? LIMIT 1",
+                (hospital_id, category),
+            ).fetchone()
+            if has_any:
+                continue
+            for sort_order, name in enumerate(names):
+                row = conn.execute(
+                    "INSERT INTO diagnostic_tests (hospital_id, category, name, is_active, sort_order) "
+                    "VALUES (?, ?, ?, TRUE, ?) RETURNING id",
+                    (hospital_id, category, name, sort_order),
+                ).fetchone()
+                conn.execute(
+                    "INSERT INTO diagnostic_test_variants (hospital_id, test_id, label, is_active, sort_order) "
+                    "VALUES (?, ?, 'Standard', TRUE, 0)",
+                    (hospital_id, row["id"]),
+                )
+    conn.commit()
+
+
 def _backfill_reports_prescriptions_feature(conn) -> None:
     """CareConnect architecture doc alignment (Spec.md Section 0): "my_details"
     renamed to "reports_prescriptions" (Section 20's exact menu item) --
@@ -460,6 +494,27 @@ def _backfill_admin_capabilities(conn) -> None:
         ('["manage_bookings","manage_settings"]',),
     )
     conn.execute("UPDATE hospitals SET admin_capabilities = '[]' WHERE admin_capabilities IS NULL")
+    conn.commit()
+
+
+def _backfill_diagnostic_resources_capability(conn) -> None:
+    """Diagnostic/Lab Phase 2: manage_diagnostic_resources is a capability
+    added AFTER _backfill_admin_capabilities() above first ran for every
+    hospital -- that function only ever fills a NULL admin_capabilities, so
+    an already-backfilled hospital would never pick up a capability added to
+    DEFAULT_CAPABILITIES_BY_TYPE afterward without this. Same "append into
+    the raw JSON array" technique _backfill_book_doctor_tests_diagnostics_
+    split() uses for enabled_features, hospital-tier only (clinics don't get
+    this by default, same as manage_doctors/manage_departments). Excludes
+    '[]' explicitly -- REPLACE would otherwise produce invalid JSON
+    (a leading comma) for that one degenerate value."""
+    conn.execute(
+        "UPDATE hospitals SET admin_capabilities = "
+        "REPLACE(admin_capabilities, ']', ',\"manage_diagnostic_resources\"]') "
+        "WHERE tenant_type = 'hospital' AND admin_capabilities IS NOT NULL "
+        "AND admin_capabilities != '[]' "
+        "AND admin_capabilities NOT LIKE '%%manage_diagnostic_resources%%'"
+    )
     conn.commit()
 
 
@@ -880,11 +935,125 @@ def init_db_on_connection(conn) -> int:
     # receptionist follow-up validity override (see db/schema.sql's own
     # column comment).
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_override_until TEXT")
-    # Migration 0025: google_calendar_connections -- Google Meet integration,
+    # Migration 0025: diagnostic_tests/diagnostic_test_variants/
+    # diagnostic_resources (+ leave/slots) and the appointments columns that
+    # bind a booking to a resource/test/variant -- see db/schema.sql's own
+    # comments on each table for the full reasoning (docs/per-appointment-
+    # type-flow-plan.md Step 5).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_resources ("
+        "id TEXT PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "department_id TEXT REFERENCES departments(id), name TEXT NOT NULL, "
+        "working_days TEXT NOT NULL DEFAULT '', working_hours TEXT NOT NULL DEFAULT '', "
+        "slot_duration_minutes INTEGER NOT NULL DEFAULT 30, breaks TEXT NOT NULL DEFAULT '', "
+        "max_bookings_per_slot INTEGER NOT NULL DEFAULT 1, daily_booking_limit INTEGER, "
+        "effective_from TEXT, is_active BOOLEAN NOT NULL DEFAULT TRUE"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_resource_leave ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "resource_id TEXT NOT NULL REFERENCES diagnostic_resources(id), date TEXT NOT NULL, reason TEXT, "
+        "UNIQUE(resource_id, date)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_resource_slots ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "resource_id TEXT NOT NULL REFERENCES diagnostic_resources(id), scheduled_at TEXT NOT NULL, "
+        "created_at TEXT NOT NULL DEFAULT (now()::text), "
+        "blocked BOOLEAN NOT NULL DEFAULT FALSE, block_reason TEXT, "
+        "UNIQUE(resource_id, scheduled_at)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_tests ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "category TEXT NOT NULL CHECK (category IN ('diagnostic', 'lab')), name TEXT NOT NULL, "
+        "resource_id TEXT REFERENCES diagnostic_resources(id), "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, sort_order INTEGER NOT NULL DEFAULT 0"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_test_variants ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "test_id INTEGER NOT NULL REFERENCES diagnostic_tests(id), label TEXT NOT NULL, "
+        "price NUMERIC(10, 2), preparation_instructions TEXT, "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, sort_order INTEGER NOT NULL DEFAULT 0"
+        ")"
+    )
+    conn.execute("ALTER TABLE appointments ALTER COLUMN doctor_id DROP NOT NULL")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS resource_id TEXT REFERENCES diagnostic_resources(id)")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id)")
+    conn.execute(
+        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_variant_id "
+        "INTEGER REFERENCES diagnostic_test_variants(id)"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_label TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_variant_label TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_price NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_chk "
+        "CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked "
+        "ON appointments(resource_id, scheduled_at, booking_ordinal) "
+        "WHERE status = 'booked' AND resource_id IS NOT NULL"
+    )
+    # Migration 0026: Lab Test's multi-test basket (appointment_lab_tests),
+    # collection-method/home-collection columns on appointments, the
+    # hospital-configurable serviceable-PIN-code list (lab_service_areas),
+    # and the flat home_collection_charge fee on hospital_settings -- see
+    # that migration's own docstring.
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS home_collection_charge NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_home_collection_charge_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_home_collection_charge_check "
+        "CHECK (home_collection_charge IS NULL OR home_collection_charge >= 0)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lab_service_areas ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "pincode TEXT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "UNIQUE(hospital_id, pincode)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS appointment_lab_tests ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "appointment_id INTEGER NOT NULL REFERENCES appointments(id), "
+        "diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id), "
+        "diagnostic_test_variant_id INTEGER REFERENCES diagnostic_test_variants(id), "
+        "test_label TEXT NOT NULL, variant_label TEXT NOT NULL, "
+        "price NUMERIC(10, 2), preparation_instructions TEXT"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointment_lab_tests_appointment "
+        "ON appointment_lab_tests(appointment_id)"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_method TEXT")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_collection_method_check")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_collection_method_check "
+        "CHECK (collection_method IS NULL OR collection_method IN ('visit', 'home'))"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_address TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_pincode TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS home_collection_charge NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS lab_status TEXT")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_lab_status_check")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_lab_status_check "
+        "CHECK (lab_status IS NULL OR lab_status IN ('booked', 'sample_collected', 'processing', 'report_ready'))"
+    )
+    # Migration 0027: google_calendar_connections -- Google Meet integration,
     # alongside (not replacing) the existing Jitsi tele-consultation link.
-    # Renumbered from 0022 to 0025 to resolve a migration-number collision
-    # with the three migrations above (both branches independently forked
-    # new migrations from 0021). See that migration's own docstring.
+    # Renumbered 0022 -> 0025 -> 0027 across two separate migration-number
+    # collisions with concurrent branches forked from the same parent. See
+    # that migration's own docstring.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS google_calendar_connections ("
         "doctor_id TEXT PRIMARY KEY REFERENCES doctors(id), "
@@ -921,9 +1090,11 @@ def init_db_on_connection(conn) -> int:
     _backfill_patient_links(conn)
     _backfill_appointment_types(conn)
     _backfill_daycare_duration_options(conn)
+    _backfill_diagnostic_tests(conn)
     _backfill_reports_prescriptions_feature(conn)
     _backfill_book_doctor_tests_diagnostics_split(conn)
     _backfill_admin_capabilities(conn)
+    _backfill_diagnostic_resources_capability(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

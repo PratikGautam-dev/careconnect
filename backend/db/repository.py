@@ -33,6 +33,10 @@ from db.repositories.patients import *  # noqa: F401,F403
 from db.repositories.patient_records import *  # noqa: F401,F403
 from db.repositories.appointment_types import *  # noqa: F401,F403
 from db.repositories.daycare_duration_options import *  # noqa: F401,F403
+from db.repositories.diagnostic_tests import *  # noqa: F401,F403
+from db.repositories.diagnostic_resources import *  # noqa: F401,F403
+from db.repositories.resource_slots import *  # noqa: F401,F403
+from db.repositories.lab_service_areas import *  # noqa: F401,F403
 from db.repositories.appointments import *  # noqa: F401,F403
 from db.repositories.appointments import _upsert_patient  # noqa: F401 -- some tests import this directly
 from db.repositories.dashboard import *  # noqa: F401,F403

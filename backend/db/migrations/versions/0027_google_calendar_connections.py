@@ -1,17 +1,18 @@
 """google_calendar_connections: Google Meet integration for tele-consultation
 appointments, alongside (not replacing) the existing Jitsi link
 
-Revision ID: 0025
-Revises: 0024
+Revision ID: 0027
+Revises: 0026
 Create Date: 2026-09-03
 
-Renumbered from 0022 to 0025: both this branch and a concurrent one (merged
-in the same round -- patient_documents.document_type, the appointment-type
-relabel v2, and followup_override_until) independently forked a new
-migration from 0021, so 0022-0024 went to the concurrent branch and this one
-moved to 0025 to keep the chain linear. Same "migration-numbering collision
-between concurrent branches" pattern this project has hit before -- resolved
-by renumbering since this migration was never applied to production.
+Renumbered twice now, same root cause both times: concurrent branches each
+forking a new migration off the same parent. First 0022 -> 0025 (collided
+with patient_documents.document_type/appointment-type relabel v2/
+followup_override_until, all forked from 0021). Then, merging dev into
+chandan-dev, this 0025 collided again with the Lab Test branch's own new
+0025 (diagnostic_tests_and_resources) and 0026 (lab_test_basket_and_
+collection), both also forked from 0024 -- so this one moves to 0027, after
+both. Never applied to production either time, so renumbering is safe.
 
 Approved plan (confirmed with the user): a doctor can optionally connect
 their own Google account (a SEPARATE OAuth client from GOOGLE_CLIENT_ID/
@@ -35,8 +36,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0025"
-down_revision: Union[str, None] = "0024"
+revision: str = "0027"
+down_revision: Union[str, None] = "0026"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

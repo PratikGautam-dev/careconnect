@@ -37,6 +37,9 @@ def get_hospital_settings(hospital_id: int) -> dict:
         "followup_validity_days": row.followup_validity_days,
         "followup_fee": float(row.followup_fee) if row.followup_fee is not None else None,
         "new_consultation_fee": float(row.new_consultation_fee) if row.new_consultation_fee is not None else None,
+        "home_collection_charge": (
+            float(row.home_collection_charge) if row.home_collection_charge is not None else None
+        ),
     }
 
 
@@ -50,7 +53,7 @@ def get_followup_validity_days(hospital_id: int) -> int:
 
 def update_hospital_settings(
     hospital_id: int, followup_validity_days: int | None, followup_fee: float | None,
-    new_consultation_fee: float | None,
+    new_consultation_fee: float | None, home_collection_charge: float | None = None,
 ) -> dict:
     """portal/routes/settings.py's own write path -- always a full-object
     save (like every other settings form in this codebase), not a partial
@@ -64,12 +67,13 @@ def update_hospital_settings(
         .values(
             hospital_id=hospital_id, followup_validity_days=followup_validity_days,
             followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
+            home_collection_charge=home_collection_charge,
         )
         .on_conflict_do_update(
             index_elements=["hospital_id"],
             set_={
                 "followup_validity_days": followup_validity_days, "followup_fee": followup_fee,
-                "new_consultation_fee": new_consultation_fee,
+                "new_consultation_fee": new_consultation_fee, "home_collection_charge": home_collection_charge,
             },
         )
     )

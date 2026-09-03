@@ -18,6 +18,8 @@ export type Appointment = {
   appointment_type_id: string | null;
   video_link: string | null;
   created_at: string | null;
+  // Lab Test Phase 2 follow-up: null for every non-Lab-Test appointment.
+  lab_status: string | null;
 };
 
 export type Department = { id: string; name: string };
@@ -138,6 +140,18 @@ export function useAppointments(ready: boolean) {
       body: JSON.stringify({ attended }),
     });
     setMarkingAttendanceId(null);
+    if (result.ok) load();
+  }
+
+  // Lab Test Phase 2 follow-up: advances booked -> sample_collected ->
+  // processing one step at a time -- report_ready is never set from here,
+  // only automatically, by uploading a lab_report document against the
+  // appointment (the Patients page's document upload, not this list).
+  const [advancingLabStatusId, setAdvancingLabStatusId] = useState<number | null>(null);
+  async function handleAdvanceLabStatus(id: number) {
+    setAdvancingLabStatusId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/lab-status`, { method: "POST" });
+    setAdvancingLabStatusId(null);
     if (result.ok) load();
   }
 
@@ -283,6 +297,7 @@ export function useAppointments(ready: boolean) {
     rDoctors, rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
+    advancingLabStatusId, handleAdvanceLabStatus,
     deletingId, handleDelete,
     selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
     pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,

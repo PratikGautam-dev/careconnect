@@ -43,8 +43,11 @@ from core.translations.booking import (
     AVAILABLE_TIMES_SECTION_TITLE,
     CANCEL_BUTTON,
     CHANGE_APPOINTMENT_TYPE_OPTION,
+    CHANGE_COLLECTION_METHOD_OPTION,
     CHANGE_DATE_OPTION,
     CHANGE_DEPARTMENT_OPTION,
+    CHANGE_DIAGNOSTIC_TEST_OPTION,
+    CHANGE_DIAGNOSTIC_VARIANT_OPTION,
     CHANGE_DOCTOR_OPTION,
     CHANGE_DURATION_OPTION,
     CHANGE_OPTIONS_SECTION_TITLE,
@@ -85,11 +88,15 @@ from core.translations.cancel_reschedule import (
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
-    CHANGE_DOCTOR, CHANGE_DURATION, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
-    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DAYCARE_DURATION,
-    STATE_AWAITING_DEPARTMENT,
-    STATE_AWAITING_FOLLOWUP_SELECTION,
+    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_COLLECTION_METHOD, CHANGE_DATE,
+    CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
+    CHANGE_DIAGNOSTIC_TEST, CHANGE_DIAGNOSTIC_VARIANT, CHANGE_DOCTOR, CHANGE_DURATION, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES,
+    MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
+    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE,
+    STATE_AWAITING_DAYCARE_DURATION,
+    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
+    STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_ADD_MORE,
+    STATE_AWAITING_LAB_TEST_VARIANT,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
@@ -221,7 +228,7 @@ async def _send_appointment_type_menu(
         button_text=t(VIEW_APPOINTMENT_TYPES_BUTTON, language),
         sections=[{"title": t(APPOINTMENT_TYPES_SECTION_TITLE, language), "rows": rows}],
     )
-   
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_label: str, language: str = "en") -> None:
@@ -410,12 +417,13 @@ async def _send_doctor_menu(
 
 
 async def _send_slot_menu(
-    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, doctor_name: str, connector: Connector,
+    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str | None, doctor_name: str, connector: Connector,
     language: str = "en",
 ) -> None:
     """RESCHEDULE flow's own step only, as of Section 12.12 -- see the module
     docstring/state-constants comment for why booking itself now uses the
     date/time-split _send_date_menu/_send_time_menu below instead."""
+    assert doctor_id is not None  # this legacy path is never reached for a resource-bound booking
     # get_available_slots() returns soonest-first (db.get_slots()'s ORDER BY
     # scheduled_at) -- capping to _MAX_LIST_ROWS keeps the soonest bookable
     # times, not an arbitrary/later slice.
@@ -430,8 +438,8 @@ async def _send_slot_menu(
 
 
 async def _send_date_menu(
-    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, doctor_name: str, connector: Connector,
-    language: str = "en", min_date: str | None = None,
+    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str | None, doctor_name: str, connector: Connector,
+    language: str = "en", min_date: str | None = None, resource_id: str | None = None,
 ) -> None:
     """Section 12.12, booking flow's step 1 of the date/time split: the
     distinct dates (soonest first, since get_available_slots() is already
@@ -444,8 +452,17 @@ async def _send_date_menu(
     Step 2 follow-up): dates strictly AFTER this "YYYY-MM-DD" string are kept
     -- a follow-up must be booked after the visit it follows, never on the
     same day or earlier. String comparison is safe since dates are always
-    this ISO shape. None (every other type) means no floor at all."""
-    slots = connector.get_available_slots(hospital_id, doctor_id)
+    this ISO shape. None (every other type) means no floor at all.
+
+    resource_id (Diagnostic/Lab Phase 2): when given, slots come from this
+    resource's own calendar instead of doctor_id's -- doctor_name is still
+    used as the display name either way (a resource's own name, passed in
+    that same param, by callers that set resource_id)."""
+    if resource_id is not None:
+        slots = connector.get_available_resource_slots(hospital_id, resource_id)
+    else:
+        assert doctor_id is not None  # every caller sets one of doctor_id/resource_id
+        slots = connector.get_available_slots(hospital_id, doctor_id)
     dates_seen: list[str] = []
     for s in slots:
         if s["date"] not in dates_seen and (min_date is None or s["date"] > min_date):
@@ -462,20 +479,23 @@ async def _send_date_menu(
 
 
 async def _send_time_menu(
-    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str, date_str: str, connector: Connector,
-    language: str = "en",
+    wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str | None, date_str: str, connector: Connector,
+    language: str = "en", resource_id: str | None = None,
 ) -> None:
     """Section 12.12, step 2 of the date/time split: just this doctor's slots
     ON date_str, row title is the bare time (the date's already been picked,
     showing it again in every row would be redundant) -- e.g. a doctor with
     two shifts and a short slot duration can easily have 20+ times in one day,
     so this is capped independently of the date list above, not just
-    inheriting whatever headroom the date cap left."""
-    rows = [
-        {"id": s["id"], "title": s["time"]}
-        for s in connector.get_available_slots(hospital_id, doctor_id)
-        if s["date"] == date_str
-    ]
+    inheriting whatever headroom the date cap left.
+
+    resource_id (Diagnostic/Lab Phase 2): same override as _send_date_menu."""
+    if resource_id is not None:
+        slots = connector.get_available_resource_slots(hospital_id, resource_id)
+    else:
+        assert doctor_id is not None  # every caller sets one of doctor_id/resource_id
+        slots = connector.get_available_slots(hospital_id, doctor_id)
+    rows = [{"id": s["id"], "title": s["time"]} for s in slots if s["date"] == date_str]
     rows = _cap_rows(rows, f"time menu for doctor {doctor_id} on {date_str}")
     await wa.send_list(
         to=phone,
@@ -527,14 +547,20 @@ async def _handle_slot_taken(
     both now mean "pick a time for context['date']", so both re-show just
     that date's times via _send_time_menu."""
     doctor_id = context.get("doctor_id")
+    resource_id = context.get("resource_id")
     doctor_name = context.get("doctor_name", "")
-    if doctor_id is None:
+    if doctor_id is None and resource_id is None:
         # Corrupted/stale context -- nothing to recover a slot list for.
         sessions.reset(hospital_id, phone)
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
-    logger.info("Double-booking race: hospital=%s doctor=%s slot=%s already taken", hospital_id, doctor_id, context.get("slot_id"))
-    if not connector.get_available_slots(hospital_id, doctor_id):
+    logger.info("Double-booking race: hospital=%s doctor=%s resource=%s slot=%s already taken", hospital_id, doctor_id, resource_id, context.get("slot_id"))
+    if resource_id is not None:
+        available = connector.get_available_resource_slots(hospital_id, resource_id)
+    else:
+        assert doctor_id is not None  # guaranteed by the combined None check above
+        available = connector.get_available_slots(hospital_id, doctor_id)
+    if not available:
         # Item 9: a genuine dead end, not the "pick another slot" case item 1
         # covers (there's nothing left to pick) -- same recovery as
         # _notify_no_slots_available above.
@@ -551,7 +577,7 @@ async def _handle_slot_taken(
             sessions.reset(hospital_id, phone)
             await _send_main_menu(wa, phone, "the hospital", language=language)
             return
-        await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
+        await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language, resource_id=resource_id)
         return
     await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
 
@@ -647,6 +673,19 @@ async def _send_change_selection_menu(
     rows.append({"id": CHANGE_TIME, "title": t(CHANGE_TIME_OPTION, language)})
     if flow.has_step(STATE_AWAITING_DAYCARE_DURATION):
         rows.append({"id": CHANGE_DURATION, "title": t(CHANGE_DURATION_OPTION, language)})
+    if flow.has_step(STATE_AWAITING_DIAGNOSTIC_TEST):
+        rows.append({"id": CHANGE_DIAGNOSTIC_TEST, "title": t(CHANGE_DIAGNOSTIC_TEST_OPTION, language)})
+        # "Change Test Option" only when the currently-selected test actually
+        # HAS more than one active variant -- re-queried live, never trusted
+        # from a stashed list (same discipline followup.py's eligibility
+        # re-check uses).
+        ctx = context or {}
+        tests = connector.get_diagnostic_tests(hospital_id, ctx.get("appointment_type_id"))
+        current_test = next((t_ for t_ in tests if t_["id"] == ctx.get("diagnostic_test_id")), None)
+        if current_test and len(current_test["variants"]) > 1:
+            rows.append({"id": CHANGE_DIAGNOSTIC_VARIANT, "title": t(CHANGE_DIAGNOSTIC_VARIANT_OPTION, language)})
+    if flow.has_step(STATE_AWAITING_COLLECTION_METHOD):
+        rows.append({"id": CHANGE_COLLECTION_METHOD, "title": t(CHANGE_COLLECTION_METHOD_OPTION, language)})
     # Previously a dead end -- every row here picked a field to change, with
     # no way out except actually picking one. GOTO_MAIN_MENU is intercepted
     # globally (flows/router.py's handle_incoming, before any state
@@ -687,18 +726,46 @@ async def _resend_menu_for_state(
         )
     elif state == STATE_AWAITING_DATE:
         await _send_date_menu(
-            wa, phone, hospital_id, context["doctor_id"], context["doctor_name"], connector, language=language,
-            min_date=context.get("followup_previous_visit_date"),
+            wa, phone, hospital_id, context.get("doctor_id"), context["doctor_name"], connector, language=language,
+            min_date=context.get("followup_previous_visit_date"), resource_id=context.get("resource_id"),
         )
     elif state == STATE_AWAITING_TIME_SLOT:
         await _send_time_menu(
-            wa, phone, hospital_id, context["doctor_id"], context["date"], connector, language=language,
+            wa, phone, hospital_id, context.get("doctor_id"), context["date"], connector, language=language,
+            resource_id=context.get("resource_id"),
         )
     elif state == STATE_AWAITING_DAYCARE_DURATION:
         # Lazy import: avoids this module -> types.registry -> daycare cycle,
         # same reason STATE_AWAITING_FOLLOWUP_CONFIRM's case above does.
         from flows.booking.types.daycare import _send_daycare_duration_menu
         await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)
+    elif state == STATE_AWAITING_DIAGNOSTIC_TEST:
+        # Lazy import: avoids this module -> types.registry -> diagnostic cycle.
+        from flows.booking.types._diagnostic_shared import _send_test_menu
+        category = context["appointment_type_id"]  # always set by the time this state is reached
+        await _send_test_menu(wa, phone, hospital_id, category, connector, language=language)
+    elif state == STATE_AWAITING_DIAGNOSTIC_VARIANT:
+        from flows.booking.types._diagnostic_shared import _send_variant_menu
+        tests = connector.get_diagnostic_tests(hospital_id, context["appointment_type_id"])
+        test = next((t_ for t_ in tests if t_["id"] == context.get("diagnostic_test_id")), None)
+        if test is not None:
+            await _send_variant_menu(wa, phone, test, language=language)
+    elif state == STATE_AWAITING_LAB_TEST:
+        from flows.booking.types.lab import _send_lab_test_menu
+        await _send_lab_test_menu(wa, phone, hospital_id, connector, context.get("lab_basket") or [], language=language)
+    elif state == STATE_AWAITING_LAB_TEST_VARIANT:
+        from flows.booking.types.lab import _send_lab_variant_menu
+        tests = connector.get_diagnostic_tests(hospital_id, "lab")
+        test = next((t_ for t_ in tests if t_["id"] == context.get("_lab_pending_test_id")), None)
+        if test is not None:
+            await _send_lab_variant_menu(wa, phone, test, language=language)
+    elif state == STATE_AWAITING_LAB_TEST_ADD_MORE:
+        from core.translations.booking import LAB_ADD_MORE_PROMPT
+        from flows.booking.types.lab import _send_add_more_menu
+        await _send_add_more_menu(wa, phone, hospital_id, connector, context, t(LAB_ADD_MORE_PROMPT, language), language=language)
+    elif state == STATE_AWAITING_COLLECTION_METHOD:
+        from flows.booking.types.lab import _send_collection_method_menu
+        await _send_collection_method_menu(wa, phone, language=language)
 
 
 async def _handle_back_navigation(

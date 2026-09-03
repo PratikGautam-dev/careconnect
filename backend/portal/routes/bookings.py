@@ -72,6 +72,10 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         # _followup_valid_until's own docstring).
         "followup_override_until": a.followup_override_until,
         "followup_valid_until": _followup_valid_until(a, followup_validity_days),
+        # Lab Test Phase 2 follow-up: None for every non-Lab-Test appointment
+        # (and any Lab Test booking predating this column) -- the frontend
+        # only shows the lab-status column/advance action when this is set.
+        "lab_status": a.lab_status,
     }
 
 
@@ -179,6 +183,35 @@ async def portal_delete_booking(appointment_id: int, authorization: str | None =
         entity_type="appointment", entity_id=str(appointment_id),
     )
     return JSONResponse({"ok": True})
+
+
+_LAB_STATUS_FORWARD = {"booked": "sample_collected", "sample_collected": "processing"}
+
+
+@router.post("/api/portal/bookings/{appointment_id}/lab-status")
+async def portal_advance_lab_status(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Lab Test Phase 2 follow-up's report lifecycle: staff can only advance
+    one step at a time through booked -> sample_collected -> processing --
+    never directly to report_ready, which is set automatically instead, the
+    moment a lab_report document is uploaded against this appointment
+    (portal/routes/documents.py) -- so "report ready" always means an actual
+    report exists, not a staff click that got ahead of reality."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or appointment.lab_status is None:
+        return JSONResponse({"error": "No such Lab Test appointment."}, status_code=404)
+    next_status = _LAB_STATUS_FORWARD.get(appointment.lab_status)
+    if next_status is None:
+        return JSONResponse({"error": f"Cannot advance further from \"{appointment.lab_status}\"."}, status_code=400)
+    updated = db.set_lab_status(hospital.id, appointment_id, next_status)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.lab_status_advance",
+        entity_type="appointment", entity_id=str(appointment_id),
+        before={"lab_status": appointment.lab_status}, after={"lab_status": next_status},
+    )
+    return JSONResponse({"ok": True, "appointment": _appointment_json(updated)})
 
 
 @router.post("/api/portal/bookings/{appointment_id}/cancel")

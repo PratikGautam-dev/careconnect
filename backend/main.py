@@ -182,15 +182,14 @@ if os.environ.get("FRONTEND_ORIGIN"):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_frontend_origins,
-    # PATCH (portal/routes/staff.py's edit-staff route), PUT (daycare-
-    # duration-options, roles/permissions), and DELETE (daycare-duration-
-    # options) all gained real routes since this list was last GET/POST --
-    # a stale allow_methods list here means their preflight OPTIONS request
-    # succeeds but the browser still blocks the ACTUAL PATCH/PUT/DELETE
-    # response, surfacing as a CORS error that looks identical to a wrong
-    # FRONTEND_ORIGIN (same "No 'Access-Control-Allow-Origin' header"
-    # console message) despite the origin being fine.
-    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+    # Every method the portal API actually uses (GET/POST/PUT/DELETE) must be
+    # listed here -- Starlette's CORS preflight handler 400s any method not
+    # in this list, which is what silently broke every PUT/DELETE portal
+    # route's preflight (diagnostic-tests' variant edit/delete included)
+    # while GET/POST routes worked fine. The origin allowlist above is the
+    # real security boundary for this authenticated (Bearer-token) API, so
+    # allowing every method here is safe.
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 

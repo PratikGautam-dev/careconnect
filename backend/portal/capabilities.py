@@ -23,10 +23,18 @@ MANAGE_APPOINTMENT_TYPES = "manage_appointment_types"
 MANAGE_BOOKINGS = "manage_bookings"
 MANAGE_SETTINGS = "manage_settings"
 MANAGE_STAFF = "manage_staff"
+# Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): a
+# diagnostic resource (machine/equipment) is a schedulable entity of the
+# same weight as a doctor -- hospital-tier only, same default tier as
+# MANAGE_DOCTORS/MANAGE_DEPARTMENTS. Test/variant catalog CRUD reuses
+# MANAGE_APPOINTMENT_TYPES instead (same portal screen area as
+# daycare_duration_options -- no new capability needed for a catalog toggle/
+# edit screen).
+MANAGE_DIAGNOSTIC_RESOURCES = "manage_diagnostic_resources"
 
 ALL_CAPABILITIES = {
     MANAGE_DOCTORS, MANAGE_DEPARTMENTS, MANAGE_APPOINTMENT_TYPES,
-    MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF,
+    MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF, MANAGE_DIAGNOSTIC_RESOURCES,
 }
 
 # Single source of truth for both the onboarding-time default AND
@@ -36,7 +44,7 @@ ALL_CAPABILITIES = {
 DEFAULT_CAPABILITIES_BY_TYPE: dict[str, set[str]] = {
     "hospital": {
         MANAGE_DOCTORS, MANAGE_DEPARTMENTS, MANAGE_APPOINTMENT_TYPES,
-        MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF,
+        MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF, MANAGE_DIAGNOSTIC_RESOURCES,
     },
     "clinic": {MANAGE_BOOKINGS, MANAGE_SETTINGS},
 }

@@ -69,6 +69,9 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             "followup_validity_days": hospital_settings["followup_validity_days"] or DEFAULT_FOLLOWUP_VALIDITY_DAYS,
             "followup_fee": hospital_settings["followup_fee"],
             "new_consultation_fee": hospital_settings["new_consultation_fee"],
+            # Lab Test Phase 2 follow-up: flat fee added to a home-collection
+            # Lab Test booking's price review.
+            "home_collection_charge": hospital_settings["home_collection_charge"],
         },
         # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
         # -- rules out any browser/CDN-level HTTP caching of this
@@ -147,6 +150,9 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
     new_consultation_fee, error = _parse_fee(payload.get("new_consultation_fee"), "new_consultation_fee")
     if error:
         return error
+    home_collection_charge, error = _parse_fee(payload.get("home_collection_charge"), "home_collection_charge")
+    if error:
+        return error
 
     # Same restriction as portal.py's own settings form: credentials/data_tier/
     # portal_password_hash/enabled_features are never touched here, only
@@ -195,6 +201,7 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
     db.update_hospital_settings(
         hospital.id, followup_validity_days=followup_validity_days,
         followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
+        home_collection_charge=home_collection_charge,
     )
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "settings.update",

@@ -7,7 +7,7 @@ import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsT
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { usePortalDashboard } from "@/hooks/usePortalDashboard";
-import { getStaffSession } from "@/lib/staffAuth";
+import { useStaffSession } from "@/lib/staffAuth";
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
 
@@ -15,7 +15,17 @@ export default function PortalDashboardPage() {
   // Doctors get their own dashboard content (today's appointments, their own
   // stats) instead of the hospital-wide widgets below -- same shared
   // PortalShell/nav either way, per the RBAC-driven consolidation.
-  const session = getStaffSession();
+  //
+  // useStaffSession (not getStaffSession directly): null on the server AND
+  // on the client's own first render, so both agree on rendering
+  // HospitalDashboard first -- getStaffSession() itself returns the real
+  // session immediately client-side, which for a doctor account used to
+  // swap in an entirely different component tree (DoctorDashboardView) on
+  // the very first client render than what the server had sent, a much
+  // bigger hydration mismatch than a mismatched text node. The real
+  // session (and DoctorDashboardView, if applicable) arrives an instant
+  // later as a normal client-only update.
+  const session = useStaffSession();
   if (session?.role === "doctor") {
     return (
       <PortalShell hospital={session.hospital} active="dashboard">

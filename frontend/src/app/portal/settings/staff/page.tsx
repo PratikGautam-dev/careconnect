@@ -9,7 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { getStaffSession, staffFetch, usePermission, type StaffRole } from "@/lib/staffAuth";
+import { staffFetch, usePermission, useStaffSession, type StaffRole } from "@/lib/staffAuth";
 
 type StaffMember = { id: number; name: string; email: string; role: StaffRole; is_active: boolean };
 type Doctor = { id: string; name: string };
@@ -22,7 +22,9 @@ const ROLE_LABEL: Record<StaffRole, string> = {
 
 export default function StaffManagementPage() {
   const router = useRouter();
-  const session = getStaffSession();
+  // useStaffSession (not getStaffSession directly) -- avoids a hydration
+  // mismatch, same reasoning as the roles page's own fix.
+  const session = useStaffSession();
   const canView = usePermission("staff", "view");
 
   const [staff, setStaff] = useState<StaffMember[] | null>(null);

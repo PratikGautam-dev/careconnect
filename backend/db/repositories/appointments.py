@@ -17,7 +17,10 @@ from db.models import (
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
     _generate_patient_identifiers, _row_to_appointment,
 )
-from db.orm_models import AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientLink, PatientRow
+from db.orm_models import (
+    AppointmentLabTest, AppointmentReminder, AppointmentRow, Department, DiagnosticResource, DoctorRow, PatientLink,
+    PatientRow,
+)
 
 
 def _appointment_select_stmt():
@@ -27,7 +30,10 @@ def _appointment_select_stmt():
     .where()/.order_by()/.limit(), same as callers of the raw SQL constant
     append "AND ...". _row_to_appointment() (db/models.py) maps a result row
     (via row._mapping) onto the Appointment dataclass unchanged -- it only
-    needs dict-like column access, not a particular ORM/raw origin."""
+    needs dict-like column access, not a particular ORM/raw origin.
+
+    Diagnostic/Lab Phase 2: doctor/resource joins are both LEFT -- a booking
+    has exactly one of doctor_id/resource_id set, never both."""
     return (
         select(
             AppointmentRow.id, AppointmentRow.hospital_id, AppointmentRow.phone,
@@ -37,10 +43,17 @@ def _appointment_select_stmt():
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
             AppointmentRow.duration_hours, AppointmentRow.created_at, AppointmentRow.followup_override_until,
+            AppointmentRow.resource_id, DiagnosticResource.name.label("resource_name"),
+            AppointmentRow.diagnostic_test_id, AppointmentRow.diagnostic_test_variant_id,
+            AppointmentRow.diagnostic_test_label, AppointmentRow.diagnostic_variant_label,
+            AppointmentRow.diagnostic_price,
+            AppointmentRow.collection_method, AppointmentRow.collection_address, AppointmentRow.collection_pincode,
+            AppointmentRow.home_collection_charge, AppointmentRow.lab_status,
         )
         .select_from(AppointmentRow)
         .join(Department, Department.id == AppointmentRow.department_id)
-        .join(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
+        .outerjoin(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
+        .outerjoin(DiagnosticResource, DiagnosticResource.id == AppointmentRow.resource_id)
         .outerjoin(PatientRow, PatientRow.id == AppointmentRow.patient_id)
         .where(AppointmentRow.deleted_at.is_(None))
     )
@@ -109,7 +122,7 @@ def create_appointment(
     hospital_id: int,
     phone: str,
     department_id: str,
-    doctor_id: str,
+    doctor_id: str | None,
     scheduled_at: datetime,
     source: str = SOURCE_WHATSAPP,
     patient_name: str | None = None,
@@ -119,11 +132,32 @@ def create_appointment(
     appointment_type_id: str | None = None,
     consent_given_at: str | None = None,
     duration_hours: int | None = None,
+    resource_id: str | None = None,
+    diagnostic_test_id: int | None = None,
+    diagnostic_test_variant_id: int | None = None,
+    diagnostic_test_label: str | None = None,
+    diagnostic_variant_label: str | None = None,
+    diagnostic_price: float | None = None,
+    collection_method: str | None = None,
+    collection_address: str | None = None,
+    collection_pincode: str | None = None,
+    home_collection_charge: float | None = None,
+    lab_status: str | None = None,
 ) -> Appointment:
-    """Raises IntegrityError if the doctor's slot capacity (max_bookings_per_slot)
-    is full at scheduled_at, or the more specific QuotaExceededError if the
-    doctor's daily_booking_limit or the source's online/walkin quota is
-    exhausted for that date.
+    """Raises IntegrityError if the doctor's (or resource's) slot capacity
+    (max_bookings_per_slot) is full at scheduled_at, or the more specific
+    QuotaExceededError if the daily_booking_limit or the source's
+    online/walkin quota is exhausted for that date.
+
+    Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
+    exactly one of doctor_id/resource_id is ever set (appointments_doctor_or_
+    resource_chk enforces this at the DB level too) -- a resource-bound
+    booking runs the identical advisory-lock/quota/ordinal logic below, keyed
+    on resource_id against diagnostic_resources' own max_bookings_per_slot/
+    daily_booking_limit instead of doctors'. There's no online/walkin-quota
+    or duplicate-booking-by-doctor equivalent for resources (both are
+    doctor-consultation-specific concepts) -- skipped entirely when doctor_id
+    is None.
 
     `source` ("whatsapp"/"staff") is purely descriptive except for which
     quota column it counts against. `patient_id`, when given, resolves
@@ -162,16 +196,27 @@ def create_appointment(
     day_start = datetime.combine(scheduled_date, datetime.min.time()).isoformat()
     day_end = datetime.combine(scheduled_date, datetime.max.time()).isoformat()
 
-    doctor_row = conn.execute(
-        "SELECT max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota "
-        "FROM doctors WHERE hospital_id = ? AND id = ?",
-        (hospital_id, doctor_id),
-    ).fetchone()
-    max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
-    daily_booking_limit = doctor_row["daily_booking_limit"] if doctor_row else None
+    max_bookings_per_slot = 1
+    daily_booking_limit = None
     source_quota = None
-    if doctor_row:
-        source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
+    if doctor_id is not None:
+        doctor_row = conn.execute(
+            "SELECT max_bookings_per_slot, daily_booking_limit, online_quota, walkin_quota "
+            "FROM doctors WHERE hospital_id = ? AND id = ?",
+            (hospital_id, doctor_id),
+        ).fetchone()
+        max_bookings_per_slot = doctor_row["max_bookings_per_slot"] if doctor_row else 1
+        daily_booking_limit = doctor_row["daily_booking_limit"] if doctor_row else None
+        if doctor_row:
+            source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
+    elif resource_id is not None:
+        resource_row = conn.execute(
+            "SELECT max_bookings_per_slot, daily_booking_limit FROM diagnostic_resources "
+            "WHERE hospital_id = ? AND id = ?",
+            (hospital_id, resource_id),
+        ).fetchone()
+        max_bookings_per_slot = resource_row["max_bookings_per_slot"] if resource_row else 1
+        daily_booking_limit = resource_row["daily_booking_limit"] if resource_row else None
 
     # _upsert_patient runs BEFORE "BEGIN" (own durable statement) so a
     # QuotaExceededError/DuplicateBookingError later doesn't roll it back too.
@@ -187,18 +232,23 @@ def create_appointment(
     else:
         patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
 
+    # Fixed internal literal ("doctor_id"/"resource_id"), never user input --
+    # safe to interpolate into the raw SQL below.
+    resource_column = "doctor_id" if doctor_id is not None else "resource_id"
+    resource_value = doctor_id if doctor_id is not None else resource_id
+
     conn.execute("BEGIN")
     try:
         conn.execute(
             "SELECT pg_advisory_xact_lock(hashtext(?))",
-            (f"{doctor_id}|{scheduled_date.isoformat()}",),
+            (f"{resource_column}|{resource_value}|{scheduled_date.isoformat()}",),
         )
 
         if daily_booking_limit is not None:
             day_count_row = conn.execute(
-                "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
+                f"SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? AND {resource_column} = ? "
                 "AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
-                (hospital_id, doctor_id, day_start, day_end, STATUS_BOOKED),
+                (hospital_id, resource_value, day_start, day_end, STATUS_BOOKED),
             ).fetchone()
             assert day_count_row is not None  # COUNT(*) with no GROUP BY always returns one row
             if day_count_row["c"] >= daily_booking_limit:
@@ -219,21 +269,21 @@ def create_appointment(
         # taken by a booked row -- not a plain COUNT(*), since cancellations
         # leave gaps in the ordinal sequence rather than freeing them.
         free_ordinal_row = conn.execute(
-            "SELECT MIN(o) AS ordinal FROM generate_series(0, ? - 1) AS o "
-            "WHERE o NOT IN (SELECT booking_ordinal FROM appointments WHERE hospital_id = ? "
-            "AND doctor_id = ? AND scheduled_at = ? AND status = ?)",
-            (max_bookings_per_slot, hospital_id, doctor_id, scheduled_at_iso, STATUS_BOOKED),
+            f"SELECT MIN(o) AS ordinal FROM generate_series(0, ? - 1) AS o "
+            f"WHERE o NOT IN (SELECT booking_ordinal FROM appointments WHERE hospital_id = ? "
+            f"AND {resource_column} = ? AND scheduled_at = ? AND status = ?)",
+            (max_bookings_per_slot, hospital_id, resource_value, scheduled_at_iso, STATUS_BOOKED),
         ).fetchone()
         assert free_ordinal_row is not None  # MIN() with no GROUP BY always returns one row
         if free_ordinal_row["ordinal"] is None:
-            raise IntegrityError(f"doctor {doctor_id} has no free booking slot at {scheduled_at_iso}")
+            raise IntegrityError(f"{resource_column} {resource_value} has no free booking slot at {scheduled_at_iso}")
 
-        # Prevents an accidental/duplicate re-booking with the same doctor.
-        # patient_id given -> exact check against that patient's own active
-        # appointments; otherwise (legacy/staff) falls back to name+age.
+        # Prevents an accidental/duplicate re-booking with the same doctor --
+        # a doctor-consultation-specific concept, skipped entirely for a
+        # resource-bound booking (doctor_id is None).
         effective_name = patient["name"]
         effective_age = patient["age"]
-        if patient_id is not None:
+        if doctor_id is not None and patient_id is not None:
             existing_by_patient = conn.execute(
                 "SELECT id FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
                 "AND patient_id = ? AND status = ? AND id IS DISTINCT FROM ? ORDER BY scheduled_at",
@@ -244,7 +294,7 @@ def create_appointment(
                     "An active appointment with this doctor already exists for this patient.",
                     existing_by_patient[0]["id"],
                 )
-        elif effective_name is not None and effective_age is not None:
+        elif doctor_id is not None and effective_name is not None and effective_age is not None:
             # Legacy path (staff portal, no patient_id): compare against
             # each existing booking's own denormalized name/age, so a
             # different family member (different name or age) still gets through.
@@ -267,11 +317,15 @@ def create_appointment(
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
-            "appointment_type_id, consent_given_at, duration_hours) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "appointment_type_id, consent_given_at, duration_hours, resource_id, diagnostic_test_id, "
+            "diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price, "
+            "collection_method, collection_address, collection_pincode, home_collection_charge, lab_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
              _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
-             appointment_type_id, consent_given_at, duration_hours),
+             appointment_type_id, consent_given_at, duration_hours, resource_id, diagnostic_test_id,
+             diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
+             collection_method, collection_address, collection_pincode, home_collection_charge, lab_status),
         )
         new_id_row = cur.fetchone()
         assert new_id_row is not None  # INSERT ... RETURNING always returns the inserted row
@@ -315,6 +369,121 @@ def set_appointment_duration(hospital_id: int, appointment_id: int, duration_hou
         (duration_hours, appointment_id, hospital_id),
     )
     conn.commit()
+
+
+def set_appointment_diagnostic_details(
+    hospital_id: int, appointment_id: int, diagnostic_test_id: int, diagnostic_test_variant_id: int,
+    diagnostic_test_label: str, diagnostic_variant_label: str, diagnostic_price: float | None,
+) -> None:
+    """Diagnostic/Lab Phase 2: called once, right after create_appointment()
+    succeeds, by flows/booking/types/_diagnostic_shared.py's
+    on_booking_confirmed hook -- same shape as set_appointment_duration()
+    above. resource_id itself is set at INSERT time (create_appointment()),
+    not here, since it participates in the booking transaction's own
+    advisory-lock/double-booking logic."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE appointments SET diagnostic_test_id = ?, diagnostic_test_variant_id = ?, "
+        "diagnostic_test_label = ?, diagnostic_variant_label = ?, diagnostic_price = ? "
+        "WHERE id = ? AND hospital_id = ?",
+        (diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label,
+         diagnostic_price, appointment_id, hospital_id),
+    )
+    conn.commit()
+
+
+def set_appointment_lab_order_details(
+    hospital_id: int, appointment_id: int, collection_method: str, collection_address: str | None,
+    collection_pincode: str | None, home_collection_charge: float | None, basket_items: list[dict],
+) -> None:
+    """Lab Test Phase 2 follow-up: called once, right after create_appointment()
+    succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
+    same "safe post-hoc hook, doesn't need the concurrency-critical
+    transaction" rationale as set_appointment_diagnostic_details() above.
+    Sets lab_status to 'booked' (the start of the report lifecycle) and
+    bulk-inserts the basket into appointment_lab_tests. `basket_items`: list
+    of {diagnostic_test_id, diagnostic_test_variant_id, test_label,
+    variant_label, price, preparation_instructions}."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE appointments SET collection_method = ?, collection_address = ?, collection_pincode = ?, "
+        "home_collection_charge = ?, lab_status = 'booked' WHERE id = ? AND hospital_id = ?",
+        (collection_method, collection_address, collection_pincode, home_collection_charge, appointment_id, hospital_id),
+    )
+    for item in basket_items:
+        conn.execute(
+            "INSERT INTO appointment_lab_tests (hospital_id, appointment_id, diagnostic_test_id, "
+            "diagnostic_test_variant_id, test_label, variant_label, price, preparation_instructions) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (hospital_id, appointment_id, item.get("diagnostic_test_id"), item.get("diagnostic_test_variant_id"),
+             item["test_label"], item["variant_label"], item.get("price"), item.get("preparation_instructions")),
+        )
+    conn.commit()
+
+
+def copy_lab_basket(hospital_id: int, from_appointment_id: int, to_appointment_id: int) -> None:
+    """Reschedule's own carry-forward for the basket (the collection_*/
+    lab_status columns on `appointments` itself carry forward via
+    create_appointment()'s own params, same as diagnostic_test_id -- see
+    Tier1Connector.reschedule_booking()). The basket lives in a child table,
+    so it needs its own copy rather than a column value passed at INSERT
+    time."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT diagnostic_test_id, diagnostic_test_variant_id, test_label, variant_label, price, "
+        "preparation_instructions FROM appointment_lab_tests WHERE hospital_id = ? AND appointment_id = ?",
+        (hospital_id, from_appointment_id),
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "INSERT INTO appointment_lab_tests (hospital_id, appointment_id, diagnostic_test_id, "
+            "diagnostic_test_variant_id, test_label, variant_label, price, preparation_instructions) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (hospital_id, to_appointment_id, row["diagnostic_test_id"], row["diagnostic_test_variant_id"],
+             row["test_label"], row["variant_label"], row["price"], row["preparation_instructions"]),
+        )
+    conn.commit()
+
+
+def get_lab_basket_for_appointment(hospital_id: int, appointment_id: int) -> list[dict]:
+    """The confirmation/success cards' own read of the basket, and the
+    reschedule flow's read of what to carry forward."""
+    session = get_session()
+    rows = session.execute(
+        select(
+            AppointmentLabTest.id, AppointmentLabTest.diagnostic_test_id, AppointmentLabTest.diagnostic_test_variant_id,
+            AppointmentLabTest.test_label, AppointmentLabTest.variant_label, AppointmentLabTest.price,
+            AppointmentLabTest.preparation_instructions,
+        )
+        .where(AppointmentLabTest.hospital_id == hospital_id, AppointmentLabTest.appointment_id == appointment_id)
+        .order_by(AppointmentLabTest.id)
+    ).all()
+    items = []
+    for r in rows:
+        item = dict(r._mapping)
+        if item["price"] is not None:
+            item["price"] = float(item["price"])
+        items.append(item)
+    return items
+
+
+def set_lab_status(hospital_id: int, appointment_id: int, lab_status: str) -> Appointment | None:
+    """Lab Test Phase 2 follow-up's report lifecycle. Staff advance
+    booked -> sample_collected -> processing manually (portal/routes/
+    bookings.py); report_ready is set automatically instead, the moment a
+    lab_report document is uploaded against this appointment (portal/routes/
+    documents.py) -- never a direct staff action, so "report ready" always
+    means an actual report exists."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.id == appointment_id)
+        .values(lab_status=lab_status)
+    ))
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    return get_appointment(hospital_id, appointment_id)
 
 
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:
