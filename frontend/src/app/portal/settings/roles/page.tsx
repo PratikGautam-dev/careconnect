@@ -10,13 +10,14 @@ type Action = "view" | "write" | "delete";
 type PagePerms = Record<Action, boolean>;
 type Matrix = Record<StaffRole, Record<string, PagePerms>>;
 
-const PAGE_KEYS = ["dashboard", "appointments", "patients", "schedule", "doctors", "messages", "settings", "staff", "roles"];
+const PAGE_KEYS = ["dashboard", "appointments", "patients", "schedule", "doctors", "diagnostic_tests", "messages", "settings", "staff", "roles"];
 const PAGE_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
   appointments: "Appointments",
   patients: "Patients",
   schedule: "Schedule",
   doctors: "Doctors",
+  diagnostic_tests: "Diagnostic Tests",
   messages: "Messages",
   settings: "Settings",
   staff: "Staff",

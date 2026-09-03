@@ -31,10 +31,14 @@ PAGE_SETTINGS = "settings"
 PAGE_STAFF = "staff"  # staff management page (create/deactivate staff_users)
 PAGE_ROLES = "roles"  # roles & permissions editor (this module's own admin UI)
 PAGE_SCHEDULE = "schedule"  # a doctor's own working hours/breaks/leave editor
+# Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): the
+# Diagnostic Tests management page (tests/variants + resources/machines) --
+# same weight as PAGE_DOCTORS, off by default for receptionist/doctor.
+PAGE_DIAGNOSTIC_TESTS = "diagnostic_tests"
 
 ALL_PAGES = {
     PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_PATIENTS, PAGE_DOCTORS,
-    PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE,
+    PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE, PAGE_DIAGNOSTIC_TESTS,
 }
 ACTIONS = ("view", "write", "delete")
 
@@ -63,6 +67,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_STAFF: dict(_NONE),
         PAGE_ROLES: dict(_NONE),
         PAGE_SCHEDULE: dict(_NONE),
+        PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
     },
     "doctor": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
@@ -78,6 +83,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
         # Permissions since admin already manages any doctor's schedule
         # through /portal/doctors regardless.
         PAGE_SCHEDULE: dict(_VIEW_WRITE),
+        PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
     },
 }
 

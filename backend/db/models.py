@@ -93,10 +93,13 @@ _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
-           a.duration_hours, a.created_at, a.followup_override_until
+           a.duration_hours, a.created_at, a.followup_override_until,
+           a.resource_id, res.name AS resource_name, a.diagnostic_test_id, a.diagnostic_test_variant_id,
+           a.diagnostic_test_label, a.diagnostic_variant_label, a.diagnostic_price
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
-    JOIN doctors doc ON doc.id = a.doctor_id
+    LEFT JOIN doctors doc ON doc.id = a.doctor_id
+    LEFT JOIN diagnostic_resources res ON res.id = a.resource_id
     LEFT JOIN patients p ON p.id = a.patient_id
     WHERE a.deleted_at IS NULL
 """
@@ -189,8 +192,8 @@ class Appointment:
     phone: str
     department_id: str
     department_name: str
-    doctor_id: str
-    doctor_name: str
+    doctor_id: str | None
+    doctor_name: str | None
     scheduled_at: datetime
     status: str = STATUS_BOOKED
     # Section 12.9: 'whatsapp' (patient self-booking) or 'staff' (portal.py's
@@ -243,6 +246,17 @@ class Appointment:
     # override has ever been granted -- the normal window is all that
     # applies. Only ever meaningful when status == STATUS_ATTENDED.
     followup_override_until: str | None = None
+    # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
+    # the machine/equipment this booking is bound to, and a snapshot of which
+    # test/variant/price were chosen at booking time. None for every
+    # doctor-bound appointment type, and for a resource-less diagnostic/lab test.
+    resource_id: str | None = None
+    resource_name: str | None = None
+    diagnostic_test_id: int | None = None
+    diagnostic_test_variant_id: int | None = None
+    diagnostic_test_label: str | None = None
+    diagnostic_variant_label: str | None = None
+    diagnostic_price: float | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -266,6 +280,13 @@ def _row_to_appointment(row) -> Appointment:
         duration_hours=row["duration_hours"],
         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
         followup_override_until=row["followup_override_until"],
+        resource_id=row["resource_id"],
+        resource_name=row["resource_name"],
+        diagnostic_test_id=row["diagnostic_test_id"],
+        diagnostic_test_variant_id=row["diagnostic_test_variant_id"],
+        diagnostic_test_label=row["diagnostic_test_label"],
+        diagnostic_variant_label=row["diagnostic_variant_label"],
+        diagnostic_price=float(row["diagnostic_price"]) if row["diagnostic_price"] is not None else None,
     )
 
 

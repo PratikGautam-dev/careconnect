@@ -74,6 +74,21 @@ FOLLOWUP_CONFIRMATION_SUMMARY = "followup_confirmation_summary"
 FOLLOWUP_APPOINTMENT_CONFIRMED = "followup_appointment_confirmed"
 MANAGE_APPOINTMENT_PROMPT = "manage_appointment_prompt"
 
+# --- Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5) ---
+SELECT_DIAGNOSTIC_TEST = "select_diagnostic_test"
+VIEW_TESTS_BUTTON = "view_tests_button"
+DIAGNOSTIC_TESTS_SECTION_TITLE = "diagnostic_tests_section_title"
+SELECT_DIAGNOSTIC_VARIANT = "select_diagnostic_variant"
+VIEW_VARIANTS_BUTTON = "view_variants_button"
+DIAGNOSTIC_VARIANTS_SECTION_TITLE = "diagnostic_variants_section_title"
+NO_DIAGNOSTIC_TESTS_CONFIGURED = "no_diagnostic_tests_configured"
+CHANGE_DIAGNOSTIC_TEST_OPTION = "change_diagnostic_test_option"
+CHANGE_DIAGNOSTIC_VARIANT_OPTION = "change_diagnostic_variant_option"
+DIAGNOSTIC_CONFIRMATION_SUMMARY = "diagnostic_confirmation_summary"
+DIAGNOSTIC_BOOKING_CONFIRMED = "diagnostic_booking_confirmed"
+DIAGNOSTIC_AMOUNT_LINE = "diagnostic_amount_line"
+DIAGNOSTIC_PREPARATION_LINE = "diagnostic_preparation_line"
+
 STRINGS: dict[str, dict[Language, str]] = {
     # --- Booking: appointment type (shown right after patient resolution,
     # before department selection) ---
@@ -469,5 +484,85 @@ STRINGS: dict[str, dict[Language, str]] = {
     MANAGE_APPOINTMENT_PROMPT: {
         "en": "Your appointment with {doctor_name} — what would you like to do?",
         "hi": "{doctor_name} के साथ आपकी अपॉइंटमेंट — आप क्या करना चाहेंगे?",
+    },
+
+    # --- Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md
+    # Step 5): test selection -> variant selection -> date/time (resource-
+    # linked when the test has one) -> confirm, with prep instructions
+    # folded into the confirmation card. ---
+    SELECT_DIAGNOSTIC_TEST: {
+        "en": "Please select the test you would like to book.",
+        "hi": "कृपया वह जांच चुनें जिसे आप बुक करना चाहते हैं।",
+    },
+    VIEW_TESTS_BUTTON: {"en": "View Tests", "hi": "जांच देखें"},
+    DIAGNOSTIC_TESTS_SECTION_TITLE: {"en": "Tests", "hi": "जांच"},
+    SELECT_DIAGNOSTIC_VARIANT: {
+        "en": "Please select the specific type of {test_name}.",
+        "hi": "कृपया {test_name} का विशिष्ट प्रकार चुनें।",
+    },
+    VIEW_VARIANTS_BUTTON: {"en": "View Options", "hi": "विकल्प देखें"},
+    DIAGNOSTIC_VARIANTS_SECTION_TITLE: {"en": "Options", "hi": "विकल्प"},
+    NO_DIAGNOSTIC_TESTS_CONFIGURED: {
+        "en": "Sorry, no tests are available to book right now. Please check back later.",
+        "hi": "क्षमा करें, अभी बुक करने के लिए कोई जांच उपलब्ध नहीं है। कृपया बाद में फिर से देखें।",
+    },
+    CHANGE_DIAGNOSTIC_TEST_OPTION: {"en": "Test", "hi": "जांच"},
+    CHANGE_DIAGNOSTIC_VARIANT_OPTION: {"en": "Test Option", "hi": "जांच विकल्प"},
+    DIAGNOSTIC_AMOUNT_LINE: {"en": "💰 Amount: ₹{amount}\n", "hi": "💰 राशि: ₹{amount}\n"},
+    DIAGNOSTIC_PREPARATION_LINE: {
+        "en": "📝 *Preparation:* {instructions}\n\n",
+        "hi": "📝 *तैयारी:* {instructions}\n\n",
+    },
+    # amount_line/prep_line: built by _diagnostic_shared.py, "" when unset --
+    # same omit-rather-than-fake-value discipline as fee_line elsewhere.
+    DIAGNOSTIC_CONFIRMATION_SUMMARY: {
+        "en": (
+            "🔬 *Review {appointment_type_label} Booking*\n\n"
+            "👤 Patient: {patient_name}\n"
+            "🆔 Patient ID: {patient_code}\n"
+            "🧪 Test: {test_name}\n"
+            "🧾 Option: {variant_label}\n"
+            "🏥 Location: {hospital_name}\n"
+            "📅 Date: {date_label}\n"
+            "🕐 Time: {time_label}\n"
+            "{amount_line}"
+            "{prep_line}"
+            "Please review the details and preparation instructions before confirming."
+        ),
+        "hi": (
+            "🔬 *{appointment_type_label} बुकिंग की समीक्षा करें*\n\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🆔 मरीज़ आईडी: {patient_code}\n"
+            "🧪 जांच: {test_name}\n"
+            "🧾 विकल्प: {variant_label}\n"
+            "🏥 स्थान: {hospital_name}\n"
+            "📅 तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n"
+            "{amount_line}"
+            "{prep_line}"
+            "कृपया पुष्टि करने से पहले विवरण और तैयारी निर्देशों की समीक्षा करें।"
+        ),
+    },
+    DIAGNOSTIC_BOOKING_CONFIRMED: {
+        "en": (
+            "✅ *{appointment_type_label} Booked*\n\n"
+            "🆔 Booking ID: {reference_id}\n"
+            "👤 Patient: {patient_name}\n"
+            "🧪 Test: {test_name}\n"
+            "🧾 Option: {variant_label}\n"
+            "📅 Date: {date_label}\n"
+            "🕐 Time: {time_label}\n\n"
+            "Please arrive at the instructed time and follow the preparation guidance provided."
+        ),
+        "hi": (
+            "✅ *{appointment_type_label} बुक हो गई*\n\n"
+            "🆔 बुकिंग आईडी: {reference_id}\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🧪 जांच: {test_name}\n"
+            "🧾 विकल्प: {variant_label}\n"
+            "📅 तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n\n"
+            "कृपया निर्देशित समय पर पहुंचें और दी गई तैयारी संबंधी जानकारी का पालन करें।"
+        ),
     },
 }

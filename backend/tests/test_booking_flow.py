@@ -1226,17 +1226,21 @@ async def test_followup_back_from_date_returns_to_eligible_list(hospital_id):
 
 @pytest.mark.asyncio
 async def test_diagnostic_appointment_type_skips_department_and_doctor_selection(hospital_id):
-    """docs/per-appointment-type-flow-plan.md Phase 1: 'diagnostic' (and
-    'lab') have requires_doctor_selection=False and no department/doctor step
-    in their TypeFlow (flows/booking/types/diagnostic.py) -- picking this
-    type should jump straight to date selection, with a department/doctor
-    auto-resolved behind the scenes (_first_available_resource) rather than
-    asked for."""
+    """docs/per-appointment-type-flow-plan.md Phase 2 Step 5: 'diagnostic'
+    (and 'lab') insert a test+variant pick (flows/booking/types/
+    _diagnostic_shared.py) but still have no department/doctor step of their
+    own -- picking a test (with its single default "Standard" variant,
+    auto-skipped) should jump straight to date selection, with a department/
+    doctor auto-resolved behind the scenes (_first_available_resource, since
+    the seeded default tests have no resource assigned) rather than asked for."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DIAGNOSTIC_TEST"
+    test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
 
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DATE"
@@ -1248,18 +1252,25 @@ async def test_diagnostic_appointment_type_skips_department_and_doctor_selection
 
 
 @pytest.mark.asyncio
-async def test_diagnostic_back_from_date_returns_to_appointment_type_selection(hospital_id):
+async def test_diagnostic_back_from_date_returns_to_test_then_appointment_type(hospital_id):
     """No STATE_AWAITING_DEPARTMENT/DOCTOR history frame is ever pushed for a
     type with no department/doctor step, so a Back tap from the date list
-    should land straight back on appointment-type selection, not doctor."""
+    should land on test selection (the diagnostic/lab-specific step
+    immediately before it), and a second Back from there on appointment-type
+    selection -- never doctor."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DIAGNOSTIC_TEST"
+    test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DIAGNOSTIC_TEST"
 
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
     kwargs = _last_list(wa)
@@ -1272,11 +1283,15 @@ async def test_diagnostic_back_from_date_returns_to_appointment_type_selection(h
 async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hospital_id):
     """Confirmation's "what would you like to change?" sub-menu should not
     offer Change Department/Change Doctor for a type whose flow never asked
-    for either -- there'd be no history frame to jump back to."""
+    for either -- there'd be no history frame to jump back to. It SHOULD
+    offer "Change Test" (diagnostic/lab's own step), but not "Change Test
+    Option" -- the seeded default test has only one ("Standard") variant."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
     doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]
     all_slots = db.get_slots(hospital_id, doctor_id)
     date_str = all_slots[0]["date"]
@@ -1293,6 +1308,8 @@ async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hosp
     assert "change_doctor" not in row_ids
     assert "change_date" in row_ids
     assert "change_time" in row_ids
+    assert "change_diagnostic_test" in row_ids
+    assert "change_diagnostic_variant" not in row_ids
 
 
 # --- docs/per-appointment-type-flow-plan.md Phase 2 Step 3: Tele-consultation
@@ -1315,6 +1332,11 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
         doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
+    elif session["state"] == "AWAITING_DIAGNOSTIC_TEST":
+        # Diagnostic/Lab Phase 2's own pre-date steps: pick the first seeded
+        # test (single default "Standard" variant auto-skips the variant step).
+        test = db.get_diagnostic_tests(hospital_id, appointment_type_id)[0]
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
     doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]
     all_slots = db.get_slots(hospital_id, doctor_id)
     date_str = all_slots[0]["date"]
@@ -1425,7 +1447,12 @@ async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_i
 
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
-    assert "appointment confirmed" in kwargs["body_text"].lower()
+    if appointment_type_id in ("diagnostic", "lab"):
+        # Diagnostic/Lab Phase 2's own success card (build_success_summary) --
+        # "Diagnostic/Lab Test Booked", not the generic "Appointment Confirmed".
+        assert "booked" in kwargs["body_text"].lower()
+    else:
+        assert "appointment confirmed" in kwargs["body_text"].lower()
     assert "🎥" not in kwargs["body_text"]
     assert "meet.jit.si" not in kwargs["body_text"]
     assert "Video Consultation" not in kwargs["body_text"]

@@ -44,6 +44,17 @@ from flows.booking.state import (
 from flows.booking.types.registry import get_type_flow
 
 
+def _get_slots(connector: Connector, hospital_id: int, doctor_id: str | None, resource_id: str | None) -> list[dict]:
+    """Diagnostic/Lab Phase 2: the one place _handle_awaiting_date/
+    _handle_awaiting_time_slot read slot availability from -- resource_id
+    (when set) takes priority, same "exactly one of the two is ever set"
+    invariant create_appointment() enforces at the DB level."""
+    if resource_id is not None:
+        return connector.get_available_resource_slots(hospital_id, resource_id)
+    assert doctor_id is not None  # caller already checked not (doctor_id or resource_id) -> reset
+    return connector.get_available_slots(hospital_id, doctor_id)
+
+
 def _first_available_resource(connector: Connector, hospital_id: int) -> tuple[dict, dict] | None:
     """Picks the first department's first doctor with open slots -- the
     internal resource used for types with no department/doctor step
@@ -346,10 +357,16 @@ async def _handle_awaiting_date(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Section 12.12, step 1 of the date/time split (was _handle_awaiting_slot
-    before this section)."""
+    before this section).
+
+    Diagnostic/Lab Phase 2: context["resource_id"], when set, means this
+    booking is resource-bound (not doctor-bound) -- slot lookups go through
+    the resource-keyed connector methods instead, same "one small branch in
+    shared code" shape used throughout this file."""
     doctor_id = context.get("doctor_id")
+    resource_id = context.get("resource_id")
     doctor_name = context.get("doctor_name", "")
-    if not doctor_id:
+    if not doctor_id and not resource_id:
         sessions.reset(hospital_id, phone)
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
@@ -358,33 +375,37 @@ async def _handle_awaiting_date(
         if reply["id"] == BACK_ID:
             await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
             return
-        available_dates = {s["date"] for s in connector.get_available_slots(hospital_id, doctor_id)}
+        available_dates = {s["date"] for s in _get_slots(connector, hospital_id, doctor_id, resource_id)}
         if reply["id"] in available_dates:
             history = _push_history(context, STATE_AWAITING_DATE)
             new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"]), _HISTORY_KEY: history}
             sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, new_context)
-            await _send_time_menu(wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language)
+            await _send_time_menu(wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language, resource_id=resource_id)
             return
     # Dates are dynamic (another patient's booking can take the doctor's only
     # slot on a given date between this menu being sent and this reply) --
     # recheck rather than blindly re-send, same discipline as every other
     # dynamic-availability step in this file.
-    if not connector.get_available_slots(hospital_id, doctor_id):
+    if not _get_slots(connector, hospital_id, doctor_id, resource_id):
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
-    await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
+    await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language, resource_id=resource_id)
 
 
 async def _handle_awaiting_time_slot(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Section 12.12, step 2 of the date/time split."""
+    """Section 12.12, step 2 of the date/time split.
+
+    Diagnostic/Lab Phase 2: same context["resource_id"] branch as
+    _handle_awaiting_date above."""
     doctor_id = context.get("doctor_id")
+    resource_id = context.get("resource_id")
     doctor_name = context.get("doctor_name", "")
     date_str = context.get("date")
-    if not doctor_id or not date_str:
+    if (not doctor_id and not resource_id) or not date_str:
         sessions.reset(hospital_id, phone)
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
@@ -393,7 +414,7 @@ async def _handle_awaiting_time_slot(
         if reply["id"] == BACK_ID:
             await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
             return
-        slot = _find_by_id(connector.get_available_slots(hospital_id, doctor_id), reply["id"])
+        slot = _find_by_id(_get_slots(connector, hospital_id, doctor_id, resource_id), reply["id"])
         if slot and slot["date"] == date_str:
             new_context = {
                 **context,
@@ -424,18 +445,18 @@ async def _handle_awaiting_time_slot(
             return
     # Times are dynamic for the same reason dates are above -- recheck this
     # exact date's availability rather than blindly re-sending a stale list.
-    if not any(s["date"] == date_str for s in connector.get_available_slots(hospital_id, doctor_id)):
+    if not any(s["date"] == date_str for s in _get_slots(connector, hospital_id, doctor_id, resource_id)):
         # This date specifically emptied out (not necessarily the whole
         # doctor) -- step back to date selection rather than a full reset,
         # so the patient picks a different date instead of starting over.
         sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
         await _send_date_menu(
             wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language,
-            min_date=context.get("followup_previous_visit_date"),
+            min_date=context.get("followup_previous_visit_date"), resource_id=resource_id,
         )
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, context)
-    await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language)
+    await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language, resource_id=resource_id)
 
 
 async def _handle_awaiting_patient_name(
@@ -538,6 +559,7 @@ async def _create_booking_and_notify(
             patient_id=context.get("active_patient_id"),
             appointment_type_id=context.get("appointment_type_id"),
             consent_given_at=consent_given_at,
+            resource_id=context.get("resource_id"),
         )
     except DuplicateBookingError as exc:
         # Item 5: must be checked BEFORE the generic IntegrityError

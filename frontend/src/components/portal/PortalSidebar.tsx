@@ -3,6 +3,7 @@
 import {
   CalendarCheck,
   CalendarClock,
+  FlaskConical,
   LayoutDashboard,
   LogOut,
   MessageCircle,
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
   { key: "schedule", label: "Schedule", icon: CalendarClock, href: "/portal/schedule", pageKey: "schedule" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
+  { key: "diagnostic_tests", label: "Diagnostic Tests", icon: FlaskConical, href: "/portal/diagnostic-tests", pageKey: "diagnostic_tests" },
   { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages", pageKey: "messages" },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },
   { key: "staff", label: "Staff", icon: Users, href: "/portal/settings/staff", pageKey: "staff" },

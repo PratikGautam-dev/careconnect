@@ -33,11 +33,23 @@ class Tier1Connector(Connector):
     def get_available_slots(self, hospital_id, doctor_id):
         return repo.get_slots(hospital_id, doctor_id)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None):
+    def get_available_resource_slots(self, hospital_id, resource_id):
+        return repo.get_resource_slots(hospital_id, resource_id)
+
+    def get_diagnostic_tests(self, hospital_id, category):
+        return repo.get_diagnostic_tests(hospital_id, category)
+
+    def get_diagnostic_resources(self, hospital_id):
+        return repo.get_diagnostic_resources(hospital_id)
+
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_variant_id=None, diagnostic_test_label=None, diagnostic_variant_label=None, diagnostic_price=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
             source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
-            appointment_type_id=appointment_type_id, consent_given_at=consent_given_at,
+            appointment_type_id=appointment_type_id, consent_given_at=consent_given_at, resource_id=resource_id,
+            diagnostic_test_id=diagnostic_test_id, diagnostic_test_variant_id=diagnostic_test_variant_id,
+            diagnostic_test_label=diagnostic_test_label, diagnostic_variant_label=diagnostic_variant_label,
+            diagnostic_price=diagnostic_price,
         )
 
     def get_active_appointments_for_patient(self, hospital_id, patient_id):
@@ -91,7 +103,13 @@ class Tier1Connector(Connector):
     def set_appointment_duration(self, hospital_id, appointment_id, duration_hours):
         repo.set_appointment_duration(hospital_id, appointment_id, duration_hours)
 
-    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None):
+    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price):
+        repo.set_appointment_diagnostic_details(
+            hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id,
+            diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
+        )
+
+    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None, resource_id=None):
         """Books the new slot BEFORE marking the old appointment rescheduled:
         if someone else grabbed this exact doctor+slot first (IntegrityError,
         left to propagate uncaught to the caller — same as create_booking),
@@ -120,13 +138,23 @@ class Tier1Connector(Connector):
         (unlike tele's video_link, which IS deliberately regenerated fresh
         per slot -- see flows/booking/types/tele_consultation.py -- daycare's
         chosen duration isn't slot-specific, so there's nothing to
-        regenerate)."""
+        regenerate).
+
+        Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/variant/label/
+        price all carry forward the same way as duration_hours -- rescheduling
+        moves the slot, never re-asks which test/variant was chosen."""
         old_appointment = repo.get_appointment(hospital_id, old_appointment_id)
         new_appointment = repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
             exclude_appointment_id=old_appointment_id,
             appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
             duration_hours=old_appointment.duration_hours if old_appointment else None,
+            resource_id=resource_id if resource_id is not None else (old_appointment.resource_id if old_appointment else None),
+            diagnostic_test_id=old_appointment.diagnostic_test_id if old_appointment else None,
+            diagnostic_test_variant_id=old_appointment.diagnostic_test_variant_id if old_appointment else None,
+            diagnostic_test_label=old_appointment.diagnostic_test_label if old_appointment else None,
+            diagnostic_variant_label=old_appointment.diagnostic_variant_label if old_appointment else None,
+            diagnostic_price=old_appointment.diagnostic_price if old_appointment else None,
         )
         repo.mark_rescheduled(hospital_id, old_appointment_id)
         return new_appointment

@@ -1,6 +1,5 @@
 # flows/booking/types/lab.py
-"""Lab: same treatment as diagnostic.py -- skips department/doctor
-selection. Phase 2: add a real test/panel step."""
-from flows.booking.types.base import NO_DOCTOR_FLOW, TypeFlow
+"""Lab Test: same treatment as diagnostic.py -- see _diagnostic_shared.py."""
+from flows.booking.types._diagnostic_shared import make_flow
 
-FLOW = TypeFlow(type_id="lab", steps=NO_DOCTOR_FLOW)
+FLOW = make_flow("lab")
