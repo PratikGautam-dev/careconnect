@@ -168,7 +168,14 @@ if os.environ.get("FRONTEND_ORIGIN"):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_frontend_origins,
-    allow_methods=["GET", "POST"],
+    # Every method the portal API actually uses (GET/POST/PUT/DELETE) must be
+    # listed here -- Starlette's CORS preflight handler 400s any method not
+    # in this list, which is what silently broke every PUT/DELETE portal
+    # route's preflight (diagnostic-tests' variant edit/delete included)
+    # while GET/POST routes worked fine. The origin allowlist above is the
+    # real security boundary for this authenticated (Bearer-token) API, so
+    # allowing every method here is safe.
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 

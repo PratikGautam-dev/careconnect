@@ -103,6 +103,14 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def get_diagnostic_resources(self, hospital_id: int) -> list[dict]: ...
 
+    # Lab Test Phase 2 follow-up: the hospital-configurable serviceable-PIN-
+    # code list for home sample collection.
+    @abc.abstractmethod
+    def get_service_areas(self, hospital_id: int) -> list[dict]: ...
+
+    @abc.abstractmethod
+    def is_pincode_serviceable(self, hospital_id: int, pincode: str) -> bool: ...
+
     @abc.abstractmethod
     def create_booking(
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str | None, scheduled_at: datetime,
@@ -179,6 +187,27 @@ class Connector(abc.ABC):
         self, hospital_id: int, appointment_id: int, diagnostic_test_id: int, diagnostic_test_variant_id: int,
         diagnostic_test_label: str, diagnostic_variant_label: str, diagnostic_price: float | None,
     ) -> None: ...
+
+    # Lab Test Phase 2 follow-up: called once, right after create_booking()
+    # succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
+    # the basket-specific fields don't need the concurrency-critical
+    # create_booking() transaction, same rationale as
+    # set_appointment_diagnostic_details above. basket_items: list of
+    # {diagnostic_test_id, diagnostic_test_variant_id, test_label,
+    # variant_label, price, preparation_instructions}.
+    @abc.abstractmethod
+    def set_appointment_lab_order_details(
+        self, hospital_id: int, appointment_id: int, collection_method: str, collection_address: str | None,
+        collection_pincode: str | None, home_collection_charge: float | None, basket_items: list[dict],
+    ) -> None: ...
+
+    @abc.abstractmethod
+    def get_lab_basket_for_appointment(self, hospital_id: int, appointment_id: int) -> list[dict]: ...
+
+    # Lab Test Phase 2 follow-up's post-booking report lifecycle: booked ->
+    # sample_collected -> processing -> report_ready.
+    @abc.abstractmethod
+    def set_lab_status(self, hospital_id: int, appointment_id: int, lab_status: str) -> Appointment | None: ...
 
     @abc.abstractmethod
     def reschedule_booking(
@@ -273,8 +302,23 @@ class _UnimplementedTierConnector(Connector):
     def get_diagnostic_resources(self, hospital_id):
         self._not_implemented("get_diagnostic_resources")
 
+    def get_service_areas(self, hospital_id):
+        self._not_implemented("get_service_areas")
+
+    def is_pincode_serviceable(self, hospital_id, pincode):
+        self._not_implemented("is_pincode_serviceable")
+
     def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_variant_id=None, diagnostic_test_label=None, diagnostic_variant_label=None, diagnostic_price=None):
         self._not_implemented("create_booking")
+
+    def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
+        self._not_implemented("set_appointment_lab_order_details")
+
+    def get_lab_basket_for_appointment(self, hospital_id, appointment_id):
+        self._not_implemented("get_lab_basket_for_appointment")
+
+    def set_lab_status(self, hospital_id, appointment_id, lab_status):
+        self._not_implemented("set_lab_status")
 
     def get_active_appointments_for_patient(self, hospital_id, patient_id):
         self._not_implemented("get_active_appointments_for_patient")

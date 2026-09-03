@@ -42,6 +42,13 @@ REPORTS_MENU_VIEW_DIAGNOSTIC_REPORTS = "reports_menu_view_diagnostic_reports"
 REPORTS_MENU_BOOK_REPORT_REVIEW = "reports_menu_book_report_review"
 REPORTS_NO_DOCUMENTS_IN_CATEGORY = "reports_no_documents_in_category"
 
+# Lab Test Phase 2 follow-up: proactive WhatsApp notification, sent the
+# moment staff upload a lab_report document against a Lab Test appointment
+# (portal/routes/documents.py) -- the last step of the report lifecycle
+# (Booking Confirmed -> Sample Collected -> Lab Processing -> Report Ready ->
+# WhatsApp Notification -> Reports & Prescriptions).
+LAB_REPORT_READY_NOTIFICATION = "lab_report_ready_notification"
+
 STRINGS: dict[str, dict[Language, str]] = {
     FEATURE_MY_DETAILS: {"en": "My Details", "hi": "मेरी जानकारी"},
     MY_DETAILS_NOT_FOUND: {
@@ -97,5 +104,9 @@ STRINGS: dict[str, dict[Language, str]] = {
     REPORTS_NO_DOCUMENTS_IN_CATEGORY: {
         "en": "You don't have any documents in this category on file yet.",
         "hi": "इस श्रेणी में आपकी कोई फाइल दर्ज नहीं है।",
+    },
+    LAB_REPORT_READY_NOTIFICATION: {
+        "en": "✅ Your lab report is ready. View it anytime under Reports & Prescriptions > View Lab Reports.",
+        "hi": "✅ आपकी लैब रिपोर्ट तैयार है। इसे कभी भी रिपोर्ट और पर्चे > लैब रिपोर्ट देखें में देखें।",
     },
 }

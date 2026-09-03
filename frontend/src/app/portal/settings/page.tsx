@@ -7,6 +7,7 @@ import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
 import { DaycareDurationOptions } from "@/components/portal/DaycareDurationOptions";
+import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePortalSettings, type AuditEntry } from "@/hooks/usePortalSettings";
@@ -227,6 +228,19 @@ export default function PortalSettingsPage() {
                   onChange={(e) => setSettings({ ...settings, new_consultation_fee: e.target.value === "" ? "" : Number(e.target.value) })}
                 />
               </Field>
+              <Field
+                label="Home sample collection charge (₹)"
+                htmlFor="home_collection_charge"
+                hint="Added to a Lab Test booking's total when the patient chooses home sample collection."
+              >
+                <Input
+                  id="home_collection_charge"
+                  type="number"
+                  min={0}
+                  value={settings.home_collection_charge}
+                  onChange={(e) => setSettings({ ...settings, home_collection_charge: e.target.value === "" ? "" : Number(e.target.value) })}
+                />
+              </Field>
             </Card>
 
             <Card className="p-space-5">
@@ -275,6 +289,17 @@ export default function PortalSettingsPage() {
               hides it from new bookings, it doesn&apos;t change any appointment already booked with it.
             </p>
             <DaycareDurationOptions canManage={canManageAppointmentTypes} />
+          </Card>
+        )}
+
+        {canManageAppointmentTypes && (
+          <Card className="mt-space-5 max-w-2xl p-space-5">
+            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Lab Test home collection areas</h2>
+            <p className="mb-space-3 text-[12.5px] text-ink-400">
+              PIN codes where you offer Home Sample Collection for Lab Test bookings. A patient entering
+              a PIN code not listed here is offered Visit Hospital/Lab instead.
+            </p>
+            <LabServiceAreasManager canManage={canManageAppointmentTypes} />
           </Card>
         )}
 

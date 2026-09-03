@@ -24,6 +24,15 @@ const STATUS_LABELS: Record<string, string> = {
   attended: "Attended", no_show: "No-show",
 };
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
+// Lab Test Phase 2 follow-up's report lifecycle -- report_ready is never
+// advanced from here (only automatically, by uploading a lab_report
+// document against the appointment), so it has no "next" label.
+const LAB_STATUS_LABELS: Record<string, string> = {
+  booked: "Booked", sample_collected: "Sample Collected", processing: "Processing", report_ready: "Report Ready",
+};
+const LAB_STATUS_NEXT_LABEL: Record<string, string> = {
+  booked: "Mark Sample Collected", sample_collected: "Mark Processing",
+};
 const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
 export default function PortalAppointmentsPage() {
@@ -37,6 +46,7 @@ export default function PortalAppointmentsPage() {
     rDoctors, rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
+    advancingLabStatusId, handleAdvanceLabStatus,
     deletingId, handleDelete,
     selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
     pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,
@@ -149,6 +159,7 @@ export default function PortalAppointmentsPage() {
                     <th className="pb-space-2 font-semibold">Source</th>
                     <th className="pb-space-2 font-semibold">Status</th>
                     <th className="pb-space-2 font-semibold">Visited</th>
+                    <th className="pb-space-2 font-semibold">Lab Status</th>
                     <th className="pb-space-2 font-semibold"></th>
                   </tr>
                 </thead>
@@ -246,6 +257,32 @@ export default function PortalAppointmentsPage() {
                             <span className="text-[12.5px] text-ink-300">—</span>
                           )}
                         </td>
+                        <td className="py-space-2 whitespace-nowrap">
+                          {a.lab_status ? (
+                            <span className="inline-flex items-center gap-space-2">
+                              <span
+                                className={cn(
+                                  "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+                                  a.lab_status === "report_ready" ? "bg-success-tint text-success" : "bg-black/[0.04] text-ink-600",
+                                )}
+                              >
+                                {LAB_STATUS_LABELS[a.lab_status] || a.lab_status}
+                              </span>
+                              {LAB_STATUS_NEXT_LABEL[a.lab_status] && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdvanceLabStatus(a.id)}
+                                  disabled={advancingLabStatusId === a.id}
+                                  className="text-[12px] font-semibold text-brand-600 hover:underline disabled:opacity-50"
+                                >
+                                  {LAB_STATUS_NEXT_LABEL[a.lab_status]}
+                                </button>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[12.5px] text-ink-300">—</span>
+                          )}
+                        </td>
                         <td className="py-space-2 text-right whitespace-nowrap">
                           {a.status === "booked" ? (
                             cancelPanelId !== a.id && reschedulePanelId !== a.id && (
@@ -285,7 +322,7 @@ export default function PortalAppointmentsPage() {
                       </tr>
                       {reschedulePanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={12} className="pb-space-3">
+                          <td colSpan={13} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <div className="mb-space-3 grid grid-cols-1 gap-x-space-3 gap-y-space-2 md:grid-cols-2">
                                 <div>
@@ -402,7 +439,7 @@ export default function PortalAppointmentsPage() {
                       )}
                       {cancelPanelId === a.id && (
                         <tr className="border-b border-line last:border-0">
-                          <td colSpan={12} className="pb-space-3">
+                          <td colSpan={13} className="pb-space-3">
                             <div className="rounded-lg border border-line bg-paper p-space-3">
                               <label htmlFor={`cancel-msg-${a.id}`} className="mb-space-2 block text-[12px] font-semibold text-ink-600">
                                 Message to send {a.phone} on WhatsApp

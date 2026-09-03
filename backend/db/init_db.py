@@ -1002,6 +1002,53 @@ def init_db_on_connection(conn) -> int:
         "ON appointments(resource_id, scheduled_at, booking_ordinal) "
         "WHERE status = 'booked' AND resource_id IS NOT NULL"
     )
+    # Migration 0026: Lab Test's multi-test basket (appointment_lab_tests),
+    # collection-method/home-collection columns on appointments, the
+    # hospital-configurable serviceable-PIN-code list (lab_service_areas),
+    # and the flat home_collection_charge fee on hospital_settings -- see
+    # that migration's own docstring.
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS home_collection_charge NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_home_collection_charge_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_home_collection_charge_check "
+        "CHECK (home_collection_charge IS NULL OR home_collection_charge >= 0)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lab_service_areas ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "pincode TEXT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "UNIQUE(hospital_id, pincode)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS appointment_lab_tests ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "appointment_id INTEGER NOT NULL REFERENCES appointments(id), "
+        "diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id), "
+        "diagnostic_test_variant_id INTEGER REFERENCES diagnostic_test_variants(id), "
+        "test_label TEXT NOT NULL, variant_label TEXT NOT NULL, "
+        "price NUMERIC(10, 2), preparation_instructions TEXT"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointment_lab_tests_appointment "
+        "ON appointment_lab_tests(appointment_id)"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_method TEXT")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_collection_method_check")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_collection_method_check "
+        "CHECK (collection_method IS NULL OR collection_method IN ('visit', 'home'))"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_address TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_pincode TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS home_collection_charge NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS lab_status TEXT")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_lab_status_check")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_lab_status_check "
+        "CHECK (lab_status IS NULL OR lab_status IN ('booked', 'sample_collected', 'processing', 'report_ready'))"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

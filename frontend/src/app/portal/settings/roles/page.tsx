@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { getStaffSession, staffFetch, usePermission, type StaffRole } from "@/lib/staffAuth";
+import { staffFetch, usePermission, useStaffSession, type StaffRole } from "@/lib/staffAuth";
 
 type Action = "view" | "write" | "delete";
 type PagePerms = Record<Action, boolean>;
@@ -29,7 +29,14 @@ const ACTIONS: Action[] = ["view", "write", "delete"];
 
 export default function RolesPermissionsPage() {
   const router = useRouter();
-  const session = getStaffSession();
+  // useStaffSession (not getStaffSession directly): null on the server AND
+  // on the client's own first render, so PortalShell/PortalSidebar render
+  // the same "Hospital" placeholder both places -- getStaffSession() itself
+  // returns the real session immediately client-side (synchronous
+  // localStorage), which used to disagree with the server's render and
+  // throw a hydration-mismatch error the instant the real hospital name
+  // reached the DOM.
+  const session = useStaffSession();
   const canView = usePermission("roles", "view");
   const canWrite = usePermission("roles", "write");
 
@@ -63,12 +70,20 @@ export default function RolesPermissionsPage() {
     const result = await staffFetch("/api/portal/roles/permissions", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
+      // Backend contract (portal/routes/roles.py's PermissionsUpdatePayload)
+      // is a batch of updates, even for a single-cell toggle like this one --
+      // an earlier version of this call sent the fields flat/unwrapped,
+      // which parsed fine (Pydantic ignores unknown fields) but always hit
+      // the route's "no updates provided" 400, since `updates` defaulted to
+      // an empty list.
       body: JSON.stringify({
-        role,
-        page_key: pageKey,
-        can_view: nextCell.view,
-        can_write: nextCell.write,
-        can_delete: nextCell.delete,
+        updates: [{
+          role,
+          page_key: pageKey,
+          can_view: nextCell.view,
+          can_write: nextCell.write,
+          can_delete: nextCell.delete,
+        }],
       }),
     });
     setSavingCell(null);

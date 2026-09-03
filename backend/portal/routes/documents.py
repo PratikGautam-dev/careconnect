@@ -1,11 +1,16 @@
+import logging
+
 from fastapi import APIRouter, File, Form, Header, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 import db.repository as db
 from core.storage import get_storage
+from core.translations import t
+from core.translations.my_details import LAB_REPORT_READY_NOTIFICATION
 from core.whatsapp import WhatsAppClient
 from portal.deps import _authenticate, _session_id
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # WhatsApp menu restructuring: Reports & Prescriptions' "View
@@ -18,12 +23,13 @@ _VALID_DOCUMENT_TYPES = {"prescription", "lab_report", "diagnostic_report", "oth
 @router.post("/api/portal/patients/{patient_id}/documents")
 async def portal_upload_patient_document(
     patient_id: int, file: UploadFile = File(...), document_type: str = Form("other"),
-    authorization: str | None = Header(default=None),
+    appointment_id: int | None = Form(None), authorization: str | None = Header(default=None),
 ):
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    if db.get_patient(hospital.id, patient_id) is None:
+    patient = db.get_patient(hospital.id, patient_id)
+    if patient is None:
         return JSONResponse({"error": "No such patient."}, status_code=404)
     if not file.filename:
         return JSONResponse({"error": "A file is required."}, status_code=400)
@@ -39,9 +45,27 @@ async def portal_upload_patient_document(
         hospital.id, patient_id, file.filename, content, file.content_type or "application/octet-stream",
     )
     document = db.create_patient_document(
-        hospital.id, patient_id, file.filename, storage_key,
+        hospital.id, patient_id, file.filename, storage_key, appointment_id=appointment_id,
         uploaded_by_session_id=_session_id(authorization), document_type=document_type,
     )
+
+    # Lab Test Phase 2 follow-up's report lifecycle: uploading a lab_report
+    # against a Lab Test appointment (lab_status is not None) IS the
+    # "report_ready" trigger -- no separate staff action, so "report ready"
+    # always means an actual report exists. Best-effort: a WhatsApp delivery
+    # failure must not turn a successful upload into an error, same posture
+    # as portal_cancel_booking()/portal_reschedule_booking() below.
+    if document_type == "lab_report" and appointment_id is not None:
+        appointment = db.get_appointment(hospital.id, appointment_id)
+        if appointment is not None and appointment.lab_status is not None:
+            db.set_lab_status(hospital.id, appointment_id, "report_ready")
+            if hospital.whatsapp_phone_number_id and hospital.access_token:
+                try:
+                    wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+                    await wa.send_text(patient["phone"], t(LAB_REPORT_READY_NOTIFICATION, "en"))
+                except Exception:
+                    logger.exception("Failed to send report-ready notification for appointment %s", appointment_id)
+
     return JSONResponse({"document": document})
 
 

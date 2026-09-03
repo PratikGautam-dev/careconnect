@@ -25,6 +25,10 @@ from flows.booking.messages import _handle_awaiting_patient_selection, _send_mai
 from flows.booking.types.daycare import _handle_awaiting_daycare_duration
 from flows.booking.types._diagnostic_shared import _handle_awaiting_diagnostic_test, _handle_awaiting_diagnostic_variant
 from flows.booking.types.followup import _handle_awaiting_followup_selection
+from flows.booking.types.lab import (
+    _handle_awaiting_collection_address, _handle_awaiting_collection_method, _handle_awaiting_collection_pincode,
+    _handle_awaiting_lab_test, _handle_awaiting_lab_test_add_more, _handle_awaiting_lab_test_variant,
+)
 from flows.booking.reschedule import (
     _handle_awaiting_reschedule_confirm, _handle_awaiting_reschedule_date, _handle_awaiting_reschedule_selection,
     _handle_awaiting_reschedule_slot, _start_reschedule_flow,
@@ -32,9 +36,11 @@ from flows.booking.reschedule import (
 from flows.booking.state import (
     FREE_TEXT_INPUT_STATES, MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ, MAIN_MENU_RESCHEDULE,
     STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_CANCEL_CONFIRM, STATE_AWAITING_CANCEL_SELECTION,
-    STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
+    STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_COLLECTION_ADDRESS, STATE_AWAITING_COLLECTION_METHOD,
+    STATE_AWAITING_COLLECTION_PINCODE, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
     STATE_AWAITING_DAYCARE_DURATION, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_FOLLOWUP_SELECTION,
+    STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_ADD_MORE, STATE_AWAITING_LAB_TEST_VARIANT,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -85,6 +91,12 @@ _HANDLERS = {
     STATE_AWAITING_DAYCARE_DURATION: _handle_awaiting_daycare_duration,
     STATE_AWAITING_DIAGNOSTIC_TEST: _handle_awaiting_diagnostic_test,
     STATE_AWAITING_DIAGNOSTIC_VARIANT: _handle_awaiting_diagnostic_variant,
+    STATE_AWAITING_LAB_TEST: _handle_awaiting_lab_test,
+    STATE_AWAITING_LAB_TEST_VARIANT: _handle_awaiting_lab_test_variant,
+    STATE_AWAITING_LAB_TEST_ADD_MORE: _handle_awaiting_lab_test_add_more,
+    STATE_AWAITING_COLLECTION_METHOD: _handle_awaiting_collection_method,
+    STATE_AWAITING_COLLECTION_PINCODE: _handle_awaiting_collection_pincode,
+    STATE_AWAITING_COLLECTION_ADDRESS: _handle_awaiting_collection_address,
     STATE_AWAITING_PATIENT_NAME: _handle_awaiting_patient_name,
     STATE_AWAITING_PATIENT_AGE: _handle_awaiting_patient_age,
     STATE_AWAITING_CONFIRMATION: _handle_awaiting_confirmation,

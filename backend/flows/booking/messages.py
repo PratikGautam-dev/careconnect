@@ -43,6 +43,7 @@ from core.translations.booking import (
     AVAILABLE_TIMES_SECTION_TITLE,
     CANCEL_BUTTON,
     CHANGE_APPOINTMENT_TYPE_OPTION,
+    CHANGE_COLLECTION_METHOD_OPTION,
     CHANGE_DATE_OPTION,
     CHANGE_DEPARTMENT_OPTION,
     CHANGE_DIAGNOSTIC_TEST_OPTION,
@@ -87,12 +88,15 @@ from core.translations.cancel_reschedule import (
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_DATE, CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
+    ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_COLLECTION_METHOD, CHANGE_DATE,
+    CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
     CHANGE_DIAGNOSTIC_TEST, CHANGE_DIAGNOSTIC_VARIANT, CHANGE_DOCTOR, CHANGE_DURATION, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES,
     MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
-    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE, STATE_AWAITING_DAYCARE_DURATION,
+    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE,
+    STATE_AWAITING_DAYCARE_DURATION,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
-    STATE_AWAITING_FOLLOWUP_SELECTION,
+    STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_ADD_MORE,
+    STATE_AWAITING_LAB_TEST_VARIANT,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
@@ -680,6 +684,8 @@ async def _send_change_selection_menu(
         current_test = next((t_ for t_ in tests if t_["id"] == ctx.get("diagnostic_test_id")), None)
         if current_test and len(current_test["variants"]) > 1:
             rows.append({"id": CHANGE_DIAGNOSTIC_VARIANT, "title": t(CHANGE_DIAGNOSTIC_VARIANT_OPTION, language)})
+    if flow.has_step(STATE_AWAITING_COLLECTION_METHOD):
+        rows.append({"id": CHANGE_COLLECTION_METHOD, "title": t(CHANGE_COLLECTION_METHOD_OPTION, language)})
     # Previously a dead end -- every row here picked a field to change, with
     # no way out except actually picking one. GOTO_MAIN_MENU is intercepted
     # globally (flows/router.py's handle_incoming, before any state
@@ -744,6 +750,22 @@ async def _resend_menu_for_state(
         test = next((t_ for t_ in tests if t_["id"] == context.get("diagnostic_test_id")), None)
         if test is not None:
             await _send_variant_menu(wa, phone, test, language=language)
+    elif state == STATE_AWAITING_LAB_TEST:
+        from flows.booking.types.lab import _send_lab_test_menu
+        await _send_lab_test_menu(wa, phone, hospital_id, connector, context.get("lab_basket") or [], language=language)
+    elif state == STATE_AWAITING_LAB_TEST_VARIANT:
+        from flows.booking.types.lab import _send_lab_variant_menu
+        tests = connector.get_diagnostic_tests(hospital_id, "lab")
+        test = next((t_ for t_ in tests if t_["id"] == context.get("_lab_pending_test_id")), None)
+        if test is not None:
+            await _send_lab_variant_menu(wa, phone, test, language=language)
+    elif state == STATE_AWAITING_LAB_TEST_ADD_MORE:
+        from core.translations.booking import LAB_ADD_MORE_PROMPT
+        from flows.booking.types.lab import _send_add_more_menu
+        await _send_add_more_menu(wa, phone, hospital_id, connector, context, t(LAB_ADD_MORE_PROMPT, language), language=language)
+    elif state == STATE_AWAITING_COLLECTION_METHOD:
+        from flows.booking.types.lab import _send_collection_method_menu
+        await _send_collection_method_menu(wa, phone, language=language)
 
 
 async def _handle_back_navigation(

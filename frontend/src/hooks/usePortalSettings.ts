@@ -26,6 +26,9 @@ export type Settings = {
   followup_validity_days: number;
   followup_fee: number | "";
   new_consultation_fee: number | "";
+  // Lab Test Phase 2 follow-up: flat fee added to a home-collection Lab Test
+  // booking's price review, same "" (unset) convention as the two fees above.
+  home_collection_charge: number | "";
 };
 
 export type AuditEntry = {
@@ -62,8 +65,13 @@ export function usePortalSettings(ready: boolean) {
     // followup_fee/new_consultation_fee come back as `null` when unset (no
     // default to fall back to, unlike e.g. session_timeout_minutes) --
     // coerced to "" here so the numeric <Input> below never renders "null".
-    const data = result.data as Settings & { followup_fee: number | null; new_consultation_fee: number | null };
-    setSettings({ ...data, followup_fee: data.followup_fee ?? "", new_consultation_fee: data.new_consultation_fee ?? "" });
+    const data = result.data as Settings & {
+      followup_fee: number | null; new_consultation_fee: number | null; home_collection_charge: number | null;
+    };
+    setSettings({
+      ...data, followup_fee: data.followup_fee ?? "", new_consultation_fee: data.new_consultation_fee ?? "",
+      home_collection_charge: data.home_collection_charge ?? "",
+    });
   }, [router]);
 
   const loadAuditLog = useCallback(async () => {

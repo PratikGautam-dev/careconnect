@@ -693,6 +693,51 @@ ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resour
 ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_chk
     CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL);
 
+-- Lab Test Phase 2 follow-up: unlike Diagnostic Test (one test, one machine,
+-- one slot), a Lab Test booking is a multi-test basket with a collection-
+-- method choice (visit vs. home sample) -- appointment_lab_tests holds the
+-- basket (N rows per one appointments row); the singular diagnostic_test_id/
+-- variant/label/price columns above are untouched, still meaning "the one
+-- item" for a Diagnostic Test booking. lab_service_areas is a hospital-
+-- configurable list of serviceable PIN codes for home collection.
+CREATE TABLE IF NOT EXISTS lab_service_areas (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    pincode TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE(hospital_id, pincode)
+);
+
+CREATE TABLE IF NOT EXISTS appointment_lab_tests (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+    diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id),
+    diagnostic_test_variant_id INTEGER REFERENCES diagnostic_test_variants(id),
+    test_label TEXT NOT NULL,
+    variant_label TEXT NOT NULL,
+    price NUMERIC(10, 2),
+    preparation_instructions TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_appointment_lab_tests_appointment ON appointment_lab_tests(appointment_id);
+
+-- Collection details + the post-booking report lifecycle -- only ever set
+-- for a Lab Test booking. lab_status: booked -> sample_collected ->
+-- processing -> report_ready (the last transition is automatic, fired when
+-- staff upload a lab_report document against this appointment -- see
+-- portal/routes/documents.py).
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_method TEXT;
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_collection_method_check;
+ALTER TABLE appointments ADD CONSTRAINT appointments_collection_method_check
+    CHECK (collection_method IS NULL OR collection_method IN ('visit', 'home'));
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_address TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS collection_pincode TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS home_collection_charge NUMERIC(10, 2);
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS lab_status TEXT;
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_lab_status_check;
+ALTER TABLE appointments ADD CONSTRAINT appointments_lab_status_check
+    CHECK (lab_status IS NULL OR lab_status IN ('booked', 'sample_collected', 'processing', 'report_ready'));
+
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real

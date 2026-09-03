@@ -109,49 +109,36 @@ async def _on_diagnostic_type_selected(
     await _send_test_menu(wa, phone, hospital_id, category, connector, language=language)
 
 
-async def _proceed_with_variant(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, test: dict, variant: dict, connector,
+async def resolve_resource_and_advance_to_date(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, resource_id: "str | None", connector,
     language: str = "en",
 ) -> None:
-    """Resolves the test's resource (if any) and moves to date selection.
-    A test with no resource assigned (or whose resource has since been
-    deactivated/removed) falls back to the pre-existing any-doctor-with-
-    open-slots default (book.py's _first_available_resource) -- but a
-    genuinely-configured resource with zero CURRENT slots is a real "come
-    back later" case, not silently substituted with an unrelated doctor."""
-    from flows.booking.book import _first_available_resource
-    from flows.booking.messages import _notify_no_doctors_available, _notify_no_slots_available, _send_date_menu
+    """Resolves resource_id to a live resource with open slots, then advances
+    straight to date selection. Shared by Diagnostic Test's single-item flow
+    (_proceed_with_variant below) and Lab Test's basket flow (flows/booking/
+    types/lab.py) -- both bind exactly one resource per booking, just sourced
+    differently (the one selected test vs. the first basket item that has a
+    resource configured).
 
-    variant_fields = {
-        "diagnostic_test_variant_id": variant["id"],
-        "diagnostic_variant_label": variant["label"],
-        "diagnostic_price": variant.get("price"),
-        "diagnostic_prep_instructions": variant.get("preparation_instructions"),
-    }
-    resource_id = test.get("resource_id")
+    Confirmed with the user directly: no resource linked (or one that's been
+    deactivated/removed), or a genuinely-configured resource with zero
+    CURRENT slots, both just mean "not available right now" -- the SAME
+    "no slots available" treatment an unconfigured doctor already gets
+    elsewhere in this app (a doctor with no working hours set simply
+    generates zero slots). This deliberately no longer falls back to
+    book.py's _first_available_resource (silently borrowing an unrelated
+    doctor's calendar) -- a lab/diagnostic test's availability must reflect
+    its OWN resource's real capacity, never a doctor's, even if that means
+    the test isn't bookable until a hospital admin actually links one."""
+    from flows.booking.messages import _notify_no_slots_available, _send_date_menu
+
     resource = None
     if resource_id:
         resource = next((r for r in connector.get_diagnostic_resources(hospital_id) if r["id"] == resource_id), None)
 
-    if resource is None:
-        fallback = _first_available_resource(connector, hospital_id)
-        if fallback is None:
-            await _notify_no_doctors_available(
-                wa, sessions, hospital_id, phone, context.get("appointment_type_label", ""), language=language,
-            )
-            return
-        dept, doctor = fallback
-        new_context = {
-            **context, **variant_fields,
-            "department_id": dept["id"], "department_name": dept["name"],
-            "doctor_id": doctor["id"], "doctor_name": doctor["name"],
-        }
-        sessions.set(hospital_id, phone, STATE_AWAITING_DATE, new_context)
-        await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
-        return
-
-    if not connector.get_available_resource_slots(hospital_id, resource_id):
-        await _notify_no_slots_available(wa, sessions, hospital_id, phone, resource["name"], language=language)
+    if resource is None or not connector.get_available_resource_slots(hospital_id, resource_id):
+        display_name = resource["name"] if resource else context.get("appointment_type_label", "this test")
+        await _notify_no_slots_available(wa, sessions, hospital_id, phone, display_name, language=language)
         return
     department_id = resource.get("department_id")
     department_name = ""
@@ -163,12 +150,30 @@ async def _proceed_with_variant(
         if departments:
             department_id, department_name = departments[0]["id"], departments[0]["name"]
     new_context = {
-        **context, **variant_fields,
+        **context,
         "resource_id": resource_id, "doctor_id": None, "doctor_name": resource["name"],
         "department_id": department_id, "department_name": department_name,
     }
     sessions.set(hospital_id, phone, STATE_AWAITING_DATE, new_context)
     await _send_date_menu(wa, phone, hospital_id, None, resource["name"], connector, language=language, resource_id=resource_id)
+
+
+async def _proceed_with_variant(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, test: dict, variant: dict, connector,
+    language: str = "en",
+) -> None:
+    """Stashes the chosen variant's snapshot fields, then delegates resource
+    resolution + date-menu advancement to the shared helper above."""
+    variant_fields = {
+        "diagnostic_test_variant_id": variant["id"],
+        "diagnostic_variant_label": variant["label"],
+        "diagnostic_price": variant.get("price"),
+        "diagnostic_prep_instructions": variant.get("preparation_instructions"),
+    }
+    new_context = {**context, **variant_fields}
+    await resolve_resource_and_advance_to_date(
+        wa, sessions, phone, hospital_id, new_context, test.get("resource_id"), connector, language=language,
+    )
 
 
 async def _handle_awaiting_diagnostic_test(

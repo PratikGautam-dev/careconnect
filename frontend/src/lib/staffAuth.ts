@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import axios, { isAxiosError } from "axios";
 import { requestInitToAxiosConfig } from "@/lib/apiClient";
 import type { PortalHospital } from "@/lib/portalAuth";
@@ -131,21 +132,46 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
   return { ok: true, data: res.data };
 }
 
+/** SSR-hydration-safe read of the cached staff session: `null` on the
+ * server AND on the client's own first (pre-hydration) render pass --
+ * getStaffSession() itself returns the REAL session immediately on the
+ * client (localStorage is synchronous, no need to wait for an effect),
+ * which used to make the very first client render disagree with what the
+ * server rendered (server always sees no session -> e.g. a generic
+ * "Hospital" sidebar label) and throw a hydration-mismatch error the
+ * instant real session data (a hospital name, a permission-gated nav item)
+ * reached the DOM. Deferring the real read into an effect, exactly like
+ * usePortalGuard's own hospital/ready state, guarantees both passes agree;
+ * the real value then arrives a moment later as a normal client-only update. */
+export function useStaffSession(): StaffSession | null {
+  const [session, setSession] = useState<StaffSession | null>(null);
+  useEffect(() => {
+    setSession(getStaffSession());
+  }, []);
+  return session;
+}
+
 /** Reads permissions off the cached session (refreshed on every staff
  * login/refresh). No session -> fails open, same posture as PortalSidebar's
  * pre-existing capability check: the frontend hide is a convenience, the
- * backend's 403 is the real enforcement.
- *
- * Not a real React hook (no internal state/effects) -- it's just a plain
- * localStorage read wearing the `use`-prefixed name the plan doc specifies.
- * Call it directly in a component body or inside PermissionGate as intended;
- * use the `hasPermission` alias below when calling it from a loop/callback
- * (e.g. NAV_ITEMS.filter in PortalSidebar) so eslint's rules-of-hooks check
- * -- which goes purely off the `use`-prefix -- doesn't flag it. */
+ * backend's 403 is the real enforcement. A real hook (via useStaffSession)
+ * -- call it directly in a component body or inside PermissionGate, never
+ * inside a loop/callback (use the plain `hasPermission` function below for
+ * that, e.g. NAV_ITEMS.filter in PortalSidebar). */
 export function usePermission(pageKey: string, action: "view" | "write" | "delete"): boolean {
-  const session = getStaffSession();
+  const session = useStaffSession();
+  return hasPermission(session, pageKey, action);
+}
+
+/** Same permission check as usePermission, but a plain function taking an
+ * already-resolved session instead of reading one itself -- safe to call
+ * from inside a loop/callback (e.g. NAV_ITEMS.filter in PortalSidebar),
+ * which a real hook (usePermission above) cannot be, since hook call count/
+ * order must stay fixed across renders. Callers get `session` once, from
+ * their own top-level useStaffSession() call, and pass it in here per item. */
+export function hasPermission(
+  session: StaffSession | null, pageKey: string, action: "view" | "write" | "delete",
+): boolean {
   if (!session) return true;
   return !!session.permissions[pageKey]?.[action];
 }
-
-export const hasPermission = usePermission;

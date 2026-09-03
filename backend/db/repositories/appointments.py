@@ -18,7 +18,8 @@ from db.models import (
     _generate_patient_identifiers, _row_to_appointment,
 )
 from db.orm_models import (
-    AppointmentReminder, AppointmentRow, Department, DiagnosticResource, DoctorRow, PatientLink, PatientRow,
+    AppointmentLabTest, AppointmentReminder, AppointmentRow, Department, DiagnosticResource, DoctorRow, PatientLink,
+    PatientRow,
 )
 
 
@@ -46,6 +47,8 @@ def _appointment_select_stmt():
             AppointmentRow.diagnostic_test_id, AppointmentRow.diagnostic_test_variant_id,
             AppointmentRow.diagnostic_test_label, AppointmentRow.diagnostic_variant_label,
             AppointmentRow.diagnostic_price,
+            AppointmentRow.collection_method, AppointmentRow.collection_address, AppointmentRow.collection_pincode,
+            AppointmentRow.home_collection_charge, AppointmentRow.lab_status,
         )
         .select_from(AppointmentRow)
         .join(Department, Department.id == AppointmentRow.department_id)
@@ -135,6 +138,11 @@ def create_appointment(
     diagnostic_test_label: str | None = None,
     diagnostic_variant_label: str | None = None,
     diagnostic_price: float | None = None,
+    collection_method: str | None = None,
+    collection_address: str | None = None,
+    collection_pincode: str | None = None,
+    home_collection_charge: float | None = None,
+    lab_status: str | None = None,
 ) -> Appointment:
     """Raises IntegrityError if the doctor's (or resource's) slot capacity
     (max_bookings_per_slot) is full at scheduled_at, or the more specific
@@ -310,12 +318,14 @@ def create_appointment(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
             "appointment_type_id, consent_given_at, duration_hours, resource_id, diagnostic_test_id, "
-            "diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price, "
+            "collection_method, collection_address, collection_pincode, home_collection_charge, lab_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
              _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
              appointment_type_id, consent_given_at, duration_hours, resource_id, diagnostic_test_id,
-             diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price),
+             diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
+             collection_method, collection_address, collection_pincode, home_collection_charge, lab_status),
         )
         new_id_row = cur.fetchone()
         assert new_id_row is not None  # INSERT ... RETURNING always returns the inserted row
@@ -380,6 +390,100 @@ def set_appointment_diagnostic_details(
          diagnostic_price, appointment_id, hospital_id),
     )
     conn.commit()
+
+
+def set_appointment_lab_order_details(
+    hospital_id: int, appointment_id: int, collection_method: str, collection_address: str | None,
+    collection_pincode: str | None, home_collection_charge: float | None, basket_items: list[dict],
+) -> None:
+    """Lab Test Phase 2 follow-up: called once, right after create_appointment()
+    succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
+    same "safe post-hoc hook, doesn't need the concurrency-critical
+    transaction" rationale as set_appointment_diagnostic_details() above.
+    Sets lab_status to 'booked' (the start of the report lifecycle) and
+    bulk-inserts the basket into appointment_lab_tests. `basket_items`: list
+    of {diagnostic_test_id, diagnostic_test_variant_id, test_label,
+    variant_label, price, preparation_instructions}."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE appointments SET collection_method = ?, collection_address = ?, collection_pincode = ?, "
+        "home_collection_charge = ?, lab_status = 'booked' WHERE id = ? AND hospital_id = ?",
+        (collection_method, collection_address, collection_pincode, home_collection_charge, appointment_id, hospital_id),
+    )
+    for item in basket_items:
+        conn.execute(
+            "INSERT INTO appointment_lab_tests (hospital_id, appointment_id, diagnostic_test_id, "
+            "diagnostic_test_variant_id, test_label, variant_label, price, preparation_instructions) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (hospital_id, appointment_id, item.get("diagnostic_test_id"), item.get("diagnostic_test_variant_id"),
+             item["test_label"], item["variant_label"], item.get("price"), item.get("preparation_instructions")),
+        )
+    conn.commit()
+
+
+def copy_lab_basket(hospital_id: int, from_appointment_id: int, to_appointment_id: int) -> None:
+    """Reschedule's own carry-forward for the basket (the collection_*/
+    lab_status columns on `appointments` itself carry forward via
+    create_appointment()'s own params, same as diagnostic_test_id -- see
+    Tier1Connector.reschedule_booking()). The basket lives in a child table,
+    so it needs its own copy rather than a column value passed at INSERT
+    time."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT diagnostic_test_id, diagnostic_test_variant_id, test_label, variant_label, price, "
+        "preparation_instructions FROM appointment_lab_tests WHERE hospital_id = ? AND appointment_id = ?",
+        (hospital_id, from_appointment_id),
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "INSERT INTO appointment_lab_tests (hospital_id, appointment_id, diagnostic_test_id, "
+            "diagnostic_test_variant_id, test_label, variant_label, price, preparation_instructions) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (hospital_id, to_appointment_id, row["diagnostic_test_id"], row["diagnostic_test_variant_id"],
+             row["test_label"], row["variant_label"], row["price"], row["preparation_instructions"]),
+        )
+    conn.commit()
+
+
+def get_lab_basket_for_appointment(hospital_id: int, appointment_id: int) -> list[dict]:
+    """The confirmation/success cards' own read of the basket, and the
+    reschedule flow's read of what to carry forward."""
+    session = get_session()
+    rows = session.execute(
+        select(
+            AppointmentLabTest.id, AppointmentLabTest.diagnostic_test_id, AppointmentLabTest.diagnostic_test_variant_id,
+            AppointmentLabTest.test_label, AppointmentLabTest.variant_label, AppointmentLabTest.price,
+            AppointmentLabTest.preparation_instructions,
+        )
+        .where(AppointmentLabTest.hospital_id == hospital_id, AppointmentLabTest.appointment_id == appointment_id)
+        .order_by(AppointmentLabTest.id)
+    ).all()
+    items = []
+    for r in rows:
+        item = dict(r._mapping)
+        if item["price"] is not None:
+            item["price"] = float(item["price"])
+        items.append(item)
+    return items
+
+
+def set_lab_status(hospital_id: int, appointment_id: int, lab_status: str) -> Appointment | None:
+    """Lab Test Phase 2 follow-up's report lifecycle. Staff advance
+    booked -> sample_collected -> processing manually (portal/routes/
+    bookings.py); report_ready is set automatically instead, the moment a
+    lab_report document is uploaded against this appointment (portal/routes/
+    documents.py) -- never a direct staff action, so "report ready" always
+    means an actual report exists."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.id == appointment_id)
+        .values(lab_status=lab_status)
+    ))
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    return get_appointment(hospital_id, appointment_id)
 
 
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:

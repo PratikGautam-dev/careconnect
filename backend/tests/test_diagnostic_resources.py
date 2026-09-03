@@ -3,8 +3,10 @@
 diagnostic_resources CRUD + slot generation (mirrors test_doctor_scheduling.py's
 own style for the doctor-side equivalents), and the higher-level booking-flow
 behavior specific to a resource-bound test: variant selection, resource
-double-booking rejection, reschedule carry-forward, and the resource-less
-fallback to any-doctor-with-open-slots."""
+double-booking rejection, reschedule carry-forward, and a resource-less (or
+deactivated-resource) test correctly showing "not available" rather than
+falling back to any-doctor-with-open-slots (removed -- confirmed with the
+user directly, see the two tests at the bottom of this file)."""
 from datetime import datetime, timedelta
 
 import pytest
@@ -254,15 +256,51 @@ async def test_rescheduling_a_resource_bound_appointment_carries_test_and_resour
 
 
 @pytest.mark.asyncio
-async def test_resource_less_test_falls_back_to_any_doctor_with_open_slots(hospital_id, sessions):
-    """A seeded default test has resource_id=None -- booking it should still
-    work end to end via the pre-existing any-doctor fallback."""
+async def test_resource_less_test_shows_not_available_instead_of_falling_back_to_a_doctor(hospital_id, sessions):
+    """Confirmed with the user directly: a test with no resource linked no
+    longer falls back to any-doctor-with-open-slots (that silently tied a
+    lab/diagnostic booking to an unrelated doctor's calendar) -- it's simply
+    "not available right now," the same treatment an unconfigured doctor
+    (zero generated slots) already gets elsewhere in this app."""
     wa = FakeWhatsAppClient()
     test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
     assert test.get("resource_id") is None
 
-    await _book_diagnostic_test(wa, sessions, hospital_id, test["name"])
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
+
+    # Reset back to idle (main menu shown), not stuck mid-flow, and no
+    # appointment was ever created.
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    kind, kwargs = wa.sent[-2]
+    assert kind == "text"
+    assert "no available slots" in kwargs["text"].lower() or "not available" in kwargs["text"].lower()
     due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
-    appt = next(a for a in due if a.phone == PHONE)
-    assert appt.resource_id is None
-    assert appt.doctor_id is not None
+    assert not any(a.phone == PHONE for a in due)
+
+
+@pytest.mark.asyncio
+async def test_deactivated_resource_also_shows_not_available(hospital_id, sessions):
+    """A test still pointing at a resource_id that's since been deactivated
+    must be treated the same as no resource at all -- not a crash, not a
+    silent doctor substitution."""
+    wa = FakeWhatsAppClient()
+    resource = db.create_resource(
+        hospital_id, "MRI Machine 1",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri"], working_hours=["09:00-17:00"], slot_duration_minutes=30,
+    )
+    test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
+    db.update_diagnostic_test(hospital_id, test["id"], test["name"], resource["id"])
+    db.set_resource_active(hospital_id, resource["id"], False)
+    # get_diagnostic_resources() only returns active resources -- confirm
+    # the test's own resource_id now resolves to nothing live.
+    assert not any(r["id"] == resource["id"] for r in db.get_diagnostic_resources(hospital_id))
+
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
+
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
+    assert not any(a.phone == PHONE for a in due)

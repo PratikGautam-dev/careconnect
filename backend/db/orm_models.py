@@ -192,6 +192,35 @@ class DiagnosticTestVariant(Base):
     sort_order: Mapped[int]
 
 
+class LabServiceArea(Base):
+    """db/schema.sql's lab_service_areas table -- hospital-configurable list
+    of PIN codes serviceable for Lab Test home sample collection."""
+    __tablename__ = "lab_service_areas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    pincode: Mapped[str]
+    is_active: Mapped[bool]
+
+
+class AppointmentLabTest(Base):
+    """db/schema.sql's appointment_lab_tests table -- the Lab Test basket: N
+    rows per one `appointments` row, one per selected test+variant. Snapshot
+    columns (test_label/variant_label/price/preparation_instructions) follow
+    the same denormalization convention as appointments.diagnostic_test_label."""
+    __tablename__ = "appointment_lab_tests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"))
+    diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
+    diagnostic_test_variant_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_test_variants.id"))
+    test_label: Mapped[str]
+    variant_label: Mapped[str]
+    price: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    preparation_instructions: Mapped[str | None]
+
+
 class FaqTopic(Base):
     """db/schema.sql's faq_topics table -- the faq_flow_type's entire data
     model (SPEC Section 14.2)."""
@@ -329,6 +358,15 @@ class AppointmentRow(Base):
     diagnostic_test_label: Mapped[str | None]
     diagnostic_variant_label: Mapped[str | None]
     diagnostic_price: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    # Lab Test Phase 2 follow-up: collection details + the post-booking
+    # report lifecycle, only ever set for a Lab Test booking -- see
+    # db/schema.sql's own column comments. The basket itself lives in
+    # AppointmentLabTest, not here.
+    collection_method: Mapped[str | None]
+    collection_address: Mapped[str | None]
+    collection_pincode: Mapped[str | None]
+    home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    lab_status: Mapped[str | None]
 
 
 class AppointmentReminder(Base):
@@ -723,3 +761,7 @@ class HospitalSettings(Base):
     # entirely rather than showing a fake ₹0.
     followup_fee: Mapped[float | None] = mapped_column(Numeric(10, 2))
     new_consultation_fee: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    # Lab Test Phase 2 follow-up: flat fee added to a home-collection Lab
+    # Test booking's price review, same "unset omits the line" convention as
+    # the two fees above.
+    home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))

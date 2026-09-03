@@ -2,7 +2,8 @@
 """Unit tests for flows/booking/types/registry.py -- docs/per-appointment-type-flow-plan.md
 Phase 1. No DB/connector needed, pure lookup logic."""
 from flows.booking.state import (
-    STATE_AWAITING_CONFIRMATION, STATE_AWAITING_DATE, STATE_AWAITING_DAYCARE_DURATION, STATE_AWAITING_DEPARTMENT,
+    STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_DATE,
+    STATE_AWAITING_DAYCARE_DURATION, STATE_AWAITING_DEPARTMENT,
     STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT, STATE_AWAITING_TIME_SLOT,
 )
 from flows.booking.types.base import FULL_FLOW, NO_DOCTOR_FLOW
@@ -13,17 +14,27 @@ def test_known_types_resolve_to_their_own_flow():
     assert get_type_flow("new").steps == FULL_FLOW
     assert get_type_flow("tele").steps == FULL_FLOW
     assert get_type_flow("second_opinion").steps == FULL_FLOW
-    # Phase 2 Step 5: Diagnostic Test/Lab Test insert a test+variant pick
-    # BEFORE date/time (not NO_DOCTOR_FLOW verbatim) -- see
-    # flows/booking/types/_diagnostic_shared.py, shared by both.
+    # Phase 2 Step 5: Diagnostic Test inserts a test+variant pick BEFORE
+    # date/time (not NO_DOCTOR_FLOW verbatim) -- see flows/booking/types/
+    # _diagnostic_shared.py.
     diagnostic_steps = (
         STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT, STATE_AWAITING_DATE,
         STATE_AWAITING_TIME_SLOT, STATE_AWAITING_CONFIRMATION,
     )
     assert get_type_flow("diagnostic").steps == diagnostic_steps
-    assert get_type_flow("lab").steps == diagnostic_steps
     assert get_type_flow("diagnostic").on_selected is not None
     assert get_type_flow("diagnostic").on_booking_confirmed is not None
+    # Lab Test Phase 2 follow-up: no longer shares diagnostic's single-item
+    # step shape -- a multi-test basket + collection-method choice happens
+    # entirely through lab.py's own on_selected chain (STATE_AWAITING_LAB_TEST
+    # etc., deliberately left OUT of `steps`, same "detour states" precedent
+    # as followup.py's STATE_AWAITING_FOLLOWUP_SELECTION); STATE_AWAITING_
+    # COLLECTION_METHOD IS in `steps` so has_step() can gate the "Change
+    # Collection Method" row.
+    lab_steps = (
+        STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE, STATE_AWAITING_TIME_SLOT, STATE_AWAITING_CONFIRMATION,
+    )
+    assert get_type_flow("lab").steps == lab_steps
     assert get_type_flow("lab").on_selected is not None
     assert get_type_flow("lab").on_booking_confirmed is not None
     # docs/per-appointment-type-flow-plan.md Phase 2 Step 2: Follow-up

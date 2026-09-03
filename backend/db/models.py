@@ -95,7 +95,8 @@ _APPOINTMENT_SELECT = """
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
            a.duration_hours, a.created_at, a.followup_override_until,
            a.resource_id, res.name AS resource_name, a.diagnostic_test_id, a.diagnostic_test_variant_id,
-           a.diagnostic_test_label, a.diagnostic_variant_label, a.diagnostic_price
+           a.diagnostic_test_label, a.diagnostic_variant_label, a.diagnostic_price,
+           a.collection_method, a.collection_address, a.collection_pincode, a.home_collection_charge, a.lab_status
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     LEFT JOIN doctors doc ON doc.id = a.doctor_id
@@ -257,6 +258,15 @@ class Appointment:
     diagnostic_test_label: str | None = None
     diagnostic_variant_label: str | None = None
     diagnostic_price: float | None = None
+    # Lab Test Phase 2 follow-up: collection details + the post-booking
+    # report lifecycle, only ever set for a Lab Test booking. The basket
+    # itself (N test/variant rows) is fetched separately, via
+    # db.get_lab_basket_for_appointment() -- not part of this dataclass.
+    collection_method: str | None = None
+    collection_address: str | None = None
+    collection_pincode: str | None = None
+    home_collection_charge: float | None = None
+    lab_status: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -287,6 +297,13 @@ def _row_to_appointment(row) -> Appointment:
         diagnostic_test_label=row["diagnostic_test_label"],
         diagnostic_variant_label=row["diagnostic_variant_label"],
         diagnostic_price=float(row["diagnostic_price"]) if row["diagnostic_price"] is not None else None,
+        collection_method=row["collection_method"],
+        collection_address=row["collection_address"],
+        collection_pincode=row["collection_pincode"],
+        home_collection_charge=(
+            float(row["home_collection_charge"]) if row["home_collection_charge"] is not None else None
+        ),
+        lab_status=row["lab_status"],
     )
 
 
