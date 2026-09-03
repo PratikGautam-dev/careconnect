@@ -15,7 +15,7 @@ this module -> types.registry -> this module."""
 
 import db.repository as db
 from flows.booking.state import (
-    BACK_ID, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE,
+    BACK_ID, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE,
     STATE_AWAITING_FOLLOWUP_SELECTION, _HISTORY_KEY, _appointment_row_id, _parse_appointment_row_id, _push_history,
 )
 from flows.booking.types.base import NO_DOCTOR_FLOW, TypeFlow
@@ -29,8 +29,6 @@ from core.translations.booking import (
     NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP,
     VIEW_FOLLOWUP_OPTIONS_BUTTON,
 )
-from core.translations.common import BACK_OPTION
-from core.translations.menu import MAIN_MENU_BUTTON
 
 
 def _followup_row_title(appt) -> str:
@@ -61,25 +59,17 @@ async def _send_no_eligible_screen(wa, phone: str, hospital_id: int, sessions, c
     "never had an attended visit" and "every attended visit has aged out of
     the eligibility window" -- same message either way.
 
-    Sends the appointment-type list itself first (same category this came
-    from), with the "no previous appointment" text as its body instead of
-    the list's own generic prompt, followed by the separate Back/Main Menu
-    buttons message -- so the patient can pick a different type directly
-    instead of only being able to back out entirely."""
+    Sends the appointment-type list itself, with the "no previous
+    appointment" text as its body instead of the list's own generic prompt --
+    so the patient can pick a different type directly instead of only being
+    able to back out entirely. _send_appointment_type_menu sends its own
+    Back button as its last message, same as every other list menu."""
     from flows.booking.messages import _send_appointment_type_menu
 
     sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
     await _send_appointment_type_menu(
         wa, phone, hospital_id, connector, language=language, category=context.get("appointment_type_category"),
         body_text_override=t(NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP, language, name=context.get("patient_name")),
-    )
-    await wa.send_buttons(
-        to=phone,
-        body_text="​",
-        buttons=[
-            {"id": BACK_ID, "title": t(BACK_OPTION, language)},
-            {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
-        ],
     )
 
 

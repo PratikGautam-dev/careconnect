@@ -30,8 +30,8 @@ async def portal_create_diagnostic_test(payload: dict, authorization: str | None
     forbidden = require_capability(hospital, "manage_appointment_types")
     if forbidden:
         return forbidden
-    category = (payload or {}).get("category", "")
-    name = (payload or {}).get("name", "").strip()
+    category = (payload or {}).get("category") or ""
+    name = ((payload or {}).get("name") or "").strip()
     resource_id = (payload or {}).get("resource_id") or None
     if category not in _VALID_CATEGORIES or not name:
         return JSONResponse({"error": "category ('diagnostic'/'lab') and name are required."}, status_code=400)
@@ -53,7 +53,7 @@ async def portal_update_diagnostic_test(test_id: int, payload: dict, authorizati
     forbidden = require_capability(hospital, "manage_appointment_types")
     if forbidden:
         return forbidden
-    name = (payload or {}).get("name", "").strip()
+    name = ((payload or {}).get("name") or "").strip()
     resource_id = (payload or {}).get("resource_id") or None
     if not name:
         return JSONResponse({"error": "name is required."}, status_code=400)
@@ -116,11 +116,11 @@ async def portal_create_variant(test_id: int, payload: dict, authorization: str 
         return forbidden
     if db.get_diagnostic_test(hospital.id, test_id) is None:
         return JSONResponse({"error": "No such test."}, status_code=404)
-    label = (payload or {}).get("label", "").strip()
+    label = ((payload or {}).get("label") or "").strip()
     if not label:
         return JSONResponse({"error": "label is required."}, status_code=400)
     price = (payload or {}).get("price")
-    preparation_instructions = (payload or {}).get("preparation_instructions", "").strip() or None
+    preparation_instructions = ((payload or {}).get("preparation_instructions") or "").strip() or None
     variant = db.create_variant(hospital.id, test_id, label, price, preparation_instructions)
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "diagnostic_test_variant.create",
@@ -137,11 +137,11 @@ async def portal_update_variant(variant_id: int, payload: dict, authorization: s
     forbidden = require_capability(hospital, "manage_appointment_types")
     if forbidden:
         return forbidden
-    label = (payload or {}).get("label", "").strip()
+    label = ((payload or {}).get("label") or "").strip()
     if not label:
         return JSONResponse({"error": "label is required."}, status_code=400)
     price = (payload or {}).get("price")
-    preparation_instructions = (payload or {}).get("preparation_instructions", "").strip() or None
+    preparation_instructions = ((payload or {}).get("preparation_instructions") or "").strip() or None
     updated = db.update_variant(hospital.id, variant_id, label, price, preparation_instructions)
     if updated is None:
         return JSONResponse({"error": "No such variant."}, status_code=404)

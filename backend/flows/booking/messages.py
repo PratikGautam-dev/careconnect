@@ -228,7 +228,7 @@ async def _send_appointment_type_menu(
         button_text=t(VIEW_APPOINTMENT_TYPES_BUTTON, language),
         sections=[{"title": t(APPOINTMENT_TYPES_SECTION_TITLE, language), "rows": rows}],
     )
-   
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_label: str, language: str = "en") -> None:

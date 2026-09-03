@@ -1143,9 +1143,10 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
     # Two messages: the appointment-type list itself (so a different type
     # can be picked directly), with the "no previous visit" text as its
-    # body, followed by a separate Back/Main Menu buttons message -- both
-    # exit to the main menu, there's no earlier booking step.
+    # body, followed by _send_appointment_type_menu's own generic Back
+    # button -- exits to the main menu, there's no earlier booking step.
     assert len(wa.sent) == 2
+    assert wa.sent[-1][0] == "buttons"
     list_kind, list_kwargs = wa.sent[-2]
     assert list_kind == "list"
     assert "no previous consultation found" in list_kwargs["body_text"].lower()
@@ -1156,7 +1157,7 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
     buttons_kind, buttons_kwargs = wa.sent[-1]
     assert buttons_kind == "buttons"
     button_ids = {b["id"] for b in buttons_kwargs["buttons"]}
-    assert button_ids == {"nav_back", "goto_main_menu"}
+    assert button_ids == {"nav_back"}
 
 
 @pytest.mark.asyncio

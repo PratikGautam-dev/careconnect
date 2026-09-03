@@ -458,7 +458,7 @@ def _build_lab_success_summary(appointment, context: dict, hospital_id: int) -> 
     )
 
 
-async def _on_lab_booking_confirmed(appointment_id: int, hospital_id: int, patient_id, connector, context: dict) -> None:
+async def _on_lab_booking_confirmed(appointment, connector, context: dict) -> None:
     """Fresh booking only -- context["lab_basket"] is only ever set by
     on_selected's chain, never by the reschedule flow (Tier1Connector.
     reschedule_booking() carries the basket forward itself, via
@@ -477,7 +477,7 @@ async def _on_lab_booking_confirmed(appointment_id: int, hospital_id: int, patie
         for item in basket
     ]
     connector.set_appointment_lab_order_details(
-        hospital_id, appointment_id, context.get("collection_method"), context.get("collection_address"),
+        appointment.hospital_id, appointment.id, context.get("collection_method"), context.get("collection_address"),
         context.get("collection_pincode"), context.get("home_collection_charge"), basket_items,
     )
 

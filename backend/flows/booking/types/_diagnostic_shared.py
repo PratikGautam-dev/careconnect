@@ -240,7 +240,7 @@ async def _handle_awaiting_diagnostic_variant(
     await _send_variant_menu(wa, phone, test, language=language)
 
 
-async def _on_diagnostic_booking_confirmed(appointment_id: int, hospital_id: int, patient_id, connector, context: dict) -> None:
+async def _on_diagnostic_booking_confirmed(appointment, connector, context: dict) -> None:
     """Fresh booking only -- context["diagnostic_test_variant_id"] is set by
     _proceed_with_variant right before confirmation. A reschedule's context
     never has it (that flow only re-asks date/time): Tier1Connector.
@@ -251,7 +251,7 @@ async def _on_diagnostic_booking_confirmed(appointment_id: int, hospital_id: int
     variant_id = context.get("diagnostic_test_variant_id")
     if variant_id is not None:
         connector.set_appointment_diagnostic_details(
-            hospital_id, appointment_id,
+            appointment.hospital_id, appointment.id,
             context.get("diagnostic_test_id"), variant_id,
             context.get("diagnostic_test_name"), context.get("diagnostic_variant_label"),
             context.get("diagnostic_price"),
