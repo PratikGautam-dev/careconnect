@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import cast
 
 import sqlalchemy.exc
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 
@@ -36,7 +36,7 @@ def _appointment_select_stmt():
             AppointmentRow.scheduled_at, AppointmentRow.status, AppointmentRow.source, AppointmentRow.reference_id,
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
-            AppointmentRow.duration_hours, AppointmentRow.created_at,
+            AppointmentRow.duration_hours, AppointmentRow.created_at, AppointmentRow.followup_override_until,
         )
         .select_from(AppointmentRow)
         .join(Department, Department.id == AppointmentRow.department_id)
@@ -425,10 +425,13 @@ def get_followup_eligible_appointments(
     """One row per department: that department's most recent STATUS_ATTENDED
     appointment, only if still within validity_days of its own scheduled_at
     (docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up --
-    hospital_settings.followup_validity_days). Newest first. Dedup by
-    department_id happens here in Python, not a SQL window function -- one
-    patient's attended-appointment history is always a small list, same
-    "keep it simple" precedent get_last_attended_appointment above sets."""
+    hospital_settings.followup_validity_days) OR a staff-granted
+    followup_override_until (migration 0024) hasn't passed yet -- an
+    admin/receptionist override widens the window for one specific visit,
+    it never narrows it. Newest first. Dedup by department_id happens here
+    in Python, not a SQL window function -- one patient's attended-
+    appointment history is always a small list, same "keep it simple"
+    precedent get_last_attended_appointment above sets."""
     now = now or datetime.now()
     cutoff = now - timedelta(days=validity_days)
     session = get_session()
@@ -436,7 +439,11 @@ def get_followup_eligible_appointments(
         _appointment_select_stmt()
         .where(
             AppointmentRow.hospital_id == hospital_id, AppointmentRow.patient_id == patient_id,
-            AppointmentRow.status == STATUS_ATTENDED, AppointmentRow.scheduled_at >= cutoff.isoformat(),
+            AppointmentRow.status == STATUS_ATTENDED,
+            or_(
+                AppointmentRow.scheduled_at >= cutoff.isoformat(),
+                AppointmentRow.followup_override_until >= now.date().isoformat(),
+            ),
         )
         .order_by(AppointmentRow.scheduled_at.desc())
     ).all()
@@ -449,6 +456,36 @@ def get_followup_eligible_appointments(
         seen_departments.add(appt.department_id)
         eligible.append(appt)
     return eligible
+
+
+def grant_followup_extension(
+    hospital_id: int, appointment_id: int, extra_days: int, now: datetime | None = None,
+) -> Appointment | None:
+    """Portal-only staff action (admin/receptionist, gated by portal/deps.py's
+    require_permission -- see portal/routes/bookings.py's followup/extend
+    route): grants a patient extra_days beyond today to book a follow-up
+    against THIS specific ATTENDED appointment, without changing the
+    hospital-wide followup_validity_days setting. Widens (never narrows) the
+    normal window -- get_followup_eligible_appointments() ORs the two, so
+    this only matters once the normal window has already closed. Returns
+    None if there's no such ATTENDED appointment for this hospital (a still-
+    booked/cancelled/soft-deleted row, or a wrong hospital_id, is never
+    extendable)."""
+    now = now or datetime.now()
+    override_until = (now.date() + timedelta(days=extra_days)).isoformat()
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(AppointmentRow)
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.id == appointment_id,
+            AppointmentRow.status == STATUS_ATTENDED, AppointmentRow.deleted_at.is_(None),
+        )
+        .values(followup_override_until=override_until)
+    ))
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    return get_appointment(hospital_id, appointment_id)
 
 
 def get_upcoming_appointments(hospital_id: int, offset_hours: float, now: datetime | None = None) -> list[Appointment]:

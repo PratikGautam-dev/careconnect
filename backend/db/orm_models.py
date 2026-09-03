@@ -239,6 +239,9 @@ class AppointmentRow(Base):
     consent_given_at: Mapped[str | None]
     video_link: Mapped[str | None]
     duration_hours: Mapped[int | None]
+    # Follow-up validity override (migration 0024) -- see db/schema.sql's own
+    # column comment. NULL means no override has ever been granted.
+    followup_override_until: Mapped[str | None]
 
 
 class AppointmentReminder(Base):

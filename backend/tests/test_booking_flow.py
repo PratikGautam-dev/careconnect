@@ -1141,13 +1141,21 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
 
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
-    # A single buttons message: the "no previous visit" text plus Back/Main
-    # Menu -- both exit to the main menu, there's no earlier booking step.
-    kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert "no previous consultation found" in kwargs["body_text"].lower()
-    assert "ravi kumar" in kwargs["body_text"].lower()
-    button_ids = {b["id"] for b in kwargs["buttons"]}
+    # Two messages: the appointment-type list itself (so a different type
+    # can be picked directly), with the "no previous visit" text as its
+    # body, followed by a separate Back/Main Menu buttons message -- both
+    # exit to the main menu, there's no earlier booking step.
+    assert len(wa.sent) == 2
+    list_kind, list_kwargs = wa.sent[-2]
+    assert list_kind == "list"
+    assert "no previous consultation found" in list_kwargs["body_text"].lower()
+    assert "ravi kumar" in list_kwargs["body_text"].lower()
+    row_ids = {row["id"] for row in list_kwargs["sections"][0]["rows"]}
+    assert "followup" in row_ids
+
+    buttons_kind, buttons_kwargs = wa.sent[-1]
+    assert buttons_kind == "buttons"
+    button_ids = {b["id"] for b in buttons_kwargs["buttons"]}
     assert button_ids == {"nav_back", "goto_main_menu"}
 
 

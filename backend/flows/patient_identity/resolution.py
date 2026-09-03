@@ -9,7 +9,6 @@ from core.translations.common import BACK_OPTION
 from core.translations.patient_identity import (
     ADD_PATIENT_SHORT,
     MULTI_PATIENT_SELECTOR_PROMPT,
-    PATIENT_SELECTED_CONFIRMATION,
     PATIENT_SELECTOR_BUTTON,
     PATIENT_SELECTOR_PROMPT,
     PATIENT_SELECTOR_SECTION_TITLE,
@@ -207,15 +206,14 @@ async def _handle_awaiting_single_patient_confirm(
             patients = connector.list_active_patients(hospital_id, phone)
             selected = next((p for p in patients if p["id"] == patient_id), None)
             if selected is not None:
-                await wa.send_text(
-                    phone,
-                    t(
-                        PATIENT_SELECTED_CONFIRMATION, language,
-                        patient_name=selected["name"], patient_code=selected["patient_display_id"] or "—",
-                    ),
-                )
+                # No separate "Patient Selected" text here -- router.py's
+                # _enter_idle (reached right after this, since state is now
+                # IDLE) reads show_patient_selected_banner and prepends
+                # PATIENT_SELECTED_BANNER onto the main menu list's own body
+                # instead, so confirmation and menu land as ONE message.
                 sessions.set(
-                    hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language,
+                    hospital_id, phone, "IDLE",
+                    {"just_confirmed_patient": True, "show_patient_selected_banner": True}, language=language,
                     active_patient_id=patient_id,
                 )
                 return

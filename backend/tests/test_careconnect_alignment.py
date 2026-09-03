@@ -92,19 +92,25 @@ async def test_main_menu_shows_patient_name_and_mrn_header(hospital_id):
 # --- 2. Duplicate-patient detection ---
 
 @pytest.mark.asyncio
-async def test_duplicate_match_offers_link_existing_or_different_patient(hospital_id):
-    """Exact name (normalized) + exact contact phone number match, among
-    this hospital's active patients -- confirmed as the matching criteria
-    with the user (age is no longer part of it). The existing patient's own
-    contact number ("5490009999") was set at creation time via
-    create_patient_profile()'s contact_phone default (= the phone it was
-    registered under); the NEW registration reaches it here by explicitly
-    giving that SAME number as "Someone Else"'s contact number, from a
-    totally different WhatsApp conversation (PHONE) -- exactly the
-    "different WhatsApp number, same patient" scenario this check exists
-    for."""
+async def test_duplicate_match_offers_link_existing(hospital_id):
+    """Exact name (normalized) + exact contact phone + exact age + exact
+    gender match, among this hospital's active patients -- confirmed as the
+    matching criteria with the user (widened from name+phone only, since a
+    4-field exact match is essentially certain to be the same real person).
+    The existing patient's own contact number ("5490009999") was set at
+    creation time via create_patient_profile()'s contact_phone default (=
+    the phone it was registered under); the NEW registration reaches it here
+    by explicitly giving that SAME number as "Someone Else"'s contact
+    number, from a totally different WhatsApp conversation (PHONE) -- exactly
+    the "different WhatsApp number, same patient" scenario this check exists
+    for. Only "Link Existing" / "Cancel" are offered -- "Different Patient"
+    was removed entirely (confirmed with the user), since a 4-field exact
+    match makes deliberately creating a duplicate record never the right
+    move."""
     connector = flows._DEFAULT_CONNECTOR
-    existing = db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self")
+    existing = db.create_patient_profile(
+        hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self", gender="Other",
+    )
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)  # 0 linked patients on THIS phone -> registration
 
@@ -127,14 +133,20 @@ async def test_duplicate_match_offers_link_existing_or_different_patient(hospita
     kwargs = _last_buttons(wa)
     assert existing["patient_display_id"] in kwargs["body_text"]
     button_ids = {b["id"] for b in kwargs["buttons"]}
-    assert patient_identity.DUPLICATE_LINK_ID in button_ids
-    assert patient_identity.DUPLICATE_DIFFERENT_ID in button_ids
+    assert button_ids == {patient_identity.DUPLICATE_LINK_ID, patient_identity.CONFIRM_NO}
 
 
 @pytest.mark.asyncio
 async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
+    """Also covers rule 3 (confirmed with the user): the matched patient's
+    own contact number ("5490009999") differs from the messaging phone
+    (PHONE), so linking keeps the relationship that was already being
+    collected ("Other", from BOOKING_FOR_OTHER_ID) -- not silently
+    overridden to "Self"."""
     connector = flows._DEFAULT_CONNECTOR
-    existing = db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self")
+    existing = db.create_patient_profile(
+        hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self", gender="Other",
+    )
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
@@ -157,6 +169,7 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
     assert len(linked) == 1
     assert linked[0]["id"] == existing["id"]
     assert linked[0]["patient_display_id"] == existing["patient_display_id"]
+    assert linked[0]["relationship_label"] == "Other"
     # No new patients row was created for this "link existing" choice --
     # same total patients count at this hospital as before.
     all_patients_count = db.get_connection().execute(
@@ -166,9 +179,14 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
 
 
 @pytest.mark.asyncio
-async def test_different_patient_creates_a_genuinely_new_profile(hospital_id):
+async def test_cancel_on_duplicate_decision_restarts_registration(hospital_id):
+    """"Different Patient" was removed entirely (confirmed with the user) --
+    Cancel (CONFIRM_NO, already labelled "Cancel") is the only other option,
+    and lands exactly where it already did before this change: registration
+    restarts from the top (identity_flow_next defaults to "resolve", not
+    "manage_patients", for a fresh conversation)."""
     connector = flows._DEFAULT_CONNECTOR
-    existing = db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self")
+    db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self", gender="Other")
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
@@ -182,14 +200,70 @@ async def test_different_patient_creates_a_genuinely_new_profile(hospital_id):
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_DUPLICATE_DECISION
+
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.DUPLICATE_DIFFERENT_ID), connector=connector, enabled_features=["book_doctor_appointment"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.CONFIRM_NO), connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_BOOKING_FOR
+    assert connector.list_active_patients(hospital_id, PHONE) == []
+
+
+@pytest.mark.asyncio
+async def test_linking_a_someone_else_match_whose_own_phone_is_this_conversation_becomes_self(hospital_id):
+    """Rule 4 (confirmed with the user): if the matched patient's own
+    contact number IS this same messaging phone, linking it treats it as
+    the caller's actual "Myself" record -- relationship_label is forced to
+    "Self" even though "Someone Else" was tapped, since that's what it
+    actually is."""
+    connector = flows._DEFAULT_CONNECTOR
+    # A fresh phone shaped to survive _parse_contact_phone_number's round
+    # trip ("91" + 10 digits) -- this conversation's OWN messaging number,
+    # simulating a patient record whose contact phone already IS this
+    # number (e.g. staff-created, or a since-unlinked earlier registration)
+    # without it being actively linked here yet.
+    self_match_phone = "917612345678"
+    existing = db.create_patient_profile(
+        hospital_id, "919999999999", "Ravi Kumar", 34, gender="Other", contact_phone=self_match_phone,
+    )
+    assert connector.list_active_patients(hospital_id, self_match_phone) == []
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id, phone=self_match_phone)
+
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID),
+        connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, text_reply("Ravi Kumar"),
+        connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, text_reply("7612345678"),
+        connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, text_reply("34"),
+        connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
+        connector=connector, enabled_features=["book_doctor_appointment"],
+    )
+    assert sessions.get(hospital_id, self_match_phone)["state"] == patient_identity.STATE_AWAITING_DUPLICATE_DECISION
+
+    await flows.handle_incoming(
+        wa, sessions, self_match_phone, hospital_id, tap(patient_identity.DUPLICATE_LINK_ID),
+        connector=connector, enabled_features=["book_doctor_appointment"],
     )
 
-    linked = connector.list_active_patients(hospital_id, PHONE)
+    linked = connector.list_active_patients(hospital_id, self_match_phone)
     assert len(linked) == 1
-    assert linked[0]["id"] != existing["id"]
-    assert linked[0]["patient_display_id"] != existing["patient_display_id"]
+    assert linked[0]["id"] == existing["id"]
+    assert linked[0]["relationship_label"] == "Self"
 
 
 @pytest.mark.asyncio
@@ -396,8 +470,9 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     assert button_ids == {patient_identity.ADD_PATIENT_ENTRY_ID}
     assert patient_identity.CONFIRM_YES not in button_ids
 
-    # Tapping a row activates that patient directly -- no Yes/No gate, but a
-    # "Patient Selected" text confirms which one before the main menu shows.
+    # Tapping a row activates that patient directly -- no Yes/No gate, and a
+    # "✅ Patient Selected" banner is folded into the main menu list's own
+    # body (not a separate text message before it).
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity._patient_row_id(raj["id"])),
         connector=connector, enabled_features=["book_doctor_appointment"],
@@ -405,8 +480,10 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
     assert session["active_patient_id"] == raj["id"]
-    text_messages = [kwargs["text"] for kind, kwargs in wa.sent if kind == "text"]
-    assert any("Patient Selected" in m and "Raj" in m and raj["patient_display_id"] in m for m in text_messages)
+    final_list_kwargs = _last_list(wa)
+    assert "Patient Selected" in final_list_kwargs["body_text"]
+    assert "Raj" in final_list_kwargs["body_text"]
+    assert raj["patient_display_id"] in final_list_kwargs["body_text"]
 
 
 @pytest.mark.asyncio

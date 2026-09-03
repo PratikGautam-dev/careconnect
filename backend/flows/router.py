@@ -121,7 +121,7 @@ from core.translations.my_details import (
     REPORTS_NO_DOCUMENTS_IN_CATEGORY,
     VIEW_DOCUMENTS_BUTTON,
 )
-from core.translations.patient_identity import BACK_TO_MENU_OPTION
+from core.translations.patient_identity import BACK_TO_MENU_OPTION, PATIENT_SELECTED_BANNER
 from core.whatsapp import WhatsAppClient
 from connectors import Connector, Tier1Connector
 import flows.faq as faq_flow
@@ -238,6 +238,18 @@ async def _enter_idle(
         await _send_dpdp_consent_prompt(wa, sessions, phone, hospital_id, hospital_name, resolved_language)
         return
 
+    # Captured before get_or_prompt_for_active_patient runs -- its own
+    # success path replaces the session context wholesale, which would wipe
+    # this flag before _send_dynamic_menu below gets a chance to read it.
+    # Set by patient_identity's row-tap handler right after a patient is
+    # picked from the 2+-linked-patient list (resolution.py's
+    # _handle_awaiting_single_patient_confirm) -- folds a "✅ Patient
+    # Selected" banner into this same menu message instead of a separate
+    # text message before it.
+    show_patient_selected_banner = sessions.get(hospital_id, phone).get("context", {}).get(
+        "show_patient_selected_banner", False,
+    )
+
     active_patient = await patient_identity.get_or_prompt_for_active_patient(
         wa, sessions, phone, hospital_id, connector, language=resolved_language,
         require_patient_confirmation=require_patient_confirmation,
@@ -245,9 +257,11 @@ async def _enter_idle(
     )
     if active_patient is None:
         return
+    body_text_prefix = t(PATIENT_SELECTED_BANNER, resolved_language) if show_patient_selected_banner else ""
     await _send_dynamic_menu(
         wa, phone, hospital_name, enabled_features, language=resolved_language, feature_labels=feature_labels,
         language_prompt_enabled=language_prompt_enabled, active_patient=active_patient,
+        body_text_prefix=body_text_prefix,
     )
 
 

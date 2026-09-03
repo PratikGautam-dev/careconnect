@@ -3,7 +3,7 @@
 Remove Patient (shows the patient list ONLY to pick who to remove, then
 confirms) / Add Patient (the existing registration flow, registration.py) --
 no "switch active patient" action here anymore, that's resolution.py's job."""
-from connectors import Connector
+from connectors import Connector, RELATIONSHIP_SELF
 from core.translations import t
 from core.translations.common import BACK_OPTION
 from core.translations.booking import CANCEL_BUTTON, CONFIRM_BUTTON
@@ -18,6 +18,8 @@ from core.translations.manage_patients import (
     PATIENT_UNLINKED,
     REMOVE_PATIENT_OPTION,
     UNLINK_PATIENT_CONFIRM,
+    UNLINK_SELF_BLOCKED,
+    UNLINK_SELF_CONTACT_RECEPTION,
 )
 from core.whatsapp import WhatsAppClient
 
@@ -117,7 +119,11 @@ async def _handle_awaiting_remove_patient_selection(
             if match:
                 sessions.set(
                     hospital_id, phone, STATE_AWAITING_UNLINK_CONFIRM,
-                    {"unlink_patient_id": patient_id, "unlink_patient_name": match["name"]}, language=language,
+                    {
+                        "unlink_patient_id": patient_id, "unlink_patient_name": match["name"],
+                        "unlink_relationship_label": match.get("relationship_label"),
+                    },
+                    language=language,
                 )
                 await wa.send_buttons(
                     to=phone,
@@ -152,6 +158,16 @@ async def _handle_awaiting_unlink_confirm(
     patient_name = context.get("unlink_patient_name", "")
     if reply["type"] == "interactive_reply" and patient_id is not None:
         if reply["id"] == CONFIRM_YES:
+            if context.get("unlink_relationship_label") == RELATIONSHIP_SELF:
+                # Confirmed with the user: the "Myself"/master patient can
+                # never be self-unlinked -- two separate messages (not
+                # merged), then land exactly like CONFIRM_NO (cancelled)
+                # already does below: nothing changed, so main menu (IDLE)
+                # with just_confirmed_patient set.
+                await wa.send_text(phone, t(UNLINK_SELF_BLOCKED, language, patient_name=patient_name))
+                await wa.send_text(phone, t(UNLINK_SELF_CONTACT_RECEPTION, language))
+                sessions.set(hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language)
+                return
             connector.unlink_patient(hospital_id, phone, patient_id)
             session = sessions.get(hospital_id, phone)
             removed_was_active = session.get("active_patient_id") == patient_id

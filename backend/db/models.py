@@ -93,7 +93,7 @@ _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
-           a.duration_hours, a.created_at
+           a.duration_hours, a.created_at, a.followup_override_until
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     JOIN doctors doc ON doc.id = a.doctor_id
@@ -236,6 +236,13 @@ class Appointment:
     # different situations. NOT NULL/DB-default since schema.sql's baseline,
     # so always present.
     created_at: datetime | None = None
+    # Follow-up validity override (migration 0024): a staff-granted date
+    # (admin/receptionist only) through which THIS specific attended
+    # appointment stays follow-up-eligible even if the hospital's normal
+    # followup_validity_days window has already closed. None means no
+    # override has ever been granted -- the normal window is all that
+    # applies. Only ever meaningful when status == STATUS_ATTENDED.
+    followup_override_until: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -258,6 +265,7 @@ def _row_to_appointment(row) -> Appointment:
         video_link=row["video_link"],
         duration_hours=row["duration_hours"],
         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+        followup_override_until=row["followup_override_until"],
     )
 
 

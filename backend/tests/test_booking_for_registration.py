@@ -167,22 +167,27 @@ async def test_second_registration_from_same_account_skips_the_question_and_lock
     assert {p["relationship_label"] for p in linked} == {"Self", "Other"}
 
 
-def test_duplicate_detection_matches_on_name_and_contact_phone_not_age(hospital_id):
+def test_duplicate_detection_matches_on_name_contact_phone_age_and_gender(hospital_id):
     """find_potential_duplicate_patient() -- confirmed with the user: exact
-    name + exact contact phone (patients.phone), scoped to the hospital.
-    Age is no longer part of the match at all: same name+phone with a
-    DIFFERENT age still matches; same name+age with a DIFFERENT phone does
-    NOT."""
-    db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self")
+    name + exact contact phone + exact age + exact gender (all four),
+    scoped to the hospital. Widened from name+phone only since a 4-field
+    exact match is essentially certain to be the same real person."""
+    db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self", gender="Female")
 
-    # Same name, same contact phone, DIFFERENT age -- still a match.
-    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999")
+    # All four match.
+    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 45, "Female")
     assert match is not None
     assert match["name"] == "Asha Rao"
+    assert match["phone"] == "5490009999"
 
-    # Same name, same age, DIFFERENT contact phone -- no longer a match.
-    no_match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333")
-    assert no_match is None
+    # Same name+phone+gender, DIFFERENT age -- no longer a match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 46, "Female") is None
+
+    # Same name+phone+age, DIFFERENT gender -- no longer a match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 45, "Male") is None
+
+    # Same name+age+gender, DIFFERENT contact phone -- no match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333", 45, "Female") is None
 
 
 @pytest.mark.asyncio

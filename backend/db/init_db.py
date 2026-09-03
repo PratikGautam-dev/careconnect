@@ -876,6 +876,10 @@ def init_db_on_connection(conn) -> int:
             "UPDATE appointment_types SET label = ? WHERE id = ? AND label = ?",
             (_new_label, _type_id, _old_label),
         )
+    # Migration 0024: appointments.followup_override_until -- admin/
+    # receptionist follow-up validity override (see db/schema.sql's own
+    # column comment).
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_override_until TEXT")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

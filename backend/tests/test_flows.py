@@ -148,7 +148,7 @@ class FakeConnector:
     def has_self_linked_patient(self, hospital_id, care_connect_account_id):
         return any(p.get("relationship_label") == "Self" for p in self._patients)
 
-    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone):
+    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, age, gender):
         return None
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):

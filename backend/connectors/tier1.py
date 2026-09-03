@@ -67,8 +67,8 @@ class Tier1Connector(Connector):
     def unlink_patient(self, hospital_id, phone, patient_id):
         return repo.unlink_patient(hospital_id, phone, patient_id)
 
-    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone):
-        return repo.find_potential_duplicate_patient(hospital_id, name, contact_phone)
+    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, age, gender):
+        return repo.find_potential_duplicate_patient(hospital_id, name, contact_phone, age, gender)
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
         return repo.link_existing_patient(hospital_id, phone, patient_id, relationship_label=relationship_label)

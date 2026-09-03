@@ -193,7 +193,7 @@ async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, la
 
 async def _send_appointment_type_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en",
-    category: "frozenset[str] | list[str] | None" = None,
+    category: "frozenset[str] | list[str] | None" = None, body_text_override: str | None = None,
 ) -> None:
     """The APPOINTMENT TYPE step -- shown right after patient resolution,
     before department selection (see _select_patient_and_continue's booking
@@ -205,7 +205,11 @@ async def _send_appointment_type_menu(
     is in this set are shown -- Book Doctor Appointment/Tests & Diagnostics
     each pass their own fixed id set (db.BOOK_DOCTOR_APPOINTMENT_CATEGORY/
     TESTS_DIAGNOSTICS_CATEGORY) so the same underlying type list powers both
-    category submenus without duplicating this function."""
+    category submenus without duplicating this function.
+
+    body_text_override lets a caller (e.g. followup.py's "no eligible
+    previous visit" screen) replace the generic SELECT_APPOINTMENT_TYPE body
+    with its own explanatory text, while still showing this same type list."""
     types = connector.get_appointment_types(hospital_id)
     if category is not None:
         types = [t_ for t_ in types if t_["id"] in category]
@@ -213,19 +217,11 @@ async def _send_appointment_type_menu(
     rows = _cap_rows(rows, "appointment type menu")
     await wa.send_list(
         to=phone,
-        body_text=t(SELECT_APPOINTMENT_TYPE, language),
+        body_text=body_text_override or t(SELECT_APPOINTMENT_TYPE, language),
         button_text=t(VIEW_APPOINTMENT_TYPES_BUTTON, language),
         sections=[{"title": t(APPOINTMENT_TYPES_SECTION_TITLE, language), "rows": rows}],
     )
-    # Booking's own first step -- a separate follow-up button (same pattern
-    # as _send_back_button), but GOTO_MAIN_MENU not BACK_ID: intercepted
-    # globally in flows/router.py's handle_incoming, BEFORE any state
-    # dispatch, so it correctly re-shows the REAL dynamic menu (patient
-    # header, actual hospital name, actual enabled features) rather than
-    # this module's own fixed 4-row _send_main_menu stand-in.
-    await wa.send_buttons(
-        to=phone, body_text="​", buttons=[{"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)}],
-    )
+   
 
 
 async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_label: str, language: str = "en") -> None:
@@ -241,6 +237,7 @@ async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_
             {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:

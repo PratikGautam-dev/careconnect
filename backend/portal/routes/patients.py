@@ -73,10 +73,11 @@ async def portal_patient_detail(patient_id: int, authorization: str | None = Hea
     visit_history = db.get_patient_visit_history(hospital.id, patient_id)
     notes = db.get_patient_visit_notes(hospital.id, patient_id)
     documents = db.get_patient_documents(hospital.id, patient_id)
+    validity_days = db.get_followup_validity_days(hospital.id)
 
     return JSONResponse({
         "patient": _patient_json(patient),
-        "visit_history": [_appointment_json(a) for a in visit_history],
+        "visit_history": [_appointment_json(a, validity_days) for a in visit_history],
         "notes": notes,
         "documents": documents,
     })

@@ -63,7 +63,7 @@ def _patient_header(active_patient: dict | None, language: str) -> str:
 async def _send_menu_list(
     wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
     feature_labels: dict[str, str] | None = None, active_patient: dict | None = None,
-    body_text_override: str | None = None,
+    body_text_override: str | None = None, body_text_prefix: str = "",
 ) -> bool:
     """Sends just the list half of the main menu (one row per enabled
     feature, capped to WhatsApp's row limit, patient header on top). Split
@@ -73,9 +73,12 @@ async def _send_menu_list(
     body_text_override lets that same confirmation replace the generic
     patient-header + "How can we assist you today?" body with its own
     "Current Patient: X" welcome text -- the list's rows/button/section are
-    otherwise identical either way. Returns False (having sent the "not set
-    up yet" text instead) when no rows apply -- callers must skip any
-    follow-up buttons message in that case."""
+    otherwise identical either way. body_text_prefix instead PREPENDS onto
+    the generic body without replacing it (e.g. "✅ Patient Selected" right
+    after picking from the 2+-linked-patient list -- see _enter_idle);
+    ignored when body_text_override is given. Returns False (having sent the
+    "not set up yet" text instead) when no rows apply -- callers must skip
+    any follow-up buttons message in that case."""
     feature_labels = feature_labels or {}
     rows = [
         {"id": row_id, "title": feature_labels.get(key) or t(title_key, language)}
@@ -87,7 +90,7 @@ async def _send_menu_list(
         return False
     rows = cap_rows(rows, f"main menu for {hospital_name}")
     body_text = body_text_override or (
-        _patient_header(active_patient, language) + t(WELCOME_MENU, language, hospital_name=hospital_name)
+        body_text_prefix + _patient_header(active_patient, language) + t(WELCOME_MENU, language, hospital_name=hospital_name)
     )
     await wa.send_list(
         to=phone,
@@ -101,13 +104,13 @@ async def _send_menu_list(
 async def _send_dynamic_menu(
     wa: WhatsAppClient, phone: str, hospital_name: str, enabled_features: list[str], language: str = "en",
     feature_labels: dict[str, str] | None = None, language_prompt_enabled: bool = True,
-    active_patient: dict | None = None,
+    active_patient: dict | None = None, body_text_prefix: str = "",
 ) -> None:
     """Sends the hospital's main menu list, then a separate "Back" buttons
     message underneath (a list can't carry its own back row)."""
     sent = await _send_menu_list(
         wa, phone, hospital_name, enabled_features, language=language,
-        feature_labels=feature_labels, active_patient=active_patient,
+        feature_labels=feature_labels, active_patient=active_patient, body_text_prefix=body_text_prefix,
     )
     if not sent:
         return

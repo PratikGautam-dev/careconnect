@@ -24,7 +24,6 @@ from core.translations.booking import (
     INVALID_PATIENT_NAME,
 )
 from core.translations.patient_identity import (
-    DUPLICATE_DIFFERENT_BUTTON,
     DUPLICATE_LINK_BUTTON,
     DUPLICATE_PATIENT_FOUND,
     DUPLICATE_SELF_LINK,
@@ -40,7 +39,6 @@ from flows.patient_identity.state import (
     BOOKING_FOR_OTHER_ID,
     BOOKING_FOR_SELF_ID,
     CONFIRM_NO,
-    DUPLICATE_DIFFERENT_ID,
     DUPLICATE_LINK_ID,
     GENDER_FEMALE_ID,
     GENDER_MALE_ID,
@@ -288,6 +286,7 @@ async def _handle_awaiting_patient_gender(
     new_context = {**context, "pending_gender": gender}
     match = connector.find_potential_duplicate_patient(
         hospital_id, new_context["pending_name"], new_context["pending_contact_phone"],
+        new_context["pending_age"], new_context["pending_gender"],
     )
     if match is not None and connector.validate_active_patient_link(hospital_id, phone, match["id"]):
         identity_flow_next = context.get("identity_flow_next", "resolve")
@@ -303,13 +302,18 @@ async def _handle_awaiting_patient_gender(
         new_context["duplicate_patient_id"] = match["id"]
         new_context["duplicate_patient_name"] = match["name"]
         new_context["duplicate_patient_display_id"] = match["patient_display_id"]
+        # Rule confirmed with the user: if this matched patient's own
+        # contact number IS this same messaging number, linking it should
+        # treat it as the caller's actual "Myself" record (see
+        # _handle_awaiting_duplicate_decision's DUPLICATE_LINK_ID branch),
+        # even though this registration went through "Someone Else".
+        new_context["duplicate_patient_contact_phone"] = match["phone"]
         sessions.set(hospital_id, phone, STATE_AWAITING_DUPLICATE_DECISION, new_context, language=language)
         await wa.send_buttons(
             to=phone,
             body_text=t(DUPLICATE_PATIENT_FOUND, language, name=match["name"], patient_code=match["patient_display_id"] or "—"),
             buttons=[
                 {"id": DUPLICATE_LINK_ID, "title": t(DUPLICATE_LINK_BUTTON, language)},
-                {"id": DUPLICATE_DIFFERENT_ID, "title": t(DUPLICATE_DIFFERENT_BUTTON, language)},
                 {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
             ],
         )
@@ -322,17 +326,32 @@ async def _handle_awaiting_duplicate_decision(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     """Resolves a duplicate-patient match: link the existing profile (no new
-    MRN), create a genuinely new one anyway, or cancel back to the start.
-    Re-shows the same choice on an unrecognized/stale tap."""
+    MRN) or cancel back to the start. No "create a genuinely new profile
+    anyway" escape hatch anymore (confirmed with the user) -- the match is a
+    strict 4-field match (name+contact+age+gender), essentially certain to
+    be the same real person, so deliberately creating a duplicate record is
+    never the right move. Re-shows the same choice on an unrecognized/stale
+    tap."""
     identity_flow_next = context.get("identity_flow_next", "resolve")
     if reply["type"] == "interactive_reply":
         if reply["id"] == DUPLICATE_LINK_ID:
-            # Link the EXISTING patient -- no new MRN.
-            link_context = {**context, "link_target_patient_id": context["duplicate_patient_id"]}
+            # Link the EXISTING patient -- no new MRN. If that patient's own
+            # contact number IS this messaging number, this is actually the
+            # caller's own "Myself" record (confirmed with the user) --
+            # force relationship_label=Self regardless of which relationship
+            # was being collected in this registration attempt. The existing
+            # has_self_linked_patient pre-check / DuplicateSelfLinkError hard
+            # backstop already cover a second active Self link being
+            # attempted; no new handling needed for that here.
+            relationship = (
+                RELATIONSHIP_SELF if context.get("duplicate_patient_contact_phone") == phone
+                else context.get("pending_relationship")
+            )
+            link_context = {
+                **context, "link_target_patient_id": context["duplicate_patient_id"],
+                "pending_relationship": relationship,
+            }
             await _create_or_link_patient(wa, sessions, phone, hospital_id, link_context, connector, language)
-            return
-        if reply["id"] == DUPLICATE_DIFFERENT_ID:
-            await _create_or_link_patient(wa, sessions, phone, hospital_id, context, connector, language)
             return
         if reply["id"] == CONFIRM_NO:
             if identity_flow_next == "manage_patients":
@@ -350,7 +369,6 @@ async def _handle_awaiting_duplicate_decision(
         ),
         buttons=[
             {"id": DUPLICATE_LINK_ID, "title": t(DUPLICATE_LINK_BUTTON, language)},
-            {"id": DUPLICATE_DIFFERENT_ID, "title": t(DUPLICATE_DIFFERENT_BUTTON, language)},
             {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )

@@ -36,7 +36,6 @@ MANAGE_PATIENTS_ENTRY_ID = "id_manage_patients_entry"
 # straight into registration, not the full Manage Patients menu.
 ADD_PATIENT_ENTRY_ID = "id_add_patient_entry"
 DUPLICATE_LINK_ID = "id_dup_link"
-DUPLICATE_DIFFERENT_ID = "id_dup_different"
 CONSENT_TOGGLE_MARKETING_ID = "id_consent_marketing_toggle"
 CONSENT_WITHDRAW_SERVICE_ID = "id_consent_withdraw_service"
 

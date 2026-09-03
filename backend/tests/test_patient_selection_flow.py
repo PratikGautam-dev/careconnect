@@ -520,6 +520,52 @@ async def test_cancelling_a_patient_removal_keeps_them_linked_and_shows_the_main
 
 
 @pytest.mark.asyncio
+async def test_self_patient_cannot_be_unlinked_and_lands_on_main_menu(hospital_id):
+    """Confirmed with the user: the "Myself"/master patient can never be
+    self-unlinked -- it still appears in the Remove Patient list (not
+    filtered out), but confirming removal sends two separate messages
+    instead of unlinking, and lands exactly like a cancelled removal does
+    (main menu, active patient untouched)."""
+    connector = flows._DEFAULT_CONNECTOR
+    ravi = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+    sessions.set(hospital_id, PHONE, "IDLE", {}, language="en", active_patient_id=ravi["id"])
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_REMOVE_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    # Still selectable -- not filtered out of the Remove Patient list.
+    list_kind, list_kwargs = next((k, kw) for k, kw in wa.sent if k == "list")
+    row_ids = {row["id"] for row in list_kwargs["sections"][0]["rows"]}
+    assert patient_identity._unlink_row_id(ravi["id"]) in row_ids
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity._unlink_row_id(ravi["id"])),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_UNLINK_CONFIRM
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("confirm"), connector=connector, enabled_features=["manage_patients"],
+    )
+
+    # Never unlinked.
+    linked = connector.list_active_patients(hospital_id, PHONE)
+    assert len(linked) == 1 and linked[0]["id"] == ravi["id"]
+    text_messages = [kwargs["text"] for kind, kwargs in wa.sent if kind == "text"]
+    assert any("main patient" in m.lower() and "Ravi Kumar" in m for m in text_messages)
+    assert any("talk to reception" in m.lower() for m in text_messages)
+    # Same landing as a cancelled removal: main menu, active patient untouched.
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
+    assert sessions.get(hospital_id, PHONE)["active_patient_id"] == ravi["id"]
+
+
+@pytest.mark.asyncio
 async def test_manage_patients_entry_shows_remove_and_add_buttons(hospital_id):
     connector = flows._DEFAULT_CONNECTOR
     db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)

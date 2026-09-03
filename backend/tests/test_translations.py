@@ -69,7 +69,7 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         # AND button dual-use keys (manage_patients_short, back_to_menu_option)
         # checked against the stricter 20-char button limit, which also
         # satisfies the looser 24-char row limit they're reused for.
-        "duplicate_link_button", "duplicate_different_button", "ask_relationship_button",
+        "duplicate_link_button", "ask_relationship_button",
         "manage_patients_short", "back_to_menu_option",
         "consent_marketing_enable", "consent_marketing_disable",
         # WhatsApp menu restructuring: Reports & Prescriptions' own submenu

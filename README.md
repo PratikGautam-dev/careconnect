@@ -283,3 +283,9 @@ No issue template, no CLA. Just describe what you changed and why.
 ## License
 
 MIT
+
+
+
+
+
+One flag before I touch auth: bookings.py is explicitly documented as still using the old hospital-only login (which also accepts a legacy shared portal password, not just per-staff logins) — staff.py/roles.py already migrated to staff-only login, but doing that to all of bookings.py would lock out any hospital still on the legacy shared password from the entire Appointments page, which is far riskier than those two admin-only pages. I'll gate the two new follow-up routes on proper staff role-checks (they're new, so no one depends on reaching them via legacy auth), but leave the existing 9 routes on _authenticate() as-is rather than bundle a bigger migration in — that's a separate, deliberate cleanup this codebase already has flagged for later. Proceeding now.
