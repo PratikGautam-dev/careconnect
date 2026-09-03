@@ -182,7 +182,15 @@ if os.environ.get("FRONTEND_ORIGIN"):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_frontend_origins,
-    allow_methods=["GET", "POST"],
+    # PATCH (portal/routes/staff.py's edit-staff route), PUT (daycare-
+    # duration-options, roles/permissions), and DELETE (daycare-duration-
+    # options) all gained real routes since this list was last GET/POST --
+    # a stale allow_methods list here means their preflight OPTIONS request
+    # succeeds but the browser still blocks the ACTUAL PATCH/PUT/DELETE
+    # response, surfacing as a CORS error that looks identical to a wrong
+    # FRONTEND_ORIGIN (same "No 'Access-Control-Allow-Origin' header"
+    # console message) despite the origin being fine.
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 

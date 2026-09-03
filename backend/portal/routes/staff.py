@@ -76,7 +76,13 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
     if payload.role != "doctor" and payload.doctor_id:
         errors.append("doctor_id may only be set for the Doctor role.")
     if errors:
-        return JSONResponse({"errors": errors}, status_code=400)
+        # {"error": "..."} (a single joined string), not {"errors": [...]} --
+        # matching every other route's error-response shape in this codebase
+        # (and what staffFetch/the frontend's setFormError() actually reads,
+        # via result.error). The plural/array shape here was silently
+        # swallowed by the frontend, which fell back to a generic
+        # "Something went wrong." instead of ever showing these real reasons.
+        return JSONResponse({"error": " ".join(errors)}, status_code=400)
 
     try:
         staff = db.create_staff_user(
@@ -85,7 +91,7 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
         )
     except db.IntegrityError:
         return JSONResponse(
-            {"errors": [f'"{email}" is already in use by another staff account, or the selected doctor already has a login.']},
+            {"error": f'"{email}" is already in use by another staff account, or the selected doctor already has a login.'},
             status_code=400,
         )
 
