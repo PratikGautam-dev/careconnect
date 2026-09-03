@@ -274,3 +274,37 @@ def test_acquire_message_lock_blocks_second_call_until_released(hospital_id):
     m._release_message_lock(hospital_id, phone)
     assert m._acquire_message_lock(hospital_id, phone) is True  # available again
     m._release_message_lock(hospital_id, phone)
+
+
+def test_dead_shared_session_self_heals_after_a_request_fails():
+    """Production incident: Neon (serverless Postgres) can close the shared
+    ORM session's underlying connection server-side after a period of
+    inactivity ("SSL connection has been closed unexpectedly"). Before this
+    fix, main.py's _rollback_shared_session_on_error middleware only called
+    session.rollback() on any request-level exception -- harmless for a
+    poisoned-transaction failure, but a no-op (silently swallowed) for a
+    genuinely dead connection, leaving that SAME broken session wired in
+    for every request afterward until the whole process restarted.
+
+    Registers a throwaway route directly on the real app (removed at the
+    end) that unconditionally raises, so this test exercises the actual
+    middleware rather than reasoning about it -- any unhandled exception,
+    not just a DB one, must leave db.connection's shared session reset to
+    None afterward, so the NEXT request builds a fresh one instead of
+    repeating the same failure forever."""
+    import db.connection as db_connection
+
+    db_connection.get_session()  # ensure a session already exists
+    assert db_connection._session is not None
+
+    @app.get("/__test_force_unhandled_error__")
+    def _boom():
+        raise RuntimeError("simulated dead connection")
+
+    try:
+        test_client = TestClient(app, raise_server_exceptions=False)
+        resp = test_client.get("/__test_force_unhandled_error__")
+        assert resp.status_code == 500
+        assert db_connection._session is None
+    finally:
+        app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) != "/__test_force_unhandled_error__"]
