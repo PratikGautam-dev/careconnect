@@ -169,6 +169,22 @@ export default function LandingPage() {
                 </li>
               </ul>
             </div>
+
+            <div>
+              <p className="text-eyebrow mb-space-2">Legal</p>
+              <ul className="space-y-space-2 text-[13.5px] text-ink-600">
+                <li>
+                  <a href="/privacy" className="hover:text-brand-600 hover:underline">
+                    Privacy Policy
+                  </a>
+                </li>
+                <li>
+                  <a href="/terms" className="hover:text-brand-600 hover:underline">
+                    Terms of Service
+                  </a>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
 
