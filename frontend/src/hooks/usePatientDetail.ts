@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
-import { TYPE_LABELS } from "@/hooks/useAppointments";
+import { NewBookingContext, TYPE_LABELS } from "@/hooks/useAppointments";
 
 function visitTypeBucket(v: { appointment_type_id: string | null }) {
   return v.appointment_type_id && v.appointment_type_id in TYPE_LABELS ? v.appointment_type_id : "other";
@@ -24,7 +24,9 @@ export type Patient = {
 export type Visit = {
   id: number;
   phone: string;
+  department_id: string;
   department_name: string;
+  doctor_id: string;
   doctor_name: string;
   scheduled_at: string;
   status: string;
@@ -33,6 +35,14 @@ export type Visit = {
   appointment_type_id: string | null;
   video_link: string | null;
   created_at: string | null;
+  // Follow-up validity override (migration 0024) -- only ever set/meaningful
+  // for a status === "attended" visit. followup_valid_until is the fully-
+  // resolved date a follow-up can still be booked against THIS visit through
+  // (normal hospital-wide window, extended by followup_override_until when
+  // that's later); followup_override_until is the raw staff-granted date
+  // (null if never granted).
+  followup_valid_until: string | null;
+  followup_override_until: string | null;
 };
 
 export type Note = {
@@ -54,6 +64,7 @@ export type PatientDocument = {
   uploaded_at: string;
   uploaded_by_session_id: string | null;
   sent_to_whatsapp_at: string | null;
+  document_type: string;
 };
 
 export type DetailData = { patient: Patient; visit_history: Visit[]; notes: Note[]; documents: PatientDocument[] };
@@ -91,8 +102,26 @@ export function usePatientDetail(patientId: string, ready: boolean) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // WhatsApp menu restructuring: Reports & Prescriptions' "View
+  // Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+  // this -- picked once here, applied to whichever file is chosen next.
+  const [documentType, setDocumentType] = useState("other");
   const [sendingDocId, setSendingDocId] = useState<number | null>(null);
   const [sendError, setSendError] = useState<Record<number, string>>({});
+
+  // Follow-up validity override (migration 0024) -- admin/receptionist-only
+  // (backend-gated; the page hides these behind PermissionGate write on
+  // "appointments" too) "Extend" (grant extra days, patient books it
+  // themselves on WhatsApp) and "Book now" (staff books it directly,
+  // ignoring the window) actions, one shared panel per attended visit row.
+  const [followupPanelId, setFollowupPanelId] = useState<number | null>(null);
+  const [followupError, setFollowupError] = useState("");
+  const [extendDays, setExtendDays] = useState("3");
+  const [extendingId, setExtendingId] = useState<number | null>(null);
+  const [bookCtx, setBookCtx] = useState<NewBookingContext | null>(null);
+  const [bookDate, setBookDate] = useState("");
+  const [bookSlotId, setBookSlotId] = useState("");
+  const [bookingId, setBookingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     const result = await portalFetch(`/api/portal/patients/${patientId}`);
@@ -163,6 +192,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("document_type", documentType);
     const result = await portalFetch(`/api/portal/patients/${patientId}/documents`, {
       method: "POST",
       body: formData,
@@ -185,6 +215,66 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     } else if (!result.unauthorized) {
       setSendError((e) => ({ ...e, [documentId]: result.error }));
     }
+  }
+
+  async function openFollowupPanel(visit: Visit) {
+    setFollowupError("");
+    setExtendDays("3");
+    setBookDate("");
+    setBookSlotId("");
+    setFollowupPanelId(visit.id);
+    if (!bookCtx) {
+      const result = await portalFetch("/api/portal/new-booking/context");
+      if (result.ok) setBookCtx(result.data as NewBookingContext);
+    }
+  }
+
+  function closeFollowupPanel() {
+    setFollowupPanelId(null);
+    setFollowupError("");
+  }
+
+  async function handleExtendFollowup(visitId: number) {
+    const extraDays = parseInt(extendDays, 10);
+    if (!Number.isFinite(extraDays) || extraDays <= 0) {
+      setFollowupError("Enter a positive number of days.");
+      return;
+    }
+    setExtendingId(visitId);
+    setFollowupError("");
+    const result = await portalFetch(`/api/portal/bookings/${visitId}/followup/extend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ extra_days: extraDays }),
+    });
+    setExtendingId(null);
+    if (!result.ok) {
+      if (!result.unauthorized) setFollowupError(result.error);
+      return;
+    }
+    closeFollowupPanel();
+    load();
+  }
+
+  async function handleBookFollowupNow(visitId: number) {
+    if (!bookSlotId) {
+      setFollowupError("Choose an available slot.");
+      return;
+    }
+    setBookingId(visitId);
+    setFollowupError("");
+    const result = await portalFetch(`/api/portal/bookings/${visitId}/followup/book`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduled_at: bookSlotId }),
+    });
+    setBookingId(null);
+    if (!result.ok) {
+      if (!result.unauthorized) setFollowupError(result.error);
+      return;
+    }
+    closeFollowupPanel();
+    load();
   }
 
   const visitTypeCounts = useMemo(() => {
@@ -234,7 +324,10 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     visitTypeCounts, filteredVisits,
     generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
     handleAddNote,
-    fileInputRef, uploading, handleUpload,
+    fileInputRef, uploading, handleUpload, documentType, setDocumentType,
     sendingDocId, sendError, handleSendToWhatsapp,
+    followupPanelId, openFollowupPanel, closeFollowupPanel, followupError,
+    extendDays, setExtendDays, extendingId, handleExtendFollowup,
+    bookCtx, bookDate, setBookDate, bookSlotId, setBookSlotId, bookingId, handleBookFollowupNow,
   };
 }

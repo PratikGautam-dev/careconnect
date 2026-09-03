@@ -10,11 +10,12 @@ type Action = "view" | "write" | "delete";
 type PagePerms = Record<Action, boolean>;
 type Matrix = Record<StaffRole, Record<string, PagePerms>>;
 
-const PAGE_KEYS = ["dashboard", "appointments", "patients", "doctors", "messages", "settings", "staff", "roles"];
+const PAGE_KEYS = ["dashboard", "appointments", "patients", "schedule", "doctors", "messages", "settings", "staff", "roles"];
 const PAGE_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
   appointments: "Appointments",
   patients: "Patients",
+  schedule: "Schedule",
   doctors: "Doctors",
   messages: "Messages",
   settings: "Settings",
@@ -44,7 +45,7 @@ export default function RolesPermissionsPage() {
       else setError(result.error);
       return;
     }
-    setMatrix(result.data as Matrix);
+    setMatrix((result.data as { permissions: Matrix }).permissions);
   }, [router]);
 
   useEffect(() => {

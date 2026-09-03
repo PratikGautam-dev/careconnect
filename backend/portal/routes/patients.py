@@ -2,7 +2,7 @@ from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 
 import db.repository as db
-from portal.deps import _authenticate, _session_id
+from portal.deps import _authenticate, _authenticate_with_role, _session_id
 from portal.routes.bookings import _appointment_json
 
 router = APIRouter()
@@ -10,9 +10,17 @@ router = APIRouter()
 
 @router.get("/api/portal/patients")
 async def portal_patients(search: str = "", authorization: str | None = Header(default=None)):
-    hospital = _authenticate(authorization)
+    """Scoped to only patients the caller has actually seen when
+    role=="doctor" -- see portal_bookings()'s own note on why."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if role == "doctor" and doctor_id is not None:
+        patients = db.get_patients_for_doctor(hospital.id, doctor_id)
+        if search:
+            q = search.strip().lower()
+            patients = [p for p in patients if q in (p.get("name") or "").lower() or q in (p.get("phone") or "")]
+        return JSONResponse({"patients": patients})
     return JSONResponse({"patients": db.list_patients(hospital.id, search=search)})
 
 
@@ -63,20 +71,32 @@ def _patient_json(p: dict) -> dict:
 
 @router.get("/api/portal/patients/{patient_id}")
 async def portal_patient_detail(patient_id: int, authorization: str | None = Header(default=None)):
-    hospital = _authenticate(authorization)
+    """When role=="doctor", both existence AND ownership are folded into one
+    check: a patient this doctor has never treated resolves to the same 404
+    as a patient that doesn't exist at all, never a 403 that would confirm
+    the record exists at this hospital (mirrors doctor_patient_detail() in
+    doctor_portal.py)."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     patient = db.get_patient(hospital.id, patient_id)
     if patient is None:
         return JSONResponse({"error": "No such patient."}, status_code=404)
 
-    visit_history = db.get_patient_visit_history(hospital.id, patient_id)
-    notes = db.get_patient_visit_notes(hospital.id, patient_id)
+    if role == "doctor" and doctor_id is not None:
+        visit_history = db.get_doctor_appointments_for_patient(hospital.id, doctor_id, patient_id)
+        if not visit_history:
+            return JSONResponse({"error": "No such patient."}, status_code=404)
+        notes = db.get_patient_visit_notes_by_doctor(hospital.id, patient_id, doctor_id)
+    else:
+        visit_history = db.get_patient_visit_history(hospital.id, patient_id)
+        notes = db.get_patient_visit_notes(hospital.id, patient_id)
     documents = db.get_patient_documents(hospital.id, patient_id)
+    validity_days = db.get_followup_validity_days(hospital.id)
 
     return JSONResponse({
         "patient": _patient_json(patient),
-        "visit_history": [_appointment_json(a) for a in visit_history],
+        "visit_history": [_appointment_json(a, validity_days) for a in visit_history],
         "notes": notes,
         "documents": documents,
     })

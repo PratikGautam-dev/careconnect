@@ -69,9 +69,12 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         # AND button dual-use keys (manage_patients_short, back_to_menu_option)
         # checked against the stricter 20-char button limit, which also
         # satisfies the looser 24-char row limit they're reused for.
-        "duplicate_link_button", "duplicate_different_button", "ask_relationship_button",
+        "duplicate_link_button", "ask_relationship_button",
         "manage_patients_short", "back_to_menu_option",
         "consent_marketing_enable", "consent_marketing_disable",
+        # WhatsApp menu restructuring: Reports & Prescriptions' own submenu
+        # list uses this as its button_text.
+        "reports_menu_button",
     ]
     for key in button_keys:
         for lang in SUPPORTED_LANGUAGES:
@@ -79,17 +82,25 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
             assert len(text) <= 20, f"{key}[{lang}] = {text!r} exceeds WhatsApp's 20-char button limit ({len(text)} chars)"
 
     row_title_keys = [
-        "feature_booking", "feature_reschedule", "feature_cancel", "feature_view_appointments",
+        # WhatsApp menu restructuring: "feature_booking" split into these two.
+        "feature_book_doctor_appointment", "feature_tests_diagnostics",
+        "feature_reschedule", "feature_cancel", "feature_view_appointments",
         "feature_hospital_info", "feature_reception_handoff", "feature_faq",
         "book_appointment_short", "reschedule_short", "cancel_short", "faq_short",
         "change_department_option", "change_doctor_option",
-        "change_date_option", "change_time_option", "feature_change_language",
+        "change_date_option", "change_time_option",
+        # "feature_manage_language" replaces the removed, always-unreachable
+        # "feature_change_language" -- now a normal gated feature row.
+        "feature_manage_language",
         # Patient identity SEPARATION (Spec.md Section 0).
         "feature_manage_patients", "add_patient_option", "all_patients_option",
         # CareConnect architecture doc alignment (Spec.md Section 0).
         "feature_reports_prescriptions", "feature_consent_privacy",
         "relationship_self", "relationship_mother", "relationship_father", "relationship_son",
         "relationship_daughter", "relationship_spouse", "relationship_guardian", "relationship_other",
+        # WhatsApp menu restructuring: Reports & Prescriptions' own submenu.
+        "reports_menu_view_prescriptions", "reports_menu_view_lab_reports",
+        "reports_menu_view_diagnostic_reports", "reports_menu_book_report_review",
     ]
     for key in row_title_keys:
         for lang in SUPPORTED_LANGUAGES:
@@ -115,7 +126,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     )
     assert "*Confirm Booking Details:*" in summary_en
     assert "👤 Patient: Ravi Kumar" in summary_en
-    assert "🆔 Patient Code: DCCP-2026-00020" in summary_en
+    assert "🆔 Patient Id: DCCP-2026-00020" in summary_en
     assert "🎂 Age: 34" in summary_en
     assert "📋 Appointment Type: New Consultation" in summary_en
     assert "🏥 Department: Cardiology" in summary_en
@@ -151,7 +162,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
         department_name="Cardiology", doctor_name="Dr. Anjali Rao", date_label="Saturday, 08 August 2026",
         time_label="10:00 AM",
     )
-    assert "✅ Appointment Confirmed" in confirmed_en
+    assert "✅ *Appointment Confirmed*" in confirmed_en
     assert "Appointment ID: apt_1754650184123" in confirmed_en
 
     confirmed_hi = t(

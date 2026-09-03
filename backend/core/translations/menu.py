@@ -23,7 +23,11 @@ MAIN_MENU_SECTION_TITLE = "main_menu_section_title"
 FEATURE_MENU_UNAVAILABLE = "feature_menu_unavailable"
 
 # feature_menu labels (flows.py's _FEATURE_MENU row titles -- 24-char WhatsApp limit)
-FEATURE_BOOKING = "feature_booking"
+# WhatsApp menu restructuring: "booking" (single flat type list) split into
+# these two independently-toggleable features, each with its own category
+# submenu (db.BOOK_DOCTOR_APPOINTMENT_CATEGORY/TESTS_DIAGNOSTICS_CATEGORY).
+FEATURE_BOOK_DOCTOR_APPOINTMENT = "feature_book_doctor_appointment"
+FEATURE_TESTS_DIAGNOSTICS = "feature_tests_diagnostics"
 FEATURE_RESCHEDULE = "feature_reschedule"
 FEATURE_CANCEL = "feature_cancel"
 FEATURE_VIEW_APPOINTMENTS = "feature_view_appointments"
@@ -32,7 +36,10 @@ FEATURE_RECEPTION_HANDOFF = "feature_reception_handoff"
 FEATURE_FAQ = "feature_faq"
 FEATURE_REPORTS_PRESCRIPTIONS = "feature_reports_prescriptions"
 FEATURE_CONSENT_PRIVACY = "feature_consent_privacy"
-FEATURE_CHANGE_LANGUAGE = "feature_change_language"
+# Reopens the same language picker used at IDLE entry -- a normal
+# hospital-configurable feature now (unlike the removed CHANGE_LANGUAGE_ROW
+# mechanism, which was always-on and unconditional).
+FEATURE_MANAGE_LANGUAGE = "feature_manage_language"
 
 # booking_flow.py's OWN static 4-item menu (superseded for real traffic by
 # flows.py's dynamic one, but tests/test_booking_flow.py exercises it
@@ -84,7 +91,8 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "क्षमा करें, {hospital_name} ने अभी तक व्हाट्सएप सेटअप पूरा नहीं किया है। कृपया बाद में फिर से देखें।",
     },
 
-    FEATURE_BOOKING: {"en": "Book Appointment", "hi": "अपॉइंटमेंट बुक करें"},
+    FEATURE_BOOK_DOCTOR_APPOINTMENT: {"en": "Book Doctor Appointment", "hi": "डॉक्टर अपॉइंटमेंट"},
+    FEATURE_TESTS_DIAGNOSTICS: {"en": "Tests & Diagnostics", "hi": "टेस्ट और डायग्नोस्टिक्स"},
     FEATURE_RESCHEDULE: {"en": "Reschedule Appointment", "hi": "समय बदलें"},
     FEATURE_CANCEL: {"en": "Cancel Appointment", "hi": "अपॉइंटमेंट रद्द करें"},
     FEATURE_VIEW_APPOINTMENTS: {"en": "My Appointments", "hi": "मेरी अपॉइंटमेंट"},
@@ -97,12 +105,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     # migration); "consent_privacy" is new.
     FEATURE_REPORTS_PRESCRIPTIONS: {"en": "Reports & Prescriptions", "hi": "रिपोर्ट और पर्चे"},
     FEATURE_CONSENT_PRIVACY: {"en": "Consent & Privacy", "hi": "सहमति और गोपनीयता"},
-    # Item 4 (Spec.md Section 0): not a hospital-toggleable enabled_features
-    # entry like the rows above -- always appended to the main menu itself
-    # (when the hospital hasn't disabled the language picker entirely), since
-    # it's core session behavior, not a business capability a hospital opts
-    # in/out of.
-    FEATURE_CHANGE_LANGUAGE: {"en": "Change Language", "hi": "भाषा बदलें"},
+    FEATURE_MANAGE_LANGUAGE: {"en": "Manage Language", "hi": "भाषा प्रबंधित करें"},
 
     BOOK_APPOINTMENT_SHORT: {"en": "Book Appointment", "hi": "अपॉइंटमेंट बुक करें"},
     RESCHEDULE_SHORT: {"en": "Reschedule", "hi": "समय बदलें"},

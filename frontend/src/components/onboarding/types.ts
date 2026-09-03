@@ -35,13 +35,15 @@ export type TopicForm = {
 };
 
 export type FeatureKey =
-  | "booking"
+  | "book_doctor_appointment"
+  | "tests_diagnostics"
   | "reschedule"
   | "cancel"
   | "view_appointments"
   | "reports_prescriptions"
   | "manage_patients"
   | "consent_privacy"
+  | "manage_language"
   | "hospital_info"
   | "reception_handoff"
   | "faq";
@@ -112,7 +114,10 @@ export function initialWizardState(): WizardState {
     accessToken: "",
     whatsappPhoneNumberId: "",
     appSecret: "",
-    enabledFeatures: ["booking", "reschedule", "cancel", "view_appointments", "hospital_info", "reception_handoff"],
+    enabledFeatures: [
+      "book_doctor_appointment", "tests_diagnostics", "reschedule", "cancel", "view_appointments", "hospital_info",
+      "reception_handoff",
+    ],
     tenantType: "hospital",
     name: "",
     welcomeMessageText: "",
@@ -139,13 +144,15 @@ export const RAIL_TITLES = [
 ];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
-  booking: "Book Appointment",
+  book_doctor_appointment: "Book Doctor Appointment",
+  tests_diagnostics: "Tests & Diagnostics",
   reschedule: "Reschedule Appointment",
   cancel: "Cancel Appointment",
   view_appointments: "View My Appointments",
   reports_prescriptions: "Reports & Prescriptions",
   manage_patients: "Manage Patients",
   consent_privacy: "Consent & Privacy",
+  manage_language: "Manage Language",
   hospital_info: "Hospital Information",
   reception_handoff: "Talk to Reception",
   faq: "FAQ / Information Bot",

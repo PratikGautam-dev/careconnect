@@ -1,19 +1,20 @@
 # tests/test_my_details_flow.py
 """
-Patient identity system (Spec.md Section 0): "Reports & Prescriptions"
-(renamed/rescoped from "My Details" -- CareConnect architecture doc
-alignment, Section 20) -- a self-service WhatsApp feature alongside "My
-Appointments": a patient fetches their own Patient ID/MRN, name, age, a
-short summary (total appointment count + most recent appointment status),
-and any documents on file (tapping one sends it via WhatsApp), now scoped to
-the ACTIVE patient (a resolved session), not the phone generally.
+WhatsApp menu restructuring: "Reports & Prescriptions" is now a 4-row
+submenu (View Prescriptions / View Lab Reports / View Diagnostic Reports /
+Book Report Review) instead of the old one-shot "patient summary + flat
+document list" reply -- flows/router.py's _send_reports_menu/
+_send_filtered_documents/_handle_awaiting_reports_menu.
 
-Covers: found vs. not-found, English + Hindi, the 10-item document cap, and
-cross-tenant isolation (never leaking another hospital's record for a
-coincidentally-shared phone number).
+Covers: the submenu itself, category-filtered document lists (found/empty/
+not-found), the 10-item document cap per category, tapping a document to
+receive it, send failure, stale-tap fallback (re-shows the SAME filtered
+list, not the old unfiltered one), Hindi, and cross-tenant isolation.
+
+Book Report Review's own booking-flow entry point is covered in
+tests/test_booking_flow.py (it reuses the normal booking state machine, not
+this file's document-listing machinery).
 """
-from datetime import datetime, timedelta
-
 import pytest
 
 import db.repository as db
@@ -21,6 +22,8 @@ import flows
 from core.session_store import InMemorySessionStore
 
 PHONE = "5491112345678"
+
+ENABLED = ["reports_prescriptions"]
 
 
 class FakeWhatsAppClient:
@@ -56,144 +59,155 @@ def _sessions_with_active_patient(hospital_id, active_patient_id, phone=PHONE, l
     return sessions
 
 
-def _sessions_with_no_linked_patient(hospital_id, phone=PHONE, language="en"):
-    sessions = InMemorySessionStore()
-    sessions.set(hospital_id, phone, "IDLE", {}, language=language)
-    return sessions
-
-
 def _row_ids(kind_kwargs):
     return [row["id"] for section in kind_kwargs["sections"] for row in section["rows"]]
 
 
 def _link_patient(hospital_id, phone, name="Ravi Kumar", age=34):
-    """Creates a real linked patient (patients row + patient_links row) --
-    the only way a "Reports & Prescriptions" tap can resolve to a specific
-    record now, unlike the old phone-upsert-only patients row this file's
-    tests used to rely on."""
     return db.create_patient_profile(hospital_id, phone, name, age, relationship_label="Self")
 
 
-def _book(hospital_id, phone, doctor_id, slot, patient_id):
-    return db.create_appointment(
-        hospital_id, phone, "cardiology", doctor_id,
-        datetime.fromisoformat(f"{slot['date']}T{slot['time']}"), patient_id=patient_id,
+@pytest.mark.asyncio
+async def test_tapping_the_feature_shows_the_four_row_submenu(hospital_id):
+    patient = _link_patient(hospital_id, PHONE)
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED,
     )
+
+    assert len(wa.sent) == 1
+    kind, kwargs = wa.sent[0]
+    assert kind == "list"
+    assert _row_ids(kwargs) == [
+        "reportsmenu_prescriptions", "reportsmenu_lab_reports", "reportsmenu_diagnostic_reports",
+        "reportsmenu_book_review", "goto_main_menu",
+    ]
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_REPORTS_MENU"
 
 
 @pytest.mark.asyncio
-async def test_no_record_gets_a_clear_not_found_message(hospital_id):
-    """Reachable only via a stale active_patient_id (the session claims one,
-    but db.get_patient() can't find it) -- a genuinely unresolved session
-    would never reach this feature tap at all under the new architecture,
-    since patient resolution runs before the main menu."""
+async def test_view_prescriptions_lists_only_prescription_documents(hospital_id):
+    patient = _link_patient(hospital_id, PHONE)
+    rx = db.create_patient_document(hospital_id, patient["id"], "rx.pdf", "fake/rx.pdf", document_type="prescription")
+    db.create_patient_document(hospital_id, patient["id"], "lab.pdf", "fake/lab.pdf", document_type="lab_report")
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert _row_ids(kwargs) == [f"reportdoc_{rx['id']}", "goto_main_menu"]
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_REPORTS_DOCUMENT"
+    assert session["context"]["document_type"] == "prescription"
+
+
+@pytest.mark.asyncio
+async def test_view_lab_reports_lists_only_lab_report_documents(hospital_id):
+    patient = _link_patient(hospital_id, PHONE)
+    db.create_patient_document(hospital_id, patient["id"], "rx.pdf", "fake/rx.pdf", document_type="prescription")
+    lab = db.create_patient_document(hospital_id, patient["id"], "lab.pdf", "fake/lab.pdf", document_type="lab_report")
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_lab_reports"), enabled_features=ENABLED)
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert _row_ids(kwargs) == [f"reportdoc_{lab['id']}", "goto_main_menu"]
+
+
+@pytest.mark.asyncio
+async def test_view_diagnostic_reports_lists_only_diagnostic_report_documents(hospital_id):
+    patient = _link_patient(hospital_id, PHONE)
+    diag = db.create_patient_document(
+        hospital_id, patient["id"], "scan.pdf", "fake/scan.pdf", document_type="diagnostic_report",
+    )
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_diagnostic_reports"), enabled_features=ENABLED)
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert _row_ids(kwargs) == [f"reportdoc_{diag['id']}", "goto_main_menu"]
+
+
+@pytest.mark.asyncio
+async def test_empty_category_shows_a_message_then_re_shows_the_submenu(hospital_id):
+    patient = _link_patient(hospital_id, PHONE)
+
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
+
+    kind, kwargs = wa.sent[-2]
+    assert kind == "text"
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert _row_ids(kwargs)[:4] == [
+        "reportsmenu_prescriptions", "reportsmenu_lab_reports", "reportsmenu_diagnostic_reports",
+        "reportsmenu_book_review",
+    ]
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_REPORTS_MENU"
+
+
+@pytest.mark.asyncio
+async def test_stale_active_patient_id_gets_a_not_found_message_when_viewing_a_category(hospital_id):
+    """The submenu itself doesn't need to look the patient up (it's a fixed
+    4-row list) -- the not-found check only happens once a category is
+    actually queried."""
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, 999999)
 
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
-    assert len(wa.sent) == 1
-    kind, kwargs = wa.sent[0]
+    kind, kwargs = wa.sent[-1]
     assert kind == "text"
     assert "book an appointment" in kwargs["text"].lower()
-    # A dead end resolves the session, not left stuck.
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
 @pytest.mark.asyncio
-async def test_found_record_returns_id_name_age_and_summary(hospital_id):
+async def test_submenu_works_in_hindi(hospital_id):
     patient = _link_patient(hospital_id, PHONE)
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slots = db.get_slots(hospital_id, doctor_id)
-    _book(hospital_id, PHONE, doctor_id, slots[0], patient["id"])
-
-    wa = FakeWhatsAppClient()
-    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
-
-    kind, kwargs = wa.sent[0]
-    assert kind == "text"
-    text = kwargs["text"]
-    assert patient["patient_display_id"] in text
-    assert "Ravi Kumar" in text
-    assert "34" in text
-    assert "1" in text  # total appointments
-    assert "Confirmed" in text  # most recent status label (booked -> Confirmed)
-    # No documents on file -- session resolves, no follow-up list.
-    assert len(wa.sent) == 1
-    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
-
-
-@pytest.mark.asyncio
-async def test_found_record_works_in_hindi(hospital_id):
-    patient = _link_patient(hospital_id, PHONE)
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE, doctor_id, slot, patient["id"])
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"], language="hi")
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[0]
-    assert kind == "text"
-    assert "पेशेंट आईडी" in kwargs["text"]
-    assert "Ravi Kumar" in kwargs["text"]
+    titles = [row["title"] for section in kwargs["sections"] for row in section["rows"]]
+    assert "प्रिस्क्रिप्शन देखें" in titles
 
 
 @pytest.mark.asyncio
-async def test_not_found_works_in_hindi(hospital_id):
-    wa = FakeWhatsAppClient()
-    sessions = _sessions_with_active_patient(hospital_id, 999999, language="hi")
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
-    kind, kwargs = wa.sent[0]
-    assert kind == "text"
-    assert "रिकॉर्ड" in kwargs["text"]
-
-
-@pytest.mark.asyncio
-async def test_documents_are_offered_as_a_list_and_tapping_one_sends_it(hospital_id):
+async def test_tapping_a_document_sends_it_and_resolves_the_session(hospital_id):
     patient = _link_patient(hospital_id, PHONE)
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE, doctor_id, slot, patient["id"])
-    doc = db.create_patient_document(hospital_id, patient["id"], "lab_report.pdf", "fake/key/lab_report.pdf")
+    doc = db.create_patient_document(hospital_id, patient["id"], "rx.pdf", "fake/rx.pdf", document_type="prescription")
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"reportdoc_{doc['id']}"), enabled_features=ENABLED)
 
-    # Summary text, then a document list.
-    assert len(wa.sent) == 2
-    kind, kwargs = wa.sent[1]
-    assert kind == "list"
-    assert _row_ids(kwargs) == [f"reportdoc_{doc['id']}", "goto_main_menu"]
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_REPORTS_DOCUMENT"
-
-    # Tap the document row -> sent via WhatsApp, marked sent, session resolved.
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(f"reportdoc_{doc['id']}"), enabled_features=["reports_prescriptions"],
-    )
-    kind, kwargs = wa.sent[2]
+    kind, kwargs = wa.sent[-2]
     assert kind == "document"
-    assert kwargs["filename"] == "lab_report.pdf"
-    kind, kwargs = wa.sent[3]
+    assert kwargs["filename"] == "rx.pdf"
+    kind, kwargs = wa.sent[-1]
     assert kind == "text"
     assert "sent" in kwargs["text"].lower()
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "IDLE"
-    assert session["context"] == {}
-    assert session["language"] == "en"
 
     stored = db.get_patient_document(hospital_id, doc["id"])
     assert stored["sent_to_whatsapp_at"] is not None
@@ -202,19 +216,13 @@ async def test_documents_are_offered_as_a_list_and_tapping_one_sends_it(hospital
 @pytest.mark.asyncio
 async def test_document_send_failure_reports_clearly_and_does_not_mark_sent(hospital_id):
     patient = _link_patient(hospital_id, PHONE)
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE, doctor_id, slot, patient["id"])
-    doc = db.create_patient_document(hospital_id, patient["id"], "lab_report.pdf", "fake/key/lab_report.pdf")
+    doc = db.create_patient_document(hospital_id, patient["id"], "rx.pdf", "fake/rx.pdf", document_type="prescription")
 
     wa = FakeWhatsAppClient(send_document_result=False)
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(f"reportdoc_{doc['id']}"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"reportdoc_{doc['id']}"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
     assert kind == "text"
@@ -224,39 +232,21 @@ async def test_document_send_failure_reports_clearly_and_does_not_mark_sent(hosp
 
 
 @pytest.mark.asyncio
-async def test_document_list_respects_the_ten_item_cap(hospital_id):
+async def test_document_list_respects_the_ten_item_cap_per_category(hospital_id):
     patient = _link_patient(hospital_id, PHONE)
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE, doctor_id, slot, patient["id"])
     for i in range(12):
-        db.create_patient_document(hospital_id, patient["id"], f"doc_{i}.pdf", f"fake/key/doc_{i}.pdf")
+        db.create_patient_document(
+            hospital_id, patient["id"], f"rx_{i}.pdf", f"fake/rx_{i}.pdf", document_type="prescription",
+        )
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
-    kind, kwargs = wa.sent[1]
+    kind, kwargs = wa.sent[-1]
     assert kind == "list"
     assert len(_row_ids(kwargs)) == 10
-
-
-@pytest.mark.asyncio
-async def test_no_appointments_yet_is_reported_gracefully(hospital_id):
-    """A patient record can exist without any (visible) appointment -- e.g.
-    every booking was soft-deleted -- shouldn't crash, just say so."""
-    patient = _link_patient(hospital_id, PHONE)
-
-    wa = FakeWhatsAppClient()
-    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
-
-    kind, kwargs = wa.sent[0]
-    assert "None yet" in kwargs["text"] or "0" in kwargs["text"]
 
 
 @pytest.mark.asyncio
@@ -265,42 +255,48 @@ async def test_cross_tenant_isolation_same_phone_different_hospital_never_leaks(
     when messaging (a coincidentally shared phone number scenario at)
     hospital B -- and vice versa."""
     patient = _link_patient(hospital_id, PHONE)
-    doctor_a = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot_a = db.get_slots(hospital_id, doctor_a)[0]
-    _book(hospital_id, PHONE, doctor_a, slot_a, patient["id"])
+    db.create_patient_document(hospital_id, patient["id"], "rx.pdf", "fake/rx.pdf", document_type="prescription")
 
     wa = FakeWhatsAppClient()
     # Stale/nonexistent active_patient_id at hospital B specifically -- the
     # real defense here is db.get_patient() itself being hospital_id-scoped
     # (patient["id"] belongs to `hospital_id`, not `second_hospital_id`).
     sessions = _sessions_with_active_patient(second_hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, second_hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
-    kind, kwargs = wa.sent[0]
+    kind, kwargs = wa.sent[-1]
     assert kind == "text"
-    assert "Ravi Kumar" not in kwargs["text"]
     assert "book an appointment" in kwargs["text"].lower()
 
 
 @pytest.mark.asyncio
-async def test_stale_document_tap_falls_back_to_a_fresh_re_show(hospital_id):
+async def test_stale_document_tap_falls_back_to_the_same_filtered_list(hospital_id):
     patient = _link_patient(hospital_id, PHONE)
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE, doctor_id, slot, patient["id"])
-    db.create_patient_document(hospital_id, patient["id"], "lab_report.pdf", "fake/key/lab_report.pdf")
+    db.create_patient_document(hospital_id, patient["id"], "rx.pdf", "fake/rx.pdf", document_type="prescription")
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
     # Tap an id that doesn't correspond to any real document.
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("reportdoc_999999"), enabled_features=["reports_prescriptions"],
-    )
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportdoc_999999"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
-    assert kind == "list"  # re-shown the (still real) document list, not a crash/dead end
+    assert kind == "list"  # re-shown the SAME filtered (prescription) list, not the old unfiltered one
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_REPORTS_DOCUMENT"
+    assert session["context"]["document_type"] == "prescription"
+
+
+@pytest.mark.asyncio
+async def test_stale_tap_at_the_submenu_itself_re_shows_the_submenu(hospital_id):
+    patient = _link_patient(hospital_id, PHONE)
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_with_active_patient(hospital_id, patient["id"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("some_unrecognized_row"), enabled_features=ENABLED)
+
+    kind, kwargs = wa.sent[-1]
+    assert kind == "list"
+    assert _row_ids(kwargs)[0] == "reportsmenu_prescriptions"

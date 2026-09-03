@@ -44,9 +44,6 @@ export default function LandingPage() {
         <Button href="/portal/login" variant="secondary" size="md">
           Clinic login
         </Button>
-        <Button href="/doctor/login" variant="secondary" size="md">
-          Doctor login
-        </Button>
       </div>
     </header>
 
@@ -149,11 +146,6 @@ export default function LandingPage() {
                 <li>
                   <a href="/portal/login" className="hover:text-brand-600 hover:underline">
                     Hospital login
-                  </a>
-                </li>
-                <li>
-                  <a href="/doctor/login" className="hover:text-brand-600 hover:underline">
-                    Doctor login
                   </a>
                 </li>
                 <li>

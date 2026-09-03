@@ -3,10 +3,12 @@
 ARCHITECTURE_PLAN.md Phase 3c: flows.py became this package.
 flows/router.py is the feature-toggle router (was flows.py); flows/common.py
 is the shared cap_rows/is_reset_keyword helpers (was core/flow_common.py);
-flows/faq.py is the FAQ sub-flow (was faq_flow.py); flows/patient_identity.py
-is the patient registration/selection/consent flow (was
-core/patient_identity.py); flows/booking/ is the public re-export surface
-for core/booking_flow.py's state machine (Phase 3a).
+flows/faq.py is the FAQ sub-flow (was faq_flow.py); flows/patient_identity/
+is the patient registration/selection/consent flow (was core/patient_identity.py,
+later a single flows/patient_identity.py module, split into this package for
+navigability -- see its own __init__.py for the submodule breakdown);
+flows/booking/ is the public re-export surface for core/booking_flow.py's
+state machine (Phase 3a).
 
 This module re-exports flows/router.py's public surface (via a lazy
 module __getattr__, PEP 562) so every existing `import flows` /

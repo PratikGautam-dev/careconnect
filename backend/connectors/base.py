@@ -133,7 +133,9 @@ class Connector(abc.ABC):
     def unlink_patient(self, hospital_id: int, phone: str, patient_id: int) -> bool: ...
 
     @abc.abstractmethod
-    def find_potential_duplicate_patient(self, hospital_id: int, name: str, contact_phone: str) -> dict | None: ...
+    def find_potential_duplicate_patient(
+        self, hospital_id: int, name: str, contact_phone: str, age: int, gender: str,
+    ) -> dict | None: ...
 
     @abc.abstractmethod
     def link_existing_patient(
@@ -268,7 +270,7 @@ class _UnimplementedTierConnector(Connector):
     def unlink_patient(self, hospital_id, phone, patient_id):
         self._not_implemented("unlink_patient")
 
-    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone):
+    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, age, gender):
         self._not_implemented("find_potential_duplicate_patient")
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):

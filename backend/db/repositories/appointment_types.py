@@ -21,11 +21,22 @@ DEFAULT_APPOINTMENT_TYPES = (
     {"id": "new", "label": "New Consultation", "requires_consent": False, "requires_doctor_selection": True},
     {"id": "followup", "label": "Follow-up Consultation", "requires_consent": False, "requires_doctor_selection": True},
     {"id": "tele", "label": "Video Consultation", "requires_consent": True, "requires_doctor_selection": True},
-    {"id": "diagnostic", "label": "Diagnostic Booking", "requires_consent": False, "requires_doctor_selection": False},
-    {"id": "lab", "label": "Lab Test Booking", "requires_consent": False, "requires_doctor_selection": False},
-    {"id": "daycare", "label": "Daycare Booking", "requires_consent": False, "requires_doctor_selection": True},
+    {"id": "diagnostic", "label": "Diagnostic Test", "requires_consent": False, "requires_doctor_selection": False},
+    {"id": "lab", "label": "Lab Test", "requires_consent": False, "requires_doctor_selection": False},
+    {"id": "daycare", "label": "Daycare / Procedure", "requires_consent": False, "requires_doctor_selection": True},
     {"id": "second_opinion", "label": "Report Review", "requires_consent": True, "requires_doctor_selection": True},
 )
+
+# Main-menu categorization (WhatsApp menu restructuring): which of the fixed
+# 7-type catalog appear under which of the 3 category submenus. Hardcoded,
+# not a DB column -- the catalog above is fixed per hospital (only
+# is_active/label vary), so there's nothing dynamic to categorize.
+BOOK_DOCTOR_APPOINTMENT_CATEGORY = frozenset({"new", "followup", "tele"})
+TESTS_DIAGNOSTICS_CATEGORY = frozenset({"diagnostic", "lab", "daycare"})
+# Reports & Prescriptions' "Book Report Review" row -- a single type, so it
+# skips the type-list step entirely (see flows/booking/book.py's
+# _start_booking_for_preselected_type).
+REPORT_REVIEW_TYPE_ID = "second_opinion"
 
 # Which of the fixed catalog's types are ACTIVE by default per tenant_type
 # (tenant-capability-gating-plan.md's same "default-by-type, editable later"

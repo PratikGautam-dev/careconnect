@@ -2,6 +2,7 @@
 
 import {
   CalendarCheck,
+  CalendarClock,
   LayoutDashboard,
   LogOut,
   MessageCircle,
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
   { key: "appointments", label: "Appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
+  { key: "schedule", label: "Schedule", icon: CalendarClock, href: "/portal/schedule", pageKey: "schedule" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
   { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages", pageKey: "messages" },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },

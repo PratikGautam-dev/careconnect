@@ -37,7 +37,6 @@ REGISTRATION_BLOCKED_CONTACT_HOSPITAL = "registration_blocked_contact_hospital"
 PATIENT_CONTEXT_INVALID = "patient_context_invalid"
 DUPLICATE_PATIENT_FOUND = "duplicate_patient_found"
 DUPLICATE_LINK_BUTTON = "duplicate_link_button"
-DUPLICATE_DIFFERENT_BUTTON = "duplicate_different_button"
 ASK_RELATIONSHIP = "ask_relationship"
 ASK_RELATIONSHIP_BUTTON = "ask_relationship_button"
 ASK_RELATIONSHIP_SECTION_TITLE = "ask_relationship_section_title"
@@ -50,8 +49,9 @@ RELATIONSHIP_SPOUSE = "relationship_spouse"
 RELATIONSHIP_GUARDIAN = "relationship_guardian"
 RELATIONSHIP_OTHER = "relationship_other"
 SINGLE_PATIENT_CONFIRM = "single_patient_confirm"
+PLEASE_ADD_NEW_PATIENT = "please_add_new_patient"
 MULTI_PATIENT_SELECTOR_PROMPT = "multi_patient_selector_prompt"
-PATIENT_SELECTED_CONFIRMATION = "patient_selected_confirmation"
+PATIENT_SELECTED_BANNER = "patient_selected_banner"
 
 STRINGS: dict[str, dict[Language, str]] = {
     # The shared "who is this for" selector, shown whenever a phone has >1
@@ -126,7 +126,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     # label text AND the kwarg name at every call site below even though the
     # value passed was always patient_display_id -- renamed throughout to
     # avoid that confusion.
-    PATIENT_CODE_LABEL: {"en": "Patient Code:", "hi": "पेशेंट कोड:"},
+    PATIENT_CODE_LABEL: {"en": "Patient ID:", "hi": "पेशेंट आईडी:"},
     PATIENT_SELECTOR_PROMPT: {
         "en": "Who are you accessing CareConnect for?",
         "hi": "आप CareConnect किसके लिए इस्तेमाल कर रहे हैं?",
@@ -144,14 +144,16 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
 
     # --- Sections 8-10: duplicate-patient detection before creating a new profile ---
+    # Matching is a strict 4-field match (name+contact+age+gender, confirmed
+    # with the user) -- essentially certain to be the same real person, so
+    # the body no longer offers a "different patient" framing.
     DUPLICATE_PATIENT_FOUND: {
-        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nPatient Code: {patient_code}\n\n"
-              "Would you like to link this profile, or is this a different patient?",
-        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nपेशेंट कोड: {patient_code}\n\n"
-              "क्या आप इस प्रोफ़ाइल को लिंक करना चाहेंगे, या यह एक अलग मरीज़ है?",
+        "en": "We found an existing hospital profile that may match:\n\n*{name}*\nPatient ID: {patient_code}\n\n"
+              "Would you like to link this profile?",
+        "hi": "हमें एक मौजूदा अस्पताल प्रोफ़ाइल मिली जो मेल खा सकती है:\n\n*{name}*\nपेशेंट आईडी: {patient_code}\n\n"
+              "क्या आप इस प्रोफ़ाइल को लिंक करना चाहेंगे?",
     },
     DUPLICATE_LINK_BUTTON: {"en": "Link Existing", "hi": "लिंक करें"},
-    DUPLICATE_DIFFERENT_BUTTON: {"en": "Different Patient", "hi": "अलग मरीज़"},
 
     # --- Section 17: structured relationship field (RELATIONSHIP_OPTIONS in
     # db/repository.py is the single source of truth these keys mirror) ---
@@ -172,9 +174,19 @@ STRINGS: dict[str, dict[Language, str]] = {
 
     # --- Section 11: optional single-linked-patient confirmation
     # (hospitals.require_patient_confirmation, default off) ---
+    # Used as the main menu LIST's own body text for this specific case
+    # (overriding _send_menu_list's generic patient-header + "How can we
+    # assist you today?" body) -- the patient is already active by the time
+    # this is shown, so the list itself both names them and offers the menu.
     SINGLE_PATIENT_CONFIRM: {
         "en": "🏥 Welcome to CareConnect\n\nCurrent Patient: {patient_name}\nPatient ID: {patient_code}\n\nHow can we assist you today?",
         "hi": "🏥 CareConnect में आपका स्वागत है\n\nवर्तमान मरीज़: {patient_name}\nपेशेंट आईडी: {patient_code}\n\nहम आज आपकी कैसे सहायता कर सकते हैं?",
+    },
+    # Sent as a separate follow-up buttons message right under that list --
+    # an offer to switch patient, not a gate blocking the menu.
+    PLEASE_ADD_NEW_PATIENT: {
+        "en": "Please add new patient",
+        "hi": "कृपया नया मरीज़ जोड़ें",
     },
 
     # 2+ linked patients: no default candidate is picked (unlike
@@ -185,13 +197,15 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "CareConnect में आपका स्वागत है।\n\nकृपया मरीज़ का चयन करें।",
     },
 
-    # Sent right after a row is tapped in the 2+ linked-patient list
-    # (_handle_awaiting_single_patient_confirm's row-tap branch) -- confirms
-    # WHICH patient this conversation is now acting on before the main menu
-    # appears underneath it. Not shown for the exactly-one-patient case,
-    # which already has its own "Current Patient" card (SINGLE_PATIENT_CONFIRM).
-    PATIENT_SELECTED_CONFIRMATION: {
-        "en": "✅ Patient Selected\n\nYou are now accessing services for:\n\n{patient_name}\nPatient ID: {patient_code}",
-        "hi": "✅ मरीज़ चुना गया\n\nअब आप इनके लिए सेवाएं प्राप्त कर रहे हैं:\n\n{patient_name}\nपेशेंट आईडी: {patient_code}",
+    # Prepended onto the main menu list's own body (flows/router.py's
+    # _enter_idle, via _send_dynamic_menu's body_text_prefix) right after a
+    # row is tapped in the 2+ linked-patient list -- confirms which patient
+    # this conversation is now acting on, in the SAME message as the menu
+    # itself (not a separate "Patient Selected" text before it). Not shown
+    # for the exactly-one-patient case, which already has its own "Current
+    # Patient" card (SINGLE_PATIENT_CONFIRM).
+    PATIENT_SELECTED_BANNER: {
+        "en": "✅ Patient Selected\n\n",
+        "hi": "✅ मरीज़ चुना गया\n\n",
     },
 }

@@ -70,6 +70,21 @@ def _authenticate(authorization: str | None):
     return db.get_hospital(staff["hospital_id"])
 
 
+def _authenticate_with_role(authorization: str | None):
+    """Like `_authenticate()`, but also returns (role, doctor_id) when the
+    caller is a staff JWT -- both None for the legacy shared-hospital-
+    password session, same "no role concept" gap `_authenticate()` already
+    documents. For routes that need to scope data to "this doctor's own"
+    while still accepting that legacy session."""
+    principal = get_current_staff(authorization)
+    if principal is not None:
+        return principal.hospital, principal.role, principal.doctor_id
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return None, None, None
+    return hospital, None, None
+
+
 def _authenticate_doctor(authorization: str | None):
     """Returns (Hospital, doctor_id) for a valid doctor-scoped 'Bearer
     <token>' header, or None. Deliberately separate from `_authenticate`

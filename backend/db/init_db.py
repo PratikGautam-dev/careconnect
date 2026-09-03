@@ -382,6 +382,48 @@ def _backfill_reports_prescriptions_feature(conn) -> None:
     conn.commit()
 
 
+def _backfill_book_doctor_tests_diagnostics_split(conn) -> None:
+    """WhatsApp menu restructuring: the single "booking" feature (one
+    main-menu row, one flat 7-type list) split into two
+    independently-toggleable features -- "book_doctor_appointment"
+    (new/followup/tele) and "tests_diagnostics" (diagnostic/lab/daycare) --
+    each with its own category submenu. Every hospital that had "booking" on
+    must end up with BOTH new keys: this is a mandatory rename+expand of a
+    capability hospitals already had enabled, unlike consent_privacy/
+    manage_language (new-hospital-only, no backfill needed).
+
+    Same "plain string REPLACE on the raw JSON-encoded TEXT column"
+    technique _backfill_reports_prescriptions_feature above uses --
+    "booking" only ever appears as a full quoted JSON array member/object key
+    here, never a substring of another feature key. Two steps since this is
+    a 1->2 expansion, not a plain rename: first rename booking ->
+    book_doctor_appointment in place, then, for any row that now has
+    book_doctor_appointment but not yet tests_diagnostics, append
+    tests_diagnostics before the closing bracket. Both steps (and the
+    feature_labels rename, carrying a hospital's own custom "booking" label
+    forward onto book_doctor_appointment only -- there's no correct 1:1
+    mapping for the new second row, so it just falls back to the default
+    translation) are naturally idempotent, same as every other one-time
+    JSON-literal backfill in this file."""
+    conn.execute(
+        "UPDATE hospitals SET enabled_features = "
+        "REPLACE(enabled_features, '\"booking\"', '\"book_doctor_appointment\"') "
+        "WHERE enabled_features LIKE '%%booking%%'"
+    )
+    conn.execute(
+        "UPDATE hospitals SET enabled_features = "
+        "REPLACE(enabled_features, ']', ',\"tests_diagnostics\"]') "
+        "WHERE enabled_features LIKE '%%book_doctor_appointment%%' "
+        "AND enabled_features NOT LIKE '%%tests_diagnostics%%'"
+    )
+    conn.execute(
+        "UPDATE hospitals SET feature_labels = "
+        "REPLACE(feature_labels, '\"booking\"', '\"book_doctor_appointment\"') "
+        "WHERE feature_labels LIKE '%%booking%%'"
+    )
+    conn.commit()
+
+
 def _backfill_admin_capabilities(conn) -> None:
     """Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
     every existing hospital row gets an EXPLICIT admin_capabilities value
@@ -815,9 +857,34 @@ def init_db_on_connection(conn) -> int:
         "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_new_consultation_fee_check "
         "CHECK (new_consultation_fee IS NULL OR new_consultation_fee >= 0)"
     )
-    # Migration 0022: google_calendar_connections -- Google Meet integration,
-    # alongside (not replacing) the existing Jitsi tele-consultation link. See
-    # that migration's own docstring.
+    # Migration 0022: patient_documents.document_type (WhatsApp menu
+    # restructuring's Reports & Prescriptions category filter).
+    conn.execute("ALTER TABLE patient_documents ADD COLUMN IF NOT EXISTS document_type TEXT")
+    conn.execute("UPDATE patient_documents SET document_type = 'other' WHERE document_type IS NULL")
+    conn.execute("ALTER TABLE patient_documents ALTER COLUMN document_type SET NOT NULL")
+    conn.execute("ALTER TABLE patient_documents ALTER COLUMN document_type SET DEFAULT 'other'")
+    # Migration 0023: relabel default appointment types (v2) -- Diagnostic
+    # Test/Lab Test/Daycare / Procedure, matching the new Tests & Diagnostics
+    # category submenu's row titles. Only rows still holding the OLD default
+    # label are relabeled, same rule 0009's own relabel already applies.
+    for _type_id, _old_label, _new_label in (
+        ("diagnostic", "Diagnostic Booking", "Diagnostic Test"),
+        ("lab", "Lab Test Booking", "Lab Test"),
+        ("daycare", "Daycare Booking", "Daycare / Procedure"),
+    ):
+        conn.execute(
+            "UPDATE appointment_types SET label = ? WHERE id = ? AND label = ?",
+            (_new_label, _type_id, _old_label),
+        )
+    # Migration 0024: appointments.followup_override_until -- admin/
+    # receptionist follow-up validity override (see db/schema.sql's own
+    # column comment).
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_override_until TEXT")
+    # Migration 0025: google_calendar_connections -- Google Meet integration,
+    # alongside (not replacing) the existing Jitsi tele-consultation link.
+    # Renumbered from 0022 to 0025 to resolve a migration-number collision
+    # with the three migrations above (both branches independently forked
+    # new migrations from 0021). See that migration's own docstring.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS google_calendar_connections ("
         "doctor_id TEXT PRIMARY KEY REFERENCES doctors(id), "
@@ -855,6 +922,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_appointment_types(conn)
     _backfill_daycare_duration_options(conn)
     _backfill_reports_prescriptions_feature(conn)
+    _backfill_book_doctor_tests_diagnostics_split(conn)
     _backfill_admin_capabilities(conn)
     _backfill_handoff_messages(conn)
     return hospital_id

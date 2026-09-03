@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
@@ -48,7 +47,7 @@ export function AppointmentCalendar() {
     setAppointments(null);
     const result = await staffFetch(`/api/doctor/appointments/calendar?year=${year}&month=${month}`);
     if (!result.ok) {
-      if (result.unauthorized) router.push("/doctor/login");
+      if (result.unauthorized) router.push("/portal/login");
       else setError(result.error);
       return;
     }
@@ -182,24 +181,22 @@ export function AppointmentCalendar() {
             .slice()
             .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
             .map((a) => (
-              <Link key={a.id} href={`/doctor/appointments/${a.id}`}>
-                <div className="flex items-center gap-space-3 rounded-md bg-paper p-space-2.5 transition-colors duration-150 hover:bg-black/[0.03]">
-                  <span className="w-16 shrink-0 tabular-nums text-[12px] font-semibold text-ink-900">
-                    {formatTimeOnly(a.scheduled_at)}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-ink-600">
-                    {a.patient_display_id || a.phone}
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-space-2 py-0.5 text-[10px] font-semibold",
-                      STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
-                    )}
-                  >
-                    {STATUS_LABELS[a.status] || a.status}
-                  </span>
-                </div>
-              </Link>
+              <div key={a.id} className="flex items-center gap-space-3 rounded-md bg-paper p-space-2.5">
+                <span className="w-16 shrink-0 tabular-nums text-[12px] font-semibold text-ink-900">
+                  {formatTimeOnly(a.scheduled_at)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[12px] text-ink-600">
+                  {a.patient_display_id || a.phone}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-space-2 py-0.5 text-[10px] font-semibold",
+                    STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
+                  )}
+                >
+                  {STATUS_LABELS[a.status] || a.status}
+                </span>
+              </div>
             ))}
         </div>
       )}

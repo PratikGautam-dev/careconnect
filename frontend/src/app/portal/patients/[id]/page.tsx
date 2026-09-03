@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Input";
+import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
@@ -34,6 +35,20 @@ const STATUS_LABELS: Record<string, string> = {
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
+// WhatsApp menu restructuring: Reports & Prescriptions' "View
+// Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+// this -- kept in sync by hand with portal/routes/documents.py's
+// _VALID_DOCUMENT_TYPES.
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  prescription: "Prescription", lab_report: "Lab Report", diagnostic_report: "Diagnostic Report", other: "Other",
+};
+const DOCUMENT_TYPE_OPTIONS = [
+  { value: "prescription", label: "Prescription" },
+  { value: "lab_report", label: "Lab Report" },
+  { value: "diagnostic_report", label: "Diagnostic Report" },
+  { value: "other", label: "Other" },
+];
+
 export default function PatientDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -47,11 +62,14 @@ export default function PatientDetailPage() {
     expandedVisit, setExpandedVisit, noteDraft, setNoteDraft, savingNote,
     generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
     handleAddNote,
-    fileInputRef, uploading, handleUpload,
+    fileInputRef, uploading, handleUpload, documentType, setDocumentType,
     sendingDocId, sendError, handleSendToWhatsapp,
     visitSearch, setVisitSearch, visitTimeFilter, setVisitTimeFilter,
     visitStatusFilter, setVisitStatusFilter, visitTypeFilter, setVisitTypeFilter,
     visitTypeCounts, filteredVisits,
+    followupPanelId, openFollowupPanel, closeFollowupPanel, followupError,
+    extendDays, setExtendDays, extendingId, handleExtendFollowup,
+    bookCtx, bookDate, setBookDate, bookSlotId, setBookSlotId, bookingId, handleBookFollowupNow,
   } = usePatientDetail(patientId, ready);
 
   if (!data) {
@@ -191,6 +209,7 @@ export default function PatientDetailPage() {
                             <th className="pb-space-2 font-semibold">Type</th>
                             <th className="pb-space-2 font-semibold">Source</th>
                             <th className="pb-space-2 font-semibold">Status</th>
+                            <th className="pb-space-2 font-semibold">Follow-up</th>
                             <th className="pb-space-2 font-semibold"></th>
                           </tr>
                         </thead>
@@ -227,6 +246,33 @@ export default function PatientDetailPage() {
                                       {STATUS_LABELS[v.status] || v.status}
                                     </span>
                                   </td>
+                                  <td className="py-space-2 whitespace-nowrap">
+                                    {v.status === "attended" ? (
+                                      <div className="flex items-center gap-space-2">
+                                        <span
+                                          className={cn(
+                                            "text-[12px] font-semibold",
+                                            v.followup_valid_until && new Date(v.followup_valid_until) < new Date()
+                                              ? "text-error"
+                                              : "text-ink-600",
+                                          )}
+                                        >
+                                          {v.followup_valid_until ? `Until ${formatDate(v.followup_valid_until)}` : "—"}
+                                        </span>
+                                        <PermissionGate page="appointments" action="write">
+                                          <button
+                                            type="button"
+                                            onClick={() => (followupPanelId === v.id ? closeFollowupPanel() : openFollowupPanel(v))}
+                                            className="text-[11.5px] font-semibold text-brand-600 hover:underline"
+                                          >
+                                            {followupPanelId === v.id ? "Close" : "Follow-up…"}
+                                          </button>
+                                        </PermissionGate>
+                                      </div>
+                                    ) : (
+                                      <span className="text-ink-300">—</span>
+                                    )}
+                                  </td>
                                   <td className="py-space-2 text-right whitespace-nowrap">
                                     <button
                                       type="button"
@@ -240,7 +286,7 @@ export default function PatientDetailPage() {
                                 </tr>
                                 {expanded && (
                                   <tr className="border-b border-line last:border-0">
-                                    <td colSpan={9} className="pb-space-3">
+                                    <td colSpan={10} className="pb-space-3">
                                       <div className="rounded-lg border border-line bg-paper p-space-3">
                                         {visitNotes.length === 0 ? (
                                           <p className="text-hint mb-space-3">No notes for this visit yet.</p>
@@ -271,6 +317,123 @@ export default function PatientDetailPage() {
                                             disabled={savingNote === v.id || !(noteDraft[v.id] || "").trim()}
                                           >
                                             {savingNote === v.id ? "Saving…" : "Add note"}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                {followupPanelId === v.id && (
+                                  <tr className="border-b border-line last:border-0">
+                                    <td colSpan={10} className="pb-space-3">
+                                      <div className="rounded-lg border border-line bg-paper p-space-3">
+                                        <p className="text-hint mb-space-3">
+                                          Follow-up validity for this visit{" "}
+                                          {v.followup_valid_until && new Date(v.followup_valid_until) >= new Date()
+                                            ? `is open until ${formatDate(v.followup_valid_until)}`
+                                            : "has closed"}
+                                          . Grant extra days so the patient can book it themselves on WhatsApp, or book it
+                                          directly right now.
+                                        </p>
+
+                                        <div className="mb-space-3 flex flex-wrap items-end gap-space-2">
+                                          <div>
+                                            <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">
+                                              Extend by (days)
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min={1}
+                                              value={extendDays}
+                                              onChange={(e) => setExtendDays(e.target.value)}
+                                              className="h-9 w-24 rounded-md border border-line bg-card px-space-2 text-[13px] text-ink-900"
+                                            />
+                                          </div>
+                                          <Button
+                                            size="md"
+                                            variant="secondary"
+                                            onClick={() => handleExtendFollowup(v.id)}
+                                            disabled={extendingId === v.id}
+                                          >
+                                            {extendingId === v.id ? "Granting…" : "Grant extension"}
+                                          </Button>
+                                        </div>
+
+                                        <div className="border-t border-line pt-space-3">
+                                          <p className="mb-space-2 text-[12px] font-semibold text-ink-600">
+                                            Or book this follow-up now (with {v.doctor_name}, {v.department_name})
+                                          </p>
+                                          {(() => {
+                                            const dates = bookCtx
+                                              ? Object.keys(bookCtx.slots_by_doctor[v.doctor_id] || {}).sort()
+                                              : [];
+                                            const slots =
+                                              bookCtx && bookDate ? bookCtx.slots_by_doctor[v.doctor_id]?.[bookDate] || [] : [];
+                                            return (
+                                              <>
+                                                {dates.length === 0 ? (
+                                                  <p className="mb-space-2 text-[12.5px] text-ink-400">
+                                                    No available dates for this doctor.
+                                                  </p>
+                                                ) : (
+                                                  <div className="mb-space-2 flex flex-wrap gap-space-2">
+                                                    {dates.map((d) => (
+                                                      <button
+                                                        type="button"
+                                                        key={d}
+                                                        onClick={() => { setBookDate(d); setBookSlotId(""); }}
+                                                        className={cn(
+                                                          "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                                                          bookDate === d
+                                                            ? "border-brand-600 bg-brand-600 text-white"
+                                                            : "border-line bg-card text-ink-600",
+                                                        )}
+                                                      >
+                                                        {d}
+                                                      </button>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                                {bookDate &&
+                                                  (slots.length === 0 ? (
+                                                    <p className="mb-space-2 text-[12.5px] text-ink-400">
+                                                      No slots available on this date.
+                                                    </p>
+                                                  ) : (
+                                                    <div className="mb-space-2 flex flex-wrap gap-space-2">
+                                                      {slots.map((s) => (
+                                                        <button
+                                                          type="button"
+                                                          key={s.id}
+                                                          onClick={() => setBookSlotId(s.id)}
+                                                          className={cn(
+                                                            "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                                                            bookSlotId === s.id
+                                                              ? "border-brand-600 bg-brand-600 text-white"
+                                                              : "border-line bg-card text-ink-600",
+                                                          )}
+                                                        >
+                                                          {s.label}
+                                                        </button>
+                                                      ))}
+                                                    </div>
+                                                  ))}
+                                              </>
+                                            );
+                                          })()}
+                                          <Button
+                                            size="md"
+                                            onClick={() => handleBookFollowupNow(v.id)}
+                                            disabled={bookingId === v.id || !bookSlotId}
+                                          >
+                                            {bookingId === v.id ? "Booking…" : "Book follow-up now"}
+                                          </Button>
+                                        </div>
+
+                                        {followupError && <p className="mt-space-3 text-[12px] text-error">{followupError}</p>}
+                                        <div className="mt-space-3">
+                                          <Button size="md" variant="secondary" onClick={closeFollowupPanel}>
+                                            Close
                                           </Button>
                                         </div>
                                       </div>
@@ -316,12 +479,25 @@ export default function PatientDetailPage() {
             </Card>
 
             <Card className="p-space-4">
-              <div className="mb-space-3 flex items-center justify-between">
+              <div className="mb-space-3 flex items-center justify-between gap-space-2">
                 <h3 className="text-label font-bold text-ink-900">Documents</h3>
-                <label className="flex cursor-pointer items-center gap-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
-                  <Upload size={14} /> {uploading ? "Uploading…" : "Upload document"}
-                  <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
-                </label>
+                <div className="flex items-center gap-space-2">
+                  <select
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                    disabled={uploading}
+                    aria-label="Document type"
+                    className="h-8 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                  >
+                    {DOCUMENT_TYPE_OPTIONS.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                  <label className="flex cursor-pointer items-center gap-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
+                    <Upload size={14} /> {uploading ? "Uploading…" : "Upload document"}
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+                  </label>
+                </div>
               </div>
               {documents.length === 0 ? (
                 <p className="py-space-4 text-center text-[13px] text-ink-400">No documents yet.</p>
@@ -335,7 +511,7 @@ export default function PatientDetailPage() {
                           <div className="overflow-hidden">
                             <p className="truncate text-[13px] font-semibold text-ink-900">{doc.file_name}</p>
                             <p className="text-hint">
-                              Uploaded {formatDate(doc.uploaded_at)}
+                              {DOCUMENT_TYPE_LABELS[doc.document_type] ?? doc.document_type} · Uploaded {formatDate(doc.uploaded_at)}
                               {doc.sent_to_whatsapp_at ? ` · Sent ${formatDate(doc.sent_to_whatsapp_at)}` : ""}
                             </p>
                           </div>

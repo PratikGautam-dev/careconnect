@@ -12,6 +12,7 @@ Reschedule/Cancel/Main-Menu buttons underneath are unchanged either way.
 
 messages.py imports are lazy (inside functions) to avoid a circular import:
 this module -> types.registry -> this module."""
+
 import db.repository as db
 from flows.booking.state import (
     BACK_ID, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_DATE,
@@ -52,17 +53,29 @@ async def _fetch_eligible(hospital_id: int, connector, context: dict) -> list:
     return connector.get_followup_eligible_appointments(hospital_id, patient_id, validity_days)
 
 
-async def _send_no_eligible_screen(wa, phone: str, hospital_id: int, sessions, context: dict, language: str) -> None:
+async def _send_no_eligible_screen(wa, phone: str, hospital_id: int, sessions, context: dict, connector, language: str) -> None:
     """Back and Main Menu both just exit to the main menu here -- there's no
     earlier booking step before appointment-type selection for Back to
     meaningfully return to (BACK_ID's own handler at
     STATE_AWAITING_APPOINTMENT_TYPE already does exactly this). Covers both
     "never had an attended visit" and "every attended visit has aged out of
-    the eligibility window" -- same message either way."""
+    the eligibility window" -- same message either way.
+
+    Sends the appointment-type list itself first (same category this came
+    from), with the "no previous appointment" text as its body instead of
+    the list's own generic prompt, followed by the separate Back/Main Menu
+    buttons message -- so the patient can pick a different type directly
+    instead of only being able to back out entirely."""
+    from flows.booking.messages import _send_appointment_type_menu
+
     sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
+    await _send_appointment_type_menu(
+        wa, phone, hospital_id, connector, language=language, category=context.get("appointment_type_category"),
+        body_text_override=t(NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP, language, name=context.get("patient_name")),
+    )
     await wa.send_buttons(
         to=phone,
-        body_text=t(NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP, language, name=context.get("patient_name")),
+        body_text="​",
         buttons=[
             {"id": BACK_ID, "title": t(BACK_OPTION, language)},
             {"id": GOTO_MAIN_MENU, "title": t(MAIN_MENU_BUTTON, language)},
@@ -98,7 +111,7 @@ async def _on_followup_selected(
     behavior for Follow-up."""
     eligible = await _fetch_eligible(hospital_id, connector, context)
     if not eligible:
-        await _send_no_eligible_screen(wa, phone, hospital_id, sessions, context, language)
+        await _send_no_eligible_screen(wa, phone, hospital_id, sessions, context, connector, language)
         return
     history = _push_history(context, STATE_AWAITING_APPOINTMENT_TYPE)
     new_context = {**context, _HISTORY_KEY: history}

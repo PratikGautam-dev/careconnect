@@ -59,16 +59,16 @@ def _sessions_en(hospital_id, phone=PHONE):
 async def _register_via_chat(wa, sessions, hospital_id, connector, phone, booking_for_id, name, contact_number=None, age=30):
     """Drives the real chat flow: "hi" -> Myself/Someone Else -> name ->
     [contact number, Someone Else only] -> age -> gender -> create."""
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, tap(booking_for_id), connector=connector, enabled_features=["booking"])
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(name), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, tap(booking_for_id), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(name), connector=connector, enabled_features=["book_doctor_appointment"])
     if booking_for_id == patient_identity.BOOKING_FOR_OTHER_ID:
         await flows.handle_incoming(
-            wa, sessions, phone, hospital_id, text_reply(contact_number), connector=connector, enabled_features=["booking"],
+            wa, sessions, phone, hospital_id, text_reply(contact_number), connector=connector, enabled_features=["book_doctor_appointment"],
         )
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, phone, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, phone, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
 
 
@@ -112,19 +112,19 @@ async def test_invalid_contact_number_is_rejected_and_reprompted(hospital_id):
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["booking"],
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Kumar"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Priya Kumar"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
     # Too short, letters, and a leading zero -- all rejected, state unchanged.
     for bad in ("12345", "98765abcde", "0123456789"):
-        await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(bad), connector=connector, enabled_features=["booking"])
+        await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(bad), connector=connector, enabled_features=["book_doctor_appointment"])
         assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["booking"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_AGE
 
 
@@ -167,22 +167,27 @@ async def test_second_registration_from_same_account_skips_the_question_and_lock
     assert {p["relationship_label"] for p in linked} == {"Self", "Other"}
 
 
-def test_duplicate_detection_matches_on_name_and_contact_phone_not_age(hospital_id):
+def test_duplicate_detection_matches_on_name_contact_phone_age_and_gender(hospital_id):
     """find_potential_duplicate_patient() -- confirmed with the user: exact
-    name + exact contact phone (patients.phone), scoped to the hospital.
-    Age is no longer part of the match at all: same name+phone with a
-    DIFFERENT age still matches; same name+age with a DIFFERENT phone does
-    NOT."""
-    db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self")
+    name + exact contact phone + exact age + exact gender (all four),
+    scoped to the hospital. Widened from name+phone only since a 4-field
+    exact match is essentially certain to be the same real person."""
+    db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self", gender="Female")
 
-    # Same name, same contact phone, DIFFERENT age -- still a match.
-    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999")
+    # All four match.
+    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 45, "Female")
     assert match is not None
     assert match["name"] == "Asha Rao"
+    assert match["phone"] == "5490009999"
 
-    # Same name, same age, DIFFERENT contact phone -- no longer a match.
-    no_match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333")
-    assert no_match is None
+    # Same name+phone+gender, DIFFERENT age -- no longer a match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 46, "Female") is None
+
+    # Same name+phone+age, DIFFERENT gender -- no longer a match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 45, "Male") is None
+
+    # Same name+age+gender, DIFFERENT contact phone -- no match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333", 45, "Female") is None
 
 
 @pytest.mark.asyncio
@@ -215,6 +220,13 @@ async def test_readding_the_same_name_and_contact_from_your_own_phone_is_blocked
     )
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_ADD_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    # The first "Chandu" was registered as "Other" (BOOKING_FOR_OTHER_ID
+    # above, to give it its own contact number) -- the account has no "Self"
+    # patient yet, so the Myself/Someone Else question fires again here too.
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_OTHER_ID),
         connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(

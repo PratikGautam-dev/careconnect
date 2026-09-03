@@ -191,29 +191,37 @@ async def _send_main_menu(wa: WhatsAppClient, phone: str, hospital_name: str, la
     )
 
 
-async def _send_appointment_type_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
+async def _send_appointment_type_menu(
+    wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en",
+    category: "frozenset[str] | list[str] | None" = None, body_text_override: str | None = None,
+) -> None:
     """The APPOINTMENT TYPE step -- shown right after patient resolution,
     before department selection (see _select_patient_and_continue's booking
     branch). Row ids are the appointment_types.id values themselves (e.g.
     "new", "tele") -- same "use the real id directly as the WA row id, no
-    extra prefix" convention _send_department_menu already uses."""
-    rows = [{"id": t_["id"], "title": t_["label"]} for t_ in connector.get_appointment_types(hospital_id)]
+    extra prefix" convention _send_department_menu already uses.
+
+    category (WhatsApp menu restructuring): when given, only types whose id
+    is in this set are shown -- Book Doctor Appointment/Tests & Diagnostics
+    each pass their own fixed id set (db.BOOK_DOCTOR_APPOINTMENT_CATEGORY/
+    TESTS_DIAGNOSTICS_CATEGORY) so the same underlying type list powers both
+    category submenus without duplicating this function.
+
+    body_text_override lets a caller (e.g. followup.py's "no eligible
+    previous visit" screen) replace the generic SELECT_APPOINTMENT_TYPE body
+    with its own explanatory text, while still showing this same type list."""
+    types = connector.get_appointment_types(hospital_id)
+    if category is not None:
+        types = [t_ for t_ in types if t_["id"] in category]
+    rows = [{"id": t_["id"], "title": t_["label"]} for t_ in types]
     rows = _cap_rows(rows, "appointment type menu")
     await wa.send_list(
         to=phone,
-        body_text=t(SELECT_APPOINTMENT_TYPE, language),
+        body_text=body_text_override or t(SELECT_APPOINTMENT_TYPE, language),
         button_text=t(VIEW_APPOINTMENT_TYPES_BUTTON, language),
         sections=[{"title": t(APPOINTMENT_TYPES_SECTION_TITLE, language), "rows": rows}],
     )
-    # Booking's own first step -- a separate follow-up button (same pattern
-    # as _send_back_button), but GOTO_MAIN_MENU not BACK_ID: intercepted
-    # globally in flows/router.py's handle_incoming, BEFORE any state
-    # dispatch, so it correctly re-shows the REAL dynamic menu (patient
-    # header, actual hospital name, actual enabled features) rather than
-    # this module's own fixed 4-row _send_main_menu stand-in.
-    await wa.send_buttons(
-        to=phone, body_text="​", buttons=[{"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)}],
-    )
+   
 
 
 async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_label: str, language: str = "en") -> None:
@@ -229,6 +237,7 @@ async def _send_consent_prompt(wa: WhatsAppClient, phone: str, appointment_type_
             {"id": CONFIRM_NO, "title": t(CANCEL_BUTTON, language)},
         ],
     )
+    await _send_back_button(wa, phone, language=language)
 
 
 async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector: Connector, language: str = "en") -> None:
@@ -245,7 +254,7 @@ async def _send_department_menu(wa: WhatsAppClient, phone: str, hospital_id: int
 
 async def _select_patient_and_continue(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, patient: dict,
-    next_action: str, language: str = "en",
+    next_action: str, language: str = "en", booking_category: "list[str] | None" = None,
 ) -> None:
     """The shared "a patient is now active, what happens next" router --
     reached either via auto-select (exactly one linked patient, zero added
@@ -256,6 +265,7 @@ async def _select_patient_and_continue(
     (cancel.py/reschedule.py/manage_patients.py/view_appointments.py all
     import FROM this module, so a top-level import in the other direction
     would be circular)."""
+    from flows.booking.book import _start_booking_for_preselected_type
     from flows.booking.cancel import _start_cancel_flow_for_patient
     from flows.booking.manage_patients import _start_manage_patients_flow
     from flows.booking.reschedule import _start_reschedule_flow_for_patient
@@ -265,8 +275,17 @@ async def _select_patient_and_continue(
         context = {
             "active_patient_id": patient["id"], "patient_name": patient["name"], "patient_age": patient["age"],
         }
+        if booking_category is not None:
+            context["appointment_type_category"] = list(booking_category)
         sessions.set(hospital_id, phone, STATE_AWAITING_APPOINTMENT_TYPE, context)
-        await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
+        await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language, category=booking_category)
+    elif next_action == "book_report_review":
+        # Reports & Prescriptions' single-type category -- no list is ever
+        # shown, so it skips straight past the type-list step (see
+        # _start_booking_for_preselected_type's own docstring).
+        await _start_booking_for_preselected_type(
+            wa, sessions, phone, hospital_id, connector, db.REPORT_REVIEW_TYPE_ID, patient, language=language,
+        )
     elif next_action == "cancel":
         await _start_cancel_flow_for_patient(wa, sessions, phone, hospital_id, connector, patient["id"], language=language)
     elif next_action == "reschedule":
@@ -287,7 +306,7 @@ async def _select_patient_and_continue(
 
 async def _send_patient_selector(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, next_action: str,
-    language: str = "en",
+    language: str = "en", booking_category: "list[str] | None" = None,
 ) -> None:
     """The shared "who is this for" list -- department/doctor/cancel/
     reschedule/view_appointments all reach this the same way, only ever when
@@ -308,7 +327,10 @@ async def _send_patient_selector(
     # to go back to), this one always has a real main menu behind it.
     rows.append({"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)})
     rows = _cap_rows(rows, "patient selector")
-    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_SELECTION, {"patient_flow_next": next_action})
+    sessions.set(
+        hospital_id, phone, STATE_AWAITING_PATIENT_SELECTION,
+        {"patient_flow_next": next_action, "patient_flow_category": booking_category},
+    )
     await wa.send_list(
         to=phone,
         body_text=t(f"patient_selector_prompt_{next_action}", language),
@@ -322,16 +344,20 @@ async def _handle_awaiting_patient_selection(
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
     next_action = context.get("patient_flow_next", "booking")
+    booking_category = context.get("patient_flow_category")
     if reply["type"] == "interactive_reply":
         rid = reply["id"]
         if rid == ADD_PATIENT_ROW_ID and next_action == "booking":
-            sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, {"patient_flow_next": next_action})
+            sessions.set(
+                hospital_id, phone, STATE_AWAITING_PATIENT_NAME,
+                {"patient_flow_next": next_action, "patient_flow_category": booking_category},
+            )
             await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
             return
         if rid == ALL_PATIENTS_ROW_ID and next_action != "booking":
             await _select_patient_and_continue(
                 wa, sessions, phone, hospital_id, connector, {"id": None, "name": None, "age": None},
-                next_action, language=language,
+                next_action, language=language, booking_category=booking_category,
             )
             return
         patient_id = _parse_patient_row_id(rid)
@@ -339,7 +365,10 @@ async def _handle_awaiting_patient_selection(
             patients = connector.list_active_patients(hospital_id, phone)
             match = next((p for p in patients if p["id"] == patient_id), None)
             if match:
-                await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, match, next_action, language=language)
+                await _select_patient_and_continue(
+                    wa, sessions, phone, hospital_id, connector, match, next_action, language=language,
+                    booking_category=booking_category,
+                )
                 return
     # Stale/unrecognized tap, or the list went stale between send and reply
     # (a patient was unlinked meanwhile) -- re-fetch and re-show fresh rather
@@ -350,14 +379,19 @@ async def _handle_awaiting_patient_selection(
         # Down to (at most) one patient since this selector was sent --
         # nothing left to disambiguate, just proceed.
         if patients:
-            await _select_patient_and_continue(wa, sessions, phone, hospital_id, connector, patients[0], next_action, language=language)
+            await _select_patient_and_continue(
+                wa, sessions, phone, hospital_id, connector, patients[0], next_action, language=language,
+                booking_category=booking_category,
+            )
         else:
             await _select_patient_and_continue(
                 wa, sessions, phone, hospital_id, connector, {"id": None, "name": None, "age": None},
-                next_action, language=language,
+                next_action, language=language, booking_category=booking_category,
             )
         return
-    await _send_patient_selector(wa, sessions, phone, hospital_id, connector, next_action, language=language)
+    await _send_patient_selector(
+        wa, sessions, phone, hospital_id, connector, next_action, language=language, booking_category=booking_category,
+    )
 
 
 async def _send_doctor_menu(
@@ -637,7 +671,9 @@ async def _resend_menu_for_state(
     (_history_pop_to) land on one of the 4 list states, so the patient
     actually sees the list to pick from again, not just a silent state change."""
     if state == STATE_AWAITING_APPOINTMENT_TYPE:
-        await _send_appointment_type_menu(wa, phone, hospital_id, connector, language=language)
+        await _send_appointment_type_menu(
+            wa, phone, hospital_id, connector, language=language, category=context.get("appointment_type_category"),
+        )
     elif state == STATE_AWAITING_FOLLOWUP_SELECTION:
         # Lazy import: avoids this module -> types.registry -> followup cycle.
         from flows.booking.types.followup import _resend_followup_eligible_list

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
@@ -9,17 +9,34 @@ import db.repository as db
 from auth.session import _build_new_booking_context
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
-from portal.deps import _authenticate
+from portal.deps import _authenticate, _authenticate_with_role, get_current_staff, require_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _appointment_json(a) -> dict:
+def _followup_valid_until(a, followup_validity_days: int | None) -> str | None:
+    """Only meaningful for an ATTENDED appointment -- the date through which
+    a follow-up can still be booked against THIS visit: its own scheduled_at
+    + the hospital's followup_validity_days, extended (never shortened) by a
+    staff-granted followup_override_until (migration 0024) if later. None
+    when followup_validity_days wasn't supplied (most call sites don't need
+    it) or the appointment isn't attended."""
+    if followup_validity_days is None or a.status != db.STATUS_ATTENDED:
+        return None
+    valid_until = a.scheduled_at.date() + timedelta(days=followup_validity_days)
+    if a.followup_override_until:
+        valid_until = max(valid_until, date.fromisoformat(a.followup_override_until))
+    return valid_until.isoformat()
+
+
+def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
     return {
         "id": a.id,
         "phone": a.phone,
+        "department_id": a.department_id,
         "department_name": a.department_name,
+        "doctor_id": a.doctor_id,
         "doctor_name": a.doctor_name,
         "scheduled_at": a.scheduled_at.isoformat(),
         "status": a.status,
@@ -48,16 +65,30 @@ def _appointment_json(a) -> dict:
         # When this row was actually booked, distinct from scheduled_at (the
         # appointment's own time) -- the portal list shows both.
         "created_at": a.created_at.isoformat() if a.created_at else None,
+        # Follow-up validity override (migration 0024): the raw staff-granted
+        # date (None if never granted) and the fully-resolved date a
+        # follow-up can still be booked against this visit through (None
+        # unless the caller passed followup_validity_days -- see
+        # _followup_valid_until's own docstring).
+        "followup_override_until": a.followup_override_until,
+        "followup_valid_until": _followup_valid_until(a, followup_validity_days),
     }
 
 
 @router.get("/api/portal/bookings")
 async def portal_bookings(authorization: str | None = Header(default=None)):
-    hospital = _authenticate(authorization)
+    """Scoped to the caller's own appointments when role=="doctor" -- this
+    route is now shared by the doctor portal too, and a doctor must never
+    see another doctor's patients/appointments through it."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    appointments = db.get_all_appointments_for_hospital(hospital.id)
-    return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+    if role == "doctor" and doctor_id is not None:
+        appointments = db.get_doctor_appointments(hospital.id, doctor_id)
+    else:
+        appointments = db.get_all_appointments_for_hospital(hospital.id)
+    validity_days = db.get_followup_validity_days(hospital.id)
+    return JSONResponse({"appointments": [_appointment_json(a, validity_days) for a in appointments]})
 
 
 @router.get("/api/portal/bookings/needs-attendance-review")
@@ -354,3 +385,98 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
     )
 
     return JSONResponse({"ok": True})
+
+
+# --- Follow-up validity override (migration 0024) -- both routes below are
+# admin/receptionist-only in practice (require_permission's "write" action on
+# "appointments", which by default excludes neither role but a hospital can
+# restrict via Roles & Permissions), unlike every other route in this file,
+# which still only checks hospital-level auth (see portal/deps.py's
+# _authenticate docstring on why the rest of this file hasn't been migrated
+# yet). New routes, so there's no legacy-shared-password caller depending on
+# reaching them without a real staff login. ---
+
+@router.post("/api/portal/bookings/{appointment_id}/followup/extend")
+async def portal_extend_followup_validity(
+    appointment_id: int, payload: dict, authorization: str | None = Header(default=None)
+):
+    """Patient contacted the hospital after their normal follow-up window on
+    THIS attended visit had already closed -- grants them `extra_days` more,
+    after which they can book the follow-up themselves on WhatsApp as normal
+    (get_followup_eligible_appointments() honors the override transparently,
+    no other change needed there). payload = {"extra_days": <positive int>}."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_permission(principal, "appointments", "write")
+    if forbidden:
+        return forbidden
+
+    extra_days = (payload or {}).get("extra_days")
+    if not isinstance(extra_days, int) or isinstance(extra_days, bool) or extra_days <= 0:
+        return JSONResponse({"error": "extra_days must be a positive integer."}, status_code=400)
+
+    updated = db.grant_followup_extension(principal.hospital.id, appointment_id, extra_days)
+    if updated is None:
+        return JSONResponse({"error": "No such attended appointment to extend."}, status_code=404)
+
+    db.record_audit_log(
+        "portal", principal.hospital.id, principal.name, "booking.followup_extend",
+        entity_type="appointment", entity_id=str(appointment_id),
+        after={"followup_override_until": updated.followup_override_until, "extra_days": extra_days},
+    )
+    validity_days = db.get_followup_validity_days(principal.hospital.id)
+    return JSONResponse({"ok": True, "appointment": _appointment_json(updated, validity_days)})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/followup/book")
+async def portal_book_followup_now(
+    appointment_id: int, payload: dict, authorization: str | None = Header(default=None)
+):
+    """Direct override: books a follow-up right now against `appointment_id`
+    (the past ATTENDED visit being followed up on) -- its own doctor and
+    department, ignoring the eligibility window entirely. Unlike the extend
+    action above, the patient never books this themselves; staff only pick
+    the new slot (payload = {"scheduled_at": "<ISO datetime>"}), same as
+    every other appointment-type flow's own "no doctor/department picker for
+    follow-up" behavior."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_permission(principal, "appointments", "write")
+    if forbidden:
+        return forbidden
+
+    source_appointment = db.get_appointment(principal.hospital.id, appointment_id)
+    if source_appointment is None or source_appointment.status != db.STATUS_ATTENDED:
+        return JSONResponse({"error": "No such attended appointment to follow up on."}, status_code=404)
+
+    slot_id = (payload or {}).get("scheduled_at") or ""
+    try:
+        scheduled_at = datetime.fromisoformat(slot_id)
+    except ValueError:
+        return JSONResponse({"errors": ["Choose a valid date/time."]}, status_code=400)
+
+    connector = connectors.get_connector_for_hospital(principal.hospital)
+    try:
+        created = connector.create_booking(
+            principal.hospital.id, source_appointment.phone, source_appointment.department_id,
+            source_appointment.doctor_id, scheduled_at, source=db.SOURCE_STAFF,
+            patient_id=source_appointment.patient_id, appointment_type_id="followup",
+        )
+    except db.QuotaExceededError as e:
+        return JSONResponse({"errors": [str(e)]}, status_code=400)
+    except db.DuplicateBookingError as e:
+        return JSONResponse({"errors": [str(e)]}, status_code=400)
+    except IntegrityError:
+        return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
+
+    db.record_audit_log(
+        "portal", principal.hospital.id, principal.name, "booking.followup_override",
+        entity_type="appointment", entity_id=str(created.id),
+        after={
+            "source_appointment_id": appointment_id, "doctor_id": source_appointment.doctor_id,
+            "scheduled_at": scheduled_at.isoformat(),
+        },
+    )
+    return JSONResponse({"ok": True, "appointment": _appointment_json(created)})

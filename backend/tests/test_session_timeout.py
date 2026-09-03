@@ -72,7 +72,7 @@ async def test_activity_every_90s_over_5_minutes_never_times_out_at_2_minute_set
 
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     common_kwargs = dict(
-        hospital_name="City Hospital", enabled_features=["booking"], session_timeout_minutes=2,
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"], session_timeout_minutes=2,
     )
 
     # t=0: Book -> name prompt (Patient identity/UX follow-up, Spec.md
@@ -136,7 +136,7 @@ async def test_genuine_2_minute_silence_times_out_and_resets_to_idle(hospital_id
     sessions = history_module.InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "IDLE", {}, language="en")
     common_kwargs = dict(
-        hospital_name="City Hospital", enabled_features=["booking"], session_timeout_minutes=2,
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"], session_timeout_minutes=2,
     )
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"), **common_kwargs)

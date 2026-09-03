@@ -239,6 +239,9 @@ class AppointmentRow(Base):
     consent_given_at: Mapped[str | None]
     video_link: Mapped[str | None]
     duration_hours: Mapped[int | None]
+    # Follow-up validity override (migration 0024) -- see db/schema.sql's own
+    # column comment. NULL means no override has ever been granted.
+    followup_override_until: Mapped[str | None]
 
 
 class AppointmentReminder(Base):
@@ -370,6 +373,9 @@ class PatientDocument(Base):
     uploaded_at: Mapped[str]
     uploaded_by_session_id: Mapped[str | None]
     sent_to_whatsapp_at: Mapped[str | None]
+    # Migration 0022 -- prescription/lab_report/diagnostic_report/other, see
+    # db/migrations/versions/0022_patient_document_type.py.
+    document_type: Mapped[str]
 
 
 class PatientRow(Base):
@@ -633,7 +639,7 @@ class HospitalSettings(Base):
 
 
 class GoogleCalendarConnection(Base):
-    """db/schema.sql's google_calendar_connections table (migration 0022) --
+    """db/schema.sql's google_calendar_connections table (migration 0025) --
     Google Meet integration, alongside (not replacing) the existing Jitsi
     tele-consultation link. One row per doctor (doctor_id is both the primary
     key and the FK, 1:1) -- a row's mere EXISTENCE is what "this doctor is

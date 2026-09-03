@@ -420,18 +420,32 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     )
 
 
-def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone: str) -> dict | None:
+def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone: str, age: int, gender: str) -> dict | None:
     """CareConnect architecture doc alignment (Spec.md Section 0), Sections
     8-10: searched BEFORE create_patient_profile() creates a brand-new
     `patients` row/MRN, so a family member who already has a hospital
     record (e.g. from a staff-created booking, a different WhatsApp number,
     or the SAME phone re-adding someone already in their own list) isn't
-    silently duplicated. Matching criteria (confirmed with the user): exact
-    name (case/whitespace-insensitive) AND exact contact phone number
-    (patients.phone -- the patient's OWN number: the messaging phone for
-    "Myself", the collected number for "Someone Else", see
-    create_patient_profile()'s contact_phone param), among this hospital's
-    ACTIVE patients -- age is no longer part of the match.
+    silently duplicated. Matching criteria (confirmed with the user,
+    widened from name+contact only): exact name (case/whitespace-
+    insensitive) AND exact contact phone number (patients.phone -- the
+    patient's OWN number: the messaging phone for "Myself", the collected
+    number for "Someone Else", see create_patient_profile()'s contact_phone
+    param) AND exact age AND exact gender, among this hospital's ACTIVE
+    patients -- all four together make a match essentially certain to be
+    the same real person.
+
+    age/gender are REQUIRED (not Optional) rather than compared with a
+    None-tolerant `is_()`/`==` branch: SQLAlchemy compiles `Column == None`
+    to `IS NULL`, so an Optional param would silently match every candidate
+    with an unrecorded age/gender -- a real false-positive risk. The one
+    real caller (registration) always has both collected by the time it
+    calls this, so requiring them closes that path structurally. The
+    reverse asymmetry is accepted as-is: an EXISTING row with a NULL
+    age/gender (e.g. staff-created before gender was mandatory) will
+    correctly never match a concrete incoming value (three-valued SQL
+    logic) -- no false positive, but a genuine duplicate could be missed;
+    that's a known limitation, not a bug to fix here.
 
     Deliberately does NOT exclude a patient already linked to the caller's
     own phone (an earlier version of this function did, via a
@@ -445,11 +459,12 @@ def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone:
     Returns the first match (deterministic: lowest patient id) or None."""
     session = get_session()
     row = session.execute(
-        select(PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id)
+        select(PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id, PatientRow.phone)
         .where(
             PatientRow.hospital_id == hospital_id, PatientRow.status == "active",
             func.lower(func.trim(PatientRow.name)) == func.lower(func.trim(name)),
             PatientRow.phone == contact_phone,
+            PatientRow.age == age, PatientRow.gender == gender,
         )
         .order_by(PatientRow.id)
         .limit(1)

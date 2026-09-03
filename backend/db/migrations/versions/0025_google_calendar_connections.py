@@ -1,9 +1,17 @@
 """google_calendar_connections: Google Meet integration for tele-consultation
 appointments, alongside (not replacing) the existing Jitsi link
 
-Revision ID: 0022
-Revises: 0021
-Create Date: 2026-09-02
+Revision ID: 0025
+Revises: 0024
+Create Date: 2026-09-03
+
+Renumbered from 0022 to 0025: both this branch and a concurrent one (merged
+in the same round -- patient_documents.document_type, the appointment-type
+relabel v2, and followup_override_until) independently forked a new
+migration from 0021, so 0022-0024 went to the concurrent branch and this one
+moved to 0025 to keep the chain linear. Same "migration-numbering collision
+between concurrent branches" pattern this project has hit before -- resolved
+by renumbering since this migration was never applied to production.
 
 Approved plan (confirmed with the user): a doctor can optionally connect
 their own Google account (a SEPARATE OAuth client from GOOGLE_CLIENT_ID/
@@ -27,8 +35,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0022"
-down_revision: Union[str, None] = "0021"
+revision: str = "0025"
+down_revision: Union[str, None] = "0024"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

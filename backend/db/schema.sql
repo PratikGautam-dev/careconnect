@@ -593,6 +593,15 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS video_link TEXT;
 -- daycare.py), in hours -- persisted via TypeFlow.on_booking_confirmed, same
 -- shape as video_link above. NULL for every non-daycare appointment.
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER;
+-- Follow-up validity override: lets portal staff (admin/receptionist,
+-- gated by portal/permissions.py) grant a patient extra days to book a
+-- follow-up against THIS specific ATTENDED appointment after the hospital's
+-- normal followup_validity_days window has closed, without changing that
+-- hospital-wide setting. get_followup_eligible_appointments() (db/
+-- repositories/appointments.py) treats a visit as eligible if it's within
+-- the normal window OR today is still on/before this date. NULL (the
+-- default) means no override has ever been granted for this visit.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_override_until TEXT;
 -- Item 9: the inline CHECK above only applies to a freshly-created table --
 -- same idempotency gap Section 12.13's session_timeout_minutes CHECK hit,
 -- same fix (explicit DROP + re-ADD, safe to re-run every startup). Real
@@ -911,7 +920,11 @@ CREATE TABLE IF NOT EXISTS patient_documents (
     file_url TEXT NOT NULL,
     uploaded_at TEXT NOT NULL DEFAULT (now()::text),
     uploaded_by_session_id TEXT,
-    sent_to_whatsapp_at TEXT
+    sent_to_whatsapp_at TEXT,
+    -- WhatsApp menu restructuring: Reports & Prescriptions' "View
+    -- Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
+    -- this. 'other' for every document uploaded before this column existed.
+    document_type TEXT NOT NULL DEFAULT 'other'
 );
 CREATE INDEX IF NOT EXISTS idx_patient_documents_hospital_patient ON patient_documents(hospital_id, patient_id);
 

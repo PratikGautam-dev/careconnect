@@ -79,8 +79,8 @@ async def test_custom_feature_label_overrides_default_in_menu(hospital_id):
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking", "hospital_info"],
-        feature_labels={"booking": "Schedule a consultation"},
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment", "hospital_info"],
+        feature_labels={"book_doctor_appointment": "Schedule a consultation"},
     )
 
     kwargs = _last_list(wa)
@@ -99,12 +99,12 @@ async def test_no_custom_label_falls_back_to_default(hospital_id):
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking"],
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"],
         feature_labels={},
     )
 
     kwargs = _last_list(wa)
-    assert _row_titles(kwargs) == ["Book Appointment"]
+    assert _row_titles(kwargs) == ["Book Doctor Appointment"]
 
 
 # --- Closing message ---
@@ -222,7 +222,7 @@ async def test_language_prompt_disabled_skips_picker_and_uses_default_language(h
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking"],
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"],
         default_language="hi", language_prompt_enabled=False,
     )
 
@@ -240,7 +240,7 @@ async def test_language_prompt_enabled_by_default_still_shows_picker(hospital_id
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking"],
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"],
     )
 
     kind, kwargs = wa.sent[-1]
@@ -255,7 +255,7 @@ async def test_default_language_hindi_lists_hindi_button_first_on_picker(hospita
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking"], default_language="hi",
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"], default_language="hi",
     )
 
     kind, kwargs = wa.sent[-1]
@@ -286,7 +286,7 @@ async def test_session_timeout_minutes_is_converted_to_seconds_and_passed_to_the
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking"], session_timeout_minutes=15,
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"], session_timeout_minutes=15,
     )
 
     assert sessions.get_calls == [15 * 60]
@@ -299,7 +299,7 @@ async def test_no_custom_timeout_leaves_store_default_untouched(hospital_id):
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["booking"],
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment"],
     )
 
     assert sessions.get_calls == [None]  # falls back to the store's own constructor default
@@ -331,7 +331,7 @@ async def test_settings_customization_does_not_leak_across_hospitals(hospital_id
         reminder_template_name=h.reminder_template_name, data_tier=h.data_tier,
         external_api_base_url=h.external_api_base_url, external_api_key=h.external_api_key,
         portal_password_hash=h.portal_password_hash, enabled_features=h.enabled_features,
-        feature_labels={"booking": "Custom Hospital A Label"},
+        feature_labels={"book_doctor_appointment": "Custom Hospital A Label"},
         closing_message_text="Hospital A's own closing message.",
         business_hours_text="Hospital A hours",
         default_language="hi", language_prompt_enabled=False,
@@ -341,7 +341,7 @@ async def test_settings_customization_does_not_leak_across_hospitals(hospital_id
     updated_a = db.get_hospital(hospital_id)
     untouched_b = db.get_hospital(second_hospital_id)
 
-    assert updated_a.feature_labels == {"booking": "Custom Hospital A Label"}
+    assert updated_a.feature_labels == {"book_doctor_appointment": "Custom Hospital A Label"}
     assert updated_a.closing_message_text == "Hospital A's own closing message."
     assert updated_a.business_hours_text == "Hospital A hours"
     assert updated_a.default_language == "hi"
@@ -374,7 +374,7 @@ async def test_editing_welcome_message_never_wipes_existing_customizations(hospi
         reminder_template_name=h.reminder_template_name, data_tier=h.data_tier,
         external_api_base_url=h.external_api_base_url, external_api_key=h.external_api_key,
         portal_password_hash=h.portal_password_hash, enabled_features=h.enabled_features,
-        feature_labels={"booking": "Original Label"}, closing_message_text="Original closing.",
+        feature_labels={"book_doctor_appointment": "Original Label"}, closing_message_text="Original closing.",
         business_hours_text="Original hours", default_language="hi", language_prompt_enabled=False,
         session_timeout_minutes=20,
     )
@@ -397,7 +397,7 @@ async def test_editing_welcome_message_never_wipes_existing_customizations(hospi
 
     final = db.get_hospital(hospital_id)
     assert final.welcome_message_text == "A brand-new welcome message."
-    assert final.feature_labels == {"booking": "Original Label"}
+    assert final.feature_labels == {"book_doctor_appointment": "Original Label"}
     assert final.closing_message_text == "Original closing."
     assert final.business_hours_text == "Original hours"
     assert final.default_language == "hi"

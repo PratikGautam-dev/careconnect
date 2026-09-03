@@ -58,7 +58,7 @@ def _payload(super_admin_token, **overrides):
         "portal_password": "bookings-pw",
         "admin_email": "admin@stjude.example",
         "admin_password": "stjude-admin-pw",
-        "enabled_features": ["booking"],
+        "enabled_features": ["book_doctor_appointment"],
         "data_tier": "tier1",
         "departments": _valid_departments(),
         "topics": [],
@@ -149,7 +149,7 @@ def test_no_features_selected_rejected(hospital_id, user_auth_header, super_admi
 
 
 def test_unrecognized_feature_rejected(hospital_id, user_auth_header, super_admin_token):
-    resp = client.post("/api/onboarding", json=_payload(super_admin_token, enabled_features=["booking", "teleporting"]), headers=user_auth_header)
+    resp = client.post("/api/onboarding", json=_payload(super_admin_token, enabled_features=["book_doctor_appointment", "teleporting"]), headers=user_auth_header)
     assert resp.status_code == 400
 
 
@@ -207,13 +207,13 @@ def test_booking_and_faq_both_enabled_creates_both(hospital_id, user_auth_header
     resp = client.post(
         "/api/onboarding",
         json=_payload(super_admin_token,
-            enabled_features=["booking", "faq"], whatsapp_phone_number_id="BOTH_PHONE_ID",
+            enabled_features=["book_doctor_appointment", "faq"], whatsapp_phone_number_id="BOTH_PHONE_ID",
             topics=[{"topic_label": "Hours", "answer_text": "Mon-Sat, 9-6."}],
         ),
         headers=user_auth_header,
     )
     assert resp.status_code == 200, resp.text
     hospital = db.find_hospital_by_phone_number_id("BOTH_PHONE_ID")
-    assert set(hospital.enabled_features) == {"booking", "faq"}
+    assert set(hospital.enabled_features) == {"book_doctor_appointment", "faq"}
     assert len(db.get_departments(hospital.id)) == 1
     assert len(db.get_faq_topics(hospital.id)) == 1

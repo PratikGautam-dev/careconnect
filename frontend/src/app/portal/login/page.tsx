@@ -42,12 +42,10 @@ export default function PortalLoginPage() {
         hospital: data.staff.hospital,
         permissions: data.permissions,
       });
-      // A doctor gets their own dashboard, not the shared staff portal --
-      // /portal/appointments and /portal/patients show every patient at the
-      // hospital with no per-doctor filtering (that scoping only exists on
-      // the dedicated /api/doctor/* routes), so a doctor landing there by
-      // default would defeat the whole point of a per-doctor login.
-      router.push(data.staff.role === "doctor" ? "/doctor/dashboard" : "/portal/dashboard");
+      // Every role (including doctor) lands in the same shared portal now --
+      // what they see there is driven by the RBAC permission matrix, not by
+      // which door they logged in through.
+      router.push("/portal/dashboard");
     } catch {
       setStaffError("Couldn't reach the server. Please try again.");
     } finally {
@@ -113,13 +111,6 @@ export default function PortalLoginPage() {
             {staffSubmitting ? "Signing in…" : "Sign in"}
           </Button>
         </form>
-
-        <p className="mt-space-4 text-center text-[12.5px] text-ink-400">
-          Signing in as a doctor?{" "}
-          <a href="/doctor/login" className="font-semibold text-brand-600 hover:underline">
-            Doctor login
-          </a>
-        </p>
 
         <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
           Don&apos;t have a hospital account yet?{" "}

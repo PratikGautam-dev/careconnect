@@ -28,6 +28,20 @@ DOCUMENTS_SECTION_TITLE = "documents_section_title"
 MY_DETAILS_DOCUMENT_SENT = "my_details_document_sent"
 MY_DETAILS_DOCUMENT_SEND_FAILED = "my_details_document_send_failed"
 
+# WhatsApp menu restructuring: Reports & Prescriptions' own 4-row submenu
+# (View Prescriptions/View Lab Reports/View Diagnostic Reports/Book Report
+# Review), replacing the old combined patient-summary-plus-flat-document-list
+# behavior above entirely (flows/router.py's _send_reports_prescriptions ->
+# _send_reports_menu/_send_filtered_documents).
+REPORTS_MENU_PROMPT = "reports_menu_prompt"
+REPORTS_MENU_BUTTON = "reports_menu_button"
+REPORTS_MENU_SECTION_TITLE = "reports_menu_section_title"
+REPORTS_MENU_VIEW_PRESCRIPTIONS = "reports_menu_view_prescriptions"
+REPORTS_MENU_VIEW_LAB_REPORTS = "reports_menu_view_lab_reports"
+REPORTS_MENU_VIEW_DIAGNOSTIC_REPORTS = "reports_menu_view_diagnostic_reports"
+REPORTS_MENU_BOOK_REPORT_REVIEW = "reports_menu_book_report_review"
+REPORTS_NO_DOCUMENTS_IN_CATEGORY = "reports_no_documents_in_category"
+
 STRINGS: dict[str, dict[Language, str]] = {
     FEATURE_MY_DETAILS: {"en": "My Details", "hi": "मेरी जानकारी"},
     MY_DETAILS_NOT_FOUND: {
@@ -71,5 +85,17 @@ STRINGS: dict[str, dict[Language, str]] = {
     MY_DETAILS_DOCUMENT_SEND_FAILED: {
         "en": "Sorry, we couldn't send that document right now. Please try again later or contact the hospital.",
         "hi": "क्षमा करें, हम अभी वह दस्तावेज़ नहीं भेज सके। कृपया बाद में पुनः प्रयास करें या अस्पताल से संपर्क करें।",
+    },
+
+    REPORTS_MENU_PROMPT: {"en": "What would you like to do?", "hi": "आप क्या करना चाहेंगे?"},
+    REPORTS_MENU_BUTTON: {"en": "View Options", "hi": "विकल्प देखें"},
+    REPORTS_MENU_SECTION_TITLE: {"en": "Reports & Prescriptions", "hi": "रिपोर्ट और पर्चे"},
+    REPORTS_MENU_VIEW_PRESCRIPTIONS: {"en": "View Prescriptions", "hi": "प्रिस्क्रिप्शन देखें"},
+    REPORTS_MENU_VIEW_LAB_REPORTS: {"en": "View Lab Reports", "hi": "लैब रिपोर्ट देखें"},
+    REPORTS_MENU_VIEW_DIAGNOSTIC_REPORTS: {"en": "View Diagnostic Reports", "hi": "जांच रिपोर्ट देखें"},
+    REPORTS_MENU_BOOK_REPORT_REVIEW: {"en": "Book Report Review", "hi": "रिपोर्ट रिव्यू बुक करें"},
+    REPORTS_NO_DOCUMENTS_IN_CATEGORY: {
+        "en": "You don't have any documents in this category on file yet.",
+        "hi": "इस श्रेणी में आपकी कोई फाइल दर्ज नहीं है।",
     },
 }

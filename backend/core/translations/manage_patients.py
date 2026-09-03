@@ -23,6 +23,8 @@ PATIENT_ADDED = "patient_added"
 UNLINK_PATIENT_CONFIRM = "unlink_patient_confirm"
 PATIENT_UNLINKED = "patient_unlinked"
 PATIENT_REMOVAL_CANCELLED = "patient_removal_cancelled"
+UNLINK_SELF_BLOCKED = "unlink_self_blocked"
+UNLINK_SELF_CONTACT_RECEPTION = "unlink_self_contact_reception"
 
 STRINGS: dict[str, dict[Language, str]] = {
     FEATURE_MANAGE_PATIENTS: {"en": "Manage Patients", "hi": "मरीज़ प्रबंधित करें"},
@@ -52,11 +54,30 @@ STRINGS: dict[str, dict[Language, str]] = {
               "होंगे — आप उन्हें कभी भी दोबारा जोड़ सकते हैं।",
     },
     PATIENT_UNLINKED: {
-        "en": "{patient_name} has been removed from this number.",
-        "hi": "{patient_name} को इस नंबर से हटा दिया गया है।",
+        # Previous body (kept for reference, not deleted):
+        # "en": "{patient_name} has been removed from this number.",
+        # "hi": "{patient_name} को इस नंबर से हटा दिया गया है।",
+        "en": (
+            "✅ {patient_name} has been removed from this WhatsApp number.\n\n"
+            "Their Patient ID, medical records, and appointment history remain unchanged."
+        ),
+        "hi": (
+            "✅ {patient_name} को इस व्हाट्सएप नंबर से हटा दिया गया है।\n\n"
+            "उनकी पेशेंट आईडी, मेडिकल रिकॉर्ड और अपॉइंटमेंट इतिहास अपरिवर्तित रहेंगे।"
+        ),
     },
     PATIENT_REMOVAL_CANCELLED: {
         "en": "No changes made — {patient_name} is still linked.",
         "hi": "कोई बदलाव नहीं किया गया — {patient_name} अभी भी जुड़ा हुआ है।",
+    },
+    # Confirmed with the user: the "Myself"/master patient can never be
+    # self-unlinked -- two separate messages, not merged into one.
+    UNLINK_SELF_BLOCKED: {
+        "en": "{patient_name} is the main patient linked to this number and can't be removed here.",
+        "hi": "{patient_name} इस नंबर से जुड़ा मुख्य मरीज़ है और इसे यहां से हटाया नहीं जा सकता।",
+    },
+    UNLINK_SELF_CONTACT_RECEPTION: {
+        "en": "If you need help with this, please use \"Talk to Reception\" from the main menu — our team can assist you further.",
+        "hi": "इसमें मदद के लिए, कृपया मुख्य मेनू से \"रिसेप्शन से बात करें\" का उपयोग करें — हमारी टीम आपकी आगे सहायता करेगी।",
     },
 }
