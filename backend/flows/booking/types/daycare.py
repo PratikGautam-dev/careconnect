@@ -77,9 +77,7 @@ async def _handle_awaiting_daycare_duration(
     await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)
 
 
-async def _on_daycare_duration_confirmed(
-    appointment_id: int, hospital_id: int, patient_id: int | None, connector: Connector, context: dict,
-) -> None:
+async def _on_daycare_duration_confirmed(appointment, connector: Connector, context: dict) -> None:
     """Fresh booking only -- context["daycare_duration_hours"] is set by
     _handle_awaiting_daycare_duration above right before confirmation. A
     reschedule's context never has it (that flow only re-asks date/time, not
@@ -88,7 +86,7 @@ async def _on_daycare_duration_confirmed(
     creation time, so this is correctly a no-op for that call site."""
     duration_hours = context.get("daycare_duration_hours")
     if duration_hours is not None:
-        connector.set_appointment_duration(hospital_id, appointment_id, duration_hours)
+        connector.set_appointment_duration(appointment.hospital_id, appointment.id, duration_hours)
 
 
 FLOW = TypeFlow(

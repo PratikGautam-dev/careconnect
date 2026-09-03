@@ -34,6 +34,7 @@ from admin.tenants_api import router as tenants_api_router
 from admin.users_api import router as users_api_router
 from portal.routes import router as portal_api_router
 from auth.google_oauth import AUTH_SECRET, router as user_auth_router
+from auth.google_calendar_oauth import router as google_calendar_oauth_router
 
 # core/logging_config.py's own module docstring covers the full reasoning --
 # in short, every logger in this app (core.whatsapp, webhook.routes, ...)
@@ -190,6 +191,7 @@ app.include_router(platform_settings_api_router)
 app.include_router(super_auth_router)
 app.include_router(portal_api_router)
 app.include_router(user_auth_router)
+app.include_router(google_calendar_oauth_router)
 app.include_router(webhook_router)
 app.include_router(cron_router)
 

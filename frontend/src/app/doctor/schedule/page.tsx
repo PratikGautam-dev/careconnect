@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { DoctorShell } from "@/components/doctor/DoctorShell";
+import { GoogleCalendarCard } from "@/components/doctor/GoogleCalendarCard";
 import { useDoctorGuard } from "@/components/doctor/useDoctorGuard";
 import { cn } from "@/lib/cn";
 import { staffFetch } from "@/lib/staffAuth";
@@ -39,7 +40,7 @@ function serializeRanges(ranges: TimeRange[]): string[] {
   return ranges.filter((r) => r.start && r.end).map((r) => `${r.start}-${r.end}`);
 }
 
-export default function DoctorSchedulePage() {
+function DoctorSchedulePageContent() {
   const { doctor, ready } = useDoctorGuard();
   const router = useRouter();
 
@@ -272,8 +273,18 @@ export default function DoctorSchedulePage() {
               </Button>
             </div>
           </Card>
+
+          <GoogleCalendarCard />
         </div>
       )}
     </DoctorShell>
+  );
+}
+
+export default function DoctorSchedulePage() {
+  return (
+    <Suspense>
+      <DoctorSchedulePageContent />
+    </Suspense>
   );
 }

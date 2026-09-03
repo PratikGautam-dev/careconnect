@@ -44,3 +44,4 @@ from db.repositories.hospital_settings import *  # noqa: F401,F403
 from db.repositories.staff_users import *  # noqa: F401,F403
 from db.repositories.role_permissions import *  # noqa: F401,F403
 from db.repositories.super_admins import *  # noqa: F401,F403
+from db.repositories.google_calendar import *  # noqa: F401,F403

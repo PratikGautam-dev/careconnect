@@ -543,7 +543,7 @@ async def _create_booking_and_notify(
     # call site (this one, or reschedule.py's own) now that neither
     # notification shows the link directly.
     if flow.on_booking_confirmed is not None:
-        await flow.on_booking_confirmed(appointment.id, hospital_id, context.get("active_patient_id"), connector, context)
+        await flow.on_booking_confirmed(appointment, connector, context)
     summary = _append_closing_message(summary, closing_message_text)
     # Item 3: quick-action buttons attached to the success message --
     # tapping any of them, even long after this session has expired,

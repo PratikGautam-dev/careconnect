@@ -815,6 +815,22 @@ def init_db_on_connection(conn) -> int:
         "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_new_consultation_fee_check "
         "CHECK (new_consultation_fee IS NULL OR new_consultation_fee >= 0)"
     )
+    # Migration 0022: google_calendar_connections -- Google Meet integration,
+    # alongside (not replacing) the existing Jitsi tele-consultation link. See
+    # that migration's own docstring.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS google_calendar_connections ("
+        "doctor_id TEXT PRIMARY KEY REFERENCES doctors(id), "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "google_email TEXT, "
+        "encrypted_access_token TEXT NOT NULL, "
+        "encrypted_refresh_token TEXT NOT NULL, "
+        "access_token_expires_at TEXT NOT NULL, "
+        "calendar_id TEXT NOT NULL DEFAULT 'primary', "
+        "connected_at TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL"
+        ")"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
