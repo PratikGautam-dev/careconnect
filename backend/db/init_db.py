@@ -1004,11 +1004,20 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_label TEXT")
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_variant_label TEXT")
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_price NUMERIC(10, 2)")
+    # Production incident: this block used to DROP+re-ADD the NARROW
+    # "doctor_id IS NOT NULL OR resource_id IS NOT NULL" constraint here on
+    # every single boot (init_db_on_connection() replays every delta
+    # unconditionally, not just once) -- fine on a fresh/empty table, but
+    # once real procedure-only appointments exist in production (doctor_id
+    # AND resource_id both NULL, only procedure_id set -- migration 0028's
+    # own case), re-narrowing the constraint even momentarily fails against
+    # that already-existing, perfectly valid data, crashing the app on
+    # every restart. The WIDE constraint (including procedure_id) further
+    # down this same function is the only one that should ever actually be
+    # created here -- dropping the narrow one (if it still exists from an
+    # older deploy) is enough; it must never be recreated in this idempotent
+    # path.
     conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk")
-    conn.execute(
-        "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_chk "
-        "CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL)"
-    )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked "
         "ON appointments(resource_id, scheduled_at, booking_ordinal) "
