@@ -93,15 +93,19 @@ _APPOINTMENT_SELECT = """
     SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
-           a.duration_hours, a.created_at, a.followup_override_until,
+           a.created_at, a.followup_override_until,
            a.resource_id, res.name AS resource_name, a.diagnostic_test_id, a.diagnostic_test_variant_id,
            a.diagnostic_test_label, a.diagnostic_variant_label, a.diagnostic_price,
-           a.collection_method, a.collection_address, a.collection_pincode, a.home_collection_charge, a.lab_status
+           a.collection_method, a.collection_address, a.collection_pincode, a.home_collection_charge, a.lab_status,
+           a.procedure_id, proc.name AS procedure_name, a.procedure_status,
+           a.procedure_estimated_price_min, a.procedure_estimated_price_max,
+           a.procedure_order_reference, a.procedure_reschedule_requested_at
     FROM appointments a
     JOIN departments d ON d.id = a.department_id
     LEFT JOIN doctors doc ON doc.id = a.doctor_id
     LEFT JOIN diagnostic_resources res ON res.id = a.resource_id
     LEFT JOIN patients p ON p.id = a.patient_id
+    LEFT JOIN procedures proc ON proc.id = a.procedure_id
     WHERE a.deleted_at IS NULL
 """
 # Item 3 (Spec.md Section 0): every normal read of an appointment excludes a
@@ -230,10 +234,6 @@ class Appointment:
     # other appointment type, and for any tele booking that predates this
     # column.
     video_link: str | None = None
-    # Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): the chosen
-    # stay length in hours (flows/booking/types/daycare.py's
-    # on_booking_confirmed hook). None for every other appointment type.
-    duration_hours: int | None = None
     # When this row was actually booked (distinct from scheduled_at, the
     # appointment's own time) -- the portal's appointments list shows both,
     # since a walk-in booked same-day vs. one booked weeks ahead are
@@ -267,6 +267,21 @@ class Appointment:
     collection_pincode: str | None = None
     home_collection_charge: float | None = None
     lab_status: str | None = None
+    # Daycare/Procedure rebuild: which catalog procedure this booking is,
+    # its own approval sub-status (None for every other appointment type),
+    # a price-at-booking-time snapshot, an optional free-text reference to
+    # the doctor's order/prescription, and a pending "Request Reschedule"
+    # slot (approval-required procedures only -- see flows/booking/types/
+    # procedure.py). The bound bed/chair/equipment/staff resources (N rows)
+    # are fetched separately, via db.get_procedure_resources_for_appointment()
+    # -- not part of this dataclass, same treatment as Lab Test's own basket.
+    procedure_id: int | None = None
+    procedure_name: str | None = None
+    procedure_status: str | None = None
+    procedure_estimated_price_min: float | None = None
+    procedure_estimated_price_max: float | None = None
+    procedure_order_reference: str | None = None
+    procedure_reschedule_requested_at: str | None = None
 
 
 def _row_to_appointment(row) -> Appointment:
@@ -287,7 +302,6 @@ def _row_to_appointment(row) -> Appointment:
         appointment_type_id=row["appointment_type_id"],
         consent_given_at=row["consent_given_at"],
         video_link=row["video_link"],
-        duration_hours=row["duration_hours"],
         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
         followup_override_until=row["followup_override_until"],
         resource_id=row["resource_id"],
@@ -304,6 +318,17 @@ def _row_to_appointment(row) -> Appointment:
             float(row["home_collection_charge"]) if row["home_collection_charge"] is not None else None
         ),
         lab_status=row["lab_status"],
+        procedure_id=row["procedure_id"],
+        procedure_name=row["procedure_name"],
+        procedure_status=row["procedure_status"],
+        procedure_estimated_price_min=(
+            float(row["procedure_estimated_price_min"]) if row["procedure_estimated_price_min"] is not None else None
+        ),
+        procedure_estimated_price_max=(
+            float(row["procedure_estimated_price_max"]) if row["procedure_estimated_price_max"] is not None else None
+        ),
+        procedure_order_reference=row["procedure_order_reference"],
+        procedure_reschedule_requested_at=row["procedure_reschedule_requested_at"],
     )
 
 

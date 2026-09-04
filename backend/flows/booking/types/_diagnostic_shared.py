@@ -246,8 +246,7 @@ async def _on_diagnostic_booking_confirmed(appointment, connector, context: dict
     never has it (that flow only re-asks date/time): Tier1Connector.
     reschedule_booking() already carries the ORIGINAL appointment's own
     diagnostic fields onto the new row at creation time, so this is
-    correctly a no-op for that call site (same pattern daycare's own hook
-    uses for duration_hours)."""
+    correctly a no-op for that call site."""
     variant_id = context.get("diagnostic_test_variant_id")
     if variant_id is not None:
         connector.set_appointment_diagnostic_details(

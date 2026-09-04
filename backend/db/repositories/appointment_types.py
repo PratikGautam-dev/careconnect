@@ -23,7 +23,7 @@ DEFAULT_APPOINTMENT_TYPES = (
     {"id": "tele", "label": "Video Consultation", "requires_consent": True, "requires_doctor_selection": True},
     {"id": "diagnostic", "label": "Diagnostic Test", "requires_consent": False, "requires_doctor_selection": False},
     {"id": "lab", "label": "Lab Test", "requires_consent": False, "requires_doctor_selection": False},
-    {"id": "daycare", "label": "Daycare / Procedure", "requires_consent": False, "requires_doctor_selection": True},
+    {"id": "daycare", "label": "Daycare / Procedure", "requires_consent": False, "requires_doctor_selection": False},
     {"id": "second_opinion", "label": "Report Review", "requires_consent": True, "requires_doctor_selection": True},
 )
 

@@ -31,10 +31,17 @@ MANAGE_STAFF = "manage_staff"
 # daycare_duration_options -- no new capability needed for a catalog toggle/
 # edit screen).
 MANAGE_DIAGNOSTIC_RESOURCES = "manage_diagnostic_resources"
+# Daycare/Procedure rebuild: a dedicated capability rather than reusing
+# MANAGE_APPOINTMENT_TYPES -- unlike the old duration-options catalog, this
+# now includes resource-pool management (bed/chair/equipment/staff), the
+# same class of admin surface MANAGE_DIAGNOSTIC_RESOURCES already exists to
+# gate separately from catalog-only edits. Hospital-tier only, same default
+# tier as MANAGE_DIAGNOSTIC_RESOURCES.
+MANAGE_PROCEDURES = "manage_procedures"
 
 ALL_CAPABILITIES = {
     MANAGE_DOCTORS, MANAGE_DEPARTMENTS, MANAGE_APPOINTMENT_TYPES,
-    MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF, MANAGE_DIAGNOSTIC_RESOURCES,
+    MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF, MANAGE_DIAGNOSTIC_RESOURCES, MANAGE_PROCEDURES,
 }
 
 # Single source of truth for both the onboarding-time default AND
@@ -44,7 +51,7 @@ ALL_CAPABILITIES = {
 DEFAULT_CAPABILITIES_BY_TYPE: dict[str, set[str]] = {
     "hospital": {
         MANAGE_DOCTORS, MANAGE_DEPARTMENTS, MANAGE_APPOINTMENT_TYPES,
-        MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF, MANAGE_DIAGNOSTIC_RESOURCES,
+        MANAGE_BOOKINGS, MANAGE_SETTINGS, MANAGE_STAFF, MANAGE_DIAGNOSTIC_RESOURCES, MANAGE_PROCEDURES,
     },
     "clinic": {MANAGE_BOOKINGS, MANAGE_SETTINGS},
 }

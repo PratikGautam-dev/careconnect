@@ -23,10 +23,6 @@ AVAILABLE_DATES_SECTION_TITLE = "available_dates_section_title"
 SELECT_TIME_SLOT = "select_time_slot"
 VIEW_TIMES_BUTTON = "view_times_button"
 AVAILABLE_TIMES_SECTION_TITLE = "available_times_section_title"
-SELECT_DAYCARE_DURATION = "select_daycare_duration"
-VIEW_DURATIONS_BUTTON = "view_durations_button"
-DAYCARE_DURATIONS_SECTION_TITLE = "daycare_durations_section_title"
-CONFIRM_DAYCARE_DURATION_LINE = "confirm_daycare_duration_line"
 CONSULTATION_FEE_LINE = "consultation_fee_line"
 SELECT_SLOT = "select_slot"
 VIEW_SLOTS_BUTTON = "view_slots_button"
@@ -59,7 +55,6 @@ CHANGE_DEPARTMENT_OPTION = "change_department_option"
 CHANGE_DOCTOR_OPTION = "change_doctor_option"
 CHANGE_DATE_OPTION = "change_date_option"
 CHANGE_TIME_OPTION = "change_time_option"
-CHANGE_DURATION_OPTION = "change_duration_option"
 BOOKING_CONFIRMED = "booking_confirmed"
 BOOKING_NOT_CONFIRMED = "booking_not_confirmed"
 DUPLICATE_BOOKING_TEXT = "duplicate_booking_text"
@@ -114,6 +109,26 @@ LAB_TOTAL_LINE = "lab_total_line"
 LAB_FASTING_LINE = "lab_fasting_line"
 LAB_BOOKING_CONFIRMED = "lab_booking_confirmed"
 
+# --- Daycare/Procedure rebuild (Step 1's catalog through the approval
+# workflow and "Request Reschedule") ---
+SELECT_PROCEDURE = "select_procedure"
+VIEW_PROCEDURES_BUTTON = "view_procedures_button"
+PROCEDURES_SECTION_TITLE = "procedures_section_title"
+NO_PROCEDURES_CONFIGURED = "no_procedures_configured"
+PROCEDURE_REQUEST_CONFIRM_SUMMARY = "procedure_request_confirm_summary"
+PROCEDURE_REQUEST_SUBMITTED = "procedure_request_submitted"
+PROCEDURE_APPROVED = "procedure_approved"
+PROCEDURE_REJECTED = "procedure_rejected"
+PROCEDURE_CONFIRMATION_SUMMARY = "procedure_confirmation_summary"
+PROCEDURE_ESTIMATE_LINE = "procedure_estimate_line"
+PROCEDURE_ORDER_REFERENCE_LINE = "procedure_order_reference_line"
+PROCEDURE_INSTRUCTIONS_LINE = "procedure_instructions_line"
+PROCEDURE_BOOKING_CONFIRMED = "procedure_booking_confirmed"
+PROCEDURE_RESCHEDULE_REQUEST_PROMPT = "procedure_reschedule_request_prompt"
+PROCEDURE_RESCHEDULE_REQUESTED = "procedure_reschedule_requested"
+PROCEDURE_RESCHEDULE_APPROVED = "procedure_reschedule_approved"
+PROCEDURE_RESCHEDULE_REJECTED = "procedure_reschedule_rejected"
+
 STRINGS: dict[str, dict[Language, str]] = {
     # --- Booking: appointment type (shown right after patient resolution,
     # before department selection) ---
@@ -163,8 +178,8 @@ STRINGS: dict[str, dict[Language, str]] = {
         # Previous body (kept for reference, not deleted):
         # "en": "You have selected {doctor_name}. Now please select a consulting date:",
         # "hi": "आपने {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
-        "en": "{doctor_name} selected ✅\nPlease choose your preferred appointment date.",
-        "hi": "{doctor_name} चुने गए ✅\nकृपया अपनी पसंदीदा अपॉइंटमेंट की तारीख चुनें।",
+        "en": "✅ {doctor_name} selected\nPlease choose your preferred appointment date.",
+        "hi": "✅ {doctor_name} चुने गए\nकृपया अपनी पसंदीदा अपॉइंटमेंट की तारीख चुनें।",
     },
     VIEW_DATES_BUTTON: {"en": "View Dates", "hi": "तारीखें देखें"},
     AVAILABLE_DATES_SECTION_TITLE: {"en": "Available Dates", "hi": "उपलब्ध तारीखें"},
@@ -178,13 +193,6 @@ STRINGS: dict[str, dict[Language, str]] = {
 
     # --- Booking: daycare duration (Phase 2, docs/per-appointment-type-
     # flow-plan.md) -- shown right after time-slot selection, daycare only ---
-    SELECT_DAYCARE_DURATION: {
-        "en": "Please select how long the daycare stay will be:",
-        "hi": "कृपया बताएं कि डेकेयर में ठहराव कितने समय का होगा:",
-    },
-    VIEW_DURATIONS_BUTTON: {"en": "View Durations", "hi": "अवधि देखें"},
-    DAYCARE_DURATIONS_SECTION_TITLE: {"en": "Duration", "hi": "अवधि"},
-    CONFIRM_DAYCARE_DURATION_LINE: {"en": "⏱ *Duration:* {duration_label}", "hi": "⏱ *अवधि:* {duration_label}"},
     CONSULTATION_FEE_LINE: {"en": "💰 Consultation Fee: ₹{amount}\n\n", "hi": "💰 परामर्श शुल्क: ₹{amount}\n\n"},
 
     SELECT_SLOT: {
@@ -349,7 +357,6 @@ STRINGS: dict[str, dict[Language, str]] = {
     CHANGE_DOCTOR_OPTION: {"en": "Doctor", "hi": "डॉक्टर"},
     CHANGE_DATE_OPTION: {"en": "Date", "hi": "तारीख"},
     CHANGE_TIME_OPTION: {"en": "Time", "hi": "समय"},
-    CHANGE_DURATION_OPTION: {"en": "Duration", "hi": "अवधि"},
     BOOKING_CONFIRMED: {
         "en": (
             "✅ *Appointment Confirmed*\n\n"
@@ -693,5 +700,143 @@ STRINGS: dict[str, dict[Language, str]] = {
             "🕐 समय: {time_label}\n\n"
             "आपकी रिपोर्ट तैयार होते ही हम आपको यहीं WhatsApp पर सूचित करेंगे।"
         ),
+    },
+    SELECT_PROCEDURE: {
+        "en": "Please select the treatment or procedure recommended by your doctor.",
+        "hi": "कृपया अपने डॉक्टर द्वारा सुझाई गई उपचार या प्रक्रिया चुनें।",
+    },
+    VIEW_PROCEDURES_BUTTON: {"en": "View Procedures", "hi": "प्रक्रियाएं देखें"},
+    PROCEDURES_SECTION_TITLE: {"en": "Procedures", "hi": "प्रक्रियाएं"},
+    NO_PROCEDURES_CONFIGURED: {
+        "en": "Sorry, no procedures are available to book right now. Please check back later.",
+        "hi": "क्षमा करें, अभी बुक करने के लिए कोई प्रक्रिया उपलब्ध नहीं है। कृपया बाद में फिर से देखें।",
+    },
+    # amount_line/order_line/instructions_line: built by procedure.py, "" when
+    # unset -- same omit-rather-than-fake-value discipline as fee_line/
+    # amount_line elsewhere.
+    PROCEDURE_REQUEST_CONFIRM_SUMMARY: {
+        "en": (
+            "📋 *Review Your Request*\n\n"
+            "👤 Patient: {patient_name}\n"
+            "🩺 Procedure: {procedure_name}\n"
+            "{estimate_line}"
+            "{instructions_line}"
+            "This procedure requires hospital verification before a slot is confirmed. "
+            "Please review the details above before sending your request."
+        ),
+        "hi": (
+            "📋 *अपना अनुरोध जांचें*\n\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🩺 प्रक्रिया: {procedure_name}\n"
+            "{estimate_line}"
+            "{instructions_line}"
+            "इस प्रक्रिया के लिए स्लॉट कन्फर्म होने से पहले अस्पताल की मंजूरी आवश्यक है। "
+            "कृपया अनुरोध भेजने से पहले ऊपर दिए गए विवरण जांच लें।"
+        ),
+    },
+    PROCEDURE_REQUEST_SUBMITTED: {
+        "en": (
+            "Your request for the selected procedure has been sent to the hospital for verification.\n\n"
+            "We will notify you once the request is approved and eligible slots are available."
+        ),
+        "hi": (
+            "चुनी गई प्रक्रिया के लिए आपका अनुरोध सत्यापन हेतु अस्पताल को भेज दिया गया है।\n\n"
+            "अनुरोध स्वीकृत होने और स्लॉट उपलब्ध होने पर हम आपको सूचित करेंगे।"
+        ),
+    },
+    PROCEDURE_APPROVED: {
+        "en": (
+            "Your procedure request has been approved.\n\n"
+            "Please select an available date and time to continue with the booking."
+        ),
+        "hi": (
+            "आपकी प्रक्रिया का अनुरोध स्वीकृत कर दिया गया है।\n\n"
+            "बुकिंग जारी रखने के लिए कृपया एक उपलब्ध तारीख और समय चुनें।"
+        ),
+    },
+    PROCEDURE_REJECTED: {
+        "en": "Your request for {procedure_name} could not be approved at this time.{reason_line}",
+        "hi": "इस समय {procedure_name} के लिए आपका अनुरोध स्वीकृत नहीं किया जा सका।{reason_line}",
+    },
+    PROCEDURE_CONFIRMATION_SUMMARY: {
+        "en": (
+            "🩺 *Review {appointment_type_label} Booking*\n\n"
+            "👤 Patient: {patient_name}\n"
+            "🆔 Patient ID: {patient_code}\n"
+            "Procedure: {procedure_name}\n"
+            "{order_reference_line}"
+            "🏥 Location: {department_name}\n"
+            "📅 Date: {date_label}\n"
+            "🕐 Time: {time_label}\n"
+            "{estimate_line}"
+            "{instructions_line}"
+            "Please review the details before confirming your booking."
+        ),
+        "hi": (
+            "🩺 *{appointment_type_label} बुकिंग जांचें*\n\n"
+            "👤 मरीज़: {patient_name}\n"
+            "🆔 मरीज़ आईडी: {patient_code}\n"
+            "प्रक्रिया: {procedure_name}\n"
+            "{order_reference_line}"
+            "🏥 स्थान: {department_name}\n"
+            "📅 तारीख: {date_label}\n"
+            "🕐 समय: {time_label}\n"
+            "{estimate_line}"
+            "{instructions_line}"
+            "कृपया बुकिंग कन्फर्म करने से पहले विवरण जांच लें।"
+        ),
+    },
+    PROCEDURE_ESTIMATE_LINE: {
+        "en": "💰 Estimated Charges: ₹{amount}\nNote: Medicines, consumables, investigations, or additional services may affect the final charge.\n\n",
+        "hi": "💰 अनुमानित शुल्क: ₹{amount}\nनोट: दवाइयां, उपभोग्य सामग्री, जांच, या अतिरिक्त सेवाएं अंतिम शुल्क को प्रभावित कर सकती हैं।\n\n",
+    },
+    PROCEDURE_ORDER_REFERENCE_LINE: {"en": "🔗 Linked Order: {order_reference}\n", "hi": "🔗 संबंधित आदेश: {order_reference}\n"},
+    PROCEDURE_INSTRUCTIONS_LINE: {
+        "en": "📝 *Please note:* {instructions}\n\n",
+        "hi": "📝 *कृपया ध्यान दें:* {instructions}\n\n",
+    },
+    PROCEDURE_BOOKING_CONFIRMED: {
+        "en": (
+            "✅ *Daycare / Procedure Booking Confirmed*\n"
+            "Booking ID: {reference_id}\n"
+            "Patient: {patient_name}\n"
+            "Procedure: {procedure_name}\n"
+            "Department: {department_name}\n"
+            "Date: {date_label}\n"
+            "Time: {time_label}\n\n"
+            "Please arrive as instructed and carry the required documents/orders."
+        ),
+        "hi": (
+            "✅ *डेकेयर / प्रक्रिया बुकिंग कन्फर्म*\n"
+            "बुकिंग आईडी: {reference_id}\n"
+            "मरीज़: {patient_name}\n"
+            "प्रक्रिया: {procedure_name}\n"
+            "विभाग: {department_name}\n"
+            "तारीख: {date_label}\n"
+            "समय: {time_label}\n\n"
+            "कृपया निर्देशानुसार समय पर पहुंचें और आवश्यक दस्तावेज़/आदेश साथ लाएं।"
+        ),
+    },
+    PROCEDURE_RESCHEDULE_REQUEST_PROMPT: {
+        "en": "Please select your preferred new date and time. This procedure requires hospital approval before the change is confirmed.",
+        "hi": "कृपया अपनी पसंदीदा नई तारीख और समय चुनें। इस प्रक्रिया में बदलाव कन्फर्म होने से पहले अस्पताल की मंजूरी आवश्यक है।",
+    },
+    PROCEDURE_RESCHEDULE_REQUESTED: {
+        "en": "Your reschedule request has been sent to the hospital for approval. We will notify you once it's confirmed.",
+        "hi": "आपका रीशेड्यूल अनुरोध अस्पताल को मंजूरी हेतु भेज दिया गया है। कन्फर्म होते ही हम आपको सूचित करेंगे।",
+    },
+    PROCEDURE_RESCHEDULE_APPROVED: {
+        "en": (
+            "✅ Your reschedule request has been approved.\n"
+            "New Date: {date_label}\nNew Time: {time_label}"
+        ),
+        "hi": (
+            "✅ आपका रीशेड्यूल अनुरोध स्वीकृत कर दिया गया है।\n"
+            "नई तारीख: {date_label}\nनया समय: {time_label}"
+        ),
+    },
+    PROCEDURE_RESCHEDULE_REJECTED: {
+        "en": "Your reschedule request could not be approved. Your original appointment remains unchanged.",
+        "hi": "आपका रीशेड्यूल अनुरोध स्वीकृत नहीं किया जा सका। आपकी मूल अपॉइंटमेंट अपरिवर्तित है।",
     },
 }

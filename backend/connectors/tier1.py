@@ -21,9 +21,6 @@ class Tier1Connector(Connector):
     def get_appointment_types(self, hospital_id):
         return repo.get_appointment_types(hospital_id)
 
-    def get_daycare_duration_options(self, hospital_id):
-        return repo.get_daycare_duration_options(hospital_id)
-
     def get_departments(self, hospital_id):
         return repo.get_departments(hospital_id)
 
@@ -106,9 +103,6 @@ class Tier1Connector(Connector):
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         repo.set_appointment_video_link(hospital_id, appointment_id, video_link)
 
-    def set_appointment_duration(self, hospital_id, appointment_id, duration_hours):
-        repo.set_appointment_duration(hospital_id, appointment_id, duration_hours)
-
     def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price):
         repo.set_appointment_diagnostic_details(
             hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id,
@@ -126,6 +120,39 @@ class Tier1Connector(Connector):
 
     def set_lab_status(self, hospital_id, appointment_id, lab_status):
         return repo.set_lab_status(hospital_id, appointment_id, lab_status)
+
+    def get_procedures(self, hospital_id):
+        return repo.get_procedures(hospital_id)
+
+    def get_procedure(self, hospital_id, procedure_id):
+        return repo.get_procedure(hospital_id, procedure_id)
+
+    def get_procedure_available_slots(self, hospital_id, procedure_id):
+        return repo.get_procedure_available_slots(hospital_id, procedure_id)
+
+    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
+        return repo.create_procedure_appointment(
+            hospital_id, phone, procedure_id, scheduled_at, patient_id=patient_id,
+            patient_name=patient_name, patient_age=patient_age, procedure_order_reference=procedure_order_reference,
+        )
+
+    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
+        return repo.create_procedure_request(
+            hospital_id, phone, procedure_id, patient_id=patient_id,
+            patient_name=patient_name, patient_age=patient_age, procedure_order_reference=procedure_order_reference,
+        )
+
+    def confirm_procedure_appointment(self, hospital_id, appointment_id, scheduled_at):
+        return repo.confirm_procedure_appointment(hospital_id, appointment_id, scheduled_at)
+
+    def request_procedure_reschedule(self, hospital_id, appointment_id, requested_at):
+        repo.request_procedure_reschedule(hospital_id, appointment_id, requested_at)
+
+    def get_procedure_resources_for_appointment(self, hospital_id, appointment_id):
+        return repo.get_procedure_resources_for_appointment(hospital_id, appointment_id)
+
+    def get_pending_procedure_request(self, hospital_id, phone, procedure_id):
+        return repo.get_pending_procedure_request(hospital_id, phone, procedure_id)
 
     def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None, resource_id=None):
         """Books the new slot BEFORE marking the old appointment rescheduled:
@@ -150,17 +177,17 @@ class Tier1Connector(Connector):
         forward (consent_given_at stays unset on the new row) -- it was
         given for that specific visit, not a standing grant.
 
-        Daycare Phase 2: duration_hours carries forward the same way --
-        rescheduling moves the arrival slot, not the stay length, and the
-        booking flow doesn't re-ask the duration question during reschedule
-        (unlike tele's video_link, which IS deliberately regenerated fresh
-        per slot -- see flows/booking/types/tele_consultation.py -- daycare's
-        chosen duration isn't slot-specific, so there's nothing to
-        regenerate).
+        Daycare/Procedure rebuild: a procedure appointment never reaches this
+        method at all -- reschedule.py routes it to its own "Request
+        Reschedule" flow instead (approval-gated, portal-approved), since an
+        instant-booking procedure's resource reservation can't just be
+        silently re-pointed at a new slot without re-checking availability
+        the same way create_procedure_booking() does. See
+        connector.request_procedure_reschedule()/confirm_procedure_appointment().
 
         Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/variant/label/
-        price all carry forward the same way as duration_hours -- rescheduling
-        moves the slot, never re-asks which test/variant was chosen.
+        price all carry forward the same way -- rescheduling moves the slot,
+        never re-asks which test/variant was chosen.
 
         Lab Test Phase 2 follow-up: collection_method/address/pincode/
         home_collection_charge carry forward the same way -- rescheduling
@@ -169,14 +196,12 @@ class Tier1Connector(Connector):
         repo.copy_lab_basket() below. lab_status deliberately does NOT carry
         forward as-is -- the new row's own report lifecycle starts fresh at
         'booked' (the sample hasn't been collected for the NEW slot yet),
-        same "the slot changed, the underlying order didn't" framing as
-        duration_hours, just for a field where "unchanged" would be wrong."""
+        the one field here where "unchanged" would be wrong."""
         old_appointment = repo.get_appointment(hospital_id, old_appointment_id)
         new_appointment = repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
             exclude_appointment_id=old_appointment_id,
             appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
-            duration_hours=old_appointment.duration_hours if old_appointment else None,
             resource_id=resource_id if resource_id is not None else (old_appointment.resource_id if old_appointment else None),
             diagnostic_test_id=old_appointment.diagnostic_test_id if old_appointment else None,
             diagnostic_test_variant_id=old_appointment.diagnostic_test_variant_id if old_appointment else None,

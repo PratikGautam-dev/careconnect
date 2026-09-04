@@ -1013,12 +1013,13 @@ async def test_new_consultation_blocks_rebooking_in_same_department(hospital_id)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("appointment_type_id", ["tele", "second_opinion", "daycare"])
+@pytest.mark.parametrize("appointment_type_id", ["tele", "second_opinion"])
 async def test_other_full_flow_types_also_block_rebooking_in_same_department(hospital_id, appointment_type_id):
     """The department-selection conflict check (base.existing_department_
     appointment) isn't New-Consultation-only -- confirmed with the user it
     should cover every type that lets the patient pick a department
-    themselves."""
+    themselves. ("daycare" no longer belongs in this list -- the Procedure
+    rebuild has no department-selection step at all, see test_procedure_flows.py.)"""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
@@ -1371,11 +1372,6 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
     slot = [s for s in all_slots if s["date"] == date_str][0]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
-    if sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DAYCARE_DURATION":
-        # Daycare Phase 2's one extra step: pick any duration option before
-        # confirmation shows up.
-        option = db.get_daycare_duration_options(hospital_id)[0]
-        await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(option["id"])))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
@@ -1440,13 +1436,16 @@ async def test_tele_consultation_video_link_token_is_not_predictable(hospital_id
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("appointment_type_id", ["new", "followup", "second_opinion", "diagnostic", "lab", "daycare"])
+@pytest.mark.parametrize("appointment_type_id", ["new", "followup", "second_opinion", "diagnostic", "lab"])
 async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_id, appointment_type_id):
     """The one thing that must not regress (docs/per-appointment-type-flow-plan.md's
     own discipline): every OTHER type's confirmation notification is exactly
     what it was before tele's on_booking_confirmed hook existed -- no video
     link field, no stray blank line, nothing conditional on this hook at all
-    (their TypeFlow.on_booking_confirmed is still None)."""
+    (their TypeFlow.on_booking_confirmed is still None). ("daycare" no longer
+    belongs in this list -- Procedure's own booking path is structurally
+    different from _book_through_confirmation's generic driver, see
+    test_procedure_flows.py for its own video-link-absence coverage.)"""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
 
@@ -1538,74 +1537,6 @@ async def test_rescheduling_a_tele_consultation_generates_a_fresh_video_link(hos
     assert new_appt.video_link != "https://meet.jit.si/CareConnect-original"
 
 
-@pytest.mark.asyncio
-async def test_daycare_booking_asks_for_duration_and_stores_it(hospital_id):
-    """Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): the one
-    extra step after time-slot selection -- picking how long the stay is
-    from the hospital's configured options (db/repositories/
-    daycare_duration_options.py's seeded defaults). Shown in the immediate
-    confirmation too (unlike tele's video link, there's no "don't reveal
-    early" concern here)."""
-    wa = FakeWhatsAppClient()
-    sessions = InMemorySessionStore()
-
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("daycare"))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
-    all_slots = db.get_slots(hospital_id, doctor_id)
-    date_str = all_slots[0]["date"]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
-    slot = [s for s in all_slots if s["date"] == date_str][0]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DAYCARE_DURATION"
-
-    option = db.get_daycare_duration_options(hospital_id)[0]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(option["id"])))
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_CONFIRMATION"
-    kind, kwargs = wa.sent[-1]
-    assert kind == "buttons"
-    assert option["label"] in kwargs["body_text"]
-
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
-    kind, kwargs = wa.sent[-1]
-    assert "appointment confirmed" in kwargs["body_text"].lower()
-
-    due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
-    appt = next(a for a in due if a.phone == PHONE)
-    stored = db.get_appointment(hospital_id, appt.id)
-    assert stored.duration_hours == option["hours"]
-
-
-@pytest.mark.asyncio
-async def test_rescheduling_a_daycare_appointment_carries_the_same_duration_forward(hospital_id):
-    """Unlike tele's video link (regenerated fresh per slot), daycare's
-    duration isn't slot-specific and the reschedule flow never re-asks it --
-    the new row must keep the ORIGINAL duration, not lose it (see
-    connectors.tier1.Tier1Connector.reschedule_booking's own duration_hours
-    carry-forward)."""
-    doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
-    original = db.create_appointment(
-        hospital_id, PHONE, "cardiology", doctor_id, datetime.now() + timedelta(hours=24),
-        appointment_type_id="daycare",
-    )
-    db.set_appointment_duration(hospital_id, original.id, 24)
-    wa = FakeWhatsAppClient()
-    sessions = InMemorySessionStore()
-
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reschedule"))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{original.id}"))
-    all_slots = db.get_slots(hospital_id, doctor_id)
-    date_str = all_slots[0]["date"]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
-    slot = [s for s in all_slots if s["date"] == date_str][0]
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(slot["id"]))
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_RESCHEDULE_CONFIRM"
-
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
-
-    due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
-    new_appt = next(a for a in due if a.phone == PHONE and a.id != original.id)
-    assert new_appt.appointment_type_id == "daycare"
-    assert new_appt.duration_hours == 24
+## Daycare/Procedure's own booking-flow tests live in test_procedure_flows.py
+## (the old duration-picker tests that used to live here were removed along
+## with the daycare_duration_options model itself).

@@ -8,7 +8,6 @@ from portal.routes.appointment_types import router as appointment_types_router
 from portal.routes.auth import router as auth_router
 from portal.routes.bookings import router as bookings_router
 from portal.routes.dashboard import router as dashboard_router
-from portal.routes.daycare_duration_options import router as daycare_duration_options_router
 from portal.routes.diagnostic_resources import router as diagnostic_resources_router
 from portal.routes.diagnostic_tests import router as diagnostic_tests_router
 from portal.routes.doctor_auth import router as doctor_auth_router
@@ -18,6 +17,7 @@ from portal.routes.documents import router as documents_router
 from portal.routes.handoffs import router as handoffs_router
 from portal.routes.lab_service_areas import router as lab_service_areas_router
 from portal.routes.patients import router as patients_router
+from portal.routes.procedures import router as procedures_router
 from portal.routes.roles import router as roles_router
 from portal.routes.settings import router as settings_router
 from portal.routes.staff import router as staff_router
@@ -31,7 +31,7 @@ router.include_router(documents_router)
 router.include_router(bookings_router)
 router.include_router(doctors_router)
 router.include_router(appointment_types_router)
-router.include_router(daycare_duration_options_router)
+router.include_router(procedures_router)
 router.include_router(diagnostic_tests_router)
 router.include_router(diagnostic_resources_router)
 router.include_router(lab_service_areas_router)

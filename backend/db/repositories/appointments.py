@@ -18,8 +18,8 @@ from db.models import (
     _generate_patient_identifiers, _row_to_appointment,
 )
 from db.orm_models import (
-    AppointmentLabTest, AppointmentReminder, AppointmentRow, Department, DiagnosticResource, DoctorRow, PatientLink,
-    PatientRow,
+    AppointmentLabTest, AppointmentProcedureResource, AppointmentReminder, AppointmentRow, Department,
+    DiagnosticResource, DoctorRow, PatientLink, PatientRow, Procedure,
 )
 
 
@@ -42,19 +42,23 @@ def _appointment_select_stmt():
             AppointmentRow.scheduled_at, AppointmentRow.status, AppointmentRow.source, AppointmentRow.reference_id,
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
-            AppointmentRow.duration_hours, AppointmentRow.created_at, AppointmentRow.followup_override_until,
+            AppointmentRow.created_at, AppointmentRow.followup_override_until,
             AppointmentRow.resource_id, DiagnosticResource.name.label("resource_name"),
             AppointmentRow.diagnostic_test_id, AppointmentRow.diagnostic_test_variant_id,
             AppointmentRow.diagnostic_test_label, AppointmentRow.diagnostic_variant_label,
             AppointmentRow.diagnostic_price,
             AppointmentRow.collection_method, AppointmentRow.collection_address, AppointmentRow.collection_pincode,
             AppointmentRow.home_collection_charge, AppointmentRow.lab_status,
+            AppointmentRow.procedure_id, Procedure.name.label("procedure_name"), AppointmentRow.procedure_status,
+            AppointmentRow.procedure_estimated_price_min, AppointmentRow.procedure_estimated_price_max,
+            AppointmentRow.procedure_order_reference, AppointmentRow.procedure_reschedule_requested_at,
         )
         .select_from(AppointmentRow)
         .join(Department, Department.id == AppointmentRow.department_id)
         .outerjoin(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
         .outerjoin(DiagnosticResource, DiagnosticResource.id == AppointmentRow.resource_id)
         .outerjoin(PatientRow, PatientRow.id == AppointmentRow.patient_id)
+        .outerjoin(Procedure, Procedure.id == AppointmentRow.procedure_id)
         .where(AppointmentRow.deleted_at.is_(None))
     )
 
@@ -131,7 +135,6 @@ def create_appointment(
     exclude_appointment_id: int | None = None,
     appointment_type_id: str | None = None,
     consent_given_at: str | None = None,
-    duration_hours: int | None = None,
     resource_id: str | None = None,
     diagnostic_test_id: int | None = None,
     diagnostic_test_variant_id: int | None = None,
@@ -317,13 +320,13 @@ def create_appointment(
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
-            "appointment_type_id, consent_given_at, duration_hours, resource_id, diagnostic_test_id, "
+            "appointment_type_id, consent_given_at, resource_id, diagnostic_test_id, "
             "diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price, "
             "collection_method, collection_address, collection_pincode, home_collection_charge, lab_status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
              _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
-             appointment_type_id, consent_given_at, duration_hours, resource_id, diagnostic_test_id,
+             appointment_type_id, consent_given_at, resource_id, diagnostic_test_id,
              diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
              collection_method, collection_address, collection_pincode, home_collection_charge, lab_status),
         )
@@ -354,19 +357,6 @@ def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link
     conn.execute(
         "UPDATE appointments SET video_link = ? WHERE id = ? AND hospital_id = ?",
         (video_link, appointment_id, hospital_id),
-    )
-    conn.commit()
-
-
-def set_appointment_duration(hospital_id: int, appointment_id: int, duration_hours: int) -> None:
-    """Daycare Phase 2: called once, right after create_appointment() succeeds,
-    by flows/booking/types/daycare.py's on_booking_confirmed hook -- every
-    other appointment type never calls this, so their rows keep
-    duration_hours NULL. Same shape as set_appointment_video_link() above."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE appointments SET duration_hours = ? WHERE id = ? AND hospital_id = ?",
-        (duration_hours, appointment_id, hospital_id),
     )
     conn.commit()
 
@@ -484,6 +474,254 @@ def set_lab_status(hospital_id: int, appointment_id: int, lab_status: str) -> Ap
     if result.rowcount == 0:
         return None
     return get_appointment(hospital_id, appointment_id)
+
+
+def create_procedure_appointment(
+    hospital_id: int, phone: str, procedure_id: int, scheduled_at: datetime,
+    patient_id: int | None = None, patient_name: str | None = None, patient_age: int | None = None,
+    procedure_order_reference: str | None = None,
+) -> Appointment:
+    """Daycare/Procedure rebuild, instant-booking path (Step 4 straight
+    through to a real slot). A procedure binds N resources (bed/chair +
+    equipment + staff), not the single doctor_id/resource_id column
+    create_appointment() already handles, so this is its own dedicated
+    creation path -- same advisory-lock-protected BEGIN/COMMIT shape as
+    create_appointment() (see that function's own docstring for why this
+    stays raw SQL/conn-based permanently)."""
+    from db.repositories.procedure_slots import reserve_procedure_resources
+    from db.repositories.procedures import get_procedure
+
+    conn = get_connection()
+    procedure = get_procedure(hospital_id, procedure_id)
+    if procedure is None:
+        raise ValueError(f"procedure_id {procedure_id} not found for hospital {hospital_id}")
+    dept_row = conn.execute(
+        "SELECT id FROM departments WHERE hospital_id = ? ORDER BY name LIMIT 1", (hospital_id,),
+    ).fetchone()
+    department_id = procedure["department_id"] or (dept_row["id"] if dept_row else None)
+    scheduled_at_iso = scheduled_at.isoformat()
+
+    if patient_id is not None:
+        patient_row = conn.execute(
+            "SELECT id, name, age FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
+        ).fetchone()
+        if patient_row is None:
+            raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
+        patient = {"id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"]}
+    else:
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+
+    conn.execute("BEGIN")
+    try:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"procedure|{procedure_id}|{scheduled_at.date().isoformat()}",),
+        )
+        reserved = reserve_procedure_resources(hospital_id, procedure_id, scheduled_at, conn)
+        cur = conn.execute(
+            "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
+            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
+            "appointment_type_id, procedure_id, procedure_status, procedure_estimated_price_min, "
+            "procedure_estimated_price_max, procedure_order_reference) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, phone, department_id, None, scheduled_at_iso, 0, SOURCE_WHATSAPP,
+             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, patient["age"],
+             "daycare", procedure_id, "CONFIRMED", procedure["estimated_price_min"], procedure["estimated_price_max"],
+             procedure_order_reference),
+        )
+        new_id_row = cur.fetchone()
+        assert new_id_row is not None
+        new_id = new_id_row["id"]
+        for r in reserved:
+            conn.execute(
+                "INSERT INTO appointment_procedure_resources "
+                "(hospital_id, appointment_id, resource_id, resource_type, resource_name) VALUES (?, ?, ?, ?, ?)",
+                (hospital_id, new_id, r["resource_id"], r["resource_type"], r["resource_name"]),
+            )
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    created = get_appointment(hospital_id, new_id)
+    assert created is not None
+    return created
+
+
+def create_procedure_request(
+    hospital_id: int, phone: str, procedure_id: int, patient_id: int | None = None,
+    patient_name: str | None = None, patient_age: int | None = None, procedure_order_reference: str | None = None,
+) -> Appointment:
+    """Approval-required path (Step 3): a plain INSERT, no advisory lock
+    needed -- no resource is reserved yet, no slot chosen yet. scheduled_at
+    is stamped with the request's own creation time as a PLACEHOLDER
+    (appointments.scheduled_at is NOT NULL, and every other read path across
+    the codebase assumes a real value) -- never displayed or treated as real
+    until procedure_status reaches CONFIRMED via confirm_procedure_appointment().
+    Same discipline lab_status/collection_method already established: an
+    extra nullable column (procedure_status) carries the "is this really
+    scheduled" truth, not the base columns."""
+    from db.repositories.procedures import get_procedure
+
+    conn = get_connection()
+    procedure = get_procedure(hospital_id, procedure_id)
+    if procedure is None:
+        raise ValueError(f"procedure_id {procedure_id} not found for hospital {hospital_id}")
+    dept_row = conn.execute(
+        "SELECT id FROM departments WHERE hospital_id = ? ORDER BY name LIMIT 1", (hospital_id,),
+    ).fetchone()
+    department_id = procedure["department_id"] or (dept_row["id"] if dept_row else None)
+
+    if patient_id is not None:
+        patient_row = conn.execute(
+            "SELECT id, name, age FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
+        ).fetchone()
+        if patient_row is None:
+            raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
+        patient = {"id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"]}
+    else:
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+
+    now = datetime.now()
+    cur = conn.execute(
+        "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
+        "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
+        "appointment_type_id, procedure_id, procedure_status, procedure_estimated_price_min, "
+        "procedure_estimated_price_max, procedure_order_reference) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        (hospital_id, phone, department_id, None, now.isoformat(), 0, SOURCE_WHATSAPP,
+         _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, patient["age"],
+         "daycare", procedure_id, "REQUESTED", procedure["estimated_price_min"], procedure["estimated_price_max"],
+         procedure_order_reference),
+    )
+    new_id_row = cur.fetchone()
+    assert new_id_row is not None
+    conn.commit()
+    created = get_appointment(hospital_id, new_id_row["id"])
+    assert created is not None
+    return created
+
+
+def confirm_procedure_appointment(hospital_id: int, appointment_id: int, scheduled_at: datetime) -> Appointment:
+    """Once an APPROVED request's patient picks a real slot (Step 4, after
+    approval): reserves the resources under the same advisory-lock
+    discipline as create_procedure_appointment(), then moves the EXISTING
+    row from its placeholder scheduled_at to the real one and flips
+    procedure_status to CONFIRMED -- the request already has a reference_id/
+    patient identity/order-reference, so this updates in place rather than
+    creating a second appointment row."""
+    from db.repositories.procedure_slots import reserve_procedure_resources
+
+    conn = get_connection()
+    appt_row = conn.execute(
+        "SELECT procedure_id FROM appointments WHERE hospital_id = ? AND id = ?", (hospital_id, appointment_id),
+    ).fetchone()
+    if appt_row is None or appt_row["procedure_id"] is None:
+        raise ValueError(f"appointment {appointment_id} is not a procedure appointment for hospital {hospital_id}")
+    procedure_id = appt_row["procedure_id"]
+
+    conn.execute("BEGIN")
+    try:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"procedure|{procedure_id}|{scheduled_at.date().isoformat()}",),
+        )
+        reserved = reserve_procedure_resources(hospital_id, procedure_id, scheduled_at, conn)
+        conn.execute(
+            "UPDATE appointments SET scheduled_at = ?, procedure_status = 'CONFIRMED', "
+            "procedure_reschedule_requested_at = NULL WHERE id = ? AND hospital_id = ?",
+            (scheduled_at.isoformat(), appointment_id, hospital_id),
+        )
+        for r in reserved:
+            conn.execute(
+                "INSERT INTO appointment_procedure_resources "
+                "(hospital_id, appointment_id, resource_id, resource_type, resource_name) VALUES (?, ?, ?, ?, ?)",
+                (hospital_id, appointment_id, r["resource_id"], r["resource_type"], r["resource_name"]),
+            )
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    created = get_appointment(hospital_id, appointment_id)
+    assert created is not None
+    return created
+
+
+def request_procedure_reschedule(hospital_id: int, appointment_id: int, requested_at: datetime | None) -> None:
+    """"Request Reschedule" (approval-required procedures only): stores the
+    patient's DESIRED new slot without touching scheduled_at -- a portal
+    action approves (re-reserves resources for requested_at via
+    confirm_procedure_appointment) or rejects it (requested_at=None clears
+    the pending request, see portal/routes/bookings.py)."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE appointments SET procedure_reschedule_requested_at = ? WHERE id = ? AND hospital_id = ?",
+        (requested_at.isoformat() if requested_at is not None else None, appointment_id, hospital_id),
+    )
+    conn.commit()
+
+
+def set_procedure_status(hospital_id: int, appointment_id: int, procedure_status: str) -> Appointment | None:
+    """Portal-driven status transitions (approve/reject/advance-status,
+    portal/routes/bookings.py) -- a plain single-column UPDATE, same shape
+    as set_lab_status(). Never used for CONFIRMED (that's
+    confirm_procedure_appointment()'s own job, since it also reserves
+    resources and moves scheduled_at atomically)."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(AppointmentRow)
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.id == appointment_id)
+        .values(procedure_status=procedure_status)
+    ))
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    return get_appointment(hospital_id, appointment_id)
+
+
+def get_pending_procedure_request(hospital_id: int, phone: str, procedure_id: int) -> Appointment | None:
+    """A phone's own still-open request for this exact procedure (REQUESTED/
+    UNDER_REVIEW/APPROVED, most recent first) -- used by flows/booking/types/
+    procedure.py's own Step 1 handler to avoid creating a second, duplicate
+    request when the patient re-picks a procedure they already have a
+    pending request for, and to resume an APPROVED one straight into
+    date/time selection (via context["_procedure_appointment_id"]) instead
+    of starting over."""
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.phone == phone,
+            AppointmentRow.procedure_id == procedure_id,
+            AppointmentRow.procedure_status.in_(["REQUESTED", "UNDER_REVIEW", "APPROVED"]),
+        )
+        .order_by(AppointmentRow.id.desc())
+    ).first()
+    return _row_to_appointment(rows._mapping) if rows else None
+
+
+def get_procedure_resources_for_appointment(hospital_id: int, appointment_id: int) -> list[dict]:
+    """The confirmation/success cards' own read, and the portal's own
+    appointment-detail read -- which concrete bed/chair/equipment/staff this
+    booking is bound to."""
+    session = get_session()
+    rows = session.execute(
+        select(
+            AppointmentProcedureResource.id, AppointmentProcedureResource.resource_id,
+            AppointmentProcedureResource.resource_type, AppointmentProcedureResource.resource_name,
+        )
+        .where(
+            AppointmentProcedureResource.hospital_id == hospital_id,
+            AppointmentProcedureResource.appointment_id == appointment_id,
+        )
+        .order_by(AppointmentProcedureResource.resource_type)
+    ).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def get_appointment(hospital_id: int, appointment_id: int) -> Appointment | None:

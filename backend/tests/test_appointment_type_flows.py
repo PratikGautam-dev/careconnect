@@ -3,8 +3,8 @@
 Phase 1. No DB/connector needed, pure lookup logic."""
 from flows.booking.state import (
     STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_DATE,
-    STATE_AWAITING_DAYCARE_DURATION, STATE_AWAITING_DEPARTMENT,
-    STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT, STATE_AWAITING_TIME_SLOT,
+    STATE_AWAITING_DEPARTMENT,
+    STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT, STATE_AWAITING_PROCEDURE, STATE_AWAITING_TIME_SLOT,
 )
 from flows.booking.types.base import FULL_FLOW, NO_DOCTOR_FLOW
 from flows.booking.types.registry import get_type_flow
@@ -49,12 +49,15 @@ def test_known_types_resolve_to_their_own_flow():
     # attaches a video-call link via on_booking_confirmed, with its step list
     # completely unchanged (still FULL_FLOW) -- confirmed above already.
     assert get_type_flow("tele").on_booking_confirmed is not None
-    # Phase 2 Step 4: Daycare's step list is FULL_FLOW plus one extra step
-    # (duration) between time-slot and confirmation -- its own
-    # on_booking_confirmed hook persists the chosen duration.
-    assert get_type_flow("daycare").steps == (*FULL_FLOW[:-1], STATE_AWAITING_DAYCARE_DURATION, STATE_AWAITING_CONFIRMATION)
-    assert get_type_flow("daycare").has_step(STATE_AWAITING_TIME_SLOT)
-    assert get_type_flow("daycare").on_booking_confirmed is not None
+    # Procedure booking rebuild: "daycare" no longer runs FULL_FLOW at all --
+    # Step 1 picks a procedure from its own catalog (on_selected), and
+    # everything after (instant date/time, or the approval-required
+    # request-confirm detour) happens through procedure.py's own handlers,
+    # deliberately left OUT of `steps` (same "detour states" precedent
+    # lab.py's basket steps use) -- `steps` is just the one entry step.
+    assert get_type_flow("daycare").steps == (STATE_AWAITING_PROCEDURE,)
+    assert not get_type_flow("daycare").has_step(STATE_AWAITING_DEPARTMENT)
+    assert get_type_flow("daycare").on_selected is not None
     for type_id in ("new", "followup", "second_opinion"):
         assert get_type_flow(type_id).on_booking_confirmed is None
 
@@ -92,9 +95,6 @@ def test_first_step_and_has_step():
 def test_next_step():
     # Every FULL_FLOW type: time-slot -> confirmation directly.
     assert get_type_flow("new").next_step(STATE_AWAITING_TIME_SLOT) == STATE_AWAITING_CONFIRMATION
-    # Daycare: time-slot -> duration -> confirmation.
-    assert get_type_flow("daycare").next_step(STATE_AWAITING_TIME_SLOT) == STATE_AWAITING_DAYCARE_DURATION
-    assert get_type_flow("daycare").next_step(STATE_AWAITING_DAYCARE_DURATION) == STATE_AWAITING_CONFIRMATION
     # Already at/past the last step, or an unrecognized state: safe fallback.
     assert get_type_flow("new").next_step(STATE_AWAITING_CONFIRMATION) == STATE_AWAITING_CONFIRMATION
     assert get_type_flow("new").next_step("SOME_UNKNOWN_STATE") == STATE_AWAITING_CONFIRMATION

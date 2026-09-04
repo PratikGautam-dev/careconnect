@@ -38,11 +38,24 @@ STATE_AWAITING_DATE = "AWAITING_DATE"
 STATE_AWAITING_TIME_SLOT = "AWAITING_TIME_SLOT"
 
 
-# Daycare Phase 2: the one type with a step after time-slot and before
-# confirmation -- picking how long the stay is (hospital-configurable
-# options, e.g. "4-6 hrs" / "Full day" / "Overnight"). See
-# flows/booking/types/daycare.py.
-STATE_AWAITING_DAYCARE_DURATION = "AWAITING_DAYCARE_DURATION"
+# Daycare/Procedure rebuild: Step 1 picks a procedure from its own catalog
+# (category + booking mode), replacing the old duration-picker flow entirely
+# -- see flows/booking/types/procedure.py.
+STATE_AWAITING_PROCEDURE = "AWAITING_PROCEDURE"
+
+
+# Approval-required procedures' own pre-send review screen (spec Step 3) --
+# reached instead of date/time, no slot is ever asked until hospital approval.
+STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM = "AWAITING_PROCEDURE_REQUEST_CONFIRM"
+
+
+# "Request Reschedule" for an approval-required procedure's own date/time
+# pick (own split date/then/time steps, same shape as every other date/time
+# pair in this app) -- writes the desired slot onto the appointment for
+# staff to approve, never calls the normal instant reschedule path. See
+# flows/booking/reschedule.py.
+STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE = "AWAITING_PROCEDURE_RESCHEDULE_DATE"
+STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT = "AWAITING_PROCEDURE_RESCHEDULE_SLOT"
 
 
 # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
@@ -114,9 +127,6 @@ CHANGE_DATE = "change_date"
 CHANGE_TIME = "change_time"
 
 
-CHANGE_DURATION = "change_duration"
-
-
 CHANGE_DIAGNOSTIC_TEST = "change_diagnostic_test"
 
 
@@ -137,7 +147,6 @@ _CHANGE_TARGETS = {
     CHANGE_DOCTOR: STATE_AWAITING_DOCTOR,
     CHANGE_DATE: STATE_AWAITING_DATE,
     CHANGE_TIME: STATE_AWAITING_TIME_SLOT,
-    CHANGE_DURATION: STATE_AWAITING_DAYCARE_DURATION,
     CHANGE_DIAGNOSTIC_TEST: STATE_AWAITING_DIAGNOSTIC_TEST,
     CHANGE_DIAGNOSTIC_VARIANT: STATE_AWAITING_DIAGNOSTIC_VARIANT,
     CHANGE_COLLECTION_METHOD: STATE_AWAITING_COLLECTION_METHOD,

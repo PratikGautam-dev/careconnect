@@ -35,9 +35,8 @@ OnSelectedHook = Callable[..., Awaitable[Any]]
 # db.models.Appointment row (its .id/.hospital_id/.doctor_id/.scheduled_at
 # cover what every hook so far has needed -- no separate id/hospital_id/
 # patient_id params, since they're all already on this object). `context` is
-# the booking session context at that exact point (e.g. daycare's chosen
-# duration lives at context["daycare_duration_hours"]) -- most hooks (tele's)
-# ignore it.
+# the booking session context at that exact point (e.g. lab's basket lives
+# at context["lab_basket"]) -- most hooks (tele's) ignore it.
 OnBookingConfirmedHook = Callable[..., Awaitable["dict[str, Any] | None"]]
 
 # (context, hospital_id) -> the full confirm-card body text, overriding
@@ -99,8 +98,10 @@ class TypeFlow:
 def existing_department_appointment(connector, hospital_id: int, patient_id: "int | None", department_id: str) -> "Any | None":
     """Shared DepartmentValidator (confirmed with the user): only one active
     appointment per patient per department, at once, across every type that
-    lets the patient pick a department themselves (new/tele/second_opinion/
-    daycare -- assigned as each one's own `validate_department` below).
+    lets the patient pick a department themselves (new/tele/second_opinion --
+    assigned as each one's own `validate_department` below; the Daycare/
+    Procedure rebuild has no department-selection step at all, so it doesn't
+    use this).
     Follow-up auto-picks its department from the last visit instead of going
     through STATE_AWAITING_DEPARTMENT at all, so it never calls this -- but a
     follow-up appointment still counts as "already in that department" here,
@@ -112,7 +113,7 @@ def existing_department_appointment(connector, hospital_id: int, patient_id: "in
     return next((a for a in existing if a.department_id == department_id), None)
 
 
-# The original pipeline: new, followup, tele, second_opinion, daycare.
+# The original pipeline: new, followup, tele, second_opinion.
 FULL_FLOW = (
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_DATE, STATE_AWAITING_TIME_SLOT,
     STATE_AWAITING_CONFIRMATION,

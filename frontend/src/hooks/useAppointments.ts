@@ -20,6 +20,17 @@ export type Appointment = {
   created_at: string | null;
   // Lab Test Phase 2 follow-up: null for every non-Lab-Test appointment.
   lab_status: string | null;
+  // Daycare/Procedure rebuild: null for every non-procedure appointment.
+  // scheduled_at above is a PLACEHOLDER (request creation time) until
+  // procedure_status reaches "CONFIRMED" -- don't display it as a real
+  // slot before then.
+  procedure_id: number | null;
+  procedure_name: string | null;
+  procedure_status: string | null;
+  procedure_estimated_price_min: number | null;
+  procedure_estimated_price_max: number | null;
+  procedure_order_reference: string | null;
+  procedure_reschedule_requested_at: string | null;
 };
 
 export type Department = { id: string; name: string };
@@ -152,6 +163,50 @@ export function useAppointments(ready: boolean) {
     setAdvancingLabStatusId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/lab-status`, { method: "POST" });
     setAdvancingLabStatusId(null);
+    if (result.ok) load();
+  }
+
+  // Daycare/Procedure rebuild: approve/reject a pending request, or advance
+  // an already-CONFIRMED procedure's status (CONFIRMED -> COMPLETED, or ->
+  // CANCELLED) -- same "one action in flight per row" shape as the lab-status
+  // advance above.
+  const [procedureActionId, setProcedureActionId] = useState<number | null>(null);
+  async function handleApproveProcedureRequest(id: number) {
+    setProcedureActionId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/approve`, { method: "POST" });
+    setProcedureActionId(null);
+    if (result.ok) load();
+  }
+  async function handleRejectProcedureRequest(id: number, reason?: string) {
+    setProcedureActionId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason || "" }),
+    });
+    setProcedureActionId(null);
+    if (result.ok) load();
+  }
+  async function handleAdvanceProcedureStatus(id: number) {
+    setProcedureActionId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/advance-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    setProcedureActionId(null);
+    if (result.ok) load();
+  }
+  async function handleApproveProcedureReschedule(id: number) {
+    setProcedureActionId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reschedule-request/approve`, { method: "POST" });
+    setProcedureActionId(null);
+    if (result.ok) load();
+  }
+  async function handleRejectProcedureReschedule(id: number) {
+    setProcedureActionId(id);
+    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reschedule-request/reject`, { method: "POST" });
+    setProcedureActionId(null);
     if (result.ok) load();
   }
 
@@ -298,6 +353,8 @@ export function useAppointments(ready: boolean) {
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
     advancingLabStatusId, handleAdvanceLabStatus,
+    procedureActionId, handleApproveProcedureRequest, handleRejectProcedureRequest,
+    handleAdvanceProcedureStatus, handleApproveProcedureReschedule, handleRejectProcedureReschedule,
     deletingId, handleDelete,
     selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
     pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,

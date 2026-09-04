@@ -6,7 +6,6 @@ import { CheckboxRow } from "@/components/ui/Checkbox";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
-import { DaycareDurationOptions } from "@/components/portal/DaycareDurationOptions";
 import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -276,19 +275,6 @@ export default function PortalSettingsPage() {
               support to request it.
             </p>
             <AppointmentTypeToggles canManage={canManageAppointmentTypes} />
-          </Card>
-        )}
-
-        {canManageAppointmentTypes && (
-          <Card className="mt-space-5 max-w-2xl p-space-5">
-            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Daycare stay durations</h2>
-            <p className="mb-space-3 text-[12.5px] text-ink-400">
-              The options a patient picks from when booking a Daycare appointment (only matters if
-              Daycare is enabled for your account) -- e.g. a same-day few-hour stay vs. a multi-night
-              admission. Add, relabel, deactivate, or remove your own options; deactivating one just
-              hides it from new bookings, it doesn&apos;t change any appointment already booked with it.
-            </p>
-            <DaycareDurationOptions canManage={canManageAppointmentTypes} />
           </Card>
         )}
 

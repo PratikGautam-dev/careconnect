@@ -24,7 +24,6 @@ from db.connection import get_connection, get_database_url
 from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, GLOBAL_SCOPE_KEY, generate_yearly_display_id_conn
 from db.repositories.accounts import _get_or_create_account_in_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
-from db.repositories.daycare_duration_options import DEFAULT_DAYCARE_DURATION_OPTIONS
 from db.repositories.diagnostic_tests import CATEGORY_DIAGNOSTIC, CATEGORY_LAB, DEFAULT_DIAGNOSTIC_TESTS, DEFAULT_LAB_TESTS
 from db.models import DEFAULT_MAX_ACTIVE_PATIENT_LINKS
 from db.repository import _generate_patient_identifiers, _get_or_create_hospital_short_code
@@ -330,31 +329,43 @@ def _backfill_appointment_types(conn) -> None:
     conn.commit()
 
 
-def _backfill_daycare_duration_options(conn) -> None:
-    """Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): seeds
-    DEFAULT_DAYCARE_DURATION_OPTIONS (db/repositories/daycare_duration_
-    options.py) for every hospital that doesn't already have ANY row --
-    unlike _backfill_appointment_types above, a hospital that's already
-    added/removed/relabeled its own options (a genuinely open catalog, not a
-    fixed one re-keyed by id) is left alone entirely rather than gated per
-    option, since there's no stable id to gate on until a row already
-    exists. Every hospital gets these regardless of tenant_type, same as
-    appointment_types rows -- daycare being hospital-only is enforced by
-    that type's own is_active, not by withholding its duration options."""
+_DEFAULT_PROCEDURES = (
+    # (category, name, booking_mode, duration_minutes, required_resource_types)
+    ("injection", "Injection", "instant", 15, ("staff",)),
+    ("dressing_wound_care", "Dressing / Wound Care", "instant", 20, ("staff",)),
+    ("chemotherapy", "Chemotherapy", "approval_required", 180, ("bed_chair", "equipment", "staff")),
+)
+
+
+def _backfill_procedures(conn) -> None:
+    """Daycare/Procedure rebuild: seeds a small default catalog for every
+    hospital that doesn't already have ANY `procedures` row -- same "has-any"
+    gating _backfill_diagnostic_tests uses (an open, hospital-editable
+    catalog, not a fixed one re-keyed by id). No procedure_resources pool is
+    seeded (same as diagnostic_resources) -- a hospital links real bed/chair/
+    equipment/staff resources via the portal afterward; until then these
+    procedures show "not available right now", same as an unconfigured
+    diagnostic test."""
     hospitals = conn.execute("SELECT id FROM hospitals").fetchall()
     for hospital in hospitals:
         hospital_id = hospital["id"]
         has_any = conn.execute(
-            "SELECT 1 FROM daycare_duration_options WHERE hospital_id = ? LIMIT 1", (hospital_id,),
+            "SELECT 1 FROM procedures WHERE hospital_id = ? LIMIT 1", (hospital_id,),
         ).fetchone()
         if has_any:
             continue
-        for sort_order, option in enumerate(DEFAULT_DAYCARE_DURATION_OPTIONS):
-            conn.execute(
-                "INSERT INTO daycare_duration_options (hospital_id, label, hours, is_active, sort_order) "
-                "VALUES (?, ?, ?, TRUE, ?)",
-                (hospital_id, option["label"], option["hours"], sort_order),
-            )
+        for sort_order, (category, name, booking_mode, duration_minutes, resource_types) in enumerate(_DEFAULT_PROCEDURES):
+            row = conn.execute(
+                "INSERT INTO procedures (hospital_id, category, name, booking_mode, duration_minutes, is_active, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, TRUE, ?) RETURNING id",
+                (hospital_id, category, name, booking_mode, duration_minutes, sort_order),
+            ).fetchone()
+            for resource_type in resource_types:
+                conn.execute(
+                    "INSERT INTO procedure_required_resource_types (hospital_id, procedure_id, resource_type) "
+                    "VALUES (?, ?, ?)",
+                    (hospital_id, row["id"], resource_type),
+                )
     conn.commit()
 
 
@@ -518,6 +529,20 @@ def _backfill_diagnostic_resources_capability(conn) -> None:
     conn.commit()
 
 
+def _backfill_procedures_capability(conn) -> None:
+    """Daycare/Procedure rebuild: same "append into the raw JSON array"
+    backfill _backfill_diagnostic_resources_capability above uses, for the
+    new manage_procedures capability."""
+    conn.execute(
+        "UPDATE hospitals SET admin_capabilities = "
+        "REPLACE(admin_capabilities, ']', ',\"manage_procedures\"]') "
+        "WHERE tenant_type = 'hospital' AND admin_capabilities IS NOT NULL "
+        "AND admin_capabilities != '[]' "
+        "AND admin_capabilities NOT LIKE '%%manage_procedures%%'"
+    )
+    conn.commit()
+
+
 def _backfill_handoff_messages(conn) -> None:
     """Handoff two-way threading follow-up (Spec.md Section 0): every
     pre-existing handoff_requests row's own message_text becomes that
@@ -619,19 +644,6 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE audit_logs ALTER COLUMN created_at TYPE TEXT USING created_at::text")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_hospital_created ON audit_logs (hospital_id, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_level_created ON audit_logs (actor_level, created_at)")
-    # Migration 0008: daycare_duration_options table + appointments.duration_hours
-    # (Daycare Phase 2, docs/per-appointment-type-flow-plan.md).
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS daycare_duration_options ("
-        "id SERIAL PRIMARY KEY, "
-        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
-        "label TEXT NOT NULL, "
-        "hours INTEGER NOT NULL CHECK (hours > 0), "
-        "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
-        "sort_order INTEGER NOT NULL DEFAULT 0"
-        ")"
-    )
-    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER")
     # Migration 0010: code_sequences (db/display_ids.py's shared, yearly-
     # resetting counter table for DCCG/DCCH/DCCC/DCCP -- see that module's
     # own docstring). Must run before seed_default_hospital()/
@@ -1067,6 +1079,121 @@ def init_db_on_connection(conn) -> int:
         "updated_at TEXT NOT NULL"
         ")"
     )
+    # Migration 0028: Daycare/Procedure rebuild -- replaces the old duration-
+    # picker model entirely (daycare_duration_options/appointments.duration_hours,
+    # migration 0008, dropped below) with a procedure catalog, resource pools
+    # (bed/chair + equipment + staff), and an approval workflow. See that
+    # migration's own docstring.
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_duration_hours_check")
+    conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS duration_hours")
+    conn.execute("DROP TABLE IF EXISTS daycare_duration_options")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS procedures ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "category TEXT NOT NULL CHECK (category IN ("
+        "'chemotherapy', 'dialysis', 'infusion_therapy', 'dressing_wound_care', "
+        "'injection', 'minor_procedure', 'other')), "
+        "name TEXT NOT NULL, "
+        "department_id TEXT REFERENCES departments(id), "
+        "booking_mode TEXT NOT NULL CHECK (booking_mode IN ('instant', 'approval_required')), "
+        "duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0), "
+        "estimated_price_min NUMERIC(10, 2), "
+        "estimated_price_max NUMERIC(10, 2), "
+        "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+        "sort_order INTEGER NOT NULL DEFAULT 0"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS procedure_required_resource_types ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "procedure_id INTEGER NOT NULL REFERENCES procedures(id), "
+        "resource_type TEXT NOT NULL CHECK (resource_type IN ('bed_chair', 'equipment', 'staff')), "
+        "UNIQUE(procedure_id, resource_type)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS procedure_instructions ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "procedure_id INTEGER NOT NULL REFERENCES procedures(id), "
+        "instruction_type TEXT NOT NULL CHECK (instruction_type IN ("
+        "'documents', 'preparation', 'arrival_time', 'medication', 'insurance_authorization', 'other')), "
+        "instruction_text TEXT NOT NULL, "
+        "sort_order INTEGER NOT NULL DEFAULT 0"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS procedure_resources ("
+        "id TEXT PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "resource_type TEXT NOT NULL CHECK (resource_type IN ('bed_chair', 'equipment', 'staff')), "
+        "department_id TEXT REFERENCES departments(id), "
+        "name TEXT NOT NULL, "
+        "working_days TEXT NOT NULL DEFAULT '', "
+        "working_hours TEXT NOT NULL DEFAULT '', "
+        "slot_duration_minutes INTEGER NOT NULL DEFAULT 30, "
+        "breaks TEXT NOT NULL DEFAULT '', "
+        "max_bookings_per_slot INTEGER NOT NULL DEFAULT 1, "
+        "daily_booking_limit INTEGER, "
+        "effective_from TEXT, is_active BOOLEAN NOT NULL DEFAULT TRUE"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS procedure_resource_leave ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "resource_id TEXT NOT NULL REFERENCES procedure_resources(id), date TEXT NOT NULL, reason TEXT, "
+        "UNIQUE(resource_id, date)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS procedure_resource_slots ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "resource_id TEXT NOT NULL REFERENCES procedure_resources(id), scheduled_at TEXT NOT NULL, "
+        "created_at TEXT NOT NULL DEFAULT (now()::text), "
+        "blocked BOOLEAN NOT NULL DEFAULT FALSE, block_reason TEXT, "
+        "UNIQUE(resource_id, scheduled_at)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS appointment_procedure_resources ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "appointment_id INTEGER NOT NULL REFERENCES appointments(id), "
+        "resource_id TEXT NOT NULL REFERENCES procedure_resources(id), "
+        "resource_type TEXT NOT NULL CHECK (resource_type IN ('bed_chair', 'equipment', 'staff')), "
+        "resource_name TEXT NOT NULL"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointment_procedure_resources_appointment "
+        "ON appointment_procedure_resources(appointment_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointment_procedure_resources_resource "
+        "ON appointment_procedure_resources(resource_id)"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_id INTEGER REFERENCES procedures(id)")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_status TEXT")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_procedure_status_check")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_procedure_status_check "
+        "CHECK (procedure_status IS NULL OR procedure_status IN "
+        "('REQUESTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED'))"
+    )
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_estimated_price_min NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_estimated_price_max NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_order_reference TEXT")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_reschedule_requested_at TEXT")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk")
+    conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_or_procedure_chk")
+    conn.execute(
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_or_procedure_chk "
+        "CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL OR procedure_id IS NOT NULL)"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
@@ -1089,12 +1216,13 @@ def init_db_on_connection(conn) -> int:
     _backfill_patient_mrns(conn)
     _backfill_patient_links(conn)
     _backfill_appointment_types(conn)
-    _backfill_daycare_duration_options(conn)
+    _backfill_procedures(conn)
     _backfill_diagnostic_tests(conn)
     _backfill_reports_prescriptions_feature(conn)
     _backfill_book_doctor_tests_diagnostics_split(conn)
     _backfill_admin_capabilities(conn)
     _backfill_diagnostic_resources_capability(conn)
+    _backfill_procedures_capability(conn)
     _backfill_handoff_messages(conn)
     return hospital_id
 

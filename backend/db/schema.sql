@@ -557,25 +557,117 @@ CREATE TABLE IF NOT EXISTS appointment_types (
     PRIMARY KEY (hospital_id, id)
 );
 
--- Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): the duration
--- options shown at STATE_AWAITING_DAYCARE_DURATION, hospital-configurable
--- (confirmed with the user -- not a fixed list, since a same-day 6-hour stay
--- and a multi-night admission both need to be expressible and hospitals
--- price/label these differently), same "seeded fixed catalog, editable via
--- the portal" shape as appointment_types above. hours is the stay length in
--- whole hours (24 for "1 night", 48 for "2 nights", etc.) -- kept as a single
--- number rather than a separate nights/hours pair, since the booking flow
--- only ever needs it to compute an end time, never to render "nights" vs
--- "hours" specifically (the label string already carries that distinction
--- for display).
-CREATE TABLE IF NOT EXISTS daycare_duration_options (
+-- Daycare/Procedure rebuild (migration 0028): replaces the old duration-
+-- picker model above entirely with a real procedure catalog (category +
+-- booking mode INSTANT_BOOKING/APPROVAL_REQUIRED + duration + estimated
+-- price range), hospital-configured pre-procedure instructions, and a
+-- multi-resource-constraint availability engine (bed/chair + equipment +
+-- staff pools, each with its own generated calendar mirroring
+-- diagnostic_resources below) -- see that migration's own docstring for the
+-- full reasoning.
+CREATE TABLE IF NOT EXISTS procedures (
     id SERIAL PRIMARY KEY,
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
-    label TEXT NOT NULL,
-    hours INTEGER NOT NULL CHECK (hours > 0),
+    category TEXT NOT NULL CHECK (category IN (
+        'chemotherapy', 'dialysis', 'infusion_therapy', 'dressing_wound_care',
+        'injection', 'minor_procedure', 'other'
+    )),
+    name TEXT NOT NULL,
+    department_id TEXT REFERENCES departments(id),
+    booking_mode TEXT NOT NULL CHECK (booking_mode IN ('instant', 'approval_required')),
+    duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+    estimated_price_min NUMERIC(10, 2),
+    estimated_price_max NUMERIC(10, 2),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS procedure_required_resource_types (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    procedure_id INTEGER NOT NULL REFERENCES procedures(id),
+    resource_type TEXT NOT NULL CHECK (resource_type IN ('bed_chair', 'equipment', 'staff')),
+    UNIQUE (procedure_id, resource_type)
+);
+
+CREATE TABLE IF NOT EXISTS procedure_instructions (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    procedure_id INTEGER NOT NULL REFERENCES procedures(id),
+    instruction_type TEXT NOT NULL CHECK (instruction_type IN (
+        'documents', 'preparation', 'arrival_time', 'medication', 'insurance_authorization', 'other'
+    )),
+    instruction_text TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- One row per physical bed/chair, machine, or nursing/technician slot-line --
+-- schedule columns are a direct clone of diagnostic_resources' own grid
+-- (below), resource_type-discriminated.
+CREATE TABLE IF NOT EXISTS procedure_resources (
+    id TEXT PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    resource_type TEXT NOT NULL CHECK (resource_type IN ('bed_chair', 'equipment', 'staff')),
+    department_id TEXT REFERENCES departments(id),
+    name TEXT NOT NULL,
+    working_days TEXT NOT NULL DEFAULT '',
+    working_hours TEXT NOT NULL DEFAULT '',
+    slot_duration_minutes INTEGER NOT NULL DEFAULT 30,
+    breaks TEXT NOT NULL DEFAULT '',
+    max_bookings_per_slot INTEGER NOT NULL DEFAULT 1,
+    daily_booking_limit INTEGER,
+    effective_from TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS procedure_resource_leave (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    resource_id TEXT NOT NULL REFERENCES procedure_resources(id),
+    date TEXT NOT NULL,
+    reason TEXT,
+    UNIQUE (resource_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS procedure_resource_slots (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    resource_id TEXT NOT NULL REFERENCES procedure_resources(id),
+    scheduled_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    blocked BOOLEAN NOT NULL DEFAULT FALSE,
+    block_reason TEXT,
+    UNIQUE (resource_id, scheduled_at)
+);
+
+-- N concrete resources bound to one procedure appointment (bed #3 + IV pump
+-- #1 + nurse-line B, all at the same scheduled_at) -- same "N rows per one
+-- appointment" shape as appointment_lab_tests.
+CREATE TABLE IF NOT EXISTS appointment_procedure_resources (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+    resource_id TEXT NOT NULL REFERENCES procedure_resources(id),
+    resource_type TEXT NOT NULL CHECK (resource_type IN ('bed_chair', 'equipment', 'staff')),
+    resource_name TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_appointment_procedure_resources_appointment ON appointment_procedure_resources(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_procedure_resources_resource ON appointment_procedure_resources(resource_id);
+
+-- appointments gains procedure_id + its own nullable procedure_status
+-- sub-status (REQUESTED/UNDER_REVIEW/APPROVED/REJECTED/CONFIRMED/COMPLETED/
+-- CANCELLED, same separate-sub-status-column convention as lab_status
+-- below) + price-at-booking snapshots + an optional order/prescription
+-- reference + a pending "Request Reschedule" slot. scheduled_at is a
+-- PLACEHOLDER (request creation time) for a REQUESTED/UNDER_REVIEW/APPROVED
+-- row -- never real until procedure_status reaches CONFIRMED.
+-- ALTER TABLE appointments ADD COLUMN procedure_id ...
+-- ALTER TABLE appointments ADD COLUMN procedure_status ...
+-- ALTER TABLE appointments ADD COLUMN procedure_estimated_price_min/max ...
+-- ALTER TABLE appointments ADD COLUMN procedure_order_reference ...
+-- ALTER TABLE appointments ADD COLUMN procedure_reschedule_requested_at ...
+-- (see migration 0028 for the exact DDL + updated appointments_doctor_or_
+-- resource_or_procedure_chk constraint)
 
 -- Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): a
 -- bookable machine/equipment, independent of any doctor -- schedule columns
@@ -661,11 +753,6 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS consent_given_at TEXT;
 -- column is the only place it's persisted. NULL for every appointment type
 -- other than tele, and for any tele booking that predates this column.
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS video_link TEXT;
--- Daycare Phase 2 (docs/per-appointment-type-flow-plan.md): the stay length
--- chosen at the STATE_AWAITING_DAYCARE_DURATION step (flows/booking/types/
--- daycare.py), in hours -- persisted via TypeFlow.on_booking_confirmed, same
--- shape as video_link above. NULL for every non-daycare appointment.
-ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_hours INTEGER;
 -- Follow-up validity override: lets portal staff (admin/receptionist,
 -- gated by portal/permissions.py) grant a patient extra days to book a
 -- follow-up against THIS specific ATTENDED appointment after the hospital's

@@ -37,7 +37,19 @@ async def _start_reschedule_flow_for_appointment(
 
     Diagnostic/Lab Phase 2: a resource-bound appointment (appt.resource_id
     set) reschedules against that SAME resource's own calendar instead --
-    it never re-picks a test/variant, only a new date/time."""
+    it never re-picks a test/variant, only a new date/time.
+
+    Daycare/Procedure rebuild: a procedure appointment (appt.procedure_id
+    set) never reaches the instant reschedule below at all -- it always goes
+    through its own "Request Reschedule" mini-flow instead (approval-gated,
+    a portal action actually moves scheduled_at), even for an INSTANT_BOOKING
+    procedure, since re-pointing an already-reserved resource at a new slot
+    needs the same re-check-under-lock discipline confirm_procedure_appointment()
+    already provides -- there's no cheaper "just move it" path here."""
+    if appt.procedure_id is not None:
+        from flows.booking.types.procedure import _start_procedure_reschedule_request
+        await _start_procedure_reschedule_request(wa, sessions, phone, hospital_id, appt, connector, language=language)
+        return
     is_resource = appt.resource_id is not None
     slots = (
         connector.get_available_resource_slots(hospital_id, appt.resource_id) if is_resource

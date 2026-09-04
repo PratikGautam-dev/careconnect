@@ -81,9 +81,6 @@ class Connector(abc.ABC):
     def get_appointment_types(self, hospital_id: int) -> list[dict]: ...
 
     @abc.abstractmethod
-    def get_daycare_duration_options(self, hospital_id: int) -> list[dict]: ...
-
-    @abc.abstractmethod
     def get_departments(self, hospital_id: int) -> list[dict]: ...
 
     @abc.abstractmethod
@@ -180,9 +177,6 @@ class Connector(abc.ABC):
     def set_appointment_video_link(self, hospital_id: int, appointment_id: int, video_link: str) -> None: ...
 
     @abc.abstractmethod
-    def set_appointment_duration(self, hospital_id: int, appointment_id: int, duration_hours: int) -> None: ...
-
-    @abc.abstractmethod
     def set_appointment_diagnostic_details(
         self, hospital_id: int, appointment_id: int, diagnostic_test_id: int, diagnostic_test_variant_id: int,
         diagnostic_test_label: str, diagnostic_variant_label: str, diagnostic_price: float | None,
@@ -208,6 +202,53 @@ class Connector(abc.ABC):
     # sample_collected -> processing -> report_ready.
     @abc.abstractmethod
     def set_lab_status(self, hospital_id: int, appointment_id: int, lab_status: str) -> Appointment | None: ...
+
+    # Daycare/Procedure rebuild -- the procedure catalog (Step 1's list,
+    # Step 2's booking mode) and its own multi-resource-constraint
+    # availability (bed/chair + equipment + staff + duration, combined).
+    @abc.abstractmethod
+    def get_procedures(self, hospital_id: int) -> list[dict]: ...
+
+    @abc.abstractmethod
+    def get_procedure(self, hospital_id: int, procedure_id: int) -> dict | None: ...
+
+    @abc.abstractmethod
+    def get_procedure_available_slots(self, hospital_id: int, procedure_id: int) -> list[dict]: ...
+
+    # Instant-booking path (Step 4 straight through to a real slot).
+    @abc.abstractmethod
+    def create_procedure_booking(
+        self, hospital_id: int, phone: str, procedure_id: int, scheduled_at: datetime,
+        patient_name: str | None = None, patient_age: int | None = None, patient_id: int | None = None,
+        procedure_order_reference: str | None = None,
+    ) -> Appointment: ...
+
+    # Approval-required path (Step 3): creates a REQUESTED row with no slot
+    # chosen yet -- see db/repositories/appointments.py::create_procedure_request.
+    @abc.abstractmethod
+    def create_procedure_request(
+        self, hospital_id: int, phone: str, procedure_id: int,
+        patient_name: str | None = None, patient_age: int | None = None, patient_id: int | None = None,
+        procedure_order_reference: str | None = None,
+    ) -> Appointment: ...
+
+    # Once an APPROVED request's patient picks a real slot: reserves the
+    # resources and moves the existing row from placeholder scheduled_at to
+    # the real one, procedure_status -> CONFIRMED.
+    @abc.abstractmethod
+    def confirm_procedure_appointment(self, hospital_id: int, appointment_id: int, scheduled_at: datetime) -> Appointment: ...
+
+    # "Request Reschedule" (approval-required procedures only): stores the
+    # patient's DESIRED new slot without touching scheduled_at -- a portal
+    # action approves/rejects it (portal/routes/bookings.py).
+    @abc.abstractmethod
+    def request_procedure_reschedule(self, hospital_id: int, appointment_id: int, requested_at: datetime) -> None: ...
+
+    @abc.abstractmethod
+    def get_procedure_resources_for_appointment(self, hospital_id: int, appointment_id: int) -> list[dict]: ...
+
+    @abc.abstractmethod
+    def get_pending_procedure_request(self, hospital_id: int, phone: str, procedure_id: int) -> Appointment | None: ...
 
     @abc.abstractmethod
     def reschedule_booking(
@@ -281,9 +322,6 @@ class _UnimplementedTierConnector(Connector):
     def get_appointment_types(self, hospital_id):
         self._not_implemented("get_appointment_types")
 
-    def get_daycare_duration_options(self, hospital_id):
-        self._not_implemented("get_daycare_duration_options")
-
     def get_departments(self, hospital_id):
         self._not_implemented("get_departments")
 
@@ -319,6 +357,33 @@ class _UnimplementedTierConnector(Connector):
 
     def set_lab_status(self, hospital_id, appointment_id, lab_status):
         self._not_implemented("set_lab_status")
+
+    def get_procedures(self, hospital_id):
+        self._not_implemented("get_procedures")
+
+    def get_procedure(self, hospital_id, procedure_id):
+        self._not_implemented("get_procedure")
+
+    def get_procedure_available_slots(self, hospital_id, procedure_id):
+        self._not_implemented("get_procedure_available_slots")
+
+    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
+        self._not_implemented("create_procedure_booking")
+
+    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
+        self._not_implemented("create_procedure_request")
+
+    def confirm_procedure_appointment(self, hospital_id, appointment_id, scheduled_at):
+        self._not_implemented("confirm_procedure_appointment")
+
+    def request_procedure_reschedule(self, hospital_id, appointment_id, requested_at):
+        self._not_implemented("request_procedure_reschedule")
+
+    def get_procedure_resources_for_appointment(self, hospital_id, appointment_id):
+        self._not_implemented("get_procedure_resources_for_appointment")
+
+    def get_pending_procedure_request(self, hospital_id, phone, procedure_id):
+        self._not_implemented("get_pending_procedure_request")
 
     def get_active_appointments_for_patient(self, hospital_id, patient_id):
         self._not_implemented("get_active_appointments_for_patient")
@@ -364,9 +429,6 @@ class _UnimplementedTierConnector(Connector):
 
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         self._not_implemented("set_appointment_video_link")
-
-    def set_appointment_duration(self, hospital_id, appointment_id, duration_hours):
-        self._not_implemented("set_appointment_duration")
 
     def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price):
         self._not_implemented("set_appointment_diagnostic_details")

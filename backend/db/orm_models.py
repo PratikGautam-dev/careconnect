@@ -103,20 +103,106 @@ class AppointmentType(Base):
     sort_order: Mapped[int]
 
 
-class DaycareDurationOption(Base):
-    """db/schema.sql's daycare_duration_options table -- the hospital-
-    configurable list shown at STATE_AWAITING_DAYCARE_DURATION (Daycare
-    Phase 2, docs/per-appointment-type-flow-plan.md). Plain integer PK
-    (unlike AppointmentType's composite key) since a hospital can add/remove
-    its own options over time, not just relabel a fixed seeded set."""
-    __tablename__ = "daycare_duration_options"
+class Procedure(Base):
+    """db/schema.sql's procedures table (Daycare/Procedure rebuild) -- the
+    hospital-configurable procedure catalog (Step 1's list, Step 2's booking
+    mode)."""
+    __tablename__ = "procedures"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    label: Mapped[str]
-    hours: Mapped[int]
+    category: Mapped[str]
+    name: Mapped[str]
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
+    booking_mode: Mapped[str]
+    duration_minutes: Mapped[int]
+    estimated_price_min: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    estimated_price_max: Mapped[float | None] = mapped_column(Numeric(10, 2))
     is_active: Mapped[bool]
     sort_order: Mapped[int]
+
+
+class ProcedureRequiredResourceType(Base):
+    """db/schema.sql's procedure_required_resource_types table -- which
+    resource pools (bed_chair/equipment/staff) a procedure needs, combined."""
+    __tablename__ = "procedure_required_resource_types"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    procedure_id: Mapped[int] = mapped_column(ForeignKey("procedures.id"))
+    resource_type: Mapped[str]
+
+
+class ProcedureInstruction(Base):
+    """db/schema.sql's procedure_instructions table -- Step 5's hospital-
+    configured pre-procedure instructions, one row per line item."""
+    __tablename__ = "procedure_instructions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    procedure_id: Mapped[int] = mapped_column(ForeignKey("procedures.id"))
+    instruction_type: Mapped[str]
+    instruction_text: Mapped[str]
+    sort_order: Mapped[int]
+
+
+class ProcedureResource(Base):
+    """db/schema.sql's procedure_resources table -- one row per physical
+    bed/chair, machine, or nursing/technician slot-line. Schedule columns are
+    a direct clone of DiagnosticResource's own grid, resource_type-discriminated."""
+    __tablename__ = "procedure_resources"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    resource_type: Mapped[str]
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
+    name: Mapped[str]
+    working_days: Mapped[str]
+    working_hours: Mapped[str]
+    slot_duration_minutes: Mapped[int]
+    breaks: Mapped[str]
+    max_bookings_per_slot: Mapped[int]
+    daily_booking_limit: Mapped[int | None]
+    effective_from: Mapped[str | None]
+    is_active: Mapped[bool]
+
+
+class ProcedureResourceLeave(Base):
+    """db/schema.sql's procedure_resource_leave table -- mirrors DiagnosticResourceLeave."""
+    __tablename__ = "procedure_resource_leave"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    resource_id: Mapped[str] = mapped_column(ForeignKey("procedure_resources.id"))
+    date: Mapped[str]
+    reason: Mapped[str | None]
+
+
+class ProcedureResourceSlot(Base):
+    """db/schema.sql's procedure_resource_slots table -- mirrors DiagnosticResourceSlot."""
+    __tablename__ = "procedure_resource_slots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    resource_id: Mapped[str] = mapped_column(ForeignKey("procedure_resources.id"))
+    scheduled_at: Mapped[str]
+    blocked: Mapped[bool]
+    block_reason: Mapped[str | None]
+
+
+class AppointmentProcedureResource(Base):
+    """db/schema.sql's appointment_procedure_resources table -- N concrete
+    resources bound to one procedure appointment (bed #3 + IV pump #1 +
+    nurse-line B, all at the same scheduled_at), same "N rows per one
+    appointment" shape as AppointmentLabTest."""
+    __tablename__ = "appointment_procedure_resources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"))
+    resource_id: Mapped[str] = mapped_column(ForeignKey("procedure_resources.id"))
+    resource_type: Mapped[str]
+    resource_name: Mapped[str]
 
 
 class DiagnosticResource(Base):
@@ -343,7 +429,6 @@ class AppointmentRow(Base):
     appointment_type_id: Mapped[str | None]
     consent_given_at: Mapped[str | None]
     video_link: Mapped[str | None]
-    duration_hours: Mapped[int | None]
     # Follow-up validity override (migration 0024) -- see db/schema.sql's own
     # column comment. NULL means no override has ever been granted.
     followup_override_until: Mapped[str | None]
@@ -367,6 +452,17 @@ class AppointmentRow(Base):
     collection_pincode: Mapped[str | None]
     home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
     lab_status: Mapped[str | None]
+    # Daycare/Procedure rebuild: which catalog procedure, its own approval
+    # sub-status (None for every other appointment type), a price-at-booking
+    # snapshot, an optional order/prescription reference, and a pending
+    # "Request Reschedule" slot -- see db/schema.sql's own column comments.
+    # The bound resources (N rows) live in AppointmentProcedureResource, not here.
+    procedure_id: Mapped[int | None] = mapped_column(ForeignKey("procedures.id"))
+    procedure_status: Mapped[str | None]
+    procedure_estimated_price_min: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    procedure_estimated_price_max: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    procedure_order_reference: Mapped[str | None]
+    procedure_reschedule_requested_at: Mapped[str | None]
 
 
 class AppointmentReminder(Base):

@@ -76,6 +76,21 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         # (and any Lab Test booking predating this column) -- the frontend
         # only shows the lab-status column/advance action when this is set.
         "lab_status": a.lab_status,
+        # Daycare/Procedure rebuild: None for every non-procedure appointment
+        # -- the frontend only shows the procedure-status column/approval
+        # actions when this is set. scheduled_at above is a PLACEHOLDER
+        # (request creation time) until procedure_status reaches CONFIRMED --
+        # the frontend must not display it as a real slot before then.
+        "procedure_id": a.procedure_id,
+        "procedure_name": a.procedure_name,
+        "procedure_status": a.procedure_status,
+        "procedure_estimated_price_min": a.procedure_estimated_price_min,
+        "procedure_estimated_price_max": a.procedure_estimated_price_max,
+        "procedure_order_reference": a.procedure_order_reference,
+        "procedure_reschedule_requested_at": a.procedure_reschedule_requested_at,
+        "procedure_resources": (
+            db.get_procedure_resources_for_appointment(a.hospital_id, a.id) if a.procedure_id is not None else []
+        ),
     }
 
 
@@ -212,6 +227,190 @@ async def portal_advance_lab_status(appointment_id: int, authorization: str | No
         before={"lab_status": appointment.lab_status}, after={"lab_status": next_status},
     )
     return JSONResponse({"ok": True, "appointment": _appointment_json(updated)})
+
+
+async def _notify_patient_best_effort(hospital, phone: str, message: str, appointment_id: int, context: str) -> None:
+    """Same best-effort WhatsApp-notify discipline portal_cancel_booking/
+    portal_reschedule_booking already use -- a delivery failure must never
+    turn a successful portal write into an error response."""
+    if not (hospital.whatsapp_phone_number_id and hospital.access_token):
+        logger.warning(
+            "Hospital %s has no WhatsApp credentials configured -- skipping %s message for appointment %s",
+            hospital.id, context, appointment_id,
+        )
+        return
+    try:
+        wa = WhatsAppClient(phone_number_id=hospital.whatsapp_phone_number_id, access_token=hospital.access_token)
+        await wa.send_text(phone, message)
+    except Exception:
+        logger.exception("Failed to send %s message for appointment %s", context, appointment_id)
+
+
+@router.get("/api/portal/procedure-approval-queue")
+async def portal_procedure_approval_queue(authorization: str | None = Header(default=None)):
+    """The staff approval-queue list -- procedure_status IN
+    ('REQUESTED','UNDER_REVIEW') for this hospital."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointments = db.get_all_appointments_for_hospital(hospital.id)
+    queue = [
+        _appointment_json(a) for a in appointments
+        if a.procedure_status in ("REQUESTED", "UNDER_REVIEW")
+    ]
+    return JSONResponse({"appointments": queue})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/procedure/approve")
+async def portal_approve_procedure_request(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Only valid from REQUESTED/UNDER_REVIEW -- a guarded single-row
+    transition (never a blind overwrite), same discipline handoff_requests'
+    own resolve action uses. On success: best-effort notify the patient with
+    "Procedure Approved" (spec's exact text) -- the patient resumes booking
+    by messaging in and tapping Book Appointment again, same as any other
+    unfinished booking."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or appointment.procedure_status not in ("REQUESTED", "UNDER_REVIEW"):
+        return JSONResponse({"error": "No such pending procedure request."}, status_code=404)
+    updated = db.set_procedure_status(hospital.id, appointment_id, "APPROVED")
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.procedure_approve",
+        entity_type="appointment", entity_id=str(appointment_id),
+        before={"procedure_status": appointment.procedure_status}, after={"procedure_status": "APPROVED"},
+    )
+    await _notify_patient_best_effort(
+        hospital, appointment.phone, t_procedure_approved(), appointment_id, "procedure approval",
+    )
+    return JSONResponse({"ok": True, "appointment": _appointment_json(updated)})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/procedure/reject")
+async def portal_reject_procedure_request(appointment_id: int, payload: dict | None = None, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or appointment.procedure_status not in ("REQUESTED", "UNDER_REVIEW"):
+        return JSONResponse({"error": "No such pending procedure request."}, status_code=404)
+    updated = db.set_procedure_status(hospital.id, appointment_id, "REJECTED")
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.procedure_reject",
+        entity_type="appointment", entity_id=str(appointment_id),
+        before={"procedure_status": appointment.procedure_status}, after={"procedure_status": "REJECTED"},
+    )
+    reason = ((payload or {}).get("reason") or "").strip()
+    message = t_procedure_rejected(appointment.procedure_name or "your procedure", reason)
+    await _notify_patient_best_effort(hospital, appointment.phone, message, appointment_id, "procedure rejection")
+    return JSONResponse({"ok": True, "appointment": _appointment_json(updated)})
+
+
+_PROCEDURE_STATUS_FORWARD = {"CONFIRMED": "COMPLETED"}
+
+
+@router.post("/api/portal/bookings/{appointment_id}/procedure/advance-status")
+async def portal_advance_procedure_status(appointment_id: int, payload: dict, authorization: str | None = Header(default=None)):
+    """Staff-driven forward progression once CONFIRMED -- CONFIRMED ->
+    COMPLETED (post-visit), same linear forward-map shape as
+    portal_advance_lab_status; or an explicit cancel (payload =
+    {"status": "CANCELLED"}), valid from any non-terminal procedure_status."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or appointment.procedure_status is None:
+        return JSONResponse({"error": "No such procedure appointment."}, status_code=404)
+    requested_status = (payload or {}).get("status")
+    if requested_status == "CANCELLED":
+        if appointment.procedure_status in ("COMPLETED", "CANCELLED", "REJECTED"):
+            return JSONResponse({"error": f"Cannot cancel from \"{appointment.procedure_status}\"."}, status_code=400)
+        next_status = "CANCELLED"
+    else:
+        next_status = _PROCEDURE_STATUS_FORWARD.get(appointment.procedure_status)
+        if next_status is None:
+            return JSONResponse({"error": f"Cannot advance further from \"{appointment.procedure_status}\"."}, status_code=400)
+    updated = db.set_procedure_status(hospital.id, appointment_id, next_status)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.procedure_status_advance",
+        entity_type="appointment", entity_id=str(appointment_id),
+        before={"procedure_status": appointment.procedure_status}, after={"procedure_status": next_status},
+    )
+    return JSONResponse({"ok": True, "appointment": _appointment_json(updated)})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/procedure/reschedule-request/approve")
+async def portal_approve_procedure_reschedule(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Moves scheduled_at to the patient's requested slot -- re-validates
+    the target span is STILL free via confirm_procedure_appointment()'s own
+    advisory-locked reservation (a race is possible if another booking took
+    it meanwhile, surfaced as a 409)."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or appointment.procedure_reschedule_requested_at is None:
+        return JSONResponse({"error": "No pending reschedule request for this appointment."}, status_code=404)
+    requested_at = datetime.fromisoformat(appointment.procedure_reschedule_requested_at)
+    try:
+        updated = db.confirm_procedure_appointment(hospital.id, appointment_id, requested_at)
+    except IntegrityError:
+        return JSONResponse({"error": "That slot is no longer available."}, status_code=409)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.procedure_reschedule_approve",
+        entity_type="appointment", entity_id=str(appointment_id), after={"scheduled_at": requested_at.isoformat()},
+    )
+    message = t_procedure_reschedule_approved(updated.scheduled_at)
+    await _notify_patient_best_effort(hospital, appointment.phone, message, appointment_id, "reschedule approval")
+    return JSONResponse({"ok": True, "appointment": _appointment_json(updated)})
+
+
+@router.post("/api/portal/bookings/{appointment_id}/procedure/reschedule-request/reject")
+async def portal_reject_procedure_reschedule(appointment_id: int, authorization: str | None = Header(default=None)):
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or appointment.procedure_reschedule_requested_at is None:
+        return JSONResponse({"error": "No pending reschedule request for this appointment."}, status_code=404)
+    db.request_procedure_reschedule(hospital.id, appointment_id, None)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.procedure_reschedule_reject",
+        entity_type="appointment", entity_id=str(appointment_id),
+    )
+    await _notify_patient_best_effort(
+        hospital, appointment.phone, t_procedure_reschedule_rejected(), appointment_id, "reschedule rejection",
+    )
+    return JSONResponse({"ok": True, "appointment": _appointment_json(db.get_appointment(hospital.id, appointment_id))})
+
+
+def t_procedure_approved() -> str:
+    from core.translations import t
+    from core.translations.booking import PROCEDURE_APPROVED
+    return t(PROCEDURE_APPROVED, "en")
+
+
+def t_procedure_rejected(procedure_name: str, reason: str) -> str:
+    from core.translations import t
+    from core.translations.booking import PROCEDURE_REJECTED
+    reason_line = f" Reason: {reason}" if reason else ""
+    return t(PROCEDURE_REJECTED, "en", procedure_name=procedure_name, reason_line=reason_line)
+
+
+def t_procedure_reschedule_approved(scheduled_at: datetime) -> str:
+    from core.translations import t
+    from core.translations.booking import PROCEDURE_RESCHEDULE_APPROVED
+    return t(
+        PROCEDURE_RESCHEDULE_APPROVED, "en",
+        date_label=scheduled_at.strftime("%d %b %Y"), time_label=scheduled_at.strftime("%I:%M %p"),
+    )
+
+
+def t_procedure_reschedule_rejected() -> str:
+    from core.translations import t
+    from core.translations.booking import PROCEDURE_RESCHEDULE_REJECTED
+    return t(PROCEDURE_RESCHEDULE_REJECTED, "en")
 
 
 @router.post("/api/portal/bookings/{appointment_id}/cancel")

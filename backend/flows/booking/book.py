@@ -44,11 +44,21 @@ from flows.booking.state import (
 from flows.booking.types.registry import get_type_flow
 
 
-def _get_slots(connector: Connector, hospital_id: int, doctor_id: str | None, resource_id: str | None) -> list[dict]:
+def _get_slots(
+    connector: Connector, hospital_id: int, doctor_id: str | None, resource_id: str | None,
+    procedure_id: int | None = None,
+) -> list[dict]:
     """Diagnostic/Lab Phase 2: the one place _handle_awaiting_date/
     _handle_awaiting_time_slot read slot availability from -- resource_id
     (when set) takes priority, same "exactly one of the two is ever set"
-    invariant create_appointment() enforces at the DB level."""
+    invariant create_appointment() enforces at the DB level.
+
+    procedure_id (Daycare/Procedure rebuild): an instant-booking procedure's
+    own multi-resource-constraint availability -- same shape ({"id"/"date"/
+    "time"/"label"}) get_available_resource_slots() returns, so every caller
+    below needs only this one extra branch, not a new rendering path."""
+    if procedure_id is not None:
+        return connector.get_procedure_available_slots(hospital_id, procedure_id)
     if resource_id is not None:
         return connector.get_available_resource_slots(hospital_id, resource_id)
     assert doctor_id is not None  # caller already checked not (doctor_id or resource_id) -> reset
@@ -365,8 +375,9 @@ async def _handle_awaiting_date(
     shared code" shape used throughout this file."""
     doctor_id = context.get("doctor_id")
     resource_id = context.get("resource_id")
+    procedure_id = context.get("procedure_id")
     doctor_name = context.get("doctor_name", "")
-    if not doctor_id and not resource_id:
+    if not doctor_id and not resource_id and not procedure_id:
         sessions.reset(hospital_id, phone)
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
@@ -375,22 +386,28 @@ async def _handle_awaiting_date(
         if reply["id"] == BACK_ID:
             await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
             return
-        available_dates = {s["date"] for s in _get_slots(connector, hospital_id, doctor_id, resource_id)}
+        available_dates = {s["date"] for s in _get_slots(connector, hospital_id, doctor_id, resource_id, procedure_id)}
         if reply["id"] in available_dates:
             history = _push_history(context, STATE_AWAITING_DATE)
             new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"]), _HISTORY_KEY: history}
             sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, new_context)
-            await _send_time_menu(wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language, resource_id=resource_id)
+            await _send_time_menu(
+                wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language,
+                resource_id=resource_id, procedure_id=procedure_id,
+            )
             return
     # Dates are dynamic (another patient's booking can take the doctor's only
     # slot on a given date between this menu being sent and this reply) --
     # recheck rather than blindly re-send, same discipline as every other
     # dynamic-availability step in this file.
-    if not _get_slots(connector, hospital_id, doctor_id, resource_id):
+    if not _get_slots(connector, hospital_id, doctor_id, resource_id, procedure_id):
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, doctor_name, language=language)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
-    await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language, resource_id=resource_id)
+    await _send_date_menu(
+        wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language,
+        resource_id=resource_id, procedure_id=procedure_id,
+    )
 
 
 async def _handle_awaiting_time_slot(
@@ -403,9 +420,10 @@ async def _handle_awaiting_time_slot(
     _handle_awaiting_date above."""
     doctor_id = context.get("doctor_id")
     resource_id = context.get("resource_id")
+    procedure_id = context.get("procedure_id")
     doctor_name = context.get("doctor_name", "")
     date_str = context.get("date")
-    if (not doctor_id and not resource_id) or not date_str:
+    if (not doctor_id and not resource_id and not procedure_id) or not date_str:
         sessions.reset(hospital_id, phone)
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
@@ -414,7 +432,7 @@ async def _handle_awaiting_time_slot(
         if reply["id"] == BACK_ID:
             await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
             return
-        slot = _find_by_id(_get_slots(connector, hospital_id, doctor_id, resource_id), reply["id"])
+        slot = _find_by_id(_get_slots(connector, hospital_id, doctor_id, resource_id, procedure_id), reply["id"])
         if slot and slot["date"] == date_str:
             new_context = {
                 **context,
@@ -431,32 +449,31 @@ async def _handle_awaiting_time_slot(
             # with context unchanged) -- straight to confirmation, no mid-flow
             # name/age ask needed anymore.
             #
-            # Daycare Phase 2: the one type with a step after time-slot
-            # (STATE_AWAITING_DAYCARE_DURATION) -- flow.next_step() resolves
-            # to STATE_AWAITING_CONFIRMATION for every other type, unchanged.
+            # flow.next_step() lets a type insert an extra step here without
+            # book.py needing a per-type branch -- every registered type
+            # today resolves straight to STATE_AWAITING_CONFIRMATION.
             flow = get_type_flow(context.get("appointment_type_id"))
             next_state = flow.next_step(STATE_AWAITING_TIME_SLOT)
             sessions.set(hospital_id, phone, next_state, new_context)
-            if next_state == STATE_AWAITING_CONFIRMATION:
-                await _send_confirmation(wa, phone, hospital_id, new_context, language=language)
-            else:
-                from flows.booking.types.daycare import _send_daycare_duration_menu
-                await _send_daycare_duration_menu(wa, phone, hospital_id, connector, language=language)
+            await _send_confirmation(wa, phone, hospital_id, new_context, language=language)
             return
     # Times are dynamic for the same reason dates are above -- recheck this
     # exact date's availability rather than blindly re-sending a stale list.
-    if not any(s["date"] == date_str for s in _get_slots(connector, hospital_id, doctor_id, resource_id)):
+    if not any(s["date"] == date_str for s in _get_slots(connector, hospital_id, doctor_id, resource_id, procedure_id)):
         # This date specifically emptied out (not necessarily the whole
         # doctor) -- step back to date selection rather than a full reset,
         # so the patient picks a different date instead of starting over.
         sessions.set(hospital_id, phone, STATE_AWAITING_DATE, context)
         await _send_date_menu(
             wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language,
-            min_date=context.get("followup_previous_visit_date"), resource_id=resource_id,
+            min_date=context.get("followup_previous_visit_date"), resource_id=resource_id, procedure_id=procedure_id,
         )
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, context)
-    await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language, resource_id=resource_id)
+    await _send_time_menu(
+        wa, phone, hospital_id, doctor_id, date_str, connector, language=language,
+        resource_id=resource_id, procedure_id=procedure_id,
+    )
 
 
 async def _handle_awaiting_patient_name(
@@ -548,19 +565,49 @@ async def _create_booking_and_notify(
             sessions.reset(hospital_id, phone)
             return
     try:
-        appointment = connector.create_booking(
-            hospital_id=hospital_id,
-            phone=phone,
-            department_id=context.get("department_id"),
-            doctor_id=context.get("doctor_id"),
-            scheduled_at=scheduled_at,
-            patient_name=context.get("patient_name"),
-            patient_age=context.get("patient_age"),
-            patient_id=context.get("active_patient_id"),
-            appointment_type_id=context.get("appointment_type_id"),
-            consent_given_at=consent_given_at,
-            resource_id=context.get("resource_id"),
-        )
+        # Daycare/Procedure rebuild: an instant-booking procedure binds N
+        # resources (bed/chair + equipment + staff), not the single
+        # doctor_id/resource_id column create_booking() already handles --
+        # its own dedicated connector method does the multi-resource
+        # reservation under its own advisory lock (db/repositories/
+        # appointments.py::create_procedure_appointment). Everything AFTER
+        # this call (success card, on_booking_confirmed, quick-action
+        # buttons, session reset) is unchanged and shared, same as every
+        # other type.
+        procedure_id = context.get("procedure_id")
+        # _procedure_appointment_id (only set when resuming an APPROVED
+        # request via its own quick-action button, flows/booking/types/
+        # procedure.py) means the appointment row already exists (created
+        # REQUESTED at Step 3) -- confirm it in place rather than creating a
+        # second row.
+        procedure_appointment_id = context.get("_procedure_appointment_id")
+        if procedure_appointment_id is not None:
+            appointment = connector.confirm_procedure_appointment(hospital_id, procedure_appointment_id, scheduled_at)
+        elif procedure_id is not None:
+            appointment = connector.create_procedure_booking(
+                hospital_id=hospital_id,
+                phone=phone,
+                procedure_id=procedure_id,
+                scheduled_at=scheduled_at,
+                patient_name=context.get("patient_name"),
+                patient_age=context.get("patient_age"),
+                patient_id=context.get("active_patient_id"),
+                procedure_order_reference=context.get("procedure_order_reference"),
+            )
+        else:
+            appointment = connector.create_booking(
+                hospital_id=hospital_id,
+                phone=phone,
+                department_id=context.get("department_id"),
+                doctor_id=context.get("doctor_id"),
+                scheduled_at=scheduled_at,
+                patient_name=context.get("patient_name"),
+                patient_age=context.get("patient_age"),
+                patient_id=context.get("active_patient_id"),
+                appointment_type_id=context.get("appointment_type_id"),
+                consent_given_at=consent_given_at,
+                resource_id=context.get("resource_id"),
+            )
     except DuplicateBookingError as exc:
         # Item 5: must be checked BEFORE the generic IntegrityError
         # catch below -- DuplicateBookingError IS an IntegrityError

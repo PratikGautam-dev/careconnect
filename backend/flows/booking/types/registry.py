@@ -5,12 +5,12 @@ through. A hospital-custom type id not in this built-in catalog falls back
 to FULL_FLOW (today's original pipeline) rather than crashing -- an
 unrecognized type gets the safe, fully-generic flow until it's given its own
 module here."""
-from flows.booking.types import daycare, diagnostic, followup, lab, new_consultation, second_opinion, tele_consultation
+from flows.booking.types import diagnostic, followup, lab, new_consultation, procedure, second_opinion, tele_consultation
 from flows.booking.types.base import FULL_FLOW, TypeFlow
 
 TYPE_FLOWS: dict[str, TypeFlow] = {
     flow.FLOW.type_id: flow.FLOW
-    for flow in (new_consultation, followup, tele_consultation, second_opinion, daycare, diagnostic, lab)
+    for flow in (new_consultation, followup, tele_consultation, second_opinion, procedure, diagnostic, lab)
 }
 
 _DEFAULT_FLOW = TypeFlow(type_id="__default__", steps=FULL_FLOW)

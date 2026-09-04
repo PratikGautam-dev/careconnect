@@ -33,7 +33,7 @@ const FEATURE_ICONS: Record<FeatureKey, typeof Calendar> = {
 
 const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
   book_doctor_appointment: "Patients pick a department, doctor, and time slot for a doctor consultation.",
-  tests_diagnostics: "Patients book a diagnostic test, lab test, or daycare/procedure slot.",
+  tests_diagnostics: "Patients book a diagnostic test, lab test, or daycare/procedure -- instantly or by request, depending on how you configure it.",
   reschedule: "Move an existing booking to a new time.",
   cancel: "Cancel an existing booking.",
   view_appointments: "See a list of upcoming bookings.",

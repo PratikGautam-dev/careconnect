@@ -525,3 +525,55 @@ remaining Phase 2 work will land; only started once the user confirms it.
 - Add a registry unit test: unknown/custom `appointment_type_id` falls back to `FULL_FLOW`.
 - Manual: book one of each of the 7 types end-to-end via the dev webhook, confirming
   diagnostic/lab skip department+doctor and every other type's flow is pixel-identical to today.
+
+## Daycare/Procedure rebuild — ✅ DONE (backend), portal admin UI still pending
+
+The old duration-picker flow (`daycare.py`, `daycare_duration_options` table,
+`appointments.duration_hours`) is deleted entirely and replaced with a real business spec:
+procedure catalog (category + INSTANT_BOOKING/APPROVAL_REQUIRED booking mode + duration +
+estimated price range), hospital-configured pre-procedure instructions, a multi-resource-
+constraint availability engine (bed/chair + equipment + staff pools, each with its own generated
+calendar cloned from `diagnostic_resources`), and a hospital-approval workflow with proactive
+WhatsApp notifications + "Request Reschedule". `type_id` stays `"daycare"` — only the flow behind
+it changed, no appointment_types/portal-filter/label churn.
+
+- **Schema** (migration `0028_procedure_booking.py`): `procedures`,
+  `procedure_required_resource_types`, `procedure_instructions`, `procedure_resources` (+ leave/
+  slots, mirroring `diagnostic_resources`), `appointment_procedure_resources` (N resources per
+  booking, same shape as `appointment_lab_tests`); `appointments` gains `procedure_id` + a
+  separate nullable `procedure_status` sub-status (REQUESTED/UNDER_REVIEW/APPROVED/REJECTED/
+  CONFIRMED/COMPLETED/CANCELLED, same convention as `lab_status`) + price snapshots + an optional
+  order reference + a pending reschedule-request slot. `scheduled_at` stays NOT NULL — a
+  REQUESTED/APPROVED row stamps it with the request's own creation time as a placeholder, never
+  displayed as real until CONFIRMED.
+- **Availability engine** (`db/repositories/procedure_slots.py`, genuinely new — nothing like it
+  existed before): a candidate slot is valid only if EVERY required resource pool has a resource
+  covering the procedure's full duration on its own generated grid, checked at booking time under
+  the same `pg_advisory_xact_lock` discipline `create_appointment()` uses for its own single-
+  resource case.
+- **Flow** (`flows/booking/types/procedure.py`, new): Step 1 picks a procedure instead of a
+  department; INSTANT_BOOKING reuses the shared `STATE_AWAITING_DATE`/`TIME_SLOT`/`CONFIRMATION`
+  steps as-is (`book.py`'s `_get_slots`/`_send_date_menu`/`_send_time_menu` gained a third
+  `procedure_id` branch alongside `doctor_id`/`resource_id`); APPROVAL_REQUIRED detours through its
+  own pre-send review screen and creates a REQUESTED row with no slot yet. A repicked procedure
+  with an open request resumes it (approved ones skip straight to date/time,
+  `context["_procedure_appointment_id"]` tells `_create_booking_and_notify` to update that row in
+  place via `confirm_procedure_appointment()` instead of creating a second one) rather than
+  creating a duplicate. "Request Reschedule" is a deliberately separate mini-flow, not a retrofit
+  of `reschedule.py`'s generic handlers — it only ever writes the desired slot, a portal action
+  moves `scheduled_at` for real.
+- **Portal**: `portal/routes/procedures.py` (new, catalog + resource-pool CRUD, gated by a new
+  `manage_procedures` capability) and new approve/reject/advance-status/reschedule-request routes
+  on `portal/routes/bookings.py`, all following the existing `portal_advance_lab_status`/
+  `portal_mark_attendance` guarded-transition shape + best-effort WhatsApp notify pattern.
+- **Not built this pass** (scoped down for time, backend/API is complete either way): the portal
+  admin UI itself (`ProcedureManager`/`ProcedureResourcesManager`/`ProcedureApprovalQueue`
+  components + a `/portal/procedures` page) — the routes exist and are tested, but there's no
+  frontend screen yet to configure procedures/resources or work the approval queue visually. An
+  optional free-text "linked order" WhatsApp prompt was also left out (the column exists,
+  portal-set only for now).
+- Full backend suite green (851 tests — 838 prior + 13 new in `test_procedure_flows.py`, real
+  Postgres via testcontainers), covering instant booking, approval request/approve/reject/resume,
+  multi-resource availability (including a duration spanning multiple grid sub-slots), and Request
+  Reschedule. Frontend: `tsc --noEmit` and `next build` both clean; not yet manually exercised in a
+  running browser (there's no portal UI yet to exercise beyond the WhatsApp flow itself).
