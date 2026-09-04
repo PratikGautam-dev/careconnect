@@ -11,17 +11,18 @@ const FEATURES = [
 ];
 
 function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
-  const mark = size === "sm" ? "h-8 w-8 text-lg" : "h-11 w-11 text-2xl";
+  const markPx = size === "sm" ? 32 : 44;
   const name = size === "sm" ? "text-[19px]" : "text-[34px]";
   return (
-    <div className="flex items-end gap-space-3">
-      <div className={`flex ${mark} shrink-0 items-center justify-center rounded-md bg-brand-600 font-display font-extrabold text-white`}>
-        H
-      </div>
+    <div className="flex items-center gap-space-3">
+      <Image src="/logo-icon.png" alt="" width={markPx} height={markPx} className="shrink-0" priority />
       <div>
-        {size === "md" && <span className="block text-eyebrow">DAAP</span>}
+        <span className="block text-eyebrow leading-none">DAAP</span>
         <span className={`font-display ${name} leading-tight font-extrabold text-ink-900`}>
           Care<span className="text-brand-600">Connect</span>
+        </span>
+        <span className="mt-0.5 block text-[11px] font-semibold tracking-wide text-ink-400">
+          Connect &bull; Care &bull; Heal
         </span>
       </div>
     </div>
@@ -40,9 +41,6 @@ export default function LandingPage() {
       <div className="flex items-center gap-space-2">
         <Button href="/portal/login" variant="secondary" size="md">
           Hospital login
-        </Button>
-        <Button href="/portal/login" variant="secondary" size="md">
-          Clinic login
         </Button>
       </div>
     </header>

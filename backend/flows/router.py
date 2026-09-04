@@ -98,6 +98,7 @@ from core.translations.menu import (
     LANGUAGE_PICKER_BUTTON_EN,
     LANGUAGE_PICKER_BUTTON_HI,
     RECEPTION_HANDOFF_TEXT,
+    REPORTS_PRESCRIPTIONS_COMING_SOON,
 )
 from core.translations.dpdp_consent import (
     DPDP_AGREE_BUTTON,
@@ -539,16 +540,12 @@ async def _start_feature(
         await start_view_appointments_flow(wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id)
         return
     if key == "reports_prescriptions":
-        if active_patient_id is None:
-            # No active patient resolved -- shouldn't normally happen (menu
-            # taps only reach here after _enter_idle() has already resolved
-            # one), but re-prompt rather than query with no patient.
-            sessions.reset(hospital_id, phone)
-            await _enter_idle(
-                wa, sessions, phone, hospital_id, hospital_name, [key], language, connector,
-            )
-            return
-        await _send_reports_menu(wa, sessions, phone, hospital_id, active_patient_id, language=language)
+        # Not ready yet (confirmed with the user) -- the submenu/filtered-
+        # document code below (_send_reports_menu et al.) stays in place for
+        # when it is, but the main-menu row itself is gated off here rather
+        # than half-exposing an in-progress feature to real patients.
+        sessions.reset(hospital_id, phone)
+        await wa.send_text(phone, t(REPORTS_PRESCRIPTIONS_COMING_SOON, language))
         return
     if key == "manage_patients":
         await patient_identity._start_manage_patients(wa, sessions, phone, hospital_id, connector, language=language)

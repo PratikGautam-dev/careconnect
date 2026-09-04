@@ -28,6 +28,7 @@ import pytest
 import db.repository as db
 import flows
 import flows.patient_identity as patient_identity
+import flows.router as router
 from core.session_store import InMemorySessionStore
 from core.translations import t as translate
 from core.translations.menu import FEATURE_BOOK_DOCTOR_APPOINTMENT, RECEPTION_HANDOFF_TEXT, WELCOME_MENU
@@ -369,10 +370,13 @@ async def test_book_report_review_skips_the_type_list_and_goes_straight_to_depar
     sessions = InMemorySessionStore()
     sessions.set(hospital_id, PHONE, "IDLE", {}, language="en", active_patient_id=patient["id"])
 
-    await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), connector=flows._DEFAULT_CONNECTOR,
-        enabled_features=["reports_prescriptions"],
-    )
+    # The "reports_prescriptions" main-menu row itself is gated off for now
+    # (confirmed with the user, tests/test_my_details_flow.py's own
+    # test_tapping_the_feature_shows_coming_soon) -- reaching the submenu to
+    # test Book Report Review means calling _send_reports_menu() directly,
+    # the exact function the gated tap used to call, rather than through
+    # flows.handle_incoming()'s now-gated dispatch.
+    await router._send_reports_menu(wa, sessions, PHONE, hospital_id, patient["id"], language="en")
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_REPORTS_MENU"
 
     await flows.handle_incoming(

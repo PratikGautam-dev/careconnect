@@ -35,6 +35,11 @@ FEATURE_HOSPITAL_INFO = "feature_hospital_info"
 FEATURE_RECEPTION_HANDOFF = "feature_reception_handoff"
 FEATURE_FAQ = "feature_faq"
 FEATURE_REPORTS_PRESCRIPTIONS = "feature_reports_prescriptions"
+# Reports & Prescriptions' own submenu (view prescriptions/lab reports/
+# diagnostic reports, book a report review) is still being built --
+# tapping the main-menu row shows this instead of entering it, confirmed
+# with the user rather than half-exposing an in-progress feature.
+REPORTS_PRESCRIPTIONS_COMING_SOON = "reports_prescriptions_coming_soon"
 FEATURE_CONSENT_PRIVACY = "feature_consent_privacy"
 # Reopens the same language picker used at IDLE entry -- a normal
 # hospital-configurable feature now (unlike the removed CHANGE_LANGUAGE_ROW
@@ -97,6 +102,10 @@ STRINGS: dict[str, dict[Language, str]] = {
     FEATURE_CANCEL: {"en": "Cancel Appointment", "hi": "अपॉइंटमेंट रद्द करें"},
     FEATURE_VIEW_APPOINTMENTS: {"en": "My Appointments", "hi": "मेरी अपॉइंटमेंट"},
     FEATURE_HOSPITAL_INFO: {"en": "Hospital Information", "hi": "अस्पताल की जानकारी"},
+    REPORTS_PRESCRIPTIONS_COMING_SOON: {
+        "en": "🚧 Reports & Prescriptions is coming soon. Please check back later.",
+        "hi": "🚧 रिपोर्ट्स और प्रिस्क्रिप्शन जल्द ही उपलब्ध होंगे। कृपया बाद में फिर से देखें।",
+    },
     FEATURE_RECEPTION_HANDOFF: {"en": "Talk to Reception", "hi": "रिसेप्शन से बात करें"},
     FEATURE_FAQ: {"en": "FAQ / Information", "hi": "सामान्य प्रश्न"},
     # CareConnect architecture doc alignment (Spec.md Section 0), Section 20's

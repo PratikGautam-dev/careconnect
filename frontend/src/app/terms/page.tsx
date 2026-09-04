@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { Mail } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 
@@ -27,10 +28,8 @@ const SECTIONS = [
 
 function BrandMark() {
   return (
-    <a href="/" aria-label="CareConnect home" className="flex items-end gap-space-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-lg font-extrabold text-white">
-        H
-      </div>
+    <a href="/" aria-label="CareConnect home" className="flex items-center gap-space-3">
+      <Image src="/logo-icon.png" alt="" width={32} height={32} className="shrink-0" />
       <span className="font-display text-[19px] leading-tight font-extrabold text-ink-900">
         Care<span className="text-brand-600">Connect</span>
       </span>
