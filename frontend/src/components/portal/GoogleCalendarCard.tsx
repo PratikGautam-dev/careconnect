@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { API_BASE_URL, getStaffAccessToken, staffFetch } from "@/lib/staffAuth";
 
 type CalendarStatus = { configured: boolean; connected: boolean; google_email: string | null };
@@ -15,10 +14,11 @@ const CONNECT_ERROR_MESSAGES: Record<string, string> = {
   no_refresh_token: "Google didn't grant the access this needs. Please try again.",
 };
 
-// Doctor-schedule page: lets a doctor optionally connect their own Google
-// account so tele-consultation bookings create a real Calendar event with a
-// Meet link, alongside (not replacing) the existing Jitsi room every doctor
-// gets by default. `configured: false` (the real state until the real
+// Hospital Settings page, admin-only: connects ONE Google account for the
+// whole hospital (not a per-doctor connection) so every doctor's
+// tele-consultation bookings create a real Calendar event with a Meet
+// link, alongside (not replacing) the default video room every hospital
+// already gets. `configured: false` (the real state until the real
 // GOOGLE_CALENDAR_CLIENT_ID/SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY are set) is
 // a normal, expected state here -- shown as a quiet note, not an error.
 export function GoogleCalendarCard() {
@@ -28,7 +28,7 @@ export function GoogleCalendarCard() {
   const [disconnecting, setDisconnecting] = useState(false);
 
   const load = useCallback(async () => {
-    const result = await staffFetch("/api/doctor/calendar/status");
+    const result = await staffFetch("/api/portal/calendar/status");
     if (result.ok) setStatus(result.data as CalendarStatus);
   }, []);
 
@@ -38,7 +38,7 @@ export function GoogleCalendarCard() {
 
   async function handleDisconnect() {
     setDisconnecting(true);
-    await staffFetch("/api/doctor/calendar/disconnect", { method: "POST" });
+    await staffFetch("/api/portal/calendar/disconnect", { method: "POST" });
     setDisconnecting(false);
     load();
   }
@@ -50,7 +50,7 @@ export function GoogleCalendarCard() {
       return;
     }
     // A full-page navigation, not a fetch -- Google's OAuth consent screen
-    // requires a real browser redirect, so the doctor's access token travels
+    // requires a real browser redirect, so the admin's access token travels
     // as a query param here (the only way to identify them on a plain <a>-
     // style navigation), same as auth/google_oauth.py's own callback
     // delivers ITS tokens back via redirect query params in the other
@@ -62,11 +62,12 @@ export function GoogleCalendarCard() {
   const calendarErrorParam = searchParams.get("calendar_error");
 
   return (
-    <Card className="p-space-5">
-      <p className="text-label mb-space-1 font-semibold text-ink-900">Google Meet for tele-consultations</p>
-      <p className="mb-space-3 text-[12.5px] text-ink-600">
-        Connect your Google account so a tele-consultation booking creates a real Google Calendar event with a Meet
-        link, instead of the default video room.
+    <>
+      <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Google Meet for tele-consultations</h2>
+      <p className="mb-space-3 text-[12.5px] text-ink-400">
+        Connect one Google account for your hospital so every doctor&apos;s tele-consultation bookings create a real
+        Google Calendar event with a Meet link, instead of the default video room. This is a hospital-wide
+        connection, made once by an admin — individual doctors don&apos;t connect their own accounts.
       </p>
 
       {calendarParam === "connected" && (
@@ -82,9 +83,7 @@ export function GoogleCalendarCard() {
       {status === null ? (
         <p className="text-[12.5px] text-ink-400">Loading…</p>
       ) : !status.configured ? (
-        <p className="text-[12.5px] text-ink-400">
-          Google Calendar integration isn&apos;t configured yet — ask your hospital administrator.
-        </p>
+        <p className="text-[12.5px] text-ink-400">Google Calendar integration isn&apos;t configured yet.</p>
       ) : status.connected ? (
         <div className="flex flex-wrap items-center justify-between gap-space-3">
           <p className="text-[13px] text-ink-900">
@@ -99,6 +98,6 @@ export function GoogleCalendarCard() {
           Connect Google Calendar
         </Button>
       )}
-    </Card>
+    </>
   );
 }

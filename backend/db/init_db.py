@@ -1088,6 +1088,30 @@ def init_db_on_connection(conn) -> int:
         "updated_at TEXT NOT NULL"
         ")"
     )
+    # Migration 0029: one Google account per HOSPITAL (an admin connects it
+    # once, used for every doctor's tele-consultation Meet links), not one
+    # per doctor -- see that migration's own docstring for why this is a
+    # data-preserving repoint of the primary key rather than a destructive
+    # rebuild. Idempotent/one-time via the same "does the old column still
+    # exist" guard db/migrations/env.py's own idempotent deltas use
+    # elsewhere: a fresh boot after this ships transitions the table once;
+    # every boot after that, `doctor_id` is already gone and this whole
+    # block is a no-op.
+    conn.execute(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'google_calendar_connections' AND column_name = 'doctor_id') THEN "
+        "DELETE FROM google_calendar_connections "
+        "WHERE doctor_id NOT IN ("
+        "    SELECT DISTINCT ON (hospital_id) doctor_id FROM google_calendar_connections "
+        "    ORDER BY hospital_id, updated_at DESC"
+        "); "
+        "ALTER TABLE google_calendar_connections DROP CONSTRAINT google_calendar_connections_pkey; "
+        "ALTER TABLE google_calendar_connections DROP COLUMN doctor_id; "
+        "ALTER TABLE google_calendar_connections ADD PRIMARY KEY (hospital_id); "
+        "END IF; "
+        "END $$;"
+    )
     # Migration 0028: Daycare/Procedure rebuild -- replaces the old duration-
     # picker model entirely (daycare_duration_options/appointments.duration_hours,
     # migration 0008, dropped below) with a procedure catalog, resource pools

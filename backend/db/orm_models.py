@@ -864,13 +864,18 @@ class HospitalSettings(Base):
 
 
 class GoogleCalendarConnection(Base):
-    """db/schema.sql's google_calendar_connections table (migration 0025) --
-    Google Meet integration, alongside (not replacing) the existing Jitsi
-    tele-consultation link. One row per doctor (doctor_id is both the primary
-    key and the FK, 1:1) -- a row's mere EXISTENCE is what "this doctor is
-    connected" means (unlike HospitalSettings above, no row is ever created
-    lazily/blank; db/repositories/google_calendar.py only ever inserts one
-    once the OAuth dance in auth/google_calendar_oauth.py actually succeeds).
+    """db/schema.sql's google_calendar_connections table (migration 0025,
+    repointed from doctor_id to hospital_id by migration 0029) -- Google
+    Meet integration, alongside (not replacing) the existing Jitsi
+    tele-consultation link. One row per HOSPITAL (hospital_id is both the
+    primary key and the FK, 1:1), connected once by a hospital admin and
+    used to create every doctor's tele-consultation Meet links -- not one
+    row per doctor (confirmed with the user: individual per-doctor consent
+    was the wrong shape for how hospitals actually want to adopt this). A
+    row's mere EXISTENCE is what "this hospital is connected" means (unlike
+    HospitalSettings above, no row is ever created lazily/blank;
+    db/repositories/google_calendar.py only ever inserts one once the OAuth
+    dance in auth/google_calendar_oauth.py actually succeeds).
 
     access_token/refresh_token are Fernet-encrypted (core/crypto.py) before
     they ever reach this table -- stored as opaque TEXT, same "everything
@@ -879,18 +884,18 @@ class GoogleCalendarConnection(Base):
     timestamp column in this file, not DateTime (see the module docstring)."""
     __tablename__ = "google_calendar_connections"
 
-    doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"), primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    # The connected Google account's own email -- display-only (the "Connected
-    # as ___" line in the doctor-schedule UI), never used to look anything up.
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), primary_key=True)
+    # The connected Google account's own email -- display-only (the
+    # "Connected as ___" line on the hospital admin's Settings page), never
+    # used to look anything up.
     google_email: Mapped[str | None]
     encrypted_access_token: Mapped[str]
     encrypted_refresh_token: Mapped[str]
     access_token_expires_at: Mapped[str]
-    # Which of the doctor's own Google calendars new Meet events are created
-    # on -- "primary" for every connection today (no calendar picker built
-    # yet), kept as its own column so that UI can be added later without a
-    # schema change.
+    # Which Google calendar (of the connected account's own) new Meet events
+    # are created on -- "primary" for every connection today (no calendar
+    # picker built yet), kept as its own column so that UI can be added
+    # later without a schema change.
     calendar_id: Mapped[str]
     connected_at: Mapped[str]
     updated_at: Mapped[str]

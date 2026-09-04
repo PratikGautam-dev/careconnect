@@ -6,7 +6,8 @@ import db.repository as db
 from core.translations import SUPPORTED_LANGUAGES
 from db.repositories.handoffs import DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS
 from db.repositories.hospital_settings import DEFAULT_FOLLOWUP_VALIDITY_DAYS
-from portal.deps import _authenticate, require_capability
+from modules.google_calendar import is_calendar_integration_configured
+from portal.deps import _authenticate, get_current_staff, require_capability, require_permission
 
 router = APIRouter()
 
@@ -227,3 +228,53 @@ async def portal_audit_log(authorization: str | None = Header(default=None)):
     if forbidden:
         return forbidden
     return JSONResponse({"entries": db.get_audit_logs(hospital_id=hospital.id, actor_level="portal")})
+
+
+# --- Google Meet integration (Spec.md Section 0) ---
+#
+# One Google account connected per HOSPITAL by an admin, used for every
+# doctor's tele-consultation Meet links -- not a per-doctor connection
+# (confirmed with the user). Deliberately gated with the newer, genuinely
+# role-aware get_current_staff()/require_permission() pair rather than this
+# file's own older _authenticate()/require_capability(hospital, ...)
+# pattern every other route above uses: those gate by TENANT PLAN
+# (capability), not by STAFF ROLE, so a receptionist's own valid session
+# would pass them -- initiating or revoking the hospital's shared Google
+# account connection is sensitive enough to warrant the stricter, real
+# admin-only check every time, not just a UI-level hide.
+
+@router.get("/api/portal/calendar/status")
+async def portal_calendar_status(authorization: str | None = Header(default=None)):
+    """The hospital admin's own Settings page reads this to decide what to
+    render -- `configured=False` means the feature itself isn't set up yet
+    (GOOGLE_CALENDAR_CLIENT_ID/SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY unset),
+    a clean, expected state this whole build was required to degrade
+    gracefully through, not an error."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_permission(principal, "settings", "view")
+    if forbidden:
+        return forbidden
+    connection = db.get_calendar_connection(principal.hospital.id) if is_calendar_integration_configured() else None
+    return JSONResponse({
+        "configured": is_calendar_integration_configured(),
+        "connected": connection is not None,
+        "google_email": connection["google_email"] if connection else None,
+    })
+
+
+@router.post("/api/portal/calendar/disconnect")
+async def portal_calendar_disconnect(authorization: str | None = Header(default=None)):
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_permission(principal, "settings", "write")
+    if forbidden:
+        return forbidden
+    db.delete_calendar_connection(principal.hospital.id)
+    db.record_audit_log(
+        "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>",
+        "settings.google_calendar_disconnect", entity_type="hospital", entity_id=str(principal.hospital.id),
+    )
+    return JSONResponse({"ok": True})

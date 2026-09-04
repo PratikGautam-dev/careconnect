@@ -95,8 +95,8 @@ export default function TermsOfServicePage() {
                 CareConnect is a WhatsApp-based appointment booking and reminder platform for hospitals and
                 clinics (&ldquo;Hospitals&rdquo;). Patients interact with their Hospital&apos;s own WhatsApp number
                 to book, reschedule, and cancel appointments. Hospital staff manage those appointments, patients,
-                and doctors through a web dashboard. Doctors may optionally connect a Google account to create
-                Google Meet links for tele-consultation appointments.
+                and doctors through a web dashboard. A hospital admin may optionally connect one Google account for
+                the whole hospital to create Google Meet links for tele-consultation appointments.
               </p>
               <p>
                 CareConnect is a scheduling and communication tool. It does not provide medical advice, diagnosis,
@@ -131,7 +131,7 @@ export default function TermsOfServicePage() {
             <Section id="google-calendar" title="5. Google Calendar integration">
               <p>
                 Connecting a Google account for the Google Meet tele-consultation feature is entirely optional and
-                can be disconnected at any time from a doctor&apos;s own schedule page. CareConnect only requests
+                can be disconnected at any time from the hospital admin&apos;s own Settings page. CareConnect only requests
                 access to create calendar events, and only ever creates one event per tele-consultation booking —
                 see our{" "}
                 <a href="/privacy#google-calendar" className="text-brand-600 hover:underline">

@@ -1,10 +1,16 @@
 # tests/test_google_calendar_integration.py
-"""Google Meet integration (Spec.md Section 0): alongside, never replacing,
-the existing Jitsi tele-consultation link. The one hard requirement this
-whole build was scoped around: the app must boot cleanly and every route it
-adds must degrade gracefully (never a 500) with GOOGLE_CALENDAR_CLIENT_ID/
-GOOGLE_CALENDAR_CLIENT_SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY all unset -- the
-real state of every deployment until the user hands over actual credentials.
+"""Google Meet integration (Spec.md Section 0): one Google account
+connected per HOSPITAL by an admin (require_permission(principal,
+"settings", "write")), used for every doctor's tele-consultation Meet
+links -- not a per-doctor connection (a revision of the original plan,
+confirmed with the user directly). Alongside, never replacing, the
+existing Jitsi tele-consultation link.
+
+The one hard requirement this whole build was scoped around: the app must
+boot cleanly and every route it adds must degrade gracefully (never a 500)
+with GOOGLE_CALENDAR_CLIENT_ID/GOOGLE_CALENDAR_CLIENT_SECRET/
+CALENDAR_TOKEN_ENCRYPTION_KEY all unset -- the real state of every
+deployment until the user hands over actual credentials.
 
 conftest.py never sets these three vars, so every OTHER test file in this
 suite already proves "the app imports/boots with them unset" hundreds of
@@ -43,13 +49,14 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _make_doctor_staff_user(hospital_id: int, name: str, email: str, password: str = "hunter22") -> str:
-    doctor = db.create_doctor(
-        hospital_id, "cardiology", name,
-        working_days=["Mon", "Tue", "Wed", "Thu", "Fri"], working_hours=["09:00-12:00"],
-    )
-    db.create_staff_user(hospital_id, "doctor", email, hash_portal_password(password), name, doctor_id=doctor["id"])
-    return doctor["id"]
+def _make_admin(hospital_id: int, email: str = "admin.gcal@example.com", password: str = "hunter22") -> str:
+    db.create_staff_user(hospital_id, "admin", email, hash_portal_password(password), "Test Admin")
+    return _staff_login(email, password)["access_token"]
+
+
+def _make_receptionist(hospital_id: int, email: str = "recep.gcal@example.com", password: str = "hunter22") -> str:
+    db.create_staff_user(hospital_id, "receptionist", email, hash_portal_password(password), "Test Receptionist")
+    return _staff_login(email, password)["access_token"]
 
 
 def _staff_login(email: str, password: str) -> dict:
@@ -86,24 +93,34 @@ def test_app_boots_with_all_three_calendar_env_vars_unset():
     assert is_calendar_integration_configured() is False
     # A totally unrelated route still works -- proves the app is genuinely
     # up, not just that import didn't crash.
-    resp = client.get("/api/doctor/calendar/status", headers=_auth("garbage"))
+    resp = client.get("/api/portal/calendar/status", headers=_auth("garbage"))
     assert resp.status_code == 401  # not authenticated, but a clean 401 -- no 500
 
 
 def test_calendar_status_reports_unconfigured_and_disconnected(hospital_id):
-    doctor_id = _make_doctor_staff_user(hospital_id, "Dr. Cal Status", "cal.status@example.com")
-    token = _staff_login("cal.status@example.com", "hunter22")["access_token"]
+    token = _make_admin(hospital_id)
 
-    resp = client.get("/api/doctor/calendar/status", headers=_auth(token))
+    resp = client.get("/api/portal/calendar/status", headers=_auth(token))
     assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body == {"configured": False, "connected": False, "google_email": None}
-    assert doctor_id  # sanity: the doctor really was created
+    assert resp.json() == {"configured": False, "connected": False, "google_email": None}
+
+
+def test_calendar_status_and_disconnect_require_settings_permission(hospital_id):
+    """A receptionist has no write access to Settings by default
+    (portal/permissions.py's DEFAULT_PERMISSIONS_BY_ROLE) -- initiating or
+    revoking the hospital's shared Google account connection is sensitive
+    enough that this must be a real 403, not just a hidden button."""
+    token = _make_receptionist(hospital_id)
+
+    resp = client.get("/api/portal/calendar/status", headers=_auth(token))
+    assert resp.status_code == 403, resp.text
+
+    resp = client.post("/api/portal/calendar/disconnect", headers=_auth(token))
+    assert resp.status_code == 403, resp.text
 
 
 def test_connect_route_returns_a_graceful_error_not_a_500_when_unconfigured(hospital_id):
-    _make_doctor_staff_user(hospital_id, "Dr. Cal Connect", "cal.connect@example.com")
-    token = _staff_login("cal.connect@example.com", "hunter22")["access_token"]
+    token = _make_admin(hospital_id)
 
     resp = client.get(f"/auth/google/calendar/connect?token={token}", follow_redirects=False)
     assert resp.status_code == 503
@@ -111,7 +128,7 @@ def test_connect_route_returns_a_graceful_error_not_a_500_when_unconfigured(hosp
 
 
 def test_connect_route_rejects_a_bad_token_before_touching_oauth(hospital_id):
-    """Even if the feature WERE configured, a missing/invalid doctor token
+    """Even if the feature WERE configured, a missing/invalid admin token
     must be a clean 401, never a 500 -- checked here against the
     unconfigured backdrop (503 wins first, since that check runs first),
     and again below with the feature toggled on."""
@@ -120,10 +137,9 @@ def test_connect_route_rejects_a_bad_token_before_touching_oauth(hospital_id):
 
 
 def test_disconnect_is_a_safe_noop_with_no_existing_connection(hospital_id):
-    _make_doctor_staff_user(hospital_id, "Dr. Cal Disconnect", "cal.disconnect@example.com")
-    token = _staff_login("cal.disconnect@example.com", "hunter22")["access_token"]
+    token = _make_admin(hospital_id)
 
-    resp = client.post("/api/doctor/calendar/disconnect", headers=_auth(token))
+    resp = client.post("/api/portal/calendar/disconnect", headers=_auth(token))
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"ok": True}
 
@@ -136,8 +152,7 @@ def test_create_meet_event_returns_none_when_unconfigured(hospital_id):
     the narrower, direct proof of the piece feeding it."""
     from datetime import datetime
 
-    doctor_id = _make_doctor_staff_user(hospital_id, "Dr. Cal Meet", "cal.meet@example.com")
-    link = create_meet_event(doctor_id, "Tele-consultation", datetime.now(), 30)
+    link = create_meet_event(hospital_id, "Tele-consultation", datetime.now(), 30)
     assert link is None
 
 
@@ -145,7 +160,7 @@ def test_create_meet_event_returns_none_when_unconfigured(hospital_id):
 # these tests never call out to Google, only exercise config-plumbing and
 # status/disconnect once a connection row exists) ---
 
-def test_connect_route_gates_on_a_valid_doctor_token_once_configured(hospital_id, monkeypatch):
+def test_connect_route_gates_on_a_valid_admin_token_once_configured(hospital_id, monkeypatch):
     monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", "fake-client-id")
     monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_SECRET", "fake-client-secret")
     monkeypatch.setenv("CALENDAR_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
@@ -156,26 +171,57 @@ def test_connect_route_gates_on_a_valid_doctor_token_once_configured(hospital_id
     assert resp.json()["error"] == "Not authenticated."
 
 
+def test_connect_route_rejects_a_valid_non_admin_token_once_configured(hospital_id, monkeypatch):
+    monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", "fake-client-id")
+    monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_SECRET", "fake-client-secret")
+    monkeypatch.setenv("CALENDAR_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    token = _make_receptionist(hospital_id)
+
+    resp = client.get(f"/auth/google/calendar/connect?token={token}", follow_redirects=False)
+    assert resp.status_code == 403
+
+
 def test_status_reports_connected_once_a_connection_row_exists(hospital_id, monkeypatch):
     monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", "fake-client-id")
     monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_SECRET", "fake-client-secret")
     monkeypatch.setenv("CALENDAR_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
-    doctor_id = _make_doctor_staff_user(hospital_id, "Dr. Cal Connected", "cal.connected@example.com")
-    token = _staff_login("cal.connected@example.com", "hunter22")["access_token"]
+    token = _make_admin(hospital_id)
     db.upsert_calendar_connection(
-        doctor_id, hospital_id, "doc@gmail.com", "encrypted-access", "encrypted-refresh",
+        hospital_id, "hospital@gmail.com", "encrypted-access", "encrypted-refresh",
         "2099-01-01T00:00:00",
     )
 
-    resp = client.get("/api/doctor/calendar/status", headers=_auth(token))
+    resp = client.get("/api/portal/calendar/status", headers=_auth(token))
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"configured": True, "connected": True, "google_email": "doc@gmail.com"}
+    assert resp.json() == {"configured": True, "connected": True, "google_email": "hospital@gmail.com"}
 
-    resp = client.post("/api/doctor/calendar/disconnect", headers=_auth(token))
+    resp = client.post("/api/portal/calendar/disconnect", headers=_auth(token))
     assert resp.status_code == 200, resp.text
-    resp = client.get("/api/doctor/calendar/status", headers=_auth(token))
+    resp = client.get("/api/portal/calendar/status", headers=_auth(token))
     assert resp.json()["connected"] is False
+
+
+def test_connection_is_shared_across_every_doctor_at_the_hospital(hospital_id):
+    """The whole point of the redesign: one connection covers every doctor
+    at the hospital, not just whichever one happened to connect it."""
+    doctor_a = db.create_doctor(
+        hospital_id, "cardiology", "Dr. Shared A",
+        working_days=["Mon"], working_hours=["09:00-12:00"],
+    )
+    doctor_b = db.create_doctor(
+        hospital_id, "cardiology", "Dr. Shared B",
+        working_days=["Mon"], working_hours=["09:00-12:00"],
+    )
+    db.upsert_calendar_connection(
+        hospital_id, "hospital@gmail.com", "encrypted-access", "encrypted-refresh", "2099-01-01T00:00:00",
+    )
+    # create_meet_event() looks the connection up purely by hospital_id --
+    # confirmed here it doesn't matter which doctor's appointment this is.
+    connection_for_a = db.get_calendar_connection(hospital_id)
+    connection_for_b = db.get_calendar_connection(hospital_id)
+    assert connection_for_a == connection_for_b
+    assert doctor_a["id"] != doctor_b["id"]
 
 
 # --- core/crypto.py ---
@@ -203,23 +249,29 @@ def test_decrypt_raises_clean_error_with_wrong_key():
 # --- db/repositories/google_calendar.py ---
 
 def test_calendar_connection_repo_crud(hospital_id):
-    doctor_id = _make_doctor_staff_user(hospital_id, "Dr. Cal Repo", "cal.repo@example.com")
-
-    assert db.get_calendar_connection(doctor_id) is None
+    assert db.get_calendar_connection(hospital_id) is None
 
     db.upsert_calendar_connection(
-        doctor_id, hospital_id, "repo@gmail.com", "enc-access-1", "enc-refresh-1", "2099-01-01T00:00:00",
+        hospital_id, "repo@gmail.com", "enc-access-1", "enc-refresh-1", "2099-01-01T00:00:00",
     )
-    connection = db.get_calendar_connection(doctor_id)
+    connection = db.get_calendar_connection(hospital_id)
     assert connection["google_email"] == "repo@gmail.com"
     assert connection["encrypted_access_token"] == "enc-access-1"
     assert connection["calendar_id"] == "primary"
 
-    db.update_calendar_access_token(doctor_id, "enc-access-2", "2099-06-01T00:00:00")
-    connection = db.get_calendar_connection(doctor_id)
+    db.update_calendar_access_token(hospital_id, "enc-access-2", "2099-06-01T00:00:00")
+    connection = db.get_calendar_connection(hospital_id)
     assert connection["encrypted_access_token"] == "enc-access-2"
     assert connection["encrypted_refresh_token"] == "enc-refresh-1"  # untouched by a token-only refresh
 
-    assert db.delete_calendar_connection(doctor_id) is True
-    assert db.get_calendar_connection(doctor_id) is None
-    assert db.delete_calendar_connection(doctor_id) is False  # already gone -- no error, just False
+    assert db.delete_calendar_connection(hospital_id) is True
+    assert db.get_calendar_connection(hospital_id) is None
+    assert db.delete_calendar_connection(hospital_id) is False  # already gone -- no error, just False
+
+
+def test_calendar_connection_is_isolated_per_hospital(hospital_id, second_hospital_id):
+    db.upsert_calendar_connection(
+        hospital_id, "hospital-a@gmail.com", "enc-access-a", "enc-refresh-a", "2099-01-01T00:00:00",
+    )
+    assert db.get_calendar_connection(second_hospital_id) is None
+    assert db.get_calendar_connection(hospital_id)["google_email"] == "hospital-a@gmail.com"
