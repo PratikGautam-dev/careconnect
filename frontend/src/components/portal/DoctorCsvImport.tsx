@@ -1,11 +1,21 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { csvRowsToObjects, parseCsv } from "@/lib/csv";
-import { portalFetch } from "@/lib/portalAuth";
+import { DataTable } from "@/components/ui/DataTable";
+import { useDoctorCsvImport } from "@/hooks/useDoctorCsvImport";
+
+type CsvRow = Record<string, string>;
+
+const PREVIEW_COLUMNS: ColumnDef<CsvRow>[] = [
+  { id: "department_name", header: "Department", cell: ({ row }) => <span className="text-ink-900">{row.original.department_name}</span> },
+  { id: "name", header: "Name", cell: ({ row }) => <span className="text-ink-900">{row.original.name}</span> },
+  { id: "specialization", header: "Specialization", cell: ({ row }) => <span className="text-ink-600">{row.original.specialization}</span> },
+  { id: "working_days", header: "Days", cell: ({ row }) => <span className="text-ink-600">{row.original.working_days}</span> },
+];
 
 const CSV_COLUMNS = [
   "department_name", "name", "specialization", "qualification", "years_experience",
@@ -35,58 +45,17 @@ function downloadSample() {
 
 export function DoctorCsvImport({ onImported }: { onImported: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [rows, setRows] = useState<Record<string, string>[] | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{ created_count: number; row_errors: string[] } | null>(null);
+  const { rows, importing, result, loadFile, handleImport } = useDoctorCsvImport(onImported);
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result || "");
-      const parsed = csvRowsToObjects(parseCsv(text));
-      setRows(parsed);
-      setResult(null);
-    };
-    reader.readAsText(file);
+    loadFile(file);
   }
 
-  async function handleImport() {
-    if (!rows) return;
-    setImporting(true);
-    const payloadRows = rows.map((r) => ({
-      department_name: r.department_name || "",
-      name: r.name || "",
-      specialization: r.specialization || "",
-      qualification: r.qualification || "",
-      years_experience: r.years_experience || "",
-      working_days: r.working_days || "",
-      working_hours: r.working_hours || "",
-      slot_duration_minutes: r.slot_duration_minutes || "",
-      breaks: r.breaks || "",
-      max_bookings_per_slot: r.max_bookings_per_slot || "1",
-      daily_booking_limit: r.daily_booking_limit || "",
-      online_quota: r.online_quota || "",
-      walkin_quota: r.walkin_quota || "",
-      followup_duration_minutes: r.followup_duration_minutes || "",
-      effective_from: r.effective_from || "",
-    }));
-    const res = await portalFetch("/api/portal/doctors/csv-import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rows: payloadRows }),
-    });
-    setImporting(false);
-    if (res.ok) {
-      const data = res.data as { created_count: number; row_errors: string[] };
-      setResult(data);
-      if (data.created_count > 0) onImported();
-      if (data.row_errors.length === 0) {
-        setRows(null);
-        if (fileRef.current) fileRef.current.value = "";
-      }
-    }
+  async function handleImportClick() {
+    const cleared = await handleImport();
+    if (cleared && fileRef.current) fileRef.current.value = "";
   }
 
   return (
@@ -108,27 +77,14 @@ export function DoctorCsvImport({ onImported }: { onImported: () => void }) {
       </label>
 
       {rows && rows.length > 0 && (
-        <div className="mb-space-3 max-h-52 overflow-auto rounded-md border border-line">
-          <table className="w-full text-left text-[12px]">
-            <thead className="sticky top-0 bg-paper">
-              <tr>
-                <th className="p-space-2 font-semibold text-ink-600">Department</th>
-                <th className="p-space-2 font-semibold text-ink-600">Name</th>
-                <th className="p-space-2 font-semibold text-ink-600">Specialization</th>
-                <th className="p-space-2 font-semibold text-ink-600">Days</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-t border-line">
-                  <td className="p-space-2 text-ink-900">{r.department_name}</td>
-                  <td className="p-space-2 text-ink-900">{r.name}</td>
-                  <td className="p-space-2 text-ink-600">{r.specialization}</td>
-                  <td className="p-space-2 text-ink-600">{r.working_days}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mb-space-3 rounded-md border border-line">
+          <DataTable
+            columns={PREVIEW_COLUMNS}
+            data={rows}
+            getRowId={(_r, i) => String(i)}
+            containerClassName="max-h-52"
+            stickyHeader
+          />
         </div>
       )}
 
@@ -145,7 +101,7 @@ export function DoctorCsvImport({ onImported }: { onImported: () => void }) {
         </div>
       )}
 
-      <Button type="button" onClick={handleImport} disabled={!rows || rows.length === 0 || importing}>
+      <Button type="button" onClick={handleImportClick} disabled={!rows || rows.length === 0 || importing}>
         {importing ? "Importing…" : "Import doctors"}
       </Button>
     </Card>

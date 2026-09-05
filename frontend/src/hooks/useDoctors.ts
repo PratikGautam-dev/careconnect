@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DoctorScheduleFormState, emptyDoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
 import { portalFetch } from "@/lib/portalAuth";
+import { toast } from "@/lib/toast";
 
 export type Department = { id: string; name: string };
 export type Doctor = {
@@ -75,7 +76,12 @@ export function useDoctors(ready: boolean) {
     setAddingDept(false);
     if (result.ok) {
       setNewDeptName("");
+      toast.success("Department added");
       load();
+    } else if (result.unauthorized) {
+      router.push("/portal/login");
+    } else {
+      toast.error("Couldn't add department", result.error);
     }
   }
 
@@ -131,14 +137,19 @@ export function useDoctors(ready: boolean) {
     setSavingDoctor(false);
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
-      else setDoctorErrors([result.error]);
+      else {
+        setDoctorErrors([result.error]);
+        toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", result.error);
+      }
       return;
     }
     const data = result.data as { errors?: string[] };
     if (data.errors?.length) {
       setDoctorErrors(data.errors);
+      toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", data.errors[0]);
       return;
     }
+    toast.success(editingDoctorId ? "Doctor updated" : "Doctor added");
     setDoctorForm(emptyDoctorScheduleForm());
     setShowDoctorForm(false);
     setEditingDoctorId(null);
@@ -196,7 +207,14 @@ export function useDoctors(ready: boolean) {
       body: JSON.stringify({ is_active: !doc.is_active }),
     });
     setTogglingId(null);
-    if (result.ok) load();
+    if (result.ok) {
+      toast.success(`Dr. ${doc.name} marked ${doc.is_active ? "unavailable" : "available"}`);
+      load();
+    } else if (result.unauthorized) {
+      router.push("/portal/login");
+    } else {
+      toast.error("Couldn't update availability", result.error);
+    }
   }
 
   const filteredDoctors = useMemo(() => {

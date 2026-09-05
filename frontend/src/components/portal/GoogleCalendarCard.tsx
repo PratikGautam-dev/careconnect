@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { API_BASE_URL, getStaffAccessToken, staffFetch } from "@/lib/staffAuth";
+import { toast } from "@/lib/toast";
 
 type CalendarStatus = { configured: boolean; connected: boolean; google_email: string | null };
 
@@ -36,10 +37,23 @@ export function GoogleCalendarCard() {
     load();
   }, [load]);
 
+  // The connect flow is a full-page redirect back here with ?calendar=
+  // connected -- the only place that success can be reported from, so it's
+  // toasted once on arrival rather than from a normal fetch call site.
+  useEffect(() => {
+    if (searchParams.get("calendar") === "connected") toast.success("Google Calendar connected");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleDisconnect() {
     setDisconnecting(true);
-    await staffFetch("/api/portal/calendar/disconnect", { method: "POST" });
+    const result = await staffFetch("/api/portal/calendar/disconnect", { method: "POST" });
     setDisconnecting(false);
+    if (result.ok) {
+      toast.success("Google Calendar disconnected");
+    } else if (!result.unauthorized) {
+      toast.error("Couldn't disconnect Google Calendar", result.error);
+    }
     load();
   }
 

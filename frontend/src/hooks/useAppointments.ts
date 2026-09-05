@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import { toast } from "@/lib/toast";
 
 const DEFAULT_CANCEL_MESSAGE = "Your appointment has been cancelled.";
 const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
@@ -113,6 +114,22 @@ export function useAppointments(ready: boolean) {
     if (ready) load();
   }, [ready, load]);
 
+  // Shared success/error-toast handling for the many fire-and-forget row
+  // actions below (attendance, lab status, procedure actions, delete) --
+  // every one of them used to just no-op on failure with zero feedback.
+  function afterAction(result: Awaited<ReturnType<typeof portalFetch>>, successMessage: string, failureMessage: string): boolean {
+    if (result.ok) {
+      toast.success(successMessage);
+      return true;
+    }
+    if (result.unauthorized) {
+      router.push("/portal/login");
+      return false;
+    }
+    toast.error(failureMessage, result.error);
+    return false;
+  }
+
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = { all: appointments?.length ?? 0 };
     for (const a of appointments || []) {
@@ -151,7 +168,7 @@ export function useAppointments(ready: boolean) {
       body: JSON.stringify({ attended }),
     });
     setMarkingAttendanceId(null);
-    if (result.ok) load();
+    if (afterAction(result, attended ? "Marked as attended" : "Marked as no-show", "Couldn't update attendance")) load();
   }
 
   // Lab Test Phase 2 follow-up: advances booked -> sample_collected ->
@@ -163,7 +180,7 @@ export function useAppointments(ready: boolean) {
     setAdvancingLabStatusId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/lab-status`, { method: "POST" });
     setAdvancingLabStatusId(null);
-    if (result.ok) load();
+    if (afterAction(result, "Lab status updated", "Couldn't update lab status")) load();
   }
 
   // Daycare/Procedure rebuild: approve/reject a pending request, or advance

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import { toast } from "@/lib/toast";
 
 export type Department = { id: string; name: string };
 export type Doctor = { id: string; name: string };
@@ -79,14 +80,19 @@ export function useNewBooking(ready: boolean) {
     setSubmitting(false);
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
-      else setErrors([result.error]);
+      else {
+        setErrors([result.error]);
+        toast.error("Couldn't create booking", result.error);
+      }
       return;
     }
     const data = result.data as { errors?: string[] };
     if (data.errors?.length) {
       setErrors(data.errors);
+      toast.error("Couldn't create booking", data.errors[0]);
       return;
     }
+    toast.success("Booking created");
     setSuccess(true);
   }
 

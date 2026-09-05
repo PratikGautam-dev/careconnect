@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import { toast } from "@/lib/toast";
 
 export type Settings = {
   name: string;
@@ -31,29 +32,13 @@ export type Settings = {
   home_collection_charge: number | "";
 };
 
-export type AuditEntry = {
-  id: number;
-  actor_level: string;
-  action: string;
-  entity_type: string | null;
-  entity_id: string | null;
-  before_value: Record<string, unknown> | null;
-  after_value: Record<string, unknown> | null;
-  created_at: string;
-};
-
-/** Loads + saves the /portal/settings form, plus this hospital's own
- * (capability-gated) activity log. */
+/** Loads + saves the /portal/settings form. */
 export function usePortalSettings(ready: boolean) {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  // undefined = not loaded yet, null = this tenant lacks manage_settings (the
-  // capability that also gates the settings-update route above) so the
-  // section is hidden rather than shown as an error.
-  const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null | undefined>(undefined);
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/settings");
@@ -74,23 +59,9 @@ export function usePortalSettings(ready: boolean) {
     });
   }, [router]);
 
-  const loadAuditLog = useCallback(async () => {
-    const result = await portalFetch("/api/portal/audit-log");
-    if (!result.ok) {
-      // 403 (no manage_settings) is expected for a clinic without that
-      // capability -- hide the section rather than surfacing an error.
-      setAuditEntries(null);
-      return;
-    }
-    setAuditEntries((result.data as { entries: AuditEntry[] }).entries);
-  }, []);
-
   useEffect(() => {
-    if (ready) {
-      load();
-      loadAuditLog();
-    }
-  }, [ready, load, loadAuditLog]);
+    if (ready) load();
+  }, [ready, load]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -106,7 +77,10 @@ export function usePortalSettings(ready: boolean) {
     if (!result.ok) {
       setSaving(false);
       if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
+      else {
+        setError(result.error);
+        toast.error("Couldn't save settings", result.error);
+      }
       return;
     }
     // Settings-not-updating bug fix (Spec.md Section 0): the form used to
@@ -121,7 +95,8 @@ export function usePortalSettings(ready: boolean) {
     await load();
     setSaving(false);
     setSaved(true);
+    toast.success("Settings saved");
   }
 
-  return { settings, setSettings, error, saving, saved, auditEntries, handleSave };
+  return { settings, setSettings, error, saving, saved, handleSave };
 }

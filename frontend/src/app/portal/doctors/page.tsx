@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { ChevronDown, ChevronUp, Pencil, Plus, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
+import { Switch } from "@/components/ui/Switch";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { DoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
@@ -16,6 +19,7 @@ import { useDoctors } from "@/hooks/useDoctors";
 
 export default function PortalDoctorsPage() {
   const { hospital, ready } = usePortalGuard();
+  const [activeTab, setActiveTab] = useState<"doctors" | "departments">("doctors");
   // Backend route guards already 403 the actual mutations for clinic tenants
   // lacking manage_doctors -- this is just a UI convenience so those staff
   // don't hit an error after filling out a form. Fails open (keeps the
@@ -33,19 +37,21 @@ export default function PortalDoctorsPage() {
 
   return (
     <PortalShell hospital={hospital} active="doctors">
-        <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
-          <h1 className="text-display">Doctors &amp; departments</h1>
-          {canManageDoctors && departments && departments.length > 0 && (
-            <div className="flex gap-space-2">
-              <Button variant="secondary" size="md" onClick={toggleCsvImport}>
-                <Upload size={14} /> Bulk import
-              </Button>
-              <Button size="md" onClick={openAddDoctorForm}>
-                <Plus size={14} /> Add doctor
-              </Button>
-            </div>
-          )}
-        </div>
+        <PageHeader
+          title="Doctors & departments"
+          actions={
+            canManageDoctors && departments && departments.length > 0 && (
+              <>
+                <Button variant="secondary" size="md" onClick={toggleCsvImport}>
+                  <Upload size={14} /> Bulk import
+                </Button>
+                <Button size="md" onClick={openAddDoctorForm}>
+                  <Plus size={14} /> Add doctor
+                </Button>
+              </>
+            )
+          }
+        />
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
         {!canManageDoctors && (
           <p className="mb-space-4 text-[13px] text-ink-400">
@@ -57,7 +63,33 @@ export default function PortalDoctorsPage() {
         {!departments ? (
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : (
-          <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-[1fr_320px]">
+          <>
+            <div role="tablist" className="mb-space-4 inline-flex gap-space-1 rounded-full bg-paper p-1">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "doctors"}
+                onClick={() => setActiveTab("doctors")}
+                className={`rounded-full px-space-4 py-space-2 text-[13px] font-semibold transition-colors duration-150 ${
+                  activeTab === "doctors" ? "bg-brand-600 text-white" : "text-ink-600 hover:text-ink-900"
+                }`}
+              >
+                Doctors
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "departments"}
+                onClick={() => setActiveTab("departments")}
+                className={`rounded-full px-space-4 py-space-2 text-[13px] font-semibold transition-colors duration-150 ${
+                  activeTab === "departments" ? "bg-brand-600 text-white" : "text-ink-600 hover:text-ink-900"
+                }`}
+              >
+                Departments
+              </button>
+            </div>
+
+          {activeTab === "doctors" ? (
             <div className="space-y-space-4">
               {departments.length === 0 && (
                 <Card className="p-space-4">
@@ -147,22 +179,12 @@ export default function PortalDoctorsPage() {
                               <Badge tone={doc.is_active ? "success" : "neutral"}>
                                 {doc.is_active ? "Available" : "Unavailable"}
                               </Badge>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleActive(doc)}
+                              <Switch
+                                checked={doc.is_active}
+                                onChange={() => handleToggleActive(doc)}
                                 disabled={togglingId === doc.id || !canManageDoctors}
-                                role="switch"
-                                aria-checked={doc.is_active}
-                                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-150 ${
-                                  doc.is_active ? "bg-brand-600" : "bg-line"
-                                } ${togglingId === doc.id ? "opacity-60" : ""}`}
-                              >
-                                <span
-                                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
-                                    doc.is_active ? "translate-x-[22px]" : "translate-x-0.5"
-                                  }`}
-                                />
-                              </button>
+                                aria-label={`Toggle ${doc.name}`}
+                              />
                               <button
                                 type="button"
                                 onClick={() => setExpandedId(expanded ? null : doc.id)}
@@ -186,7 +208,7 @@ export default function PortalDoctorsPage() {
                 )}
               </Card>
             </div>
-
+          ) : (
             <Card className="h-fit p-space-4">
               <h3 className="text-label mb-space-3 font-bold text-ink-900">Departments</h3>
               {canManageDoctors && (
@@ -209,7 +231,8 @@ export default function PortalDoctorsPage() {
                 </ul>
               )}
             </Card>
-          </div>
+          )}
+          </>
         )}
     </PortalShell>
   );

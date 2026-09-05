@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { DiagnosticResourcesManager } from "@/components/portal/DiagnosticResourcesManager";
@@ -14,13 +15,10 @@ export default function PortalDiagnosticTestsPage() {
 
   return (
     <PortalShell hospital={hospital} active="diagnostic_tests">
-      <div className="mb-space-5">
-        <h1 className="text-display">Diagnostic tests</h1>
-        <p className="text-[13px] text-ink-400">
-          Manage the tests patients can book under Diagnostic Test / Lab Test, and the machines/equipment their
-          date and time options are drawn from.
-        </p>
-      </div>
+      <PageHeader
+        title="Diagnostic tests"
+        description="Manage the tests patients can book under Diagnostic Test / Lab Test, and the machines/equipment their date and time options are drawn from."
+      />
 
       <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-[1fr_1fr]">
         <DiagnosticTestsManager canManage={!!canManageTests} />

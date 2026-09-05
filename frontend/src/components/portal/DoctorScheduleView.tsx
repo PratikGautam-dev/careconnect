@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { staffFetch } from "@/lib/staffAuth";
+import { toast } from "@/lib/toast";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -123,9 +124,11 @@ export function DoctorScheduleView() {
     setSaving(false);
     if (!result.ok) {
       setError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      if (!result.unauthorized) toast.error("Couldn't save schedule", result.error);
       return;
     }
     setSaved(true);
+    toast.success("Schedule saved");
     load();
   }
 
@@ -140,15 +143,22 @@ export function DoctorScheduleView() {
     setAddingLeave(false);
     if (!result.ok) {
       setError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      if (!result.unauthorized) toast.error("Couldn't add leave", result.error);
       return;
     }
+    toast.success("Leave added");
     setLeaveDate("");
     setLeaveReason("");
     load();
   }
 
   async function handleDeleteLeave(leaveId: number) {
-    await staffFetch(`/api/doctor/leave/${leaveId}/delete`, { method: "POST" });
+    const result = await staffFetch(`/api/doctor/leave/${leaveId}/delete`, { method: "POST" });
+    if (result.ok) {
+      toast.success("Leave removed");
+    } else if (!result.unauthorized) {
+      toast.error("Couldn't remove leave", result.error);
+    }
     load();
   }
 

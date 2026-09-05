@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import { toast } from "@/lib/toast";
 
 export type Patient = {
   id: number;
@@ -81,10 +82,14 @@ export function usePatients(ready: boolean) {
     setPendingDelete(null);
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
+      else {
+        setError(result.error);
+        toast.error("Couldn't delete patient" + (targets.length > 1 ? "s" : ""), result.error);
+      }
       return;
     }
     const deletedIds = new Set((result.data as { deleted: number[] }).deleted);
+    toast.success(deletedIds.size > 1 ? `${deletedIds.size} patients deleted` : "Patient deleted");
     setPatients((prev) => (prev ? prev.filter((p) => !deletedIds.has(p.id)) : prev));
     setSelected((prev) => {
       const next = new Set(prev);

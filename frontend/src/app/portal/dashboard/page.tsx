@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/ui/PageHeader";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
 import { DoctorDashboardView } from "@/components/portal/DoctorDashboardView";
 import { PortalShell } from "@/components/portal/PortalShell";
@@ -50,18 +51,18 @@ function HospitalDashboard() {
 
   return (
     <PortalShell hospital={hospital} active="dashboard">
-        <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
-          <div>
-            <h1 className="text-display">
+        <PageHeader
+          title={
+            <>
               Hospital Admin Dashboard
               {data && (
                 <span className="ml-space-2 text-[15px] font-medium text-ink-400">
                   ({TIER_LABELS[data.hospital.data_tier] || data.hospital.data_tier})
                 </span>
               )}
-            </h1>
-          </div>
-          <div className="flex gap-space-2">
+            </>
+          }
+          actions={
             <select
               disabled
               title="Coming soon"
@@ -69,8 +70,8 @@ function HospitalDashboard() {
             >
               <option>Today</option>
             </select>
-          </div>
-        </div>
+          }
+        />
 
         {!data ? (
           <p className="text-[13px] text-ink-400">Loading…</p>

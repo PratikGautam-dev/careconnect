@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import { toast } from "@/lib/toast";
 import { NewBookingContext, TYPE_LABELS } from "@/hooks/useAppointments";
 
 function visitTypeBucket(v: { appointment_type_id: string | null }) {
@@ -149,8 +150,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
       body: JSON.stringify({ status }),
     });
     setSavingStatus(false);
-    if (result.ok) load();
-    else if (!result.unauthorized) setError(result.error);
+    if (result.ok) {
+      toast.success("Patient status updated");
+      load();
+    } else if (!result.unauthorized) {
+      setError(result.error);
+      toast.error("Couldn't update patient status", result.error);
+    }
   }
 
   async function handleSaveDemographics() {
@@ -161,7 +167,12 @@ export function usePatientDetail(patientId: string, ready: boolean) {
       body: JSON.stringify({ date_of_birth: dob, gender, address }),
     });
     setSavingDemographics(false);
-    if (result.ok) load();
+    if (result.ok) {
+      toast.success("Patient details saved");
+      load();
+    } else if (!result.unauthorized) {
+      toast.error("Couldn't save patient details", result.error);
+    }
   }
 
   async function handleAddNote(appointmentId: number | null) {
@@ -182,7 +193,10 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     if (result.ok) {
       if (appointmentId) setNoteDraft((d) => ({ ...d, [appointmentId]: "" }));
       else setGeneralNoteDraft("");
+      toast.success("Note added");
       load();
+    } else if (!result.unauthorized) {
+      toast.error("Couldn't add note", result.error);
     }
   }
 
@@ -199,8 +213,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     });
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (result.ok) load();
-    else if (!result.unauthorized) setError(result.error);
+    if (result.ok) {
+      toast.success("Document uploaded");
+      load();
+    } else if (!result.unauthorized) {
+      setError(result.error);
+      toast.error("Couldn't upload document", result.error);
+    }
   }
 
   async function handleSendToWhatsapp(documentId: number) {
@@ -211,9 +230,11 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     });
     setSendingDocId(null);
     if (result.ok) {
+      toast.success("Sent to WhatsApp");
       load();
     } else if (!result.unauthorized) {
       setSendError((e) => ({ ...e, [documentId]: result.error }));
+      toast.error("Couldn't send to WhatsApp", result.error);
     }
   }
 
@@ -249,9 +270,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     });
     setExtendingId(null);
     if (!result.ok) {
-      if (!result.unauthorized) setFollowupError(result.error);
+      if (!result.unauthorized) {
+        setFollowupError(result.error);
+        toast.error("Couldn't extend follow-up", result.error);
+      }
       return;
     }
+    toast.success("Follow-up window extended");
     closeFollowupPanel();
     load();
   }
@@ -270,9 +295,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     });
     setBookingId(null);
     if (!result.ok) {
-      if (!result.unauthorized) setFollowupError(result.error);
+      if (!result.unauthorized) {
+        setFollowupError(result.error);
+        toast.error("Couldn't book follow-up", result.error);
+      }
       return;
     }
+    toast.success("Follow-up booked");
     closeFollowupPanel();
     load();
   }

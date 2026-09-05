@@ -1,5 +1,7 @@
+import type { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
 import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
 
@@ -37,6 +39,68 @@ const STATUS_LABELS: Record<string, string> = {
 
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 
+const columns: ColumnDef<Appointment>[] = [
+  {
+    id: "scheduled_at",
+    header: "Time",
+    cell: ({ row }) => (
+      <span className="whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(row.original.scheduled_at)}</span>
+    ),
+  },
+  {
+    id: "reference_id",
+    header: "Reference",
+    cell: ({ row }) => (
+      <span className="whitespace-nowrap font-mono text-[12px] text-ink-400">{row.original.reference_id || "—"}</span>
+    ),
+  },
+  {
+    id: "patient",
+    header: "Patient",
+    cell: ({ row }) => {
+      const a = row.original;
+      return (
+        <div className="text-ink-900">
+          <div>
+            <span className="font-semibold">{a.patient_name || a.phone}</span>
+            {a.patient_name && <span className="ml-space-2 text-[12px] text-ink-400">{a.phone}</span>}
+          </div>
+          {a.patient_display_id && <div className="font-mono text-[11px] text-ink-400">{a.patient_display_id}</div>}
+        </div>
+      );
+    },
+  },
+  {
+    id: "doctor_name",
+    header: "Doctor",
+    cell: ({ row }) => <span className="text-ink-600">{row.original.doctor_name}</span>,
+  },
+  {
+    id: "department_name",
+    header: "Department",
+    cell: ({ row }) => <span className="text-ink-600">{row.original.department_name}</span>,
+  },
+  {
+    id: "source",
+    header: "Source",
+    cell: ({ row }) => <span className="text-ink-600">{SOURCE_LABELS[row.original.source] || row.original.source}</span>,
+  },
+  {
+    id: "status",
+    header: "Status",
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+          STATUS_STYLES[row.original.status] || "bg-black/4 text-ink-600",
+        )}
+      >
+        {STATUS_LABELS[row.original.status] || row.original.status}
+      </span>
+    ),
+  },
+];
+
 export function RecentAppointmentsTable({ appointments }: { appointments: Appointment[] }) {
   return (
     <Card className="p-space-4">
@@ -49,55 +113,7 @@ export function RecentAppointmentsTable({ appointments }: { appointments: Appoin
       {appointments.length === 0 ? (
         <p className="py-space-4 text-center text-[13px] text-ink-400">No appointments yet.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[13px]">
-            <thead>
-              <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
-                <th className="pb-space-2 font-semibold">Time</th>
-                <th className="pb-space-2 font-semibold">Reference</th>
-                <th className="pb-space-2 font-semibold">Patient</th>
-                <th className="pb-space-2 font-semibold">Doctor</th>
-                <th className="pb-space-2 font-semibold">Department</th>
-                <th className="pb-space-2 font-semibold">Source</th>
-                <th className="pb-space-2 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {appointments.map((a) => (
-                <tr key={a.id} className="border-b border-line last:border-0">
-                  <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">
-                    {formatShortDateTime(a.scheduled_at)}
-                  </td>
-                  <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">
-                    {a.reference_id || "—"}
-                  </td>
-                  <td className="py-space-2 text-ink-900">
-                    <div>
-                      <span className="font-semibold">{a.patient_name || a.phone}</span>
-                      {a.patient_name && <span className="ml-space-2 text-[12px] text-ink-400">{a.phone}</span>}
-                    </div>
-                    {a.patient_display_id && (
-                      <div className="font-mono text-[11px] text-ink-400">{a.patient_display_id}</div>
-                    )}
-                  </td>
-                  <td className="py-space-2 text-ink-600">{a.doctor_name}</td>
-                  <td className="py-space-2 text-ink-600">{a.department_name}</td>
-                  <td className="py-space-2 text-ink-600">{SOURCE_LABELS[a.source] || a.source}</td>
-                  <td className="py-space-2">
-                    <span
-                      className={cn(
-                        "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                        STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
-                      )}
-                    >
-                      {STATUS_LABELS[a.status] || a.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable columns={columns} data={appointments} getRowId={(a) => String(a.id)} />
       )}
     </Card>
   );

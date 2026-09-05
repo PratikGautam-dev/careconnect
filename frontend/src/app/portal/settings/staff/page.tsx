@@ -1,18 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Switch } from "@/components/ui/Switch";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { staffFetch, usePermission, useStaffSession, type StaffRole } from "@/lib/staffAuth";
-
-type StaffMember = { id: number; name: string; email: string; role: StaffRole; is_active: boolean };
-type Doctor = { id: string; name: string };
+import { usePermission, useStaffSession, type StaffRole } from "@/lib/staffAuth";
+import { useStaffManagement } from "@/hooks/useStaffManagement";
 
 const ROLE_LABEL: Record<StaffRole, string> = {
   admin: "Admin",
@@ -21,97 +19,18 @@ const ROLE_LABEL: Record<StaffRole, string> = {
 };
 
 export default function StaffManagementPage() {
-  const router = useRouter();
   // useStaffSession (not getStaffSession directly) -- avoids a hydration
   // mismatch, same reasoning as the roles page's own fix.
   const session = useStaffSession();
   const canView = usePermission("staff", "view");
 
-  const [staff, setStaff] = useState<StaffMember[] | null>(null);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [togglingId, setTogglingId] = useState<number | null>(null);
-
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<StaffRole>("receptionist");
-  const [doctorId, setDoctorId] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/staff");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setStaff(result.data as StaffMember[]);
-  }, [router]);
-
-  const loadDoctors = useCallback(async () => {
-    // Reuses the same doctor-list endpoint the Doctors page already fetches
-    // from, so a "doctor" staff row can be linked to an existing doctor
-    // record instead of duplicating name/specialization entry here.
-    const result = await staffFetch("/api/portal/doctors");
-    if (!result.ok) return;
-    const data = result.data as { doctors: Doctor[] };
-    setDoctors(data.doctors || []);
-  }, []);
-
-  useEffect(() => {
-    if (!canView) return;
-    load();
-    loadDoctors();
-  }, [canView, load, loadDoctors]);
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (role === "doctor" && !doctorId) {
-      setFormError("Select which doctor this login belongs to.");
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    const result = await staffFetch("/api/portal/staff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        email,
-        password,
-        role,
-        doctor_id: role === "doctor" ? doctorId : undefined,
-      }),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setFormError(result.error);
-      return;
-    }
-    setName("");
-    setEmail("");
-    setPassword("");
-    setRole("receptionist");
-    setDoctorId("");
-    setShowForm(false);
-    load();
-  }
-
-  async function handleToggleActive(member: StaffMember) {
-    setTogglingId(member.id);
-    const result = await staffFetch(`/api/portal/staff/${member.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: !member.is_active }),
-    });
-    setTogglingId(null);
-    if (result.ok) load();
-    else if (result.unauthorized) router.push("/portal/login");
-  }
+  const {
+    staff, doctors, error, togglingId,
+    showForm, toggleForm,
+    name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
+    formError, saving,
+    handleCreate, handleToggleActive,
+  } = useStaffManagement(canView);
 
   if (!canView) {
     return (
@@ -123,20 +42,16 @@ export default function StaffManagementPage() {
 
   return (
     <PortalShell hospital={session?.hospital || null} active="staff">
-      <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
-        <h1 className="text-display">Staff</h1>
-        <PermissionGate page="staff" action="write">
-          <Button
-            size="md"
-            onClick={() => {
-              setShowForm((v) => !v);
-              setFormError(null);
-            }}
-          >
-            {showForm ? "Cancel" : "Add staff member"}
-          </Button>
-        </PermissionGate>
-      </div>
+      <PageHeader
+        title="Staff"
+        actions={
+          <PermissionGate page="staff" action="write">
+            <Button size="md" onClick={toggleForm}>
+              {showForm ? "Cancel" : "Add staff member"}
+            </Button>
+          </PermissionGate>
+        }
+      />
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
@@ -224,22 +139,12 @@ export default function StaffManagementPage() {
                     {member.is_active ? "Active" : "Deactivated"}
                   </Badge>
                   <PermissionGate page="staff" action="write">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleActive(member)}
+                    <Switch
+                      checked={member.is_active}
+                      onChange={() => handleToggleActive(member)}
                       disabled={togglingId === member.id}
-                      role="switch"
-                      aria-checked={member.is_active}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-150 ${
-                        member.is_active ? "bg-brand-600" : "bg-line"
-                      } ${togglingId === member.id ? "opacity-60" : ""}`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
-                          member.is_active ? "translate-x-[22px]" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
+                      aria-label={`Toggle ${member.name}`}
+                    />
                   </PermissionGate>
                 </div>
               </li>
