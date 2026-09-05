@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { Mail, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 
@@ -24,10 +25,8 @@ const SECTIONS = [
 
 function BrandMark() {
   return (
-    <a href="/" aria-label="CareConnect home" className="flex items-end gap-space-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-lg font-extrabold text-white">
-        H
-      </div>
+    <a href="/" aria-label="CareConnect home" className="flex items-center gap-space-3">
+      <Image src="/logo-icon.png" alt="" width={32} height={32} className="shrink-0" />
       <span className="font-display text-[19px] leading-tight font-extrabold text-ink-900">
         Care<span className="text-brand-600">Connect</span>
       </span>
@@ -105,11 +104,12 @@ export default function PrivacyPolicyPage() {
                 record of the actions taken through that dashboard for audit purposes.
               </p>
               <p>
-                <strong className="text-ink-900">From doctors who connect Google Calendar:</strong> if a doctor
-                chooses to connect their Google account for the optional Google Meet tele-consultation feature, we
-                receive an OAuth access token and refresh token from Google, and the email address of the
-                connected Google account. These tokens are encrypted before they are stored — see &ldquo;Google
-                Calendar integration&rdquo; below for exactly what this access is, and is not, used for.
+                <strong className="text-ink-900">From a hospital admin who connects Google Calendar:</strong> a
+                hospital may connect one Google account (for the whole hospital, not per doctor) for the optional
+                Google Meet tele-consultation feature. When an admin does this, we receive an OAuth access token
+                and refresh token from Google, and the email address of the connected Google account. These
+                tokens are encrypted before they are stored — see &ldquo;Google Calendar integration&rdquo; below
+                for exactly what this access is, and is not, used for.
               </p>
               <p>
                 <strong className="text-ink-900">Documents:</strong> if a hospital chooses to upload patient
@@ -122,7 +122,7 @@ export default function PrivacyPolicyPage() {
               <ul className="list-disc space-y-space-2 pl-space-5">
                 <li>To book, reschedule, cancel, and send reminders for appointments.</li>
                 <li>To let hospital staff view and manage their hospital&apos;s own appointments and patients.</li>
-                <li>To create a Google Calendar event with a Google Meet link for a tele-consultation appointment, when a doctor has connected their Google account.</li>
+                <li>To create a Google Calendar event with a Google Meet link for a tele-consultation appointment, when the hospital has connected a Google account.</li>
                 <li>To maintain an audit trail of actions taken in the hospital dashboard, for security and accountability.</li>
                 <li>To operate, secure, and improve the platform itself.</li>
               </ul>
@@ -146,7 +146,9 @@ export default function PrivacyPolicyPage() {
                   , including the Limited Use requirements.
                 </p>
               </Card>
-              <p className="mt-space-4">Specifically, when a doctor connects their Google account:</p>
+              <p className="mt-space-4">
+                Specifically, when a hospital admin connects a Google account on the hospital&apos;s behalf:
+              </p>
               <ul className="list-disc space-y-space-2 pl-space-5">
                 <li>
                   We request access only to create calendar events (the{" "}
@@ -154,12 +156,12 @@ export default function PrivacyPolicyPage() {
                   we cannot read your Gmail, Drive, or any other Google data.
                 </li>
                 <li>
-                  We create exactly one calendar event per tele-consultation booking, containing the appointment
-                  time and a Google Meet link. We do not read, list, or otherwise access any of your other
-                  existing calendar events.
+                  We create exactly one calendar event per tele-consultation booking (across any doctor at that
+                  hospital), containing the appointment time and a Google Meet link. We do not read, list, or
+                  otherwise access any of your other existing calendar events.
                 </li>
                 <li>
-                  The connection can be revoked at any time from the doctor&apos;s own schedule page inside
+                  The connection can be revoked at any time from the hospital admin&apos;s own Settings page inside
                   CareConnect, or directly from your Google Account&apos;s{" "}
                   <a
                     href="https://myaccount.google.com/permissions"
@@ -179,7 +181,7 @@ export default function PrivacyPolicyPage() {
               <p>We use the following third-party services to operate CareConnect, each only for the specific purpose below:</p>
               <ul className="list-disc space-y-space-2 pl-space-5">
                 <li><strong className="text-ink-900">Meta (WhatsApp Business Platform)</strong> — to send and receive the WhatsApp messages that power the booking flow.</li>
-                <li><strong className="text-ink-900">Google (Calendar API)</strong> — only for doctors who opt in, as described above.</li>
+                <li><strong className="text-ink-900">Google (Calendar API)</strong> — only for hospitals whose admin opts in, as described above.</li>
                 <li><strong className="text-ink-900">Our hosting and database providers</strong> — to run the application and store data securely.</li>
               </ul>
               <p>We do not share patient or appointment data with any other third party, and never for marketing purposes.</p>

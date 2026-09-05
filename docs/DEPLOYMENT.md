@@ -252,8 +252,9 @@ the `booking`/patient-records features are used:**
 
 **Optional — Google Meet integration (`modules/google_calendar.py`,
 `auth/google_calendar_oauth.py`), alongside the existing Jitsi
-tele-consultation link, only relevant if a doctor wants to connect their own
-Google account:**
+tele-consultation link, only relevant if a hospital admin wants to connect
+one Google account for the whole hospital (used for every doctor's
+tele-consultation Meet links — not a per-doctor connection):**
 
 | Variable                                                          | Purpose                                                                                                                                                                                                     |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -261,11 +262,11 @@ Google account:**
 | `CALENDAR_TOKEN_ENCRYPTION_KEY`                                   | Fernet key encrypting stored Calendar access/refresh tokens at rest. Generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.                            |
 
 All three default to `""`. With any of them unset, the app boots completely
-normally and the doctor-schedule page's "Connect Google Calendar" card shows
-an "isn't configured yet" message instead of a connect button — every
-tele-consultation booking keeps using the existing Jitsi link exactly as
-before. Nothing needs a placeholder value; leave them genuinely blank until
-you have real ones.
+normally and the hospital admin's Settings page's "Connect Google Calendar"
+card shows an "isn't configured yet" message instead of a connect button —
+every tele-consultation booking keeps using the existing Jitsi link exactly
+as before. Nothing needs a placeholder value; leave them genuinely blank
+until you have real ones.
 
 **Optional — first-run seeding only** (`db/init_db.py` uses these to create
 a starter hospital row _if the database is completely empty_; irrelevant on

@@ -20,7 +20,6 @@ from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 
 import db.repository as db
-from modules.google_calendar import is_calendar_integration_configured
 from portal.deps import _authenticate_doctor, get_current_staff
 from portal.routes.bookings import _appointment_json
 from portal.routes.patients import _patient_json
@@ -405,32 +404,10 @@ async def doctor_delete_leave(leave_id: int, authorization: str | None = Header(
         return JSONResponse({"error": "No such leave date."}, status_code=404)
     return JSONResponse({"ok": True})
 
-
-@router.get("/api/doctor/calendar/status")
-async def doctor_calendar_status(authorization: str | None = Header(default=None)):
-    """Google Meet integration (Spec.md Section 0): the doctor-schedule
-    page's own "Connect Google Calendar" card reads this to decide what to
-    render -- `configured=False` means the feature itself isn't set up yet
-    (GOOGLE_CALENDAR_CLIENT_ID/SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY unset),
-    a clean, expected state this whole build was required to degrade
-    gracefully through, not an error."""
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    connection = db.get_calendar_connection(doctor_id) if is_calendar_integration_configured() else None
-    return JSONResponse({
-        "configured": is_calendar_integration_configured(),
-        "connected": connection is not None,
-        "google_email": connection["google_email"] if connection else None,
-    })
-
-
-@router.post("/api/doctor/calendar/disconnect")
-async def doctor_calendar_disconnect(authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    _hospital, doctor_id = ctx
-    db.delete_calendar_connection(doctor_id)
-    return JSONResponse({"ok": True})
+# Google Meet integration (Spec.md Section 0): the "Connect Google Calendar"
+# status/disconnect routes used to live here, per-doctor -- moved to
+# portal/routes/settings.py as /api/portal/calendar/status and /disconnect,
+# admin-gated (require_permission(principal, "settings", "write")), since
+# the connection is now one per HOSPITAL (an admin connects it once, used
+# for every doctor's tele-consultation Meet links), not something each
+# doctor manages on their own schedule page.

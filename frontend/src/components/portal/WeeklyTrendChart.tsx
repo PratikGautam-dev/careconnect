@@ -33,9 +33,9 @@ export function WeeklyTrendChart({ data }: { data: Point[] }) {
           <Line
             type="monotone"
             dataKey="count"
-            stroke="#1B4D3E"
+            stroke="#00949E"
             strokeWidth={2}
-            dot={{ r: 3, fill: "#1B4D3E", strokeWidth: 2, stroke: "#fff" }}
+            dot={{ r: 3, fill: "#00949E", strokeWidth: 2, stroke: "#fff" }}
             activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
           />
         </LineChart>

@@ -12,18 +12,18 @@
    ========================================================================== */
 
 :root {
-  /* --- Brand green scale (600 = the original --sage-deep #1B4D3E, exactly,
-     so existing brand recognition carries over) --- */
-  --brand-50: #eaf3ef;
-  --brand-100: #d3e6dd;
-  --brand-200: #a8cdbc;
-  --brand-300: #7db49b;
-  --brand-400: #4e927a;
-  --brand-500: #2c7059;
-  --brand-600: #1b4d3e;
-  --brand-700: #163f33;
-  --brand-800: #123328;
-  --brand-900: #0d251d;
+  /* --- Brand teal scale (600 = the DAAP CareConnect logo's own teal
+     #00949E, exactly, so the app matches the brand mark) --- */
+  --brand-50: #eef6f6;
+  --brand-100: #d4ebed;
+  --brand-200: #9cdee2;
+  --brand-300: #52d7e0;
+  --brand-400: #12ccd9;
+  --brand-500: #05b1bd;
+  --brand-600: #00949e;
+  --brand-700: #007780;
+  --brand-800: #005b61;
+  --brand-900: #003e42;
 
   /* --- Clay accent scale (500 = the original --clay #9C7A3D) --- */
   --clay-100: #f1e9d4;

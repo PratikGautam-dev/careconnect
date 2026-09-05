@@ -7,15 +7,17 @@ connector.create_booking() succeeds, and merges whatever dict it returns
 into the notification context. Every other type leaves on_booking_confirmed
 unset (None), so their notifications are untouched.
 
-Google Meet integration (Spec.md Section 0): if this appointment's doctor
-has connected their own Google account (modules/google_calendar.py,
-auth/google_calendar_oauth.py), a real Calendar event with a Meet link is
-created and used instead of a Jitsi room. Every doctor, until the real
-GOOGLE_CALENDAR_CLIENT_ID/SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY env vars are
-set AND they explicitly connect, has no connection at all -- create_meet_event()
-returns None for that case (and for any Google API failure) by design, never
-raising, so the Jitsi fallback below is the ONLY path exercised until a
-doctor actually connects, unchanged from before this feature existed."""
+Google Meet integration (Spec.md Section 0): if this appointment's HOSPITAL
+has an admin-connected Google account (modules/google_calendar.py,
+auth/google_calendar_oauth.py -- one connection per hospital, used for every
+doctor there, not a per-doctor connection), a real Calendar event with a
+Meet link is created and used instead of a Jitsi room. Every hospital, until
+the real GOOGLE_CALENDAR_CLIENT_ID/SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY env
+vars are set AND an admin explicitly connects, has no connection at all --
+create_meet_event() returns None for that case (and for any Google API
+failure) by design, never raising, so the Jitsi fallback below is the ONLY
+path exercised until a hospital actually connects, unchanged from before
+this feature existed."""
 import secrets
 
 import db.repository as db
@@ -43,16 +45,20 @@ async def _on_tele_booking_confirmed(appointment, connector, context: dict) -> d
 
 
 def _try_create_meet_link(appointment) -> str | None:
-    """None (never raises) for the overwhelming common case of "this doctor
-    hasn't connected Google Calendar" -- modules/google_calendar.py's own
-    functions already never raise for a misconfigured/unconnected/failed
+    """None (never raises) for the overwhelming common case of "this
+    hospital hasn't connected Google Calendar" -- modules/google_calendar.py's
+    own functions already never raise for a misconfigured/unconnected/failed
     case, this is just the one extra step of looking up the doctor's own
     slot duration for the event length, with the same "fall back, don't
-    fail the booking" discipline if that lookup itself comes back empty."""
+    fail the booking" discipline if that lookup itself comes back empty.
+    The event is created on the HOSPITAL's connected calendar (one admin
+    connection shared by every doctor there), not a per-doctor one -- the
+    doctor's own name still appears in the event summary/title, just not as
+    whose calendar it lives on."""
     doctor = db.get_doctor_full(appointment.hospital_id, appointment.doctor_id)
     duration_minutes = (doctor or {}).get("slot_duration_minutes") or _DEFAULT_DURATION_MINUTES
     summary = f"Tele-consultation: {appointment.doctor_name}"
-    return create_meet_event(appointment.doctor_id, summary, appointment.scheduled_at, duration_minutes)
+    return create_meet_event(appointment.hospital_id, summary, appointment.scheduled_at, duration_minutes)
 
 
 FLOW = TypeFlow(

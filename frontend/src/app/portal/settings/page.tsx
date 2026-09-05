@@ -1,11 +1,13 @@
 "use client";
 
+import { Suspense } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CheckboxRow } from "@/components/ui/Checkbox";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
+import { GoogleCalendarCard } from "@/components/portal/GoogleCalendarCard";
 import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -28,7 +30,7 @@ function formatAuditChanges(entry: AuditEntry): string {
     .join(", ");
 }
 
-export default function PortalSettingsPage() {
+function PortalSettingsPageContent() {
   const { hospital, ready } = usePortalGuard();
   // Backend route guards already 403 the actual mutations for a clinic
   // tenant lacking manage_appointment_types -- same UI-convenience-only
@@ -266,6 +268,10 @@ export default function PortalSettingsPage() {
           </form>
         )}
 
+        <Card className="mt-space-5 max-w-2xl p-space-5">
+          <GoogleCalendarCard />
+        </Card>
+
         {canManageAppointmentTypes && (
           <Card className="mt-space-5 max-w-2xl p-space-5">
             <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Appointment types</h2>
@@ -310,5 +316,13 @@ export default function PortalSettingsPage() {
           </Card>
         )}
     </PortalShell>
+  );
+}
+
+export default function PortalSettingsPage() {
+  return (
+    <Suspense>
+      <PortalSettingsPageContent />
+    </Suspense>
   );
 }

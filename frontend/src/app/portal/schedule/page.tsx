@@ -1,13 +1,11 @@
 "use client";
 
-import { Suspense } from "react";
-import { GoogleCalendarCard } from "@/components/doctor/GoogleCalendarCard";
 import { DoctorScheduleView } from "@/components/portal/DoctorScheduleView";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission, useStaffSession } from "@/lib/staffAuth";
 
-function PortalSchedulePageContent() {
+export default function PortalSchedulePage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("schedule", "view");
   // useStaffSession (not getStaffSession directly) -- consistent with the
@@ -41,17 +39,6 @@ function PortalSchedulePageContent() {
   return (
     <PortalShell hospital={hospital} active="schedule">
       <DoctorScheduleView />
-      <div className="mt-space-4">
-        <GoogleCalendarCard />
-      </div>
     </PortalShell>
-  );
-}
-
-export default function PortalSchedulePage() {
-  return (
-    <Suspense>
-      <PortalSchedulePageContent />
-    </Suspense>
   );
 }

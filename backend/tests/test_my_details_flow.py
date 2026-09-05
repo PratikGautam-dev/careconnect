@@ -19,6 +19,7 @@ import pytest
 
 import db.repository as db
 import flows
+import flows.router as router
 from core.session_store import InMemorySessionStore
 
 PHONE = "5491112345678"
@@ -67,8 +68,27 @@ def _link_patient(hospital_id, phone, name="Ravi Kumar", age=34):
     return db.create_patient_profile(hospital_id, phone, name, age, relationship_label="Self")
 
 
+async def _enter_reports_menu(wa, sessions, hospital_id, phone, active_patient_id, language="en"):
+    """Reports & Prescriptions' main-menu row is gated off (confirmed with
+    the user -- see test_tapping_the_feature_shows_coming_soon below), so
+    reaching AWAITING_REPORTS_MENU to test the still-fully-built submenu
+    underneath it means calling _send_reports_menu() directly (the exact
+    function the gated main-menu tap used to call) rather than going
+    through the now-gated flows.handle_incoming() dispatch -- this still
+    actually sends the submenu list, unlike a bare sessions.set(), so
+    tests asserting on that initial send (e.g. the Hindi labels test)
+    keep working unchanged."""
+    await router._send_reports_menu(wa, sessions, phone, hospital_id, active_patient_id, language=language)
+
+
 @pytest.mark.asyncio
-async def test_tapping_the_feature_shows_the_four_row_submenu(hospital_id):
+async def test_tapping_the_feature_shows_coming_soon(hospital_id):
+    """Confirmed with the user: the Reports & Prescriptions main-menu row is
+    gated off for now -- tapping it shows a "coming soon" message and
+    returns to IDLE, rather than entering the submenu below (which stays
+    fully built, tested via _enter_reports_menu()'s bypass (calling
+    _send_reports_menu() directly) in every other test in this file, ready
+    for whenever this row is re-enabled)."""
     patient = _link_patient(hospital_id, PHONE)
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
@@ -79,12 +99,9 @@ async def test_tapping_the_feature_shows_the_four_row_submenu(hospital_id):
 
     assert len(wa.sent) == 1
     kind, kwargs = wa.sent[0]
-    assert kind == "list"
-    assert _row_ids(kwargs) == [
-        "reportsmenu_prescriptions", "reportsmenu_lab_reports", "reportsmenu_diagnostic_reports",
-        "reportsmenu_book_review", "goto_main_menu",
-    ]
-    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_REPORTS_MENU"
+    assert kind == "text"
+    assert "coming soon" in kwargs["text"].lower()
+    assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 
 @pytest.mark.asyncio
@@ -95,7 +112,7 @@ async def test_view_prescriptions_lists_only_prescription_documents(hospital_id)
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
@@ -114,7 +131,7 @@ async def test_view_lab_reports_lists_only_lab_report_documents(hospital_id):
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_lab_reports"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
@@ -131,7 +148,7 @@ async def test_view_diagnostic_reports_lists_only_diagnostic_report_documents(ho
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_diagnostic_reports"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
@@ -145,7 +162,7 @@ async def test_empty_category_shows_a_message_then_re_shows_the_submenu(hospital
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-2]
@@ -167,7 +184,7 @@ async def test_stale_active_patient_id_gets_a_not_found_message_when_viewing_a_c
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, 999999)
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, 999999)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
@@ -182,7 +199,7 @@ async def test_submenu_works_in_hindi(hospital_id):
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"], language="hi")
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"], language="hi")
 
     kind, kwargs = wa.sent[0]
     titles = [row["title"] for section in kwargs["sections"] for row in section["rows"]]
@@ -196,7 +213,7 @@ async def test_tapping_a_document_sends_it_and_resolves_the_session(hospital_id)
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"reportdoc_{doc['id']}"), enabled_features=ENABLED)
 
@@ -220,7 +237,7 @@ async def test_document_send_failure_reports_clearly_and_does_not_mark_sent(hosp
 
     wa = FakeWhatsAppClient(send_document_result=False)
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"reportdoc_{doc['id']}"), enabled_features=ENABLED)
 
@@ -241,7 +258,7 @@ async def test_document_list_respects_the_ten_item_cap_per_category(hospital_id)
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
@@ -262,7 +279,7 @@ async def test_cross_tenant_isolation_same_phone_different_hospital_never_leaks(
     # real defense here is db.get_patient() itself being hospital_id-scoped
     # (patient["id"] belongs to `hospital_id`, not `second_hospital_id`).
     sessions = _sessions_with_active_patient(second_hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, second_hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, second_hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]
@@ -277,7 +294,7 @@ async def test_stale_document_tap_falls_back_to_the_same_filtered_list(hospital_
 
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportsmenu_prescriptions"), enabled_features=ENABLED)
     # Tap an id that doesn't correspond to any real document.
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("reportdoc_999999"), enabled_features=ENABLED)
@@ -294,7 +311,7 @@ async def test_stale_tap_at_the_submenu_itself_re_shows_the_submenu(hospital_id)
     patient = _link_patient(hospital_id, PHONE)
     wa = FakeWhatsAppClient()
     sessions = _sessions_with_active_patient(hospital_id, patient["id"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED)
+    await _enter_reports_menu(wa, sessions, hospital_id, PHONE, patient["id"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, tap("some_unrecognized_row"), enabled_features=ENABLED)
 
     kind, kwargs = wa.sent[-1]

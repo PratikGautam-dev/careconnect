@@ -1004,11 +1004,20 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_label TEXT")
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_variant_label TEXT")
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_price NUMERIC(10, 2)")
+    # Production incident: this block used to DROP+re-ADD the NARROW
+    # "doctor_id IS NOT NULL OR resource_id IS NOT NULL" constraint here on
+    # every single boot (init_db_on_connection() replays every delta
+    # unconditionally, not just once) -- fine on a fresh/empty table, but
+    # once real procedure-only appointments exist in production (doctor_id
+    # AND resource_id both NULL, only procedure_id set -- migration 0028's
+    # own case), re-narrowing the constraint even momentarily fails against
+    # that already-existing, perfectly valid data, crashing the app on
+    # every restart. The WIDE constraint (including procedure_id) further
+    # down this same function is the only one that should ever actually be
+    # created here -- dropping the narrow one (if it still exists from an
+    # older deploy) is enough; it must never be recreated in this idempotent
+    # path.
     conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk")
-    conn.execute(
-        "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_chk "
-        "CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL)"
-    )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked "
         "ON appointments(resource_id, scheduled_at, booking_ordinal) "
@@ -1078,6 +1087,30 @@ def init_db_on_connection(conn) -> int:
         "connected_at TEXT NOT NULL, "
         "updated_at TEXT NOT NULL"
         ")"
+    )
+    # Migration 0029: one Google account per HOSPITAL (an admin connects it
+    # once, used for every doctor's tele-consultation Meet links), not one
+    # per doctor -- see that migration's own docstring for why this is a
+    # data-preserving repoint of the primary key rather than a destructive
+    # rebuild. Idempotent/one-time via the same "does the old column still
+    # exist" guard db/migrations/env.py's own idempotent deltas use
+    # elsewhere: a fresh boot after this ships transitions the table once;
+    # every boot after that, `doctor_id` is already gone and this whole
+    # block is a no-op.
+    conn.execute(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'google_calendar_connections' AND column_name = 'doctor_id') THEN "
+        "DELETE FROM google_calendar_connections "
+        "WHERE doctor_id NOT IN ("
+        "    SELECT DISTINCT ON (hospital_id) doctor_id FROM google_calendar_connections "
+        "    ORDER BY hospital_id, updated_at DESC"
+        "); "
+        "ALTER TABLE google_calendar_connections DROP CONSTRAINT google_calendar_connections_pkey; "
+        "ALTER TABLE google_calendar_connections DROP COLUMN doctor_id; "
+        "ALTER TABLE google_calendar_connections ADD PRIMARY KEY (hospital_id); "
+        "END IF; "
+        "END $$;"
     )
     # Migration 0028: Daycare/Procedure rebuild -- replaces the old duration-
     # picker model entirely (daycare_duration_options/appointments.duration_hours,
