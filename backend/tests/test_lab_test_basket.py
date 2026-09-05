@@ -95,19 +95,19 @@ async def _start_lab_booking(wa, sessions, hospital_id, phone: str = PHONE):
 
 
 async def _add_test_to_basket(wa, sessions, hospital_id, test_name: str, phone: str = PHONE, variant_index: int = 0):
-    """Taps "Add Another Test" first if the session is currently sitting at
-    AWAITING_LAB_TEST_ADD_MORE (every call after the first one in a basket),
-    then the named test, then (if a variant list is shown) the variant at
-    variant_index, landing back at AWAITING_LAB_TEST_ADD_MORE."""
-    if sessions.get(hospital_id, phone)["state"] == "AWAITING_LAB_TEST_ADD_MORE":
-        await handle_incoming(wa, sessions, phone, hospital_id, tap("lab_add_another"))
+    """Taps the named test directly from the (already-shown) test list --
+    every call after the first one in a basket picks straight from the same
+    remaining-tests list re-shown after the previous add (WhatsApp menu
+    restructuring follow-up: no more "Add Another Test" detour screen) --
+    then (if a variant list is shown) the variant at variant_index, landing
+    back at AWAITING_LAB_TEST with the list re-shown."""
     test = next(t for t in _lab_tests(hospital_id) if t["name"] == test_name)
     await handle_incoming(wa, sessions, phone, hospital_id, tap(str(test["id"])))
     session = sessions.get(hospital_id, phone)
     if session["state"] == "AWAITING_LAB_TEST_VARIANT":
         variant = test["variants"][variant_index]
         await handle_incoming(wa, sessions, phone, hospital_id, tap(str(variant["id"])))
-    assert sessions.get(hospital_id, phone)["state"] == "AWAITING_LAB_TEST_ADD_MORE"
+    assert sessions.get(hospital_id, phone)["state"] == "AWAITING_LAB_TEST"
 
 
 async def _finish_basket_and_pick_visit(wa, sessions, hospital_id, phone: str = PHONE):
@@ -161,11 +161,13 @@ async def test_multi_test_basket_books_all_selected_tests(hospital_id, sessions)
 
 @pytest.mark.asyncio
 async def test_already_added_test_excluded_from_further_selection(hospital_id, sessions):
+    """The remaining-tests list is re-shown immediately after adding a test
+    (no separate "Add Another Test" tap needed) -- already-added tests are
+    excluded from it."""
     wa = FakeWhatsAppClient()
     tests = _lab_tests(hospital_id)
     await _start_lab_booking(wa, sessions, hospital_id)
     await _add_test_to_basket(wa, sessions, hospital_id, tests[0]["name"])
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("lab_add_another"))
     kwargs = _last(wa, "list")
     row_ids = {r["id"] for s in kwargs["sections"] for r in s["rows"]}
     assert str(tests[0]["id"]) not in row_ids

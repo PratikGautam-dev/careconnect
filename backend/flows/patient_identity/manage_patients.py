@@ -19,7 +19,6 @@ from core.translations.manage_patients import (
     REMOVE_PATIENT_OPTION,
     UNLINK_PATIENT_CONFIRM,
     UNLINK_SELF_BLOCKED,
-    UNLINK_SELF_CONTACT_RECEPTION,
 )
 from core.whatsapp import WhatsAppClient
 
@@ -160,12 +159,11 @@ async def _handle_awaiting_unlink_confirm(
         if reply["id"] == CONFIRM_YES:
             if context.get("unlink_relationship_label") == RELATIONSHIP_SELF:
                 # Confirmed with the user: the "Myself"/master patient can
-                # never be self-unlinked -- two separate messages (not
-                # merged), then land exactly like CONFIRM_NO (cancelled)
-                # already does below: nothing changed, so main menu (IDLE)
-                # with just_confirmed_patient set.
+                # never be self-unlinked -- one combined message, then land
+                # exactly like CONFIRM_NO (cancelled) already does below:
+                # nothing changed, so main menu (IDLE) with
+                # just_confirmed_patient set.
                 await wa.send_text(phone, t(UNLINK_SELF_BLOCKED, language, patient_name=patient_name))
-                await wa.send_text(phone, t(UNLINK_SELF_CONTACT_RECEPTION, language))
                 sessions.set(hospital_id, phone, "IDLE", {"just_confirmed_patient": True}, language=language)
                 return
             connector.unlink_patient(hospital_id, phone, patient_id)

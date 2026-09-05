@@ -93,7 +93,7 @@ from flows.booking.state import (
     MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE,
     STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
-    STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_ADD_MORE,
+    STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST,
     STATE_AWAITING_LAB_TEST_VARIANT,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -768,10 +768,6 @@ async def _resend_menu_for_state(
         test = next((t_ for t_ in tests if t_["id"] == context.get("_lab_pending_test_id")), None)
         if test is not None:
             await _send_lab_variant_menu(wa, phone, test, language=language)
-    elif state == STATE_AWAITING_LAB_TEST_ADD_MORE:
-        from core.translations.booking import LAB_ADD_MORE_PROMPT
-        from flows.booking.types.lab import _send_add_more_menu
-        await _send_add_more_menu(wa, phone, hospital_id, connector, context, t(LAB_ADD_MORE_PROMPT, language), language=language)
     elif state == STATE_AWAITING_COLLECTION_METHOD:
         from flows.booking.types.lab import _send_collection_method_menu
         await _send_collection_method_menu(wa, phone, language=language)

@@ -24,7 +24,6 @@ UNLINK_PATIENT_CONFIRM = "unlink_patient_confirm"
 PATIENT_UNLINKED = "patient_unlinked"
 PATIENT_REMOVAL_CANCELLED = "patient_removal_cancelled"
 UNLINK_SELF_BLOCKED = "unlink_self_blocked"
-UNLINK_SELF_CONTACT_RECEPTION = "unlink_self_contact_reception"
 
 STRINGS: dict[str, dict[Language, str]] = {
     FEATURE_MANAGE_PATIENTS: {"en": "Manage Patients", "hi": "मरीज़ प्रबंधित करें"},
@@ -71,13 +70,16 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "कोई बदलाव नहीं किया गया — {patient_name} अभी भी जुड़ा हुआ है।",
     },
     # Confirmed with the user: the "Myself"/master patient can never be
-    # self-unlinked -- two separate messages, not merged into one.
+    # self-unlinked -- one combined message, matching PATIENT_UNLINKED's own
+    # emoji-prefixed, two-line style above.
     UNLINK_SELF_BLOCKED: {
-        "en": "{patient_name} is the main patient linked to this number and can't be removed here.",
-        "hi": "{patient_name} इस नंबर से जुड़ा मुख्य मरीज़ है और इसे यहां से हटाया नहीं जा सकता।",
-    },
-    UNLINK_SELF_CONTACT_RECEPTION: {
-        "en": "If you need help with this, please use \"Talk to Reception\" from the main menu — our team can assist you further.",
-        "hi": "इसमें मदद के लिए, कृपया मुख्य मेनू से \"रिसेप्शन से बात करें\" का उपयोग करें — हमारी टीम आपकी आगे सहायता करेगी।",
+        "en": (
+            "⚠️ {patient_name} is the main patient linked to this number and can't be removed here.\n\n"
+            "If you need help with this, please use \"Talk to Reception\" from the main menu — our team can assist you further."
+        ),
+        "hi": (
+            "⚠️ {patient_name} इस नंबर से जुड़ा मुख्य मरीज़ है और इसे यहां से हटाया नहीं जा सकता।\n\n"
+            "इसमें मदद के लिए, कृपया मुख्य मेनू से \"रिसेप्शन से बात करें\" का उपयोग करें — हमारी टीम आपकी आगे सहायता करेगी।"
+        ),
     },
 }
