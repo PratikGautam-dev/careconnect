@@ -84,8 +84,9 @@ async def _enter_reports_menu(wa, sessions, hospital_id, phone, active_patient_i
 @pytest.mark.asyncio
 async def test_tapping_the_feature_shows_coming_soon(hospital_id):
     """Confirmed with the user: the Reports & Prescriptions main-menu row is
-    gated off for now -- tapping it shows a "coming soon" message and
-    returns to IDLE, rather than entering the submenu below (which stays
+    gated off for now -- tapping it shows a "coming soon" message plus a
+    "Back to Menu" button (so the patient isn't left with nothing to tap),
+    and returns to IDLE, rather than entering the submenu below (which stays
     fully built, tested via _enter_reports_menu()'s bypass (calling
     _send_reports_menu() directly) in every other test in this file, ready
     for whenever this row is re-enabled)."""
@@ -97,10 +98,13 @@ async def test_tapping_the_feature_shows_coming_soon(hospital_id):
         wa, sessions, PHONE, hospital_id, tap("menu_reports_prescriptions"), enabled_features=ENABLED,
     )
 
-    assert len(wa.sent) == 1
+    assert len(wa.sent) == 2
     kind, kwargs = wa.sent[0]
     assert kind == "text"
     assert "coming soon" in kwargs["text"].lower()
+    button_kind, button_kwargs = wa.sent[1]
+    assert button_kind == "buttons"
+    assert [b["id"] for b in button_kwargs["buttons"]] == [router.GOTO_MAIN_MENU]
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
 
 

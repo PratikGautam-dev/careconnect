@@ -543,9 +543,18 @@ async def _start_feature(
         # Not ready yet (confirmed with the user) -- the submenu/filtered-
         # document code below (_send_reports_menu et al.) stays in place for
         # when it is, but the main-menu row itself is gated off here rather
-        # than half-exposing an in-progress feature to real patients.
+        # than half-exposing an in-progress feature to real patients. A
+        # "Back to Menu" button follows the coming-soon text (GOTO_MAIN_MENU
+        # is handled unconditionally at the top of handle_incoming(),
+        # regardless of session state, so this works even though the
+        # session was just reset to IDLE) rather than leaving the patient
+        # with nothing to tap.
         sessions.reset(hospital_id, phone)
         await wa.send_text(phone, t(REPORTS_PRESCRIPTIONS_COMING_SOON, language))
+        await wa.send_buttons(
+            to=phone, body_text="​",
+            buttons=[{"id": GOTO_MAIN_MENU, "title": t(BACK_TO_MENU_OPTION, language)}],
+        )
         return
     if key == "manage_patients":
         await patient_identity._start_manage_patients(wa, sessions, phone, hospital_id, connector, language=language)

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { CircleCheck, ListChecks, Tag } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { BrandMark } from "@/components/marketing/BrandMark";
 import { ClinicSetupButton } from "@/components/marketing/ClinicSetupButton";
 import { PhoneMockup } from "@/components/marketing/PhoneMockup";
 
@@ -10,34 +11,13 @@ const FEATURES = [
   { title: "Transparent pricing", desc: "Meta messaging charges may apply", Icon: Tag },
 ];
 
-function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
-  const markPx = size === "sm" ? 32 : 44;
-  const name = size === "sm" ? "text-[19px]" : "text-[34px]";
-  return (
-    <div className="flex items-center gap-space-3">
-      <Image src="/logo-icon.png" alt="" width={markPx} height={markPx} className="shrink-0" priority />
-      <div>
-        <span className="block text-eyebrow leading-none">DAAP</span>
-        <span className={`font-display ${name} leading-tight font-extrabold text-ink-900`}>
-          Care<span className="text-brand-600">Connect</span>
-        </span>
-        <span className="mt-0.5 block text-[11px] font-semibold tracking-wide text-ink-400">
-          Connect &bull; Care &bull; Heal
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export default function LandingPage() {
   return (
     <>
     {/* Top nav: brand mark left, hospital login as a real button top-right
         -- previously just a small text link buried under the hero CTAs. */}
     <header className="flex flex-wrap items-center justify-between gap-space-3 px-space-4 py-space-4 md:px-space-7 lg:px-space-9">
-      <a href="/" aria-label="CareConnect home">
-        <BrandMark size="sm" />
-      </a>
+      <BrandMark />
       <div className="flex items-center gap-space-2">
         <Button href="/portal/login" variant="secondary" size="md">
           Hospital login
@@ -125,7 +105,7 @@ export default function LandingPage() {
       <div className="px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
         <div className="flex flex-col gap-space-6 md:flex-row md:justify-between">
           <div className="max-w-[320px]">
-            <BrandMark size="sm" />
+            <BrandMark />
             <p className="mt-space-3 text-[13px] text-ink-600">
               WhatsApp appointment booking &amp; reminders for hospitals — no app for patients, managed from one
               dashboard.

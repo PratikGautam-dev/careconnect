@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { Mail, ShieldCheck } from "lucide-react";
+import { BrandMark } from "@/components/marketing/BrandMark";
 import { Card } from "@/components/ui/Card";
 
 export const metadata: Metadata = {
@@ -22,17 +22,6 @@ const SECTIONS = [
   { id: "your-rights", title: "Your rights" },
   { id: "changes", title: "Changes to this policy" },
 ] as const;
-
-function BrandMark() {
-  return (
-    <a href="/" aria-label="CareConnect home" className="flex items-center gap-space-3">
-      <Image src="/logo-icon.png" alt="" width={32} height={32} className="shrink-0" />
-      <span className="font-display text-[19px] leading-tight font-extrabold text-ink-900">
-        Care<span className="text-brand-600">Connect</span>
-      </span>
-    </a>
-  );
-}
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
