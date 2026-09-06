@@ -47,6 +47,12 @@ _ROW_ID_TO_FEATURE = {row_id: key for key, (row_id, _title_key) in _FEATURE_MENU
 REAL_FEATURES = set(_FEATURE_MENU.keys())
 ALL_FEATURES = REAL_FEATURES
 
+# Hidden from the rendered main menu list, but left in _FEATURE_MENU/
+# REAL_FEATURES so a hospital's existing enabled_features data and the
+# menu_hospital_info row-id dispatch (flows/router.py) keep working
+# unchanged -- a patient just never sees the row to tap it from the menu.
+_HIDDEN_FROM_MENU: set[str] = {"hospital_info"}
+
 
 def _patient_header(active_patient: dict | None, language: str) -> str:
     """"Patient: {name}\\nPatient Code: {patient_display_id}" header shown
@@ -83,7 +89,7 @@ async def _send_menu_list(
     rows = [
         {"id": row_id, "title": feature_labels.get(key) or t(title_key, language)}
         for key, (row_id, title_key) in _FEATURE_MENU.items()
-        if key in enabled_features
+        if key in enabled_features and key not in _HIDDEN_FROM_MENU
     ]
     if not rows:
         await wa.send_text(phone, t(FEATURE_MENU_UNAVAILABLE, language, hospital_name=hospital_name))

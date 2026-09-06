@@ -1304,7 +1304,11 @@ def test_webhook_shows_migrated_booking_hospitals_menu(hospital_id, httpx_mock):
     sent_body = json.loads(requests[0].content)
     assert "interactive" in sent_body
     row_ids = [row["id"] for section in sent_body["interactive"]["action"]["sections"] for row in section["rows"]]
-    assert row_ids == ["menu_book", "menu_tests_diagnostics", "menu_reschedule", "menu_cancel", "menu_hospital_info"]
+    # hospital_info stays enabled in the hospital's data (menu_hospital_info
+    # dispatch still works if tapped directly) but is hidden from the
+    # rendered menu list itself -- see _HIDDEN_FROM_MENU in
+    # flows/patient_identity/menu.py.
+    assert row_ids == ["menu_book", "menu_tests_diagnostics", "menu_reschedule", "menu_cancel"]
 
 
 def test_webhook_dispatches_faq_only_hospital_to_faq_topics(hospital_id, httpx_mock):

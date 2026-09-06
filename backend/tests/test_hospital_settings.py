@@ -79,7 +79,7 @@ async def test_custom_feature_label_overrides_default_in_menu(hospital_id):
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, text_reply("hi"),
-        hospital_name="City Hospital", enabled_features=["book_doctor_appointment", "hospital_info"],
+        hospital_name="City Hospital", enabled_features=["book_doctor_appointment", "reschedule"],
         feature_labels={"book_doctor_appointment": "Schedule a consultation"},
     )
 
@@ -88,7 +88,7 @@ async def test_custom_feature_label_overrides_default_in_menu(hospital_id):
     assert "Schedule a consultation" in titles
     assert "Book Appointment" not in titles
     # Untouched feature keeps its fixed default.
-    assert "Hospital Information" in titles
+    assert "Reschedule Appointment" in titles
 
 
 @pytest.mark.asyncio

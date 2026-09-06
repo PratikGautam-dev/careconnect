@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { API_BASE_URL, getStaffAccessToken, staffFetch } from "@/lib/staffAuth";
 
@@ -22,6 +22,7 @@ const CONNECT_ERROR_MESSAGES: Record<string, string> = {
 // GOOGLE_CALENDAR_CLIENT_ID/SECRET/CALENDAR_TOKEN_ENCRYPTION_KEY are set) is
 // a normal, expected state here -- shown as a quiet note, not an error.
 export function GoogleCalendarCard() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<CalendarStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +61,7 @@ export function GoogleCalendarCard() {
 
   const calendarParam = searchParams.get("calendar");
   const calendarErrorParam = searchParams.get("calendar_error");
+  const showReturnNav = calendarParam === "connected" || Boolean(calendarErrorParam);
 
   return (
     <>
@@ -73,12 +75,23 @@ export function GoogleCalendarCard() {
       {calendarParam === "connected" && (
         <p className="mb-space-3 text-[12.5px] font-semibold text-success">Google Calendar connected.</p>
       )}
-      {calendarErrorParam && (
+      {calendarErrorParam && calendarErrorParam !== "not_configured" && (
         <p className="mb-space-3 text-[12.5px] text-error">
           {CONNECT_ERROR_MESSAGES[calendarErrorParam] || "Something went wrong connecting Google Calendar."}
         </p>
       )}
       {error && <p className="mb-space-3 text-[12.5px] text-error">{error}</p>}
+
+      {showReturnNav && (
+        <div className="mb-space-4 flex gap-space-2">
+          <Button variant="secondary" size="md" onClick={() => router.back()}>
+            Back
+          </Button>
+          <Button variant="secondary" size="md" onClick={() => router.push("/portal/dashboard")}>
+            Main
+          </Button>
+        </div>
+      )}
 
       {status === null ? (
         <p className="text-[12.5px] text-ink-400">Loading…</p>
