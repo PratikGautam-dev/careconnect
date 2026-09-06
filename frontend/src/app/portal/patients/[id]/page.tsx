@@ -1,38 +1,22 @@
 "use client";
 
-import { Fragment } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, FileText, Search, Send, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Search, Send, Upload } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Input";
-import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
-import { formatDate, formatDateTime, formatShortDateTime } from "@/lib/formatDate";
+import { formatDate, formatDateTime } from "@/lib/formatDate";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
-import { usePatientDetail } from "@/hooks/usePatientDetail";
+import { usePatientDetail, type Visit } from "@/hooks/usePatientDetail";
+import { createVisitHistoryColumns, STATUS_LABELS } from "./_components/visit-history-columns";
 
-// Same status/source styling as /portal/appointments (STATUS_STYLES/LABELS,
-// SOURCE_LABELS there) -- duplicated per-file rather than shared, matching
-// this codebase's existing convention for these small per-page Record maps
-// (e.g. DoctorTodayAppointments.tsx has its own copy too).
-const STATUS_STYLES: Record<string, string> = {
-  booked: "bg-success-tint text-success",
-  cancelled: "bg-error-tint text-error",
-  rescheduled: "bg-clay-100 text-clay-700",
-  attended: "bg-success-tint text-success",
-  no_show: "bg-error-tint text-error",
-};
-const STATUS_LABELS: Record<string, string> = {
-  booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled",
-  attended: "Attended", no_show: "No-show",
-};
-const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "diagnostic", "lab", "daycare", "other"];
 
 // WhatsApp menu restructuring: Reports & Prescriptions' "View
@@ -83,6 +67,145 @@ export default function PatientDetailPage() {
   const { patient, visit_history, notes, documents } = data;
   const generalNotes = notes.filter((n) => n.appointment_id === null);
   const notesByVisit = (visitId: number) => notes.filter((n) => n.appointment_id === visitId);
+
+  const columns = createVisitHistoryColumns({
+    followupPanelId, onOpenFollowup: openFollowupPanel, onCloseFollowup: closeFollowupPanel,
+    expandedVisit, setExpandedVisit, notesByVisit,
+  });
+
+  function renderVisitRowDetail(v: Visit) {
+    const expanded = expandedVisit === v.id;
+    const visitNotes = notesByVisit(v.id);
+    return (
+      <>
+        {expanded && (
+          <div className="mb-space-3 rounded-lg border border-line bg-paper p-space-3">
+            {visitNotes.length === 0 ? (
+              <p className="text-hint mb-space-3">No notes for this visit yet.</p>
+            ) : (
+              <ul className="mb-space-3 space-y-space-2">
+                {visitNotes.map((n) => (
+                  <li key={n.id} className="rounded-md bg-card p-space-3 text-[13px]">
+                    <p className="text-ink-900">{n.note_text}</p>
+                    <p className="text-hint mt-space-1">
+                      {n.doctor_name ? `${n.doctor_name} · ` : ""}
+                      {formatDateTime(n.created_at)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex items-end gap-space-2">
+              <Textarea
+                placeholder="Add a note for this visit…"
+                value={noteDraft[v.id] || ""}
+                onChange={(e) => setNoteDraft((d) => ({ ...d, [v.id]: e.target.value }))}
+                rows={2}
+                className="flex-1"
+              />
+              <Button
+                size="md"
+                onClick={() => handleAddNote(v.id)}
+                disabled={savingNote === v.id || !(noteDraft[v.id] || "").trim()}
+              >
+                {savingNote === v.id ? "Saving…" : "Add note"}
+              </Button>
+            </div>
+          </div>
+        )}
+        {followupPanelId === v.id && (
+          <div className="rounded-lg border border-line bg-paper p-space-3">
+            <p className="text-hint mb-space-3">
+              Follow-up validity for this visit{" "}
+              {v.followup_valid_until && new Date(v.followup_valid_until) >= new Date()
+                ? `is open until ${formatDate(v.followup_valid_until)}`
+                : "has closed"}
+              . Grant extra days so the patient can book it themselves on WhatsApp, or book it directly right now.
+            </p>
+
+            <div className="mb-space-3 flex flex-wrap items-end gap-space-2">
+              <div>
+                <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">Extend by (days)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={extendDays}
+                  onChange={(e) => setExtendDays(e.target.value)}
+                  className="h-9 w-24 rounded-md border border-line bg-card px-space-2 text-[13px] text-ink-900"
+                />
+              </div>
+              <Button size="md" variant="secondary" onClick={() => handleExtendFollowup(v.id)} disabled={extendingId === v.id}>
+                {extendingId === v.id ? "Granting…" : "Grant extension"}
+              </Button>
+            </div>
+
+            <div className="border-t border-line pt-space-3">
+              <p className="mb-space-2 text-[12px] font-semibold text-ink-600">
+                Or book this follow-up now (with {v.doctor_name}, {v.department_name})
+              </p>
+              {(() => {
+                const dates = bookCtx ? Object.keys(bookCtx.slots_by_doctor[v.doctor_id] || {}).sort() : [];
+                const slots = bookCtx && bookDate ? bookCtx.slots_by_doctor[v.doctor_id]?.[bookDate] || [] : [];
+                return (
+                  <>
+                    {dates.length === 0 ? (
+                      <p className="mb-space-2 text-[12.5px] text-ink-400">No available dates for this doctor.</p>
+                    ) : (
+                      <div className="mb-space-2 flex flex-wrap gap-space-2">
+                        {dates.map((d) => (
+                          <button
+                            type="button"
+                            key={d}
+                            onClick={() => { setBookDate(d); setBookSlotId(""); }}
+                            className={cn(
+                              "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                              bookDate === d ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                            )}
+                          >
+                            {d}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {bookDate &&
+                      (slots.length === 0 ? (
+                        <p className="mb-space-2 text-[12.5px] text-ink-400">No slots available on this date.</p>
+                      ) : (
+                        <div className="mb-space-2 flex flex-wrap gap-space-2">
+                          {slots.map((s) => (
+                            <button
+                              type="button"
+                              key={s.id}
+                              onClick={() => setBookSlotId(s.id)}
+                              className={cn(
+                                "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                                bookSlotId === s.id ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                              )}
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                  </>
+                );
+              })()}
+              <Button size="md" onClick={() => handleBookFollowupNow(v.id)} disabled={bookingId === v.id || !bookSlotId}>
+                {bookingId === v.id ? "Booking…" : "Book follow-up now"}
+              </Button>
+            </div>
+
+            {followupError && <p className="mt-space-3 text-[12px] text-error">{followupError}</p>}
+            <div className="mt-space-3">
+              <Button size="md" variant="secondary" onClick={closeFollowupPanel}>
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <PortalShell hospital={hospital} active="patients">
@@ -197,255 +320,13 @@ export default function PatientDetailPage() {
                   {filteredVisits.length === 0 ? (
                     <p className="py-space-4 text-center text-[13px] text-ink-400">No visits match this filter.</p>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-[13px]">
-                        <thead>
-                          <tr className="border-b border-line text-[11.5px] text-ink-400 uppercase">
-                            <th className="pb-space-2 font-semibold">Appointment time</th>
-                            <th className="pb-space-2 font-semibold">Booked</th>
-                            <th className="pb-space-2 font-semibold">Reference</th>
-                            <th className="pb-space-2 font-semibold">Doctor</th>
-                            <th className="pb-space-2 font-semibold">Department</th>
-                            <th className="pb-space-2 font-semibold">Type</th>
-                            <th className="pb-space-2 font-semibold">Source</th>
-                            <th className="pb-space-2 font-semibold">Status</th>
-                            <th className="pb-space-2 font-semibold">Follow-up</th>
-                            <th className="pb-space-2 font-semibold"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredVisits.map((v) => {
-                            const expanded = expandedVisit === v.id;
-                            const visitNotes = notesByVisit(v.id);
-                            return (
-                              <Fragment key={v.id}>
-                                <tr className={cn("border-b border-line last:border-0 hover:bg-black/[0.02]", expanded && "border-b-0")}>
-                                  <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(v.scheduled_at)}</td>
-                                  <td className="py-space-2 whitespace-nowrap tabular-nums text-ink-400">
-                                    {v.created_at ? formatShortDateTime(v.created_at) : "—"}
-                                  </td>
-                                  <td className="py-space-2 whitespace-nowrap font-mono text-[12px] text-ink-400">{v.reference_id || "—"}</td>
-                                  <td className="py-space-2 text-ink-600">{v.doctor_name}</td>
-                                  <td className="py-space-2 text-ink-600">{v.department_name}</td>
-                                  <td className="py-space-2 text-ink-600">
-                                    <div>{v.appointment_type_id ? TYPE_LABELS[v.appointment_type_id] || v.appointment_type_id : "—"}</div>
-                                    {v.appointment_type_id === "tele" && v.video_link && (
-                                      <a
-                                        href={v.video_link}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-[11.5px] font-semibold text-brand-600 hover:underline"
-                                      >
-                                        🎥 Join
-                                      </a>
-                                    )}
-                                  </td>
-                                  <td className="py-space-2 text-ink-600">{SOURCE_LABELS[v.source] || v.source}</td>
-                                  <td className="py-space-2">
-                                    <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[v.status] || "bg-black/[0.04] text-ink-600")}>
-                                      {STATUS_LABELS[v.status] || v.status}
-                                    </span>
-                                  </td>
-                                  <td className="py-space-2 whitespace-nowrap">
-                                    {v.status === "attended" ? (
-                                      <div className="flex items-center gap-space-2">
-                                        <span
-                                          className={cn(
-                                            "text-[12px] font-semibold",
-                                            v.followup_valid_until && new Date(v.followup_valid_until) < new Date()
-                                              ? "text-error"
-                                              : "text-ink-600",
-                                          )}
-                                        >
-                                          {v.followup_valid_until ? `Until ${formatDate(v.followup_valid_until)}` : "—"}
-                                        </span>
-                                        <PermissionGate page="appointments" action="write">
-                                          <button
-                                            type="button"
-                                            onClick={() => (followupPanelId === v.id ? closeFollowupPanel() : openFollowupPanel(v))}
-                                            className="text-[11.5px] font-semibold text-brand-600 hover:underline"
-                                          >
-                                            {followupPanelId === v.id ? "Close" : "Follow-up…"}
-                                          </button>
-                                        </PermissionGate>
-                                      </div>
-                                    ) : (
-                                      <span className="text-ink-300">—</span>
-                                    )}
-                                  </td>
-                                  <td className="py-space-2 text-right whitespace-nowrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => setExpandedVisit(expanded ? null : v.id)}
-                                      className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-600 hover:underline"
-                                    >
-                                      {visitNotes.length > 0 ? `${visitNotes.length} note${visitNotes.length > 1 ? "s" : ""}` : "Notes"}
-                                      {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                    </button>
-                                  </td>
-                                </tr>
-                                {expanded && (
-                                  <tr className="border-b border-line last:border-0">
-                                    <td colSpan={10} className="pb-space-3">
-                                      <div className="rounded-lg border border-line bg-paper p-space-3">
-                                        {visitNotes.length === 0 ? (
-                                          <p className="text-hint mb-space-3">No notes for this visit yet.</p>
-                                        ) : (
-                                          <ul className="mb-space-3 space-y-space-2">
-                                            {visitNotes.map((n) => (
-                                              <li key={n.id} className="rounded-md bg-card p-space-3 text-[13px]">
-                                                <p className="text-ink-900">{n.note_text}</p>
-                                                <p className="text-hint mt-space-1">
-                                                  {n.doctor_name ? `${n.doctor_name} · ` : ""}
-                                                  {formatDateTime(n.created_at)}
-                                                </p>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                        <div className="flex items-end gap-space-2">
-                                          <Textarea
-                                            placeholder="Add a note for this visit…"
-                                            value={noteDraft[v.id] || ""}
-                                            onChange={(e) => setNoteDraft((d) => ({ ...d, [v.id]: e.target.value }))}
-                                            rows={2}
-                                            className="flex-1"
-                                          />
-                                          <Button
-                                            size="md"
-                                            onClick={() => handleAddNote(v.id)}
-                                            disabled={savingNote === v.id || !(noteDraft[v.id] || "").trim()}
-                                          >
-                                            {savingNote === v.id ? "Saving…" : "Add note"}
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                                {followupPanelId === v.id && (
-                                  <tr className="border-b border-line last:border-0">
-                                    <td colSpan={10} className="pb-space-3">
-                                      <div className="rounded-lg border border-line bg-paper p-space-3">
-                                        <p className="text-hint mb-space-3">
-                                          Follow-up validity for this visit{" "}
-                                          {v.followup_valid_until && new Date(v.followup_valid_until) >= new Date()
-                                            ? `is open until ${formatDate(v.followup_valid_until)}`
-                                            : "has closed"}
-                                          . Grant extra days so the patient can book it themselves on WhatsApp, or book it
-                                          directly right now.
-                                        </p>
-
-                                        <div className="mb-space-3 flex flex-wrap items-end gap-space-2">
-                                          <div>
-                                            <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">
-                                              Extend by (days)
-                                            </label>
-                                            <input
-                                              type="number"
-                                              min={1}
-                                              value={extendDays}
-                                              onChange={(e) => setExtendDays(e.target.value)}
-                                              className="h-9 w-24 rounded-md border border-line bg-card px-space-2 text-[13px] text-ink-900"
-                                            />
-                                          </div>
-                                          <Button
-                                            size="md"
-                                            variant="secondary"
-                                            onClick={() => handleExtendFollowup(v.id)}
-                                            disabled={extendingId === v.id}
-                                          >
-                                            {extendingId === v.id ? "Granting…" : "Grant extension"}
-                                          </Button>
-                                        </div>
-
-                                        <div className="border-t border-line pt-space-3">
-                                          <p className="mb-space-2 text-[12px] font-semibold text-ink-600">
-                                            Or book this follow-up now (with {v.doctor_name}, {v.department_name})
-                                          </p>
-                                          {(() => {
-                                            const dates = bookCtx
-                                              ? Object.keys(bookCtx.slots_by_doctor[v.doctor_id] || {}).sort()
-                                              : [];
-                                            const slots =
-                                              bookCtx && bookDate ? bookCtx.slots_by_doctor[v.doctor_id]?.[bookDate] || [] : [];
-                                            return (
-                                              <>
-                                                {dates.length === 0 ? (
-                                                  <p className="mb-space-2 text-[12.5px] text-ink-400">
-                                                    No available dates for this doctor.
-                                                  </p>
-                                                ) : (
-                                                  <div className="mb-space-2 flex flex-wrap gap-space-2">
-                                                    {dates.map((d) => (
-                                                      <button
-                                                        type="button"
-                                                        key={d}
-                                                        onClick={() => { setBookDate(d); setBookSlotId(""); }}
-                                                        className={cn(
-                                                          "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
-                                                          bookDate === d
-                                                            ? "border-brand-600 bg-brand-600 text-white"
-                                                            : "border-line bg-card text-ink-600",
-                                                        )}
-                                                      >
-                                                        {d}
-                                                      </button>
-                                                    ))}
-                                                  </div>
-                                                )}
-                                                {bookDate &&
-                                                  (slots.length === 0 ? (
-                                                    <p className="mb-space-2 text-[12.5px] text-ink-400">
-                                                      No slots available on this date.
-                                                    </p>
-                                                  ) : (
-                                                    <div className="mb-space-2 flex flex-wrap gap-space-2">
-                                                      {slots.map((s) => (
-                                                        <button
-                                                          type="button"
-                                                          key={s.id}
-                                                          onClick={() => setBookSlotId(s.id)}
-                                                          className={cn(
-                                                            "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
-                                                            bookSlotId === s.id
-                                                              ? "border-brand-600 bg-brand-600 text-white"
-                                                              : "border-line bg-card text-ink-600",
-                                                          )}
-                                                        >
-                                                          {s.label}
-                                                        </button>
-                                                      ))}
-                                                    </div>
-                                                  ))}
-                                              </>
-                                            );
-                                          })()}
-                                          <Button
-                                            size="md"
-                                            onClick={() => handleBookFollowupNow(v.id)}
-                                            disabled={bookingId === v.id || !bookSlotId}
-                                          >
-                                            {bookingId === v.id ? "Booking…" : "Book follow-up now"}
-                                          </Button>
-                                        </div>
-
-                                        {followupError && <p className="mt-space-3 text-[12px] text-error">{followupError}</p>}
-                                        <div className="mt-space-3">
-                                          <Button size="md" variant="secondary" onClick={closeFollowupPanel}>
-                                            Close
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </Fragment>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      columns={columns}
+                      data={filteredVisits}
+                      getRowId={(v) => String(v.id)}
+                      isRowExpanded={(v) => expandedVisit === v.id || followupPanelId === v.id}
+                      renderRowDetail={renderVisitRowDetail}
+                    />
                   )}
                 </>
               )}

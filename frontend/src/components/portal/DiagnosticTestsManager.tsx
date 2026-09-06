@@ -1,22 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Switch } from "@/components/ui/Switch";
 import { cn } from "@/lib/cn";
-import { portalFetch } from "@/lib/portalAuth";
-
-type Variant = {
-  id: number; label: string; price: number | null; preparation_instructions: string | null; is_active: boolean;
-};
-type Test = {
-  id: number; category: "diagnostic" | "lab"; name: string; resource_id: string | null; is_active: boolean;
-  variants: Variant[];
-};
-type Resource = { id: string; name: string };
+import { useDiagnosticTests } from "@/hooks/useDiagnosticTests";
 
 const CATEGORIES: { id: "diagnostic" | "lab"; label: string }[] = [
   { id: "diagnostic", label: "Diagnostic Test" },
@@ -28,172 +19,18 @@ const CATEGORIES: { id: "diagnostic" | "lab"; label: string }[] = [
 // patient picks from in the WhatsApp flow -- same open, hospital-editable
 // catalog shape as DaycareDurationOptions, one level deeper (test -> variants).
 export function DiagnosticTestsManager({ canManage }: { canManage: boolean }) {
-  const [category, setCategory] = useState<"diagnostic" | "lab">("diagnostic");
-  const [tests, setTests] = useState<Test[] | null>(null);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-
-  const [showAddTest, setShowAddTest] = useState(false);
-  const [newTestName, setNewTestName] = useState("");
-  const [newTestResource, setNewTestResource] = useState("");
-  const [savingTest, setSavingTest] = useState(false);
-
-  const [editingTestId, setEditingTestId] = useState<number | null>(null);
-  const [editTestName, setEditTestName] = useState("");
-  const [editTestResource, setEditTestResource] = useState("");
-
-  const [addingVariantFor, setAddingVariantFor] = useState<number | null>(null);
-  const [newVariantLabel, setNewVariantLabel] = useState("");
-  const [newVariantPrice, setNewVariantPrice] = useState("");
-  const [newVariantPrep, setNewVariantPrep] = useState("");
-
-  const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
-  const [editVariantLabel, setEditVariantLabel] = useState("");
-  const [editVariantPrice, setEditVariantPrice] = useState("");
-  const [editVariantPrep, setEditVariantPrep] = useState("");
-
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const [testsResult, resourcesResult] = await Promise.all([
-      portalFetch(`/api/portal/diagnostic-tests?category=${category}`),
-      portalFetch("/api/portal/diagnostic-resources"),
-    ]);
-    if (testsResult.ok) setTests((testsResult.data as { tests: Test[] }).tests);
-    else setTests(null);
-    if (resourcesResult.ok) setResources((resourcesResult.data as { resources: Resource[] }).resources);
-  }, [category]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  function resourceName(id: string | null) {
-    if (!id) return "None (any available doctor)";
-    return resources.find((r) => r.id === id)?.name || id;
-  }
-
-  async function handleAddTest() {
-    if (!newTestName.trim()) return;
-    setSavingTest(true);
-    setError(null);
-    const result = await portalFetch("/api/portal/diagnostic-tests", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category, name: newTestName.trim(), resource_id: newTestResource || null }),
-    });
-    setSavingTest(false);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
-    }
-    setNewTestName(""); setNewTestResource(""); setShowAddTest(false);
-    load();
-  }
-
-  function startEditTest(test: Test) {
-    setEditingTestId(test.id);
-    setEditTestName(test.name);
-    setEditTestResource(test.resource_id || "");
-  }
-
-  async function saveEditTest(testId: number) {
-    if (!editTestName.trim()) return;
-    setPendingKey(`test-${testId}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editTestName.trim(), resource_id: editTestResource || null }),
-    });
-    setPendingKey(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
-    }
-    setEditingTestId(null);
-    load();
-  }
-
-  async function toggleTestActive(test: Test) {
-    setPendingKey(`test-${test.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}/active`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !test.is_active }),
-    });
-    setPendingKey(null);
-    if (result.ok) load();
-  }
-
-  async function deleteTest(test: Test) {
-    if (!window.confirm(`Delete "${test.name}" and all its options? Past bookings keep their stored details either way.`)) return;
-    setPendingKey(`test-${test.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}`, { method: "DELETE" });
-    setPendingKey(null);
-    if (result.ok) load();
-    else setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-  }
-
-  async function handleAddVariant(testId: number) {
-    if (!newVariantLabel.trim()) return;
-    setPendingKey(`variant-new-${testId}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/variants`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        label: newVariantLabel.trim(),
-        price: newVariantPrice ? Number(newVariantPrice) : null,
-        preparation_instructions: newVariantPrep.trim() || null,
-      }),
-    });
-    setPendingKey(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
-    }
-    setNewVariantLabel(""); setNewVariantPrice(""); setNewVariantPrep(""); setAddingVariantFor(null);
-    load();
-  }
-
-  function startEditVariant(v: Variant) {
-    setEditingVariantId(v.id);
-    setEditVariantLabel(v.label);
-    setEditVariantPrice(v.price != null ? String(v.price) : "");
-    setEditVariantPrep(v.preparation_instructions || "");
-  }
-
-  async function saveEditVariant(variantId: number) {
-    if (!editVariantLabel.trim()) return;
-    setPendingKey(`variant-${variantId}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/variants/${variantId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        label: editVariantLabel.trim(),
-        price: editVariantPrice ? Number(editVariantPrice) : null,
-        preparation_instructions: editVariantPrep.trim() || null,
-      }),
-    });
-    setPendingKey(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
-    }
-    setEditingVariantId(null);
-    load();
-  }
-
-  async function toggleVariantActive(v: Variant) {
-    setPendingKey(`variant-${v.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/variants/${v.id}/active`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !v.is_active }),
-    });
-    setPendingKey(null);
-    if (result.ok) load();
-  }
-
-  async function deleteVariant(v: Variant) {
-    if (!window.confirm(`Delete option "${v.label}"?`)) return;
-    setPendingKey(`variant-${v.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/variants/${v.id}`, { method: "DELETE" });
-    setPendingKey(null);
-    if (result.ok) load();
-  }
+  const {
+    category, setCategory, tests, resources, error, expandedId, setExpandedId,
+    showAddTest, setShowAddTest, newTestName, setNewTestName, newTestResource, setNewTestResource, savingTest,
+    editingTestId, setEditingTestId, editTestName, setEditTestName, editTestResource, setEditTestResource,
+    addingVariantFor, setAddingVariantFor, newVariantLabel, setNewVariantLabel, newVariantPrice, setNewVariantPrice,
+    newVariantPrep, setNewVariantPrep,
+    editingVariantId, setEditingVariantId, editVariantLabel, setEditVariantLabel, editVariantPrice, setEditVariantPrice,
+    editVariantPrep, setEditVariantPrep,
+    pendingKey,
+    resourceName, handleAddTest, startEditTest, saveEditTest, toggleTestActive, deleteTest,
+    handleAddVariant, startEditVariant, saveEditVariant, toggleVariantActive, deleteVariant,
+  } = useDiagnosticTests();
 
   return (
     <Card className="p-space-4">
@@ -263,13 +100,12 @@ export function DiagnosticTestsManager({ canManage }: { canManage: boolean }) {
                         </button>
                       )}
                       <Badge tone={test.is_active ? "success" : "neutral"}>{test.is_active ? "Active" : "Inactive"}</Badge>
-                      <button
-                        type="button" onClick={() => toggleTestActive(test)} disabled={pendingKey === `test-${test.id}` || !canManage}
-                        role="switch" aria-checked={test.is_active}
-                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-150 ${test.is_active ? "bg-brand-600" : "bg-line"} ${pendingKey === `test-${test.id}` ? "opacity-60" : ""}`}
-                      >
-                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-150 ${test.is_active ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-                      </button>
+                      <Switch
+                        checked={test.is_active}
+                        onChange={() => toggleTestActive(test)}
+                        disabled={pendingKey === `test-${test.id}` || !canManage}
+                        aria-label={`Toggle ${test.name}`}
+                      />
                       {canManage && (
                         <button type="button" onClick={() => deleteTest(test)} disabled={pendingKey === `test-${test.id}`} className="text-ink-400 hover:text-error" title="Delete test">
                           <Trash2 size={15} />
@@ -314,13 +150,13 @@ export function DiagnosticTestsManager({ canManage }: { canManage: boolean }) {
                                     </button>
                                   )}
                                   <Badge tone={v.is_active ? "success" : "neutral"}>{v.is_active ? "Active" : "Inactive"}</Badge>
-                                  <button
-                                    type="button" onClick={() => toggleVariantActive(v)} disabled={pendingKey === `variant-${v.id}` || !canManage}
-                                    role="switch" aria-checked={v.is_active}
-                                    className={`relative h-5 w-9 shrink-0 rounded-full transition-colors duration-150 ${v.is_active ? "bg-brand-600" : "bg-line"}`}
-                                  >
-                                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${v.is_active ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-                                  </button>
+                                  <Switch
+                                    checked={v.is_active}
+                                    onChange={() => toggleVariantActive(v)}
+                                    disabled={pendingKey === `variant-${v.id}` || !canManage}
+                                    size="sm"
+                                    aria-label={`Toggle ${v.label}`}
+                                  />
                                   {canManage && (
                                     <button type="button" onClick={() => deleteVariant(v)} disabled={pendingKey === `variant-${v.id}`} className="text-ink-400 hover:text-error" title="Delete">
                                       <Trash2 size={13} />

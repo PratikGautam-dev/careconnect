@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
@@ -21,7 +22,7 @@ export default function NewBookingPage() {
 
   return (
     <PortalShell hospital={hospital} active="appointments">
-        <h1 className="text-display mb-space-5">New booking</h1>
+        <PageHeader title="New booking" />
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
         <Card className="max-w-xl p-space-5">

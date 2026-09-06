@@ -1,18 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { formatTimeOnly } from "@/lib/formatDate";
-import { portalFetch } from "@/lib/portalAuth";
-
-type Appointment = {
-  id: number;
-  phone: string;
-  scheduled_at: string;
-  status: string;
-  appointment_type_id: string | null;
-  video_link: string | null;
-};
+import { useDoctorTodayAppointments } from "@/hooks/useDoctorTodayAppointments";
 
 const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
@@ -25,20 +15,8 @@ const STATUS_LABELS: Record<string, string> = {
   booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled", attended: "Attended", no_show: "No-show",
 };
 
-// Item 4 (Spec.md Section 0): a specific doctor's own appointments for
-// today, within the existing shared staff portal -- no separate doctor
-// login exists, so this is just a scoped view any staff member can open.
 export function DoctorTodayAppointments({ doctorId }: { doctorId: string }) {
-  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
-
-  const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/appointments/today`);
-    if (result.ok) setAppointments((result.data as { appointments: Appointment[] }).appointments);
-  }, [doctorId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { appointments } = useDoctorTodayAppointments(doctorId);
 
   return (
     <div className="rounded-lg border border-line bg-paper p-space-3">

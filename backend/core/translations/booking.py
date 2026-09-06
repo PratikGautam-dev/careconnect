@@ -90,9 +90,7 @@ DIAGNOSTIC_PREPARATION_LINE = "diagnostic_preparation_line"
 # before date/time. See flows/booking/types/lab.py. ---
 SELECT_LAB_TEST = "select_lab_test"
 LAB_TEST_ADDED_PROMPT = "lab_test_added_prompt"
-LAB_ADD_ANOTHER_BUTTON = "lab_add_another_button"
 LAB_DONE_BUTTON = "lab_done_button"
-LAB_ADD_MORE_PROMPT = "lab_add_more_prompt"
 SELECT_COLLECTION_METHOD = "select_collection_method"
 COLLECTION_VISIT_BUTTON = "collection_visit_button"
 COLLECTION_HOME_BUTTON = "collection_home_button"
@@ -605,16 +603,16 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "Please select a test to add to your booking.",
         "hi": "कृपया अपनी बुकिंग में जोड़ने के लिए एक जांच चुनें।",
     },
+    # WhatsApp menu restructuring follow-up (confirmed with the user): shown
+    # as the remaining-tests LIST's own body text, not a separate "would you
+    # like to add another test?" buttons detour -- picking another test
+    # happens straight from that list, with "Done, Continue" offered
+    # alongside "Back" underneath once the basket has at least one item.
     LAB_TEST_ADDED_PROMPT: {
-        "en": "Added *{item_label}* to your booking.\n\nWould you like to add another test?",
-        "hi": "*{item_label}* आपकी बुकिंग में जोड़ दी गई है।\n\nक्या आप कोई और जांच जोड़ना चाहेंगे?",
+        "en": "Added *{item_label}* to your booking.\n\nSelect another test below, or tap \"Done, Continue\" when you're finished.",
+        "hi": "*{item_label}* आपकी बुकिंग में जोड़ दी गई है।\n\nनीचे से एक और जांच चुनें, या पूरा होने पर \"हो गया, आगे बढ़ें\" पर टैप करें।",
     },
-    LAB_ADD_ANOTHER_BUTTON: {"en": "Add Another Test", "hi": "और जांच जोड़ें"},
     LAB_DONE_BUTTON: {"en": "Done, Continue", "hi": "हो गया, आगे बढ़ें"},
-    LAB_ADD_MORE_PROMPT: {
-        "en": "Would you like to add another test, or continue?",
-        "hi": "क्या आप कोई और जांच जोड़ना चाहेंगे, या आगे बढ़ें?",
-    },
     SELECT_COLLECTION_METHOD: {
         "en": "How would you like to provide your sample?",
         "hi": "आप अपना सैंपल कैसे देना चाहेंगे?",

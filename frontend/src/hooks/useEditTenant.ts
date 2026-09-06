@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/adminAuth";
+import { toast } from "@/lib/toast";
 
 export type TenantDetail = {
   id: number;
@@ -123,9 +124,11 @@ export function useEditTenant(tenantId: number) {
     });
     if (!result.ok) {
       setAppointmentTypeError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
+      if (!result.unauthorized) toast.error("Couldn't update appointment type", result.error);
       return;
     }
     const updated = (result.data as { appointment_type: AppointmentTypeRow }).appointment_type;
+    toast.success(updated.is_allowed ? `${updated.label} allowed` : `${updated.label} disallowed`);
     setTenant((prev) =>
       prev
         ? { ...prev, appointment_types: prev.appointment_types.map((t) => (t.id === updated.id ? updated : t)) }
@@ -146,15 +149,21 @@ export function useEditTenant(tenantId: number) {
     });
     setSaving(false);
     if (!result.ok) {
-      if (result.unauthorized) setError("Session expired — refresh to sign in again.");
-      else setErrors([result.error]);
+      if (result.unauthorized) {
+        setError("Session expired — refresh to sign in again.");
+      } else {
+        setErrors([result.error]);
+        toast.error("Couldn't save tenant", result.error);
+      }
       return;
     }
     const data = result.data as { tenant?: TenantDetail; errors?: string[] };
     if (data.errors?.length) {
       setErrors(data.errors);
+      toast.error("Couldn't save tenant", data.errors[0]);
       return;
     }
+    toast.success("Tenant saved");
     setSaved(true);
     load();
   }

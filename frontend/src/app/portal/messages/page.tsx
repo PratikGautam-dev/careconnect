@@ -4,6 +4,7 @@ import { AlertTriangle, Check, MessageCircle, Send, Trash2, UserRound } from "lu
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -26,7 +27,7 @@ export default function PortalMessagesPage() {
 
   return (
     <PortalShell hospital={hospital} active="messages">
-        <h1 className="text-display mb-space-5">Messages</h1>
+        <PageHeader title="Messages" />
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
         <div className="mb-space-4 flex flex-wrap items-center gap-space-2">

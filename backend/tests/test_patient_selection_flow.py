@@ -523,9 +523,9 @@ async def test_cancelling_a_patient_removal_keeps_them_linked_and_shows_the_main
 async def test_self_patient_cannot_be_unlinked_and_lands_on_main_menu(hospital_id):
     """Confirmed with the user: the "Myself"/master patient can never be
     self-unlinked -- it still appears in the Remove Patient list (not
-    filtered out), but confirming removal sends two separate messages
-    instead of unlinking, and lands exactly like a cancelled removal does
-    (main menu, active patient untouched)."""
+    filtered out), but confirming removal sends one combined warning
+    message instead of unlinking, and lands exactly like a cancelled
+    removal does (main menu, active patient untouched)."""
     connector = flows._DEFAULT_CONNECTOR
     ravi = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
     wa = FakeWhatsAppClient()
@@ -558,8 +558,9 @@ async def test_self_patient_cannot_be_unlinked_and_lands_on_main_menu(hospital_i
     linked = connector.list_active_patients(hospital_id, PHONE)
     assert len(linked) == 1 and linked[0]["id"] == ravi["id"]
     text_messages = [kwargs["text"] for kind, kwargs in wa.sent if kind == "text"]
-    assert any("main patient" in m.lower() and "Ravi Kumar" in m for m in text_messages)
-    assert any("talk to reception" in m.lower() for m in text_messages)
+    assert any(
+        "main patient" in m.lower() and "Ravi Kumar" in m and "talk to reception" in m.lower() for m in text_messages
+    )
     # Same landing as a cancelled removal: main menu, active patient untouched.
     assert sessions.get(hospital_id, PHONE)["state"] == "IDLE"
     assert sessions.get(hospital_id, PHONE)["active_patient_id"] == ravi["id"]

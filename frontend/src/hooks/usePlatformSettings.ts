@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/adminAuth";
+import { toast } from "@/lib/toast";
 
 export type PlatformSettings = {
   max_active_patient_links: number;
@@ -72,6 +73,7 @@ export function usePlatformSettings() {
       });
       if (!result.ok) {
         setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
+        if (!result.unauthorized) toast.error("Couldn't save platform settings", result.error);
         return;
       }
       const data = result.data as PlatformSettings;
@@ -79,6 +81,7 @@ export function usePlatformSettings() {
       setFeatureLabels(data.feature_labels);
       setDpdpRequired(data.dpdp_consent_required);
       setSaved(true);
+      toast.success("Platform settings saved");
     } finally {
       setSaving(false);
     }

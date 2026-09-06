@@ -1,57 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { portalFetch } from "@/lib/portalAuth";
+import { useResourceLeave } from "@/hooks/useResourceLeave";
 
-// Diagnostic/Lab Phase 2: whole-day resource unavailability (maintenance,
-// downtime) -- simpler than DoctorLeaveManager's id-based CRUD since the
-// backend here keys leave by date directly, one date at a time.
 export function ResourceLeaveManager({ resourceId }: { resourceId: string }) {
-  const [dates, setDates] = useState<string[] | null>(null);
-  const [newDate, setNewDate] = useState("");
-  const [reason, setReason] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/leave`);
-    if (result.ok) setDates((result.data as { leave_dates: string[] }).leave_dates);
-  }, [resourceId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function handleAdd() {
-    if (!newDate) return;
-    setAdding(true);
-    setError(null);
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/leave`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: newDate, reason }),
-    });
-    setAdding(false);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
-    }
-    setNewDate("");
-    setReason("");
-    load();
-  }
-
-  async function handleDelete(date: string) {
-    await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/leave/remove`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date }),
-    });
-    load();
-  }
+  const { dates, error, newDate, setNewDate, reason, setReason, adding, handleAdd, handleDelete } = useResourceLeave(resourceId);
 
   return (
     <div className="rounded-lg border border-line bg-paper p-space-3">

@@ -25,8 +25,6 @@ from core.translations.booking import (
     COLLECTION_VISIT_BUTTON,
     DIAGNOSTIC_TESTS_SECTION_TITLE,
     DIAGNOSTIC_VARIANTS_SECTION_TITLE,
-    LAB_ADD_ANOTHER_BUTTON,
-    LAB_ADD_MORE_PROMPT,
     LAB_BOOKING_CONFIRMED,
     LAB_CONFIRMATION_SUMMARY,
     LAB_DONE_BUTTON,
@@ -51,7 +49,7 @@ from core.whatsapp import WhatsAppClient
 from flows.booking.state import (
     BACK_ID, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_ADDRESS,
     STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_COLLECTION_PINCODE, STATE_AWAITING_CONFIRMATION,
-    STATE_AWAITING_DATE, STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_ADD_MORE, STATE_AWAITING_LAB_TEST_VARIANT,
+    STATE_AWAITING_DATE, STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_VARIANT,
     STATE_AWAITING_TIME_SLOT, _HISTORY_KEY, _push_history,
 )
 from flows.booking.types.base import TypeFlow
@@ -66,7 +64,6 @@ _STEPS = (STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE, STATE_AWAITING_
 
 COLLECTION_VISIT_ID = "collection_visit"
 COLLECTION_HOME_ID = "collection_home"
-LAB_ADD_ANOTHER_ID = "lab_add_another"
 LAB_DONE_ID = "lab_done"
 TRY_ANOTHER_PINCODE_ID = "try_another_pincode"
 
@@ -102,21 +99,38 @@ async def _send_no_tests_screen(wa, phone: str, hospital_id: int, sessions, cont
     )
 
 
-async def _send_lab_test_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector, basket: list[dict], language: str = "en") -> None:
+async def _send_lab_test_menu(
+    wa: WhatsAppClient, phone: str, hospital_id: int, connector, basket: list[dict], language: str = "en",
+    body_text_override: str | None = None,
+) -> None:
     """Excludes tests already in the basket -- re-adding the same test would
-    just be confusing (and there's no "quantity" concept here)."""
-    from flows.booking.messages import _send_back_button
+    just be confusing (and there's no "quantity" concept here). Skips the
+    list message once every configured test is already in the basket
+    (WhatsApp's list type can't render zero rows sensibly), falling back to
+    just body_text_override as plain text if given.
 
+    WhatsApp menu restructuring follow-up (confirmed with the user): once
+    the basket has at least one item, the follow-up buttons message offers
+    "Done, Continue" alongside "Back" -- picking another test happens
+    straight from this same list (re-shown after every add, via
+    _add_to_basket_and_prompt below), not a separate "would you like to add
+    another test?" detour screen first."""
     already_added = {item["diagnostic_test_id"] for item in basket if item.get("diagnostic_test_id") is not None}
     tests = [t_ for t_ in connector.get_diagnostic_tests(hospital_id, "lab") if t_["id"] not in already_added]
-    rows = [{"id": str(test["id"]), "title": test["name"]} for test in tests]
-    await wa.send_list(
-        to=phone,
-        body_text=t(SELECT_LAB_TEST, language),
-        button_text=t(VIEW_TESTS_BUTTON, language),
-        sections=[{"title": t(DIAGNOSTIC_TESTS_SECTION_TITLE, language), "rows": rows}],
-    )
-    await _send_back_button(wa, phone, language=language)
+    if tests:
+        rows = [{"id": str(test["id"]), "title": test["name"]} for test in tests]
+        await wa.send_list(
+            to=phone,
+            body_text=body_text_override or t(SELECT_LAB_TEST, language),
+            button_text=t(VIEW_TESTS_BUTTON, language),
+            sections=[{"title": t(DIAGNOSTIC_TESTS_SECTION_TITLE, language), "rows": rows}],
+        )
+    elif body_text_override:
+        await wa.send_text(phone, body_text_override)
+    buttons = [{"id": BACK_ID, "title": t(BACK_OPTION, language)}]
+    if basket:
+        buttons.append({"id": LAB_DONE_ID, "title": t(LAB_DONE_BUTTON, language)})
+    await wa.send_buttons(to=phone, body_text="​", buttons=buttons)
 
 
 async def _send_lab_variant_menu(wa: WhatsAppClient, phone: str, test: dict, language: str = "en") -> None:
@@ -130,18 +144,6 @@ async def _send_lab_variant_menu(wa: WhatsAppClient, phone: str, test: dict, lan
         sections=[{"title": t(DIAGNOSTIC_VARIANTS_SECTION_TITLE, language), "rows": rows}],
     )
     await _send_back_button(wa, phone, language=language)
-
-
-async def _send_add_more_menu(wa: WhatsAppClient, phone: str, hospital_id: int, connector, context: dict, body_text: str, language: str = "en") -> None:
-    """Only offers "Add Another Test" when at least one un-added test
-    remains -- an exhausted catalog just shows "Done, Continue"."""
-    already_added = {item["diagnostic_test_id"] for item in _basket(context) if item.get("diagnostic_test_id") is not None}
-    remaining = [t_ for t_ in connector.get_diagnostic_tests(hospital_id, "lab") if t_["id"] not in already_added]
-    buttons = []
-    if remaining:
-        buttons.append({"id": LAB_ADD_ANOTHER_ID, "title": t(LAB_ADD_ANOTHER_BUTTON, language)})
-    buttons.append({"id": LAB_DONE_ID, "title": t(LAB_DONE_BUTTON, language)})
-    await wa.send_buttons(to=phone, body_text=body_text, buttons=buttons)
 
 
 async def _on_lab_type_selected(
@@ -170,11 +172,11 @@ async def _add_to_basket_and_prompt(
     }
     basket = [*_basket(context), item]
     new_context = {**context, "lab_basket": basket}
-    sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST_ADD_MORE, new_context)
+    sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST, new_context)
     item_label = test["name"] if variant["label"].lower() == "standard" else f"{test['name']} - {variant['label']}"
-    await _send_add_more_menu(
-        wa, phone, hospital_id, connector, new_context, t(LAB_TEST_ADDED_PROMPT, language, item_label=item_label),
-        language=language,
+    await _send_lab_test_menu(
+        wa, phone, hospital_id, connector, basket, language=language,
+        body_text_override=t(LAB_TEST_ADDED_PROMPT, language, item_label=item_label),
     )
 
 
@@ -187,6 +189,12 @@ async def _handle_awaiting_lab_test(
     if reply["type"] == "interactive_reply":
         if reply["id"] == BACK_ID:
             await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
+            return
+        if reply["id"] == LAB_DONE_ID and _basket(context):
+            history = _push_history(context, STATE_AWAITING_LAB_TEST)
+            new_context = {**context, _HISTORY_KEY: history}
+            sessions.set(hospital_id, phone, STATE_AWAITING_COLLECTION_METHOD, new_context)
+            await _send_collection_method_menu(wa, phone, language=language)
             return
         already_added = {item["diagnostic_test_id"] for item in _basket(context) if item.get("diagnostic_test_id") is not None}
         tests = [t_ for t_ in connector.get_diagnostic_tests(hospital_id, "lab") if t_["id"] not in already_added]
@@ -234,25 +242,6 @@ async def _handle_awaiting_lab_test_variant(
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST_VARIANT, context)
     await _send_lab_variant_menu(wa, phone, test, language=language)
-
-
-async def _handle_awaiting_lab_test_add_more(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector,
-    language: str = "en", closing_message_text: str | None = None,
-) -> None:
-    if reply["type"] == "interactive_reply":
-        if reply["id"] == LAB_ADD_ANOTHER_ID:
-            sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST, context)
-            await _send_lab_test_menu(wa, phone, hospital_id, connector, _basket(context), language=language)
-            return
-        if reply["id"] == LAB_DONE_ID and _basket(context):
-            history = _push_history(context, STATE_AWAITING_LAB_TEST_ADD_MORE)
-            new_context = {**context, _HISTORY_KEY: history}
-            sessions.set(hospital_id, phone, STATE_AWAITING_COLLECTION_METHOD, new_context)
-            await _send_collection_method_menu(wa, phone, language=language)
-            return
-    sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST_ADD_MORE, context)
-    await _send_add_more_menu(wa, phone, hospital_id, connector, context, t(LAB_ADD_MORE_PROMPT, language), language=language)
 
 
 async def _send_collection_method_menu(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
