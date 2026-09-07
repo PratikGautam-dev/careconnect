@@ -1032,6 +1032,10 @@ async def test_other_full_flow_types_also_block_rebooking_in_same_department(hos
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("menu_book"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(appointment_type_id))
+    if appointment_type_id == "tele":
+        # Tele-consultation's own pre-step -- "New Appointment" falls through
+        # to the same department pipeline this test is exercising.
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("tele_sub_type_new"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))
 
     kind, kwargs = wa.sent[-1]
@@ -1344,6 +1348,14 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(appointment_type_id))
     session = sessions.get(hospital_id, PHONE)
+
+    if session["state"] == "AWAITING_TELE_SUB_TYPE":
+        # Tele-consultation's own pre-step (New Appointment vs Follow-up) --
+        # this driver always takes the "New Appointment" branch, which falls
+        # through to the same department/doctor pipeline every other type
+        # below uses; the Follow-up branch has its own dedicated tests.
+        await handle_incoming(wa, sessions, PHONE, hospital_id, tap("tele_sub_type_new"))
+        session = sessions.get(hospital_id, PHONE)
 
     if session["state"] == "AWAITING_DEPARTMENT":
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cardiology"))

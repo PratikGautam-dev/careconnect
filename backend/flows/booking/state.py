@@ -26,6 +26,24 @@ STATE_AWAITING_FOLLOWUP_SELECTION = "AWAITING_FOLLOWUP_SELECTION"
 STATE_AWAITING_CONSENT = "AWAITING_CONSENT"
 
 
+# Tele-consultation's own pre-step (confirmed with the user): right after
+# "tele" is picked as the appointment type, ask whether this is a brand-new
+# consultation or a follow-up to a previous attended visit -- "Follow-up"
+# reuses followup.py's own eligible-visit list/date-floor logic, "New
+# Appointment" falls through to the normal department/doctor/date/slot
+# pipeline every FULL_FLOW type uses. Either sub-path still creates the
+# appointment with appointment_type_id="tele", so the Meet-link hook
+# (flows/booking/types/tele_consultation.py) always fires regardless of
+# which one was taken.
+STATE_AWAITING_TELE_SUB_TYPE = "AWAITING_TELE_SUB_TYPE"
+
+
+TELE_SUB_TYPE_NEW = "tele_sub_type_new"
+
+
+TELE_SUB_TYPE_FOLLOWUP = "tele_sub_type_followup"
+
+
 STATE_AWAITING_DEPARTMENT = "AWAITING_DEPARTMENT"
 
 

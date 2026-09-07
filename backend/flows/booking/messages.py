@@ -94,7 +94,7 @@ from flows.booking.state import (
     STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
     STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST,
-    STATE_AWAITING_LAB_TEST_VARIANT,
+    STATE_AWAITING_LAB_TEST_VARIANT, STATE_AWAITING_TELE_SUB_TYPE,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
@@ -722,6 +722,10 @@ async def _resend_menu_for_state(
         # Lazy import: avoids this module -> types.registry -> followup cycle.
         from flows.booking.types.followup import _resend_followup_eligible_list
         await _resend_followup_eligible_list(wa, phone, hospital_id, context, connector, language=language)
+    elif state == STATE_AWAITING_TELE_SUB_TYPE:
+        # Lazy import: avoids this module -> types.registry -> tele_consultation cycle.
+        from flows.booking.types.tele_consultation import _send_tele_sub_type_prompt
+        await _send_tele_sub_type_prompt(wa, phone, language=language)
     elif state == STATE_AWAITING_DEPARTMENT:
         await _send_department_menu(wa, phone, hospital_id, connector, language=language)
     elif state == STATE_AWAITING_DOCTOR:

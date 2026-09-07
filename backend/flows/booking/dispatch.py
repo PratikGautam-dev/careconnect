@@ -24,6 +24,7 @@ from flows.booking.manage_patients import _handle_awaiting_manage_patients_actio
 from flows.booking.messages import _handle_awaiting_patient_selection, _send_main_menu
 from flows.booking.types._diagnostic_shared import _handle_awaiting_diagnostic_test, _handle_awaiting_diagnostic_variant
 from flows.booking.types.followup import _handle_awaiting_followup_selection
+from flows.booking.types.tele_consultation import _handle_awaiting_tele_sub_type
 from flows.booking.types.lab import (
     _handle_awaiting_collection_address, _handle_awaiting_collection_method, _handle_awaiting_collection_pincode,
     _handle_awaiting_lab_test, _handle_awaiting_lab_test_variant,
@@ -45,7 +46,7 @@ from flows.booking.state import (
     STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT,
     STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_FOLLOWUP_SELECTION,
-    STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_VARIANT,
+    STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_VARIANT, STATE_AWAITING_TELE_SUB_TYPE,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -87,6 +88,7 @@ async def _handle_idle(
 
 _HANDLERS = {
     STATE_AWAITING_APPOINTMENT_TYPE: _handle_awaiting_appointment_type,
+    STATE_AWAITING_TELE_SUB_TYPE: _handle_awaiting_tele_sub_type,
     STATE_AWAITING_FOLLOWUP_SELECTION: _handle_awaiting_followup_selection,
     STATE_AWAITING_CONSENT: _handle_awaiting_consent,
     STATE_AWAITING_DEPARTMENT: _handle_awaiting_department,

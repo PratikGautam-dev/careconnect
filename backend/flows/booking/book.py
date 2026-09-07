@@ -156,12 +156,27 @@ async def _proceed_with_appointment_type(
     shows a type list at all) can reuse it too. Callers build `new_context`
     themselves (with or without a _HISTORY_KEY frame, per their own
     situation) and pass it in already-formed."""
-    # A type with its own on_selected hook (e.g. followup.py) fully
-    # owns what happens next -- checked before the skip branch below.
+    # A type with its own on_selected hook (e.g. followup.py, tele's own
+    # New-Appointment-vs-Follow-up pre-step) fully owns what happens next --
+    # checked before the default department/doctor skip logic below.
     flow = get_type_flow(appt_type["id"])
     if flow.on_selected is not None:
         await flow.on_selected(wa, sessions, phone, hospital_id, connector, new_context, language)
         return
+    await _proceed_to_department_or_skip(wa, sessions, phone, hospital_id, appt_type, new_context, connector, language=language)
+
+
+async def _proceed_to_department_or_skip(
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt_type: dict, new_context: dict,
+    connector: Connector, language: str = "en",
+) -> None:
+    """The default "no on_selected hook" behavior -- split out of
+    _proceed_with_appointment_type so a type's own on_selected hook (e.g.
+    tele's New-Appointment sub-choice, flows/booking/types/tele_consultation.py)
+    can fall through to this exact default pipeline (department/doctor skip
+    logic included) once its own pre-step is done, instead of duplicating
+    it."""
+    flow = get_type_flow(appt_type["id"])
     # No department/doctor step at all (diagnostic, lab): auto-resolve
     # a resource instead of asking, regardless of tenant shape.
     if STATE_AWAITING_DEPARTMENT not in flow.steps:

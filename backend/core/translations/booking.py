@@ -12,6 +12,9 @@ CHANGE_APPOINTMENT_TYPE_OPTION = "change_appointment_type_option"
 CONSENT_PROMPT = "consent_prompt"
 CONSENT_AGREE_BUTTON = "consent_agree_button"
 CONSENT_DECLINED = "consent_declined"
+TELE_SUB_TYPE_PROMPT = "tele_sub_type_prompt"
+TELE_SUB_TYPE_NEW_BUTTON = "tele_sub_type_new_button"
+TELE_SUB_TYPE_FOLLOWUP_BUTTON = "tele_sub_type_followup_button"
 SELECT_DEPARTMENT = "select_department"
 VIEW_DEPARTMENTS_BUTTON = "view_departments_button"
 DEPARTMENTS_SECTION_TITLE = "departments_section_title"
@@ -149,6 +152,15 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "No problem -- this appointment type needs your consent to proceed, so it hasn't been booked.",
         "hi": "कोई बात नहीं -- इस प्रकार की अपॉइंटमेंट के लिए आपकी सहमति आवश्यक है, इसलिए इसे बुक नहीं किया गया है।",
     },
+
+    # --- Booking: Tele-consultation's own pre-step, right after "tele" is
+    # picked -- New Appointment vs Follow-up ---
+    TELE_SUB_TYPE_PROMPT: {
+        "en": "Is this a new tele-consultation, or a follow-up to a previous visit?",
+        "hi": "क्या यह एक नया टेली-परामर्श है, या पिछली विज़िट का फॉलो-अप है?",
+    },
+    TELE_SUB_TYPE_NEW_BUTTON: {"en": "New Appointment", "hi": "नई अपॉइंटमेंट"},
+    TELE_SUB_TYPE_FOLLOWUP_BUTTON: {"en": "Follow-up", "hi": "फॉलो-अप"},
 
     # --- Booking: department/doctor/date/time menus ---
     SELECT_DEPARTMENT: {"en": "Please choose the medical specialty you would like to consult.", "hi": "कृपया वह चिकित्सा विशेषज्ञता चुनें जिसके लिए आप परामर्श लेना चाहते हैं।"},

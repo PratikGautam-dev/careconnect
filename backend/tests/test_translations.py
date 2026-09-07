@@ -75,6 +75,8 @@ def test_button_and_row_title_strings_respect_whatsapp_length_limits():
         # WhatsApp menu restructuring: Reports & Prescriptions' own submenu
         # list uses this as its button_text.
         "reports_menu_button",
+        # Tele-consultation's own pre-step: New Appointment vs Follow-up.
+        "tele_sub_type_new_button", "tele_sub_type_followup_button",
     ]
     for key in button_keys:
         for lang in SUPPORTED_LANGUAGES:
