@@ -4,8 +4,10 @@ import pytest
 
 import db.repository as db
 from flows.booking import (
-    BACK_ID, GOTO_MAIN_MENU, MANAGE_CANCEL_PREFIX, MANAGE_RESCHEDULE_PREFIX, _MAX_LIST_ROWS, handle_incoming,
+    BACK_ID, GOTO_MAIN_MENU, MANAGE_CANCEL_PREFIX, MANAGE_RESCHEDULE_PREFIX, NEXT_TIMES_ID, PREV_TIMES_ID,
+    _MAX_LIST_ROWS, handle_incoming,
 )
+from flows.booking.messages import _TIME_SLOTS_PAGE_SIZE
 from core.session_store import InMemorySessionStore
 
 
@@ -196,15 +198,47 @@ async def test_date_and_time_menus_capped_to_whatsapp_list_limit(hospital_id):
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {BACK_ID}
 
-    # Time list for the soonest date: independently capped the same way.
+    # Time list for the soonest date: paginated, not silently truncated --
+    # first page holds _TIME_SLOTS_PAGE_SIZE real slots plus a trailing
+    # "More Times" nav row (no "Previous" row yet, since this is page 0).
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(distinct_dates[0]))
     time_kwargs = _last_list(wa)
     time_rows = time_kwargs["sections"][0]["rows"]
-    assert len(time_rows) == _MAX_LIST_ROWS
-    assert {r["id"] for r in time_rows} == {s["id"] for s in first_date_slots[:_MAX_LIST_ROWS]}
+    assert len(time_rows) == _TIME_SLOTS_PAGE_SIZE + 1
+    assert time_rows[-1]["id"] == NEXT_TIMES_ID
+    assert {r["id"] for r in time_rows[:-1]} == {s["id"] for s in first_date_slots[:_TIME_SLOTS_PAGE_SIZE]}
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
     assert {b["id"] for b in kwargs["buttons"]} == {BACK_ID}
+
+    # Tapping "More Times" advances to page 1: still 8 dedicated slot rows,
+    # now WITH a "Previous Times" row too (there's an even-later page 2
+    # ahead of it, since 48 slots / 8 per page = 6 pages total).
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(NEXT_TIMES_ID))
+    assert sessions.get(hospital_id, PHONE)["context"]["time_slot_page"] == 1
+    time_kwargs = _last_list(wa)
+    time_rows = time_kwargs["sections"][0]["rows"]
+    assert len(time_rows) == _TIME_SLOTS_PAGE_SIZE + 2
+    assert time_rows[0]["id"] == PREV_TIMES_ID
+    assert time_rows[-1]["id"] == NEXT_TIMES_ID
+    page_2_slots = first_date_slots[_TIME_SLOTS_PAGE_SIZE:_TIME_SLOTS_PAGE_SIZE * 2]
+    assert {r["id"] for r in time_rows[1:-1]} == {s["id"] for s in page_2_slots}
+
+    # Tapping "Previous Times" returns to page 0, same rows as before.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(PREV_TIMES_ID))
+    assert sessions.get(hospital_id, PHONE)["context"]["time_slot_page"] == 0
+    time_kwargs = _last_list(wa)
+    time_rows = time_kwargs["sections"][0]["rows"]
+    assert len(time_rows) == _TIME_SLOTS_PAGE_SIZE + 1
+    assert time_rows[-1]["id"] == NEXT_TIMES_ID
+    assert {r["id"] for r in time_rows[:-1]} == {s["id"] for s in first_date_slots[:_TIME_SLOTS_PAGE_SIZE]}
+
+    # A slot from a later page can still be booked directly -- picking it
+    # doesn't require having actually navigated to that page first.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(NEXT_TIMES_ID))
+    chosen = page_2_slots[0]
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(chosen["id"]))
+    assert sessions.get(hospital_id, PHONE)["context"]["slot_id"] == chosen["id"]
 
 
 @pytest.mark.asyncio

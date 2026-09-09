@@ -1227,6 +1227,17 @@ def init_db_on_connection(conn) -> int:
         "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_or_procedure_chk "
         "CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL OR procedure_id IS NOT NULL)"
     )
+    # Migration 0030: lab_service_areas gains range_start/range_end so a
+    # hospital can add a PIN-code range, not just individual codes.
+    conn.execute("ALTER TABLE lab_service_areas ALTER COLUMN pincode DROP NOT NULL")
+    conn.execute("ALTER TABLE lab_service_areas ADD COLUMN IF NOT EXISTS range_start TEXT")
+    conn.execute("ALTER TABLE lab_service_areas ADD COLUMN IF NOT EXISTS range_end TEXT")
+    conn.execute("ALTER TABLE lab_service_areas DROP CONSTRAINT IF EXISTS lab_service_areas_single_xor_range_chk")
+    conn.execute(
+        "ALTER TABLE lab_service_areas ADD CONSTRAINT lab_service_areas_single_xor_range_chk "
+        "CHECK ((pincode IS NOT NULL AND range_start IS NULL AND range_end IS NULL) OR "
+        "(pincode IS NULL AND range_start IS NOT NULL AND range_end IS NOT NULL AND range_start <= range_end))"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

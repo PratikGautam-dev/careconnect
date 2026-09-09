@@ -58,8 +58,10 @@ from core.translations.booking import (
     CONSULTATION_FEE_LINE,
     DEPARTMENTS_SECTION_TITLE,
     DOCTOR_SELECTED_ASK_DATE,
+    NEXT_TIMES_ROW,
     NO_DOCTORS_AVAILABLE,
     NO_SLOTS_AVAILABLE,
+    PREVIOUS_TIMES_ROW,
     SELECT_APPOINTMENT_TYPE,
     SELECT_DEPARTMENT,
     SELECT_DOCTOR,
@@ -90,7 +92,7 @@ from flows.booking.state import (
     CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
     CHANGE_DIAGNOSTIC_TEST, CHANGE_DIAGNOSTIC_VARIANT, CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES,
     MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
-    MAIN_MENU_RESCHEDULE, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE,
+    MAIN_MENU_RESCHEDULE, NEXT_TIMES_ID, PREV_TIMES_ID, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE,
     STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
     STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST,
@@ -482,16 +484,27 @@ async def _send_date_menu(
     await _send_back_button(wa, phone, language=language)
 
 
+_TIME_SLOTS_PAGE_SIZE = 8  # leaves room for a Previous and/or Next nav row within WhatsApp's 10-row list cap
+
+
 async def _send_time_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str | None, date_str: str, connector: Connector,
-    language: str = "en", resource_id: str | None = None, procedure_id: int | None = None,
-) -> None:
+    language: str = "en", resource_id: str | None = None, procedure_id: int | None = None, page: int = 0,
+) -> int:
     """Section 12.12, step 2 of the date/time split: just this doctor's slots
     ON date_str, row title is the bare time (the date's already been picked,
     showing it again in every row would be redundant) -- e.g. a doctor with
-    two shifts and a short slot duration can easily have 20+ times in one day,
-    so this is capped independently of the date list above, not just
-    inheriting whatever headroom the date cap left.
+    two shifts and a short slot duration can easily have 20+ times in one
+    day, which used to just get silently truncated to the first 10 (earliest)
+    times by _cap_rows below with no way to see the rest. Now paginated in
+    fixed _TIME_SLOTS_PAGE_SIZE-sized pages once the full list exceeds one
+    screen, with Previous/Next nav rows (flows/booking/state.py's
+    PREV_TIMES_ID/NEXT_TIMES_ID) filling in whichever end(s) have more.
+
+    Returns the actual page rendered (clamped into range) so the caller can
+    store it back into session context for the next Previous/Next tap --
+    matters if the slot list shrank (another booking/cancellation) between
+    renders and a stale requested page would otherwise be out of range.
 
     resource_id (Diagnostic/Lab Phase 2)/procedure_id (Daycare/Procedure
     rebuild): same override as _send_date_menu."""
@@ -502,7 +515,24 @@ async def _send_time_menu(
     else:
         assert doctor_id is not None  # every caller sets one of doctor_id/resource_id/procedure_id
         slots = connector.get_available_slots(hospital_id, doctor_id)
-    rows = [{"id": s["id"], "title": s["time"]} for s in slots if s["date"] == date_str]
+    all_rows = [{"id": s["id"], "title": s["time"]} for s in slots if s["date"] == date_str]
+
+    if len(all_rows) <= _MAX_LIST_ROWS:
+        page = 0
+        page_rows, has_prev, has_next = all_rows, False, False
+    else:
+        total_pages = -(-len(all_rows) // _TIME_SLOTS_PAGE_SIZE)  # ceil division
+        page = max(0, min(page, total_pages - 1))
+        start = page * _TIME_SLOTS_PAGE_SIZE
+        page_rows = all_rows[start:start + _TIME_SLOTS_PAGE_SIZE]
+        has_prev, has_next = page > 0, page < total_pages - 1
+
+    rows = []
+    if has_prev:
+        rows.append({"id": PREV_TIMES_ID, "title": t(PREVIOUS_TIMES_ROW, language)})
+    rows.extend(page_rows)
+    if has_next:
+        rows.append({"id": NEXT_TIMES_ID, "title": t(NEXT_TIMES_ROW, language)})
     rows = _cap_rows(rows, f"time menu for doctor {doctor_id} on {date_str}")
     await wa.send_list(
         to=phone,
@@ -511,6 +541,7 @@ async def _send_time_menu(
         sections=[{"title": t(AVAILABLE_TIMES_SECTION_TITLE, language), "rows": rows}],
     )
     await _send_back_button(wa, phone, language=language)
+    return page
 
 
 async def _notify_no_doctors_available(
@@ -589,7 +620,7 @@ async def _handle_slot_taken(
             return
         await _send_time_menu(
             wa, phone, hospital_id, doctor_id, date_str, connector, language=language,
-            resource_id=resource_id, procedure_id=procedure_id,
+            resource_id=resource_id, procedure_id=procedure_id, page=context.get("time_slot_page", 0),
         )
         return
     await _send_slot_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language)
@@ -743,6 +774,7 @@ async def _resend_menu_for_state(
         await _send_time_menu(
             wa, phone, hospital_id, context.get("doctor_id"), context["date"], connector, language=language,
             resource_id=context.get("resource_id"), procedure_id=context.get("procedure_id"),
+            page=context.get("time_slot_page", 0),
         )
     elif state == STATE_AWAITING_PROCEDURE:
         # Lazy import: avoids this module -> types.registry -> procedure cycle,

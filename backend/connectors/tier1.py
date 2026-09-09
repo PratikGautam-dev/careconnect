@@ -6,6 +6,44 @@ module."""
 import db.repository as repo
 
 from connectors.base import Connector
+from core.redis_client import cache_get_json, cache_set_json
+
+# The 3 bot-facing slot-list reads below are re-run from scratch (3 DB
+# queries each) on nearly every WhatsApp turn during date/time selection --
+# short-TTL cached here, not in db/repositories/*.py, because those repo
+# functions are also called directly by portal/admin routes that must always
+# see live data (e.g. blocking a slot). TTL-only, no active invalidation on
+# booking/cancel/reschedule -- kept short enough that staleness is smaller
+# than the natural gap between WhatsApp messages, and never load-bearing for
+# correctness anyway: the real double-booking guard is the DB's own
+# unique-slot constraint at booking-creation time, which this cache never
+# sits in front of -- a stale slot shown here just hits the existing
+# "slot taken, pick another" retry path if someone else took it meanwhile.
+# No-ops to a live DB read whenever Redis is unset/unreachable
+# (core/redis_client.py's own contract), so this is a pure win with no new
+# failure mode.
+_SLOTS_CACHE_TTL_SECONDS = 10
+
+
+def reset_slots_cache_for_tests() -> None:
+    """Test-only: tests/conftest.py's _fresh_test_db fixture recreates the
+    Postgres schema per test, so hospital/doctor ids get REUSED across tests
+    -- without this, a slot list cached by one test under the same
+    hospital_id:doctor_id key could leak into the very next test within the
+    short TTL window, the same class of cross-test bleed core/rate_limit.py's
+    reset_all_for_tests() and portal/permission_cache.py's reset_for_tests()
+    already guard against for their own caches. Not called anywhere in
+    application code."""
+    from core.redis_client import get_redis
+
+    client = get_redis()
+    if client is None:
+        return
+    try:
+        for key in client.scan_iter("slots:*"):
+            client.delete(key)
+    except Exception:
+        pass
 
 
 class Tier1Connector(Connector):
@@ -28,10 +66,22 @@ class Tier1Connector(Connector):
         return repo.get_doctors(hospital_id, department_id)
 
     def get_available_slots(self, hospital_id, doctor_id):
-        return repo.get_slots(hospital_id, doctor_id)
+        cache_key = f"slots:doctor:{hospital_id}:{doctor_id}"
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return cached
+        slots = repo.get_slots(hospital_id, doctor_id)
+        cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
+        return slots
 
     def get_available_resource_slots(self, hospital_id, resource_id):
-        return repo.get_resource_slots(hospital_id, resource_id)
+        cache_key = f"slots:resource:{hospital_id}:{resource_id}"
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return cached
+        slots = repo.get_resource_slots(hospital_id, resource_id)
+        cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
+        return slots
 
     def get_diagnostic_tests(self, hospital_id, category):
         return repo.get_diagnostic_tests(hospital_id, category)
@@ -128,7 +178,13 @@ class Tier1Connector(Connector):
         return repo.get_procedure(hospital_id, procedure_id)
 
     def get_procedure_available_slots(self, hospital_id, procedure_id):
-        return repo.get_procedure_available_slots(hospital_id, procedure_id)
+        cache_key = f"slots:procedure:{hospital_id}:{procedure_id}"
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return cached
+        slots = repo.get_procedure_available_slots(hospital_id, procedure_id)
+        cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
+        return slots
 
     def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
         return repo.create_procedure_appointment(

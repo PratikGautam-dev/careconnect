@@ -26,6 +26,8 @@ AVAILABLE_DATES_SECTION_TITLE = "available_dates_section_title"
 SELECT_TIME_SLOT = "select_time_slot"
 VIEW_TIMES_BUTTON = "view_times_button"
 AVAILABLE_TIMES_SECTION_TITLE = "available_times_section_title"
+NEXT_TIMES_ROW = "next_times_row"
+PREVIOUS_TIMES_ROW = "previous_times_row"
 CONSULTATION_FEE_LINE = "consultation_fee_line"
 SELECT_SLOT = "select_slot"
 VIEW_SLOTS_BUTTON = "view_slots_button"
@@ -200,6 +202,8 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
     VIEW_TIMES_BUTTON: {"en": "View Times", "hi": "समय देखें"},
     AVAILABLE_TIMES_SECTION_TITLE: {"en": "Available Times", "hi": "उपलब्ध समय"},
+    NEXT_TIMES_ROW: {"en": "▸ More Times", "hi": "▸ और समय"},
+    PREVIOUS_TIMES_ROW: {"en": "◂ Previous Times", "hi": "◂ पिछले समय"},
 
     # --- Booking: daycare duration (Phase 2, docs/per-appointment-type-
     # flow-plan.md) -- shown right after time-slot selection, daycare only ---

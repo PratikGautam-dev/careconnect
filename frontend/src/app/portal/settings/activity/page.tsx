@@ -41,7 +41,7 @@ const columns: ColumnDef<AuditEntry>[] = [
   {
     id: "changes",
     header: "Details",
-    cell: ({ row }) => <span className="text-ink-600">{formatAuditChanges(row.original) || "—"}</span>,
+    cell: ({ row }) => <span className="whitespace-normal text-ink-600">{formatAuditChanges(row.original) || "—"}</span>,
   },
 ];
 

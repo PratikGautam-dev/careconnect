@@ -90,7 +90,7 @@ class DuplicateSelfLinkError(Exception):
 
 
 _APPOINTMENT_SELECT = """
-    SELECT a.id, a.hospital_id, a.phone, a.department_id, d.name AS department_name,
+    SELECT a.id, a.hospital_id, a.phone, a.patient_name, a.department_id, d.name AS department_name,
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
            a.created_at, a.followup_override_until,
@@ -200,6 +200,11 @@ class Appointment:
     doctor_id: str | None
     doctor_name: str | None
     scheduled_at: datetime
+    # Snapshot of the patient's name at booking time (appointments.patient_name
+    # -- same denormalization as `phone`), shown alongside patient_display_id
+    # on the portal appointments list. None only for a booking predating this
+    # column.
+    patient_name: str | None = None
     status: str = STATUS_BOOKED
     # Section 12.9: 'whatsapp' (patient self-booking) or 'staff' (portal.py's
     # /portal/new-booking) -- descriptive only, never branched on by booking
@@ -294,6 +299,7 @@ def _row_to_appointment(row) -> Appointment:
         doctor_id=row["doctor_id"],
         doctor_name=row["doctor_name"],
         scheduled_at=datetime.fromisoformat(row["scheduled_at"]),
+        patient_name=row["patient_name"],
         status=row["status"],
         source=row["source"],
         reference_id=row["reference_id"],

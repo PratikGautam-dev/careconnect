@@ -20,6 +20,17 @@ jobs:
         working-directory: backend
         run: uv sync --locked
 
+      - name: Check for multiple Alembic heads
+        working-directory: backend
+        run: |
+          heads=$(uv run alembic heads)
+          count=$(echo "$heads" | grep -c .)
+          if [ "$count" -gt 1 ]; then
+            echo "::error::Multiple Alembic heads present -- run 'alembic merge heads' to resolve:"
+            echo "$heads"
+            exit 1
+          fi
+
       - name: Run tests
         working-directory: backend
         run: uv run pytest tests/ -v

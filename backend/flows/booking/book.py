@@ -33,7 +33,8 @@ from flows.booking.messages import (
     _send_doctor_menu, _send_main_menu, _send_patient_selector, _send_time_menu,
 )
 from flows.booking.state import (
-    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, MAX_PATIENT_AGE, MIN_PATIENT_AGE, STATE_AWAITING_APPOINTMENT_TYPE,
+    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, MAX_PATIENT_AGE, MIN_PATIENT_AGE, NEXT_TIMES_ID, PREV_TIMES_ID,
+    STATE_AWAITING_APPOINTMENT_TYPE,
     STATE_AWAITING_CHANGE_SELECTION, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_TIME_SLOT,
@@ -404,7 +405,10 @@ async def _handle_awaiting_date(
         available_dates = {s["date"] for s in _get_slots(connector, hospital_id, doctor_id, resource_id, procedure_id)}
         if reply["id"] in available_dates:
             history = _push_history(context, STATE_AWAITING_DATE)
-            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"]), _HISTORY_KEY: history}
+            new_context = {
+                **context, "date": reply["id"], "date_label": _date_label(reply["id"]), "time_slot_page": 0,
+                _HISTORY_KEY: history,
+            }
             sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, new_context)
             await _send_time_menu(
                 wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language,
@@ -447,6 +451,15 @@ async def _handle_awaiting_time_slot(
         if reply["id"] == BACK_ID:
             await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
             return
+        if reply["id"] in (NEXT_TIMES_ID, PREV_TIMES_ID):
+            current_page = context.get("time_slot_page", 0)
+            requested_page = current_page + 1 if reply["id"] == NEXT_TIMES_ID else max(0, current_page - 1)
+            actual_page = await _send_time_menu(
+                wa, phone, hospital_id, doctor_id, date_str, connector, language=language,
+                resource_id=resource_id, procedure_id=procedure_id, page=requested_page,
+            )
+            sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, {**context, "time_slot_page": actual_page})
+            return
         slot = _find_by_id(_get_slots(connector, hospital_id, doctor_id, resource_id, procedure_id), reply["id"])
         if slot and slot["date"] == date_str:
             new_context = {
@@ -487,7 +500,7 @@ async def _handle_awaiting_time_slot(
     sessions.set(hospital_id, phone, STATE_AWAITING_TIME_SLOT, context)
     await _send_time_menu(
         wa, phone, hospital_id, doctor_id, date_str, connector, language=language,
-        resource_id=resource_id, procedure_id=procedure_id,
+        resource_id=resource_id, procedure_id=procedure_id, page=context.get("time_slot_page", 0),
     )
 
 

@@ -26,6 +26,7 @@ export function createPatientColumns({
   return [
     {
       id: "select",
+      enableHiding: false,
       header: () => (
         <input
           type="checkbox"
@@ -99,6 +100,7 @@ export function createPatientColumns({
     },
     {
       id: "actions",
+      enableHiding: false,
       header: "",
       cell: ({ row }) => (
         <div className="text-right">

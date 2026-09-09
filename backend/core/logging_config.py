@@ -89,3 +89,9 @@ def configure_logging() -> None:
     # then three times, and so on.
     root.handlers.clear()
     root.addHandler(handler)
+
+    # alembic's internal plugin/autogenerate loggers are INFO-noisy on every
+    # startup migration run; alembic.ini also sets this, but that only takes
+    # effect when its fileConfig actually loads, which isn't guaranteed in
+    # every environment this process runs in.
+    logging.getLogger("alembic").setLevel(logging.WARNING)

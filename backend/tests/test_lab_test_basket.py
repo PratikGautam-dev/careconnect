@@ -311,6 +311,52 @@ def test_lab_service_area_crud_and_serviceability(hospital_id):
     assert db.is_pincode_serviceable(hospital_id, "560001") is False
 
 
+def test_lab_service_area_range_matches_inside_and_rejects_outside(hospital_id):
+    area = db.create_service_area(hospital_id, range_start="400001", range_end="400050")
+    assert area["pincode"] is None
+    assert area["range_start"] == "400001" and area["range_end"] == "400050"
+    assert db.is_pincode_serviceable(hospital_id, "400001") is True
+    assert db.is_pincode_serviceable(hospital_id, "400025") is True
+    assert db.is_pincode_serviceable(hospital_id, "400050") is True
+    assert db.is_pincode_serviceable(hospital_id, "400051") is False
+    assert db.is_pincode_serviceable(hospital_id, "399999") is False
+    db.set_service_area_active(hospital_id, area["id"], False)
+    assert db.is_pincode_serviceable(hospital_id, "400025") is False
+
+
+def test_lab_service_area_range_validation_rejects_bad_input(hospital_id):
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id, range_start="400050", range_end="400001")
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id, range_start="abcdef", range_end="400050")
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id, range_start="4001", range_end="4050")
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id)
+
+
+def test_portal_lab_service_area_range_create_and_reject(hospital_id):
+    _set_hospital_creds(hospital_id, password="testpass123", phone_number_id="pn1", access_token="tok1")
+    token = _login("testpass123")
+
+    resp = client.post(
+        "/api/portal/lab-service-areas", headers=_auth(token),
+        json={"range_start": "400001", "range_end": "400050"},
+    )
+    assert resp.status_code == 200, resp.text
+    area = resp.json()["lab_service_area"]
+    assert area["range_start"] == "400001" and area["range_end"] == "400050"
+
+    resp = client.post(
+        "/api/portal/lab-service-areas", headers=_auth(token),
+        json={"range_start": "400050", "range_end": "400001"},
+    )
+    assert resp.status_code == 400
+
+    resp = client.post("/api/portal/lab-service-areas", headers=_auth(token), json={})
+    assert resp.status_code == 400
+
+
 # --- Report lifecycle: staff advance + document-upload-triggered report_ready ---
 
 def _set_hospital_creds(hosp_id: int, *, password: str, phone_number_id: str, access_token: str) -> None:

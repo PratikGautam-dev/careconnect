@@ -9,6 +9,7 @@ const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
 export type Appointment = {
   id: number;
   phone: string;
+  patient_name: string | null;
   department_name: string;
   doctor_name: string;
   scheduled_at: string;
@@ -148,6 +149,7 @@ export function useAppointments(ready: boolean) {
       if (!q) return true;
       return (
         a.phone.toLowerCase().includes(q) ||
+        (a.patient_name || "").toLowerCase().includes(q) ||
         a.doctor_name.toLowerCase().includes(q) ||
         a.department_name.toLowerCase().includes(q) ||
         (a.reference_id || "").toLowerCase().includes(q) ||

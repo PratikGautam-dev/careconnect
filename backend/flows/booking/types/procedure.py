@@ -48,7 +48,7 @@ from core.translations.menu import MAIN_MENU_BUTTON
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE,
+    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, NEXT_TIMES_ID, PREV_TIMES_ID, STATE_AWAITING_APPOINTMENT_TYPE,
     STATE_AWAITING_DATE, STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
     STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT,
     _HISTORY_KEY, _date_label, _find_by_id, _push_history,
@@ -360,7 +360,9 @@ async def _handle_awaiting_procedure_reschedule_date(
     if reply["type"] == "interactive_reply":
         available_dates = {s["date"] for s in connector.get_procedure_available_slots(hospital_id, procedure_id)}
         if reply["id"] in available_dates:
-            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"])}
+            new_context = {
+                **context, "date": reply["id"], "date_label": _date_label(reply["id"]), "time_slot_page": 0,
+            }
             sessions.set(hospital_id, phone, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT, new_context)
             await _send_time_menu(
                 wa, phone, hospital_id, None, reply["id"], connector, language=language, procedure_id=procedure_id,
@@ -389,6 +391,18 @@ async def _handle_awaiting_procedure_reschedule_slot(
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     if reply["type"] == "interactive_reply":
+        if reply["id"] in (NEXT_TIMES_ID, PREV_TIMES_ID):
+            current_page = context.get("time_slot_page", 0)
+            requested_page = current_page + 1 if reply["id"] == NEXT_TIMES_ID else max(0, current_page - 1)
+            actual_page = await _send_time_menu(
+                wa, phone, hospital_id, None, date_str, connector, language=language,
+                procedure_id=procedure_id, page=requested_page,
+            )
+            sessions.set(
+                hospital_id, phone, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT,
+                {**context, "time_slot_page": actual_page},
+            )
+            return
         slot = _find_by_id(connector.get_procedure_available_slots(hospital_id, procedure_id), reply["id"])
         if slot and slot["date"] == date_str:
             connector.request_procedure_reschedule(hospital_id, appointment_id, _datetime.fromisoformat(slot["id"]))
@@ -408,4 +422,5 @@ async def _handle_awaiting_procedure_reschedule_slot(
     sessions.set(hospital_id, phone, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT, context)
     await _send_time_menu(
         wa, phone, hospital_id, None, date_str, connector, language=language, procedure_id=procedure_id,
+        page=context.get("time_slot_page", 0),
     )

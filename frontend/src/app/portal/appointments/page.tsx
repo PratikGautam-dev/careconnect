@@ -290,6 +290,8 @@ export default function PortalAppointmentsPage() {
               getRowId={(a) => String(a.id)}
               isRowExpanded={(a) => reschedulePanelId === a.id || cancelPanelId === a.id}
               renderRowDetail={renderRowDetail}
+              enableColumnVisibility
+              tableId="appointments"
             />
           )}
         </Card>

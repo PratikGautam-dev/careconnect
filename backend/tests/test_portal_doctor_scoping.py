@@ -109,6 +109,21 @@ def test_portal_patient_detail_404s_for_a_patient_the_doctor_has_not_treated(hos
     assert forbidden.status_code == 404, forbidden.text
 
 
+def test_portal_booking_detail_404s_for_another_doctors_appointment(hospital_id):
+    doctor_a, token_a = _make_doctor(hospital_id, "Dr. Scope I", "scope.i@example.com")
+    doctor_b, _ = _make_doctor(hospital_id, "Dr. Scope J", "scope.j@example.com")
+    appt_a = _book(hospital_id, doctor_a, "5491110009", patient_name="Patient Of A4")
+    appt_b = _book(hospital_id, doctor_b, "5491110010", patient_name="Patient Of B4")
+
+    ok = client.get(f"/api/portal/bookings/{appt_a.id}", headers=_auth(token_a))
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["appointment"]["id"] == appt_a.id
+    assert ok.json()["patient"]["id"] == appt_a.patient_id
+
+    forbidden = client.get(f"/api/portal/bookings/{appt_b.id}", headers=_auth(token_a))
+    assert forbidden.status_code == 404, forbidden.text
+
+
 def test_portal_bookings_and_patients_remain_hospital_wide_for_admin(hospital_id):
     doctor_a, _ = _make_doctor(hospital_id, "Dr. Scope G", "scope.g@example.com")
     doctor_b, _ = _make_doctor(hospital_id, "Dr. Scope H", "scope.h@example.com")

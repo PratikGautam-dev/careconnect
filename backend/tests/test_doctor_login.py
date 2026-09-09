@@ -133,7 +133,7 @@ def test_doctor_token_rejected_by_shared_staff_portal_routes(hospital_id):
 
 def test_staff_token_rejected_by_doctor_portal_routes(hospital_id):
     staff_token = _login(hospital_id)
-    resp = client.get("/api/doctor/appointments/today", headers=_auth(staff_token))
+    resp = client.get("/api/doctor/dashboard", headers=_auth(staff_token))
     assert resp.status_code == 401
 
 
@@ -141,15 +141,21 @@ def test_expired_or_tampered_doctor_token_rejected(hospital_id):
     doctor = db.create_doctor(hospital_id, "cardiology", "Dr. Tamper Test")
     token = issue_doctor_session(hospital_id, doctor["id"])
     tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
-    resp = client.get("/api/doctor/appointments/today", headers=_auth(tampered))
+    resp = client.get("/api/doctor/dashboard", headers=_auth(tampered))
     assert resp.status_code == 401
-    resp = client.get("/api/doctor/appointments/today", headers=_auth(""))
+    resp = client.get("/api/doctor/dashboard", headers=_auth(""))
     assert resp.status_code == 401
 
 
 # --- The actual isolation guarantee ---
 
 def test_doctor_a_cannot_see_doctor_bs_appointments(hospital_id):
+    """The per-appointment doctor routes (detail/attendance/notes) this test
+    used to probe directly were removed as duplicates of the now-scoped
+    /api/portal/bookings(+{id}) -- see test_portal_doctor_scoping.py for
+    that isolation proof. What's left to prove for the OLD dedicated-token
+    path specifically is that it resolves the SAME doctor_id-scoped queries
+    /api/doctor/dashboard uses, same as every other /api/doctor/* route."""
     staff_token = _login(hospital_id)
     doctor_a = _make_doctor_with_login(hospital_id, "Dr. A", "dr.a@example.com", staff_token, "pwA-secret")
     doctor_b = _make_doctor_with_login(hospital_id, "Dr. B", "dr.b@example.com", staff_token, "pwB-secret")
@@ -158,25 +164,10 @@ def test_doctor_a_cannot_see_doctor_bs_appointments(hospital_id):
 
     token_a = client.post("/api/doctor/login", json={"email": "dr.a@example.com", "password": "pwA-secret"}).json()["token"]
 
-    today_resp = client.get("/api/doctor/appointments/today", headers=_auth(token_a))
-    assert today_resp.status_code == 200
-    seen_ids = {a["id"] for a in today_resp.json()["appointments"]}
+    dashboard_resp = client.get("/api/doctor/dashboard", headers=_auth(token_a))
+    assert dashboard_resp.status_code == 200
+    seen_ids = {a["id"] for a in dashboard_resp.json()["today_appointments"]}
     assert appointment_b_id not in seen_ids
-
-    detail_resp = client.get(f"/api/doctor/appointments/{appointment_b_id}", headers=_auth(token_a))
-    assert detail_resp.status_code == 404
-
-    attendance_resp = client.post(
-        f"/api/doctor/appointments/{appointment_b_id}/attendance", json={"attended": True}, headers=_auth(token_a),
-    )
-    assert attendance_resp.status_code == 404
-    # Confirm the attempt was actually rejected, not silently applied.
-    assert db.get_appointment(hospital_id, appointment_b_id).status == "booked"
-
-    note_resp = client.post(
-        f"/api/doctor/appointments/{appointment_b_id}/notes", json={"note_text": "should not land"}, headers=_auth(token_a),
-    )
-    assert note_resp.status_code == 404
 
 
 def test_doctor_a_cannot_touch_doctor_bs_schedule_or_leave(hospital_id):
@@ -214,9 +205,9 @@ def test_doctor_login_isolated_across_hospitals(hospital_id, second_hospital_id)
 
     # A doctor token minted for hospital #1 must not resolve against hospital #2's data.
     token_1 = client.post("/api/doctor/login", json={"email": "tenant1@example.com", "password": "pw1"}).json()["token"]
-    me_resp = client.get("/api/doctor/me", headers=_auth(token_1))
-    assert me_resp.status_code == 200
-    assert me_resp.json()["hospital"]["id"] == hospital_id
+    dashboard_resp = client.get("/api/doctor/dashboard", headers=_auth(token_1))
+    assert dashboard_resp.status_code == 200
+    assert dashboard_resp.json()["hospital"]["id"] == hospital_id
 
 
 def test_login_credentials_email_must_be_globally_unique(hospital_id):

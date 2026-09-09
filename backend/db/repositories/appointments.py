@@ -36,7 +36,7 @@ def _appointment_select_stmt():
     has exactly one of doctor_id/resource_id set, never both."""
     return (
         select(
-            AppointmentRow.id, AppointmentRow.hospital_id, AppointmentRow.phone,
+            AppointmentRow.id, AppointmentRow.hospital_id, AppointmentRow.phone, AppointmentRow.patient_name,
             AppointmentRow.department_id, Department.name.label("department_name"),
             AppointmentRow.doctor_id, DoctorRow.name.label("doctor_name"),
             AppointmentRow.scheduled_at, AppointmentRow.status, AppointmentRow.source, AppointmentRow.reference_id,

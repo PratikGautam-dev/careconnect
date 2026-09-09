@@ -28,10 +28,20 @@ async def portal_create_lab_service_area(payload: dict, authorization: str | Non
     forbidden = require_capability(hospital, "manage_appointment_types")
     if forbidden:
         return forbidden
-    pincode = (payload or {}).get("pincode", "").strip()
-    if not pincode:
-        return JSONResponse({"error": "pincode is required."}, status_code=400)
-    area = db.create_service_area(hospital.id, pincode)
+    payload = payload or {}
+    pincode = (payload.get("pincode") or "").strip()
+    range_start = (payload.get("range_start") or "").strip()
+    range_end = (payload.get("range_end") or "").strip()
+    if not pincode and not (range_start and range_end):
+        return JSONResponse(
+            {"error": "Either pincode or both range_start and range_end are required."}, status_code=400
+        )
+    try:
+        area = db.create_service_area(
+            hospital.id, pincode=pincode or None, range_start=range_start or None, range_end=range_end or None,
+        )
+    except db.InvalidPincodeRange as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "lab_service_area.create",
         entity_type="lab_service_area", entity_id=str(area["id"]), after=area,

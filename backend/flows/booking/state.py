@@ -127,6 +127,13 @@ STATE_AWAITING_CHANGE_SELECTION = "AWAITING_CHANGE_SELECTION"
 BACK_ID = "nav_back"
 
 
+# Time-slot list pagination row ids (a doctor with a long working window and
+# short slot duration can easily exceed WhatsApp's 10-row list cap) --
+# see _send_time_menu/_handle_awaiting_time_slot in flows/booking/book.py.
+NEXT_TIMES_ID = "next_times"
+PREV_TIMES_ID = "prev_times"
+
+
 CHANGE_APPOINTMENT_TYPE = "change_appointment_type"
 
 

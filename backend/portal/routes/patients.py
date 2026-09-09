@@ -74,8 +74,7 @@ async def portal_patient_detail(patient_id: int, authorization: str | None = Hea
     """When role=="doctor", both existence AND ownership are folded into one
     check: a patient this doctor has never treated resolves to the same 404
     as a patient that doesn't exist at all, never a 403 that would confirm
-    the record exists at this hospital (mirrors doctor_patient_detail() in
-    doctor_portal.py)."""
+    the record exists at this hospital."""
     hospital, role, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)

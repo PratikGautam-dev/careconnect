@@ -104,6 +104,22 @@ def _fresh_rbac_caches():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_slots_cache():
+    """connectors/tier1.py's short-TTL slot-list cache is keyed by
+    hospital_id/doctor_id, both REUSED across tests by _fresh_test_db's
+    schema recreation below -- without this, a slot list cached by one test
+    could leak into the very next one within its TTL, same class of
+    cross-test bleed _fresh_rate_limiter/_fresh_rbac_caches above already
+    guard against for their own caches. No-ops when Redis isn't actually
+    reachable (most CI/sandbox runs), same as the cache itself."""
+    from connectors.tier1 import reset_slots_cache_for_tests
+
+    reset_slots_cache_for_tests()
+    yield
+    reset_slots_cache_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_test_db():
     """
     Fresh Postgres schema per test (SPEC Section 12.6 Tier 1, now Postgres/Neon

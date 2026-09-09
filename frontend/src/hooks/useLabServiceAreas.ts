@@ -2,17 +2,26 @@ import { useCallback, useEffect, useState } from "react";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
-export type ServiceArea = { id: number; pincode: string; is_active: boolean };
+export type ServiceArea = {
+  id: number;
+  pincode: string | null;
+  range_start: string | null;
+  range_end: string | null;
+  is_active: boolean;
+};
 
 /** Lab Test Phase 2 follow-up: loads + owns every mutation on the hospital-
  * configurable list of PIN codes serviceable for Home Sample Collection --
- * add / toggle-active / remove. */
+ * add (single pincode or a range) / toggle-active / remove. */
 export function useLabServiceAreas() {
   const [areas, setAreas] = useState<ServiceArea[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<number | "new" | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [addMode, setAddMode] = useState<"single" | "range">("single");
   const [newPincode, setNewPincode] = useState("");
+  const [newRangeStart, setNewRangeStart] = useState("");
+  const [newRangeEnd, setNewRangeEnd] = useState("");
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/lab-service-areas");
@@ -46,7 +55,8 @@ export function useLabServiceAreas() {
   }
 
   async function removeArea(area: ServiceArea) {
-    if (!window.confirm(`Remove PIN code "${area.pincode}" from serviceable areas?`)) return;
+    const label = area.pincode ?? `${area.range_start}–${area.range_end}`;
+    if (!window.confirm(`Remove PIN code "${label}" from serviceable areas?`)) return;
     setPendingId(area.id);
     setError(null);
     const result = await portalFetch(`/api/portal/lab-service-areas/${area.id}`, { method: "DELETE" });
@@ -61,13 +71,17 @@ export function useLabServiceAreas() {
   }
 
   async function addArea() {
-    if (!newPincode.trim()) return;
+    const body =
+      addMode === "single"
+        ? { pincode: newPincode.trim() }
+        : { range_start: newRangeStart.trim(), range_end: newRangeEnd.trim() };
+    if (addMode === "single" ? !newPincode.trim() : !(newRangeStart.trim() && newRangeEnd.trim())) return;
     setPendingId("new");
     setError(null);
     const result = await portalFetch("/api/portal/lab-service-areas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pincode: newPincode.trim() }),
+      body: JSON.stringify(body),
     });
     setPendingId(null);
     if (!result.ok) {
@@ -75,15 +89,18 @@ export function useLabServiceAreas() {
       if (!result.unauthorized) toast.error("Couldn't add PIN code", result.error);
       return;
     }
-    toast.success("PIN code added");
+    toast.success(addMode === "single" ? "PIN code added" : "PIN code range added");
     setNewPincode("");
+    setNewRangeStart("");
+    setNewRangeEnd("");
     setShowAddForm(false);
     load();
   }
 
   return {
     areas, error, pendingId,
-    showAddForm, setShowAddForm, newPincode, setNewPincode,
+    showAddForm, setShowAddForm, addMode, setAddMode,
+    newPincode, setNewPincode, newRangeStart, setNewRangeStart, newRangeEnd, setNewRangeEnd,
     toggleActive, removeArea, addArea,
   };
 }

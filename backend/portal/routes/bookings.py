@@ -34,6 +34,7 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
     return {
         "id": a.id,
         "phone": a.phone,
+        "patient_name": a.patient_name,
         "department_id": a.department_id,
         "department_name": a.department_name,
         "doctor_id": a.doctor_id,
@@ -121,6 +122,47 @@ async def portal_bookings_needing_attendance_review(authorization: str | None = 
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     appointments = db.get_appointments_needing_attendance_review(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+
+
+@router.get("/api/portal/bookings/{appointment_id}")
+async def portal_booking_detail(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Single-appointment detail for /portal/appointments/[id]. Same
+    existence+ownership folding as patients.py's portal_patient_detail():
+    when role=="doctor", an appointment belonging to another doctor resolves
+    to the same 404 as one that doesn't exist at all, never a 403 that would
+    confirm it exists.
+
+    Registered AFTER every other literal single-segment /api/portal/bookings/*
+    GET route (just needs-attendance-review today) -- FastAPI/Starlette
+    matches by path SHAPE before validating {appointment_id} as an int, so a
+    literal route registered after this one would 422 instead of matching."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or (role == "doctor" and doctor_id is not None and appointment.doctor_id != doctor_id):
+        return JSONResponse({"error": "No such appointment."}, status_code=404)
+
+    validity_days = db.get_followup_validity_days(hospital.id)
+    patient = db.get_patient(hospital.id, appointment.patient_id) if appointment.patient_id else None
+    if patient is None:
+        notes = []
+    elif role == "doctor" and doctor_id is not None:
+        notes = db.get_patient_visit_notes_by_doctor(hospital.id, patient["id"], doctor_id)
+    else:
+        notes = db.get_patient_visit_notes(hospital.id, patient["id"])
+
+    return JSONResponse({
+        "appointment": _appointment_json(appointment, validity_days),
+        "patient": {
+            "id": patient["id"],
+            "patient_display_id": patient.get("patient_display_id"),
+            "mrn": patient.get("mrn"),
+            "date_of_birth": patient.get("date_of_birth"),
+            "gender": patient.get("gender"),
+        } if patient else None,
+        "notes": notes,
+    })
 
 
 @router.post("/api/portal/bookings/delete")

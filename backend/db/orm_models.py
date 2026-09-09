@@ -280,12 +280,15 @@ class DiagnosticTestVariant(Base):
 
 class LabServiceArea(Base):
     """db/schema.sql's lab_service_areas table -- hospital-configurable list
-    of PIN codes serviceable for Lab Test home sample collection."""
+    of PIN codes serviceable for Lab Test home sample collection. A row is
+    either a single pincode OR a range_start/range_end pair, never both."""
     __tablename__ = "lab_service_areas"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    pincode: Mapped[str]
+    pincode: Mapped[str | None]
+    range_start: Mapped[str | None]
+    range_end: Mapped[str | None]
     is_active: Mapped[bool]
 
 

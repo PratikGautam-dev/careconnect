@@ -34,6 +34,8 @@ from flows.booking.state import (
     GOTO_MAIN_MENU,
     MANAGE_CANCEL_PREFIX,
     MANAGE_RESCHEDULE_PREFIX,
+    NEXT_TIMES_ID,
+    PREV_TIMES_ID,
     STATE_IDLE,
     _date_label,
     _manage_cancel_id as manage_cancel_id,
