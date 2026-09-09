@@ -1280,8 +1280,12 @@ async def test_diagnostic_appointment_type_skips_department_and_doctor_selection
     inserts a test+variant pick (flows/booking/types/_diagnostic_shared.py)
     but still has no department/doctor step of its own -- picking a test
     (with its single default "Standard" variant, auto-skipped) should jump
-    straight to date selection, with a department auto-resolved from the
-    linked resource rather than asked for."""
+    straight to date selection. Migration 0035: _link_test_to_new_resource's
+    resource has no department configured, so department_id is genuinely
+    None here -- not an arbitrary fallback to the hospital's first
+    department (the bug that fallback caused: every department-less
+    diagnostic/lab/procedure booking silently misrepresented as whichever
+    department happened to sort first)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     test, resource = _link_test_to_new_resource(hospital_id, "diagnostic")
@@ -1294,11 +1298,35 @@ async def test_diagnostic_appointment_type_skips_department_and_doctor_selection
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["appointment_type_id"] == "diagnostic"
-    assert session["context"]["department_id"]
+    assert session["context"]["department_id"] is None
     assert session["context"]["resource_id"] == resource["id"]
     assert session["context"]["doctor_id"] is None
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"  # the date list's own follow-up Back button
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_resource_with_a_real_department_resolves_it(hospital_id):
+    """The other half of migration 0035: a resource that DOES have a
+    department configured still resolves it correctly -- only a genuinely
+    department-less resource gets None."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    department = db.get_departments(hospital_id)[0]
+    resource = db.create_resource(
+        hospital_id, "Departmental Resource", department_id=department["id"],
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], working_hours=["09:00-17:00"], slot_duration_minutes=30,
+    )
+    test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
+    db.update_diagnostic_test(hospital_id, test["id"], test["name"], resource["id"])
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["context"]["department_id"] == department["id"]
+    assert session["context"]["department_name"] == department["name"]
 
 
 @pytest.mark.asyncio

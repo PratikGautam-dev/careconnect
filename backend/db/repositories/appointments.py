@@ -33,7 +33,9 @@ def _appointment_select_stmt():
     needs dict-like column access, not a particular ORM/raw origin.
 
     Diagnostic/Lab Phase 2: doctor/resource joins are both LEFT -- a booking
-    has exactly one of doctor_id/resource_id set, never both."""
+    has exactly one of doctor_id/resource_id set, never both. Migration 0035:
+    the department join is LEFT too now -- a resource-bound booking can have
+    no department configured at all."""
     return (
         select(
             AppointmentRow.id, AppointmentRow.hospital_id, AppointmentRow.phone, AppointmentRow.patient_name,
@@ -54,7 +56,7 @@ def _appointment_select_stmt():
             AppointmentRow.procedure_order_reference, AppointmentRow.procedure_reschedule_requested_at,
         )
         .select_from(AppointmentRow)
-        .join(Department, Department.id == AppointmentRow.department_id)
+        .outerjoin(Department, Department.id == AppointmentRow.department_id)
         .outerjoin(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
         .outerjoin(DiagnosticResource, DiagnosticResource.id == AppointmentRow.resource_id)
         .outerjoin(PatientRow, PatientRow.id == AppointmentRow.patient_id)
@@ -124,7 +126,7 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
 def create_appointment(
     hospital_id: int,
     phone: str,
-    department_id: str,
+    department_id: str | None,
     doctor_id: str | None,
     scheduled_at: datetime,
     source: str = SOURCE_WHATSAPP,
@@ -494,10 +496,11 @@ def create_procedure_appointment(
     procedure = get_procedure(hospital_id, procedure_id)
     if procedure is None:
         raise ValueError(f"procedure_id {procedure_id} not found for hospital {hospital_id}")
-    dept_row = conn.execute(
-        "SELECT id FROM departments WHERE hospital_id = ? ORDER BY name LIMIT 1", (hospital_id,),
-    ).fetchone()
-    department_id = procedure["department_id"] or (dept_row["id"] if dept_row else None)
+    # Migration 0035: procedures.department_id is already optional (like
+    # diagnostic_resources') -- appointments.department_id being nullable now
+    # too means an unconfigured procedure genuinely records no department,
+    # instead of the arbitrary first-department fallback this used to need.
+    department_id = procedure["department_id"]
     scheduled_at_iso = scheduled_at.isoformat()
 
     if patient_id is not None:
@@ -568,10 +571,11 @@ def create_procedure_request(
     procedure = get_procedure(hospital_id, procedure_id)
     if procedure is None:
         raise ValueError(f"procedure_id {procedure_id} not found for hospital {hospital_id}")
-    dept_row = conn.execute(
-        "SELECT id FROM departments WHERE hospital_id = ? ORDER BY name LIMIT 1", (hospital_id,),
-    ).fetchone()
-    department_id = procedure["department_id"] or (dept_row["id"] if dept_row else None)
+    # Migration 0035: procedures.department_id is already optional (like
+    # diagnostic_resources') -- appointments.department_id being nullable now
+    # too means an unconfigured procedure genuinely records no department,
+    # instead of the arbitrary first-department fallback this used to need.
+    department_id = procedure["department_id"]
 
     if patient_id is not None:
         patient_row = conn.execute(
@@ -857,9 +861,13 @@ def get_followup_eligible_appointments(
     seen_departments: set[str] = set()
     for row in rows:
         appt = _row_to_appointment(row._mapping)
-        if appt.department_id in seen_departments:
-            continue
-        seen_departments.add(appt.department_id)
+        # Migration 0035: department_id can be None (a department-less
+        # resource booking) -- never dedup those against each other, only a
+        # real shared department_id means "already covered".
+        if appt.department_id is not None:
+            if appt.department_id in seen_departments:
+                continue
+            seen_departments.add(appt.department_id)
         eligible.append(appt)
     return eligible
 

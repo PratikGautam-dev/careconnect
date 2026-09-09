@@ -6,6 +6,7 @@ from core.translations.booking import (
     CONFIRM_BOOKING_SUMMARY,
     CONFIRM_BUTTON,
     CONSULTATION_FEE_LINE,
+    DEPARTMENT_LINE,
 )
 from core.translations.common import PLEASE_CHOOSE
 
@@ -120,9 +121,10 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     flows/booking/messages.py's _send_confirmation) -- must render correctly
     (and identically in shape) in both languages."""
     fee_line_en = t(CONSULTATION_FEE_LINE, "en", amount=800)
+    department_line_en = t(DEPARTMENT_LINE, "en", department_name="Cardiology")
     summary_en = t(CONFIRM_BOOKING_SUMMARY, "en",
         appointment_type_label="New Consultation",
-        department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
+        department_line=department_line_en, doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
         fee_line=fee_line_en,
     )
@@ -145,7 +147,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
     # booking): the line is omitted entirely, not shown as a fake ₹0.
     summary_no_fee = t(CONFIRM_BOOKING_SUMMARY, "en",
         appointment_type_label="New Consultation",
-        department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
+        department_line=department_line_en, doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
         fee_line="",
     )
@@ -153,7 +155,7 @@ def test_confirmation_card_renders_structured_markdown_in_both_languages():
 
     summary_hi = t(CONFIRM_BOOKING_SUMMARY, "hi",
         appointment_type_label="New Consultation",
-        department_name="Cardiology", doctor_name="Anjali Rao", date_label="Sat, Aug 8",
+        department_line=t(DEPARTMENT_LINE, "hi", department_name="Cardiology"), doctor_name="Anjali Rao", date_label="Sat, Aug 8",
         time_label="10:00", patient_name="Ravi Kumar", patient_age=34, patient_code="DCCP-2026-00020",
         fee_line=t(CONSULTATION_FEE_LINE, "hi", amount=800),
     )

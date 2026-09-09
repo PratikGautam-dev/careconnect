@@ -39,6 +39,12 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         "department_name": a.department_name,
         "doctor_id": a.doctor_id,
         "doctor_name": a.doctor_name,
+        # Diagnostic/Lab reschedule follow-up: None for a doctor consultation,
+        # set (with doctor_id/doctor_name both None) for a resource-bound
+        # diagnostic/lab booking -- the frontend needs this to tell the two
+        # apart and render/reschedule against the right one.
+        "resource_id": a.resource_id,
+        "resource_name": a.resource_name,
         "scheduled_at": a.scheduled_at.isoformat(),
         "status": a.status,
         "source": a.source,
@@ -525,7 +531,15 @@ async def portal_reschedule_booking(
     untouched, same as the WhatsApp flow's own _handle_slot_taken recovery --
     the portal surfaces it as a plain 400 rather than an alternate-slot
     picker, since staff can just pick a different slot from the same form
-    and resubmit, unlike a WhatsApp conversation mid-flow)."""
+    and resubmit, unlike a WhatsApp conversation mid-flow).
+
+    Diagnostic/Lab reschedule follow-up: a resource-bound appointment
+    (appointment.resource_id set, no doctor at all) has no department/doctor
+    to validate -- resource_id is trusted straight off the ORIGINAL
+    appointment (never taken from the payload), same "fixed, not user-
+    editable" contract the frontend's read-only Department/Doctor fields
+    already enforce for a doctor consultation -- reschedule moves the slot,
+    never re-points the booking at a different doctor OR resource."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -533,17 +547,24 @@ async def portal_reschedule_booking(
     if appointment is None:
         return JSONResponse({"error": "No such appointment."}, status_code=404)
 
-    department_id = (payload or {}).get("department_id") or ""
-    doctor_id = (payload or {}).get("doctor_id") or ""
     slot_id = (payload or {}).get("slot_id") or ""
 
     errors = []
-    department = db.find_department(hospital.id, department_id)
-    if department is None:
-        errors.append("Choose a valid department.")
-    doctor = db.find_doctor(hospital.id, department_id, doctor_id) if department else None
-    if doctor is None:
-        errors.append("Choose a valid doctor.")
+    if appointment.resource_id is not None:
+        department_id = appointment.department_id
+        doctor_id = None
+        resource = db.get_resource_full(hospital.id, appointment.resource_id)
+        if resource is None:
+            errors.append("This resource is no longer available.")
+    else:
+        department_id = (payload or {}).get("department_id") or ""
+        doctor_id = (payload or {}).get("doctor_id") or ""
+        department = db.find_department(hospital.id, department_id)
+        if department is None:
+            errors.append("Choose a valid department.")
+        doctor = db.find_doctor(hospital.id, department_id, doctor_id) if department else None
+        if doctor is None:
+            errors.append("Choose a valid doctor.")
     scheduled_at = None
     if not slot_id:
         errors.append("Choose an available slot.")
@@ -565,6 +586,7 @@ async def portal_reschedule_booking(
             department_id=department_id,
             doctor_id=doctor_id,
             scheduled_at=scheduled_at,
+            resource_id=appointment.resource_id,
         )
     except connectors.ConnectorNotImplementedError as e:
         return JSONResponse({"errors": [str(e)]}, status_code=501)
@@ -575,7 +597,7 @@ async def portal_reschedule_booking(
         "portal", hospital.id, "tenant portal", "booking.reschedule",
         entity_type="appointment", entity_id=str(appointment_id),
         before={"scheduled_at": appointment.scheduled_at.isoformat()},
-        after={"scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id},
+        after={"scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id, "resource_id": appointment.resource_id},
     )
 
     message = ((payload or {}).get("message") or "").strip()
@@ -599,11 +621,13 @@ async def portal_new_booking_context(authorization: str | None = Header(default=
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    departments, doctors_by_department, slots_by_doctor = _build_new_booking_context(hospital)
+    departments, doctors_by_department, slots_by_doctor, resources, slots_by_resource = _build_new_booking_context(hospital)
     return JSONResponse({
         "departments": departments,
         "doctors_by_department": doctors_by_department,
         "slots_by_doctor": slots_by_doctor,
+        "resources": resources,
+        "slots_by_resource": slots_by_resource,
     })
 
 

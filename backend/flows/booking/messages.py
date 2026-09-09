@@ -56,6 +56,7 @@ from core.translations.booking import (
     CONSENT_AGREE_BUTTON,
     CONSENT_PROMPT,
     CONSULTATION_FEE_LINE,
+    DEPARTMENT_LINE,
     DEPARTMENTS_SECTION_TITLE,
     DOCTOR_SELECTED_ASK_DATE,
     NEXT_TIMES_ROW,
@@ -664,9 +665,13 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, hospital_id: int, c
         if new_consultation_fee is not None:
             amount = int(new_consultation_fee) if new_consultation_fee == int(new_consultation_fee) else new_consultation_fee
             fee_line = t(CONSULTATION_FEE_LINE, language, amount=amount)
+    department_line = (
+        t(DEPARTMENT_LINE, language, department_name=context["department_name"])
+        if context.get("department_name") else ""
+    )
     summary = t(CONFIRM_BOOKING_SUMMARY, language,
         appointment_type_label=context.get("appointment_type_label"),
-        department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
+        department_line=department_line, doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
         patient_code=(patient.get("patient_display_id") if patient else None) or "—",

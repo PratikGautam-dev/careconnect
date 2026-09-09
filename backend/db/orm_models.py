@@ -445,7 +445,10 @@ class AppointmentRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     phone: Mapped[str]
-    department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
+    # Migration 0035: nullable for the same reason doctor_id below is -- a
+    # resource-bound booking's diagnostic_resources/procedure_resources row
+    # can itself have no department configured.
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
     # Diagnostic/Lab Phase 2: nullable -- a resource-bound booking (resource_id
     # set) has no doctor at all. appointments_doctor_or_resource_chk enforces
     # at least one of the two is set.

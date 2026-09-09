@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
-import { saveStaffSession } from "@/lib/staffAuth";
+import { saveStaffTokens } from "@/lib/staffAuth";
 import { googleLoginUrl } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -37,13 +37,7 @@ export default function PortalLoginPage() {
         setStaffError(data.error || "Couldn't sign in. Please try again.");
         return;
       }
-      saveStaffSession(data.access_token, data.refresh_token, {
-        id: data.staff.id,
-        name: data.staff.name,
-        role: data.staff.role,
-        hospital: data.staff.hospital,
-        permissions: data.permissions,
-      });
+      saveStaffTokens(data.access_token, data.refresh_token);
       // Every role (including doctor) lands in the same shared portal now --
       // what they see there is driven by the RBAC permission matrix, not by
       // which door they logged in through.

@@ -1275,6 +1275,9 @@ def init_db_on_connection(conn) -> int:
     conn.execute(
         "ALTER TABLE doctor_slot_overrides ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE"
     )
+    # Migration 0035: a resource-bound booking can have no department at all
+    # -- see that migration's own docstring.
+    conn.execute("ALTER TABLE appointments ALTER COLUMN department_id DROP NOT NULL")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

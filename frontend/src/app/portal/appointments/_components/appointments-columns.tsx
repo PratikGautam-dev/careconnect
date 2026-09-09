@@ -162,14 +162,14 @@ export function createAppointmentColumns({
       id: "doctor_name",
       header: "Doctor",
       cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.doctor_name}</span>
+        <span className="text-ink-600">{row.original.doctor_name || row.original.resource_name || "—"}</span>
       ),
     },
     {
       id: "department_name",
       header: "Department",
       cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.department_name}</span>
+        <span className="text-ink-600">{row.original.department_name || "—"}</span>
       ),
     },
     {

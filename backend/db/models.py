@@ -101,7 +101,7 @@ _APPOINTMENT_SELECT = """
            a.procedure_estimated_price_min, a.procedure_estimated_price_max,
            a.procedure_order_reference, a.procedure_reschedule_requested_at
     FROM appointments a
-    JOIN departments d ON d.id = a.department_id
+    LEFT JOIN departments d ON d.id = a.department_id
     LEFT JOIN doctors doc ON doc.id = a.doctor_id
     LEFT JOIN diagnostic_resources res ON res.id = a.resource_id
     LEFT JOIN patients p ON p.id = a.patient_id
@@ -195,8 +195,10 @@ class Appointment:
     id: int
     hospital_id: int
     phone: str
-    department_id: str
-    department_name: str
+    # Migration 0035: None for a resource-bound booking whose diagnostic/
+    # procedure resource has no department configured.
+    department_id: str | None
+    department_name: str | None
     doctor_id: str | None
     doctor_name: str | None
     scheduled_at: datetime

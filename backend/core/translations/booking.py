@@ -29,6 +29,7 @@ AVAILABLE_TIMES_SECTION_TITLE = "available_times_section_title"
 NEXT_TIMES_ROW = "next_times_row"
 PREVIOUS_TIMES_ROW = "previous_times_row"
 CONSULTATION_FEE_LINE = "consultation_fee_line"
+DEPARTMENT_LINE = "department_line"
 SELECT_SLOT = "select_slot"
 VIEW_SLOTS_BUTTON = "view_slots_button"
 AVAILABLE_SLOTS_SECTION_TITLE = "available_slots_section_title"
@@ -126,6 +127,7 @@ PROCEDURE_CONFIRMATION_SUMMARY = "procedure_confirmation_summary"
 PROCEDURE_ESTIMATE_LINE = "procedure_estimate_line"
 PROCEDURE_ORDER_REFERENCE_LINE = "procedure_order_reference_line"
 PROCEDURE_INSTRUCTIONS_LINE = "procedure_instructions_line"
+PROCEDURE_LOCATION_LINE = "procedure_location_line"
 PROCEDURE_BOOKING_CONFIRMED = "procedure_booking_confirmed"
 PROCEDURE_RESCHEDULE_REQUEST_PROMPT = "procedure_reschedule_request_prompt"
 PROCEDURE_RESCHEDULE_REQUESTED = "procedure_reschedule_requested"
@@ -208,6 +210,10 @@ STRINGS: dict[str, dict[Language, str]] = {
     # --- Booking: daycare duration (Phase 2, docs/per-appointment-type-
     # flow-plan.md) -- shown right after time-slot selection, daycare only ---
     CONSULTATION_FEE_LINE: {"en": "💰 Consultation Fee: ₹{amount}\n\n", "hi": "💰 परामर्श शुल्क: ₹{amount}\n\n"},
+    # Migration 0035: omitted entirely (not shown as a blank "Department: ")
+    # for a department-less resource booking -- same conditional-line
+    # pattern as CONSULTATION_FEE_LINE above.
+    DEPARTMENT_LINE: {"en": "🏥 Department: {department_name}\n", "hi": "🏥 विभाग: {department_name}\n"},
 
     SELECT_SLOT: {
         "en": "Please select a time slot with {doctor_name}:",
@@ -335,7 +341,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "🆔 Patient Id: {patient_code}\n"
             "🎂 Age: {patient_age}\n"
             "📋 Appointment Type: {appointment_type_label}\n"
-            "🏥 Department: {department_name}\n"
+            "{department_line}"
             "👨‍⚕️ Doctor: {doctor_name}\n"
             "📅 Date: {date_label}\n"
             "🕐 Time: {time_label}\n\n"
@@ -348,7 +354,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "🆔 पेशेंट आईडी: {patient_code}\n"
             "🎂 उम्र: {patient_age}\n"
             "📋 अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
-            "🏥 विभाग: {department_name}\n"
+            "{department_line}"
             "👨‍⚕️ डॉक्टर: {doctor_name}\n"
             "📅 तारीख: {date_label}\n"
             "🕐 समय: {time_label}\n\n"
@@ -477,7 +483,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "👤 Patient: {patient_name}\n"
             "🆔 Patient ID: {patient_code}\n"
             "📋 Appointment Type: {appointment_type_label}\n"
-            "🏥 Department: {department_name}\n"
+            "{department_line}"
             "👨‍⚕️ Doctor: {doctor_name}\n"
             "🔁 Previous Visit: {previous_visit_label}\n"
             "📅 Appointment Date: {date_label}\n"
@@ -490,7 +496,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "👤 मरीज़: {patient_name}\n"
             "🆔 मरीज़ आईडी: {patient_code}\n"
             "📋 अपॉइंटमेंट प्रकार: {appointment_type_label}\n"
-            "🏥 विभाग: {department_name}\n"
+            "{department_line}"
             "👨‍⚕️ डॉक्टर: {doctor_name}\n"
             "🔁 पिछली मुलाकात: {previous_visit_label}\n"
             "📅 अपॉइंटमेंट तारीख: {date_label}\n"
@@ -779,7 +785,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "🆔 Patient ID: {patient_code}\n"
             "Procedure: {procedure_name}\n"
             "{order_reference_line}"
-            "🏥 Location: {department_name}\n"
+            "{location_line}"
             "📅 Date: {date_label}\n"
             "🕐 Time: {time_label}\n"
             "{estimate_line}"
@@ -792,7 +798,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "🆔 मरीज़ आईडी: {patient_code}\n"
             "प्रक्रिया: {procedure_name}\n"
             "{order_reference_line}"
-            "🏥 स्थान: {department_name}\n"
+            "{location_line}"
             "📅 तारीख: {date_label}\n"
             "🕐 समय: {time_label}\n"
             "{estimate_line}"
@@ -809,13 +815,17 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "📝 *Please note:* {instructions}\n\n",
         "hi": "📝 *कृपया ध्यान दें:* {instructions}\n\n",
     },
+    # Migration 0035: omitted entirely for a department-less procedure --
+    # same conditional-line pattern as order_reference_line/estimate_line
+    # above, since a procedure's department can genuinely be unset.
+    PROCEDURE_LOCATION_LINE: {"en": "🏥 Location: {department_name}\n", "hi": "🏥 स्थान: {department_name}\n"},
     PROCEDURE_BOOKING_CONFIRMED: {
         "en": (
             "✅ *Daycare / Procedure Booking Confirmed*\n"
             "Booking ID: {reference_id}\n"
             "Patient: {patient_name}\n"
             "Procedure: {procedure_name}\n"
-            "Department: {department_name}\n"
+            "{location_line}"
             "Date: {date_label}\n"
             "Time: {time_label}\n\n"
             "Please arrive as instructed and carry the required documents/orders."
@@ -825,7 +835,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "बुकिंग आईडी: {reference_id}\n"
             "मरीज़: {patient_name}\n"
             "प्रक्रिया: {procedure_name}\n"
-            "विभाग: {department_name}\n"
+            "{location_line}"
             "तारीख: {date_label}\n"
             "समय: {time_label}\n\n"
             "कृपया निर्देशानुसार समय पर पहुंचें और आवश्यक दस्तावेज़/आदेश साथ लाएं।"

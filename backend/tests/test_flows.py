@@ -37,6 +37,7 @@ from core.translations.booking import (
     ASK_PATIENT_GENDER,
     ASK_PATIENT_NAME,
     CONFIRM_BOOKING_SUMMARY,
+    DEPARTMENT_LINE,
     SELECT_APPOINTMENT_TYPE,
     SELECT_DEPARTMENT,
     SELECT_DOCTOR,
@@ -1024,7 +1025,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     patient_code = db.get_patient(hospital_id, session["context"]["active_patient_id"])["patient_display_id"]
     assert kwargs["body_text"] == translate(CONFIRM_BOOKING_SUMMARY, "hi",
         appointment_type_label=session["context"]["appointment_type_label"],
-        department_name=session["context"]["department_name"],
+        department_line=translate(DEPARTMENT_LINE, "hi", department_name=session["context"]["department_name"]),
         doctor_name=session["context"]["doctor_name"],
         date_label=session["context"]["date_label"],
         time_label=session["context"]["slot_time"],

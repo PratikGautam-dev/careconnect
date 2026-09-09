@@ -140,15 +140,16 @@ async def resolve_resource_and_advance_to_date(
         display_name = resource["name"] if resource else context.get("appointment_type_label", "this test")
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, display_name, language=language)
         return
+    # Migration 0035: appointments.department_id is nullable now -- a
+    # resource with no department configured genuinely books with none,
+    # instead of the arbitrary first-department fallback this used to need.
     department_id = resource.get("department_id")
     department_name = ""
     if department_id:
         dept = next((d for d in connector.get_departments(hospital_id) if d["id"] == department_id), None)
         department_name = dept["name"] if dept else ""
-    if not department_id:
-        departments = connector.get_departments(hospital_id)
-        if departments:
-            department_id, department_name = departments[0]["id"], departments[0]["name"]
+        if dept is None:
+            department_id = None
     new_context = {
         **context,
         "resource_id": resource_id, "doctor_id": None, "doctor_name": resource["name"],

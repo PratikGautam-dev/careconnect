@@ -21,8 +21,8 @@ import core.rate_limit as rate_limit
 import db.repository as db
 from auth.jwt_session import issue_access_token
 from auth.refresh_tokens import consume_refresh_token, issue_refresh_token, revoke_refresh_token
-from db.repositories.hospitals import verify_portal_password
-from portal.deps import _hospital_summary
+from db.repositories.hospitals import hash_portal_password, verify_portal_password
+from portal.deps import _hospital_summary, get_current_staff
 from portal.permissions import get_permission_matrix
 
 router = APIRouter()
@@ -112,6 +112,57 @@ async def staff_refresh(payload: RefreshPayload):
     if staff is None or not staff["is_active"]:
         return JSONResponse({"error": "Account no longer active."}, status_code=401)
     return JSONResponse(_issue_tokens(staff))
+
+
+class ChangePasswordPayload(BaseModel):
+    current_password: str = ""
+    new_password: str = ""
+
+
+@router.post("/api/portal/staff/change-password")
+async def staff_change_password(payload: ChangePasswordPayload, authorization: str | None = Header(default=None)):
+    """Self-service change, from the portal itself -- db.update_staff_user_password()
+    already existed for this (an admin-reset route may reuse it later) but had
+    no caller yet. Re-issues fresh tokens in the response, same shape as
+    login/refresh: update_staff_user_password() bumps token_version to force
+    every OTHER outstanding session to re-authenticate, which would otherwise
+    also log THIS request's own caller out on its very next request."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    staff = db.get_staff_user_by_id(principal.staff_id)
+    if staff is None or not verify_portal_password(payload.current_password, staff["password_hash"]):
+        return JSONResponse({"error": "Current password is incorrect."}, status_code=400)
+    if len(payload.new_password) < 8:
+        return JSONResponse({"error": "New password must be at least 8 characters."}, status_code=400)
+
+    db.update_staff_user_password(staff["id"], hash_portal_password(payload.new_password))
+    return JSONResponse(_issue_tokens(db.get_staff_user_by_id(staff["id"])))
+
+
+@router.get("/api/portal/staff/me")
+async def staff_me(authorization: str | None = Header(default=None)):
+    """Self profile (name/email/role/permissions/hospital) -- serves two
+    frontend consumers: the profile-settings page's "Your details" card, and
+    StaffSessionProvider's in-memory StaffSessionContext (replaces the old
+    localStorage-cached staff_session; see staffAuth.ts). StaffSession on the
+    frontend has no email today (login/refresh never returned it), and
+    staff.py's GET /api/portal/staff is gated on the "staff" permission (a
+    receptionist/doctor viewing their OWN profile shouldn't need staff-
+    management access), so this is its own authenticated-only route rather
+    than reusing either."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    staff = db.get_staff_user_by_id(principal.staff_id)
+    if staff is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    return JSONResponse({
+        "id": staff["id"], "name": staff["name"], "email": staff["email"], "role": staff["role"],
+        "hospital": _hospital_summary(principal.hospital),
+        "permissions": get_permission_matrix(principal.hospital.id).get(staff["role"], {}),
+    })
 
 
 class LogoutPayload(BaseModel):
