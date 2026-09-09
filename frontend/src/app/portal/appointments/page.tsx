@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { CalendarClock, Plus, Search, Send, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -9,6 +9,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
+import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { TYPE_LABELS, type Appointment, useAppointments } from "@/hooks/useAppointments";
@@ -18,8 +19,9 @@ const TYPE_TAB_ORDER = ["all", "new", "followup", "tele", "second_opinion", "dia
 
 export default function PortalAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
+  const [newBookingOpen, setNewBookingOpen] = useState(false);
   const {
-    appointments, error, filteredAppointments, typeCounts,
+    appointments, error, load, filteredAppointments, typeCounts,
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
     reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
@@ -220,7 +222,7 @@ export default function PortalAppointmentsPage() {
                   </Button>
                 </PermissionGate>
               )}
-              <Button href="/portal/new-booking">
+              <Button onClick={() => setNewBookingOpen(true)}>
                 <Plus size={15} /> New booking
               </Button>
             </>
@@ -311,6 +313,13 @@ export default function PortalAppointmentsPage() {
           busy={bulkDeleting}
           onConfirm={() => pendingDelete && runBulkDelete(pendingDelete)}
           onCancel={() => setPendingDelete(null)}
+        />
+
+        <NewBookingDialog
+          open={newBookingOpen}
+          onOpenChange={setNewBookingOpen}
+          hospital={hospital}
+          onBooked={load}
         />
     </PortalShell>
   );

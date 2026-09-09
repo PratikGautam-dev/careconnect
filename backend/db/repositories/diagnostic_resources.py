@@ -11,6 +11,7 @@ from sqlalchemy import delete, insert, select, update
 from db.connection import get_connection, get_session
 from db.orm_models import DiagnosticResource, DiagnosticResourceSlot
 from db.repositories.doctors import _overlaps_break, _parse_time_range, _WEEKDAY_ABBREVS
+from db.repositories.hospital_settings import get_future_booking_days
 
 _SLOT_DAYS_AHEAD = 14
 
@@ -86,7 +87,7 @@ def create_resource(
         )
     )
     session.commit()
-    generate_slots_for_resource(hospital_id, resource_id)
+    generate_slots_for_resource(hospital_id, resource_id, days_ahead=get_future_booking_days(hospital_id))
     return {"id": resource_id, "name": name}
 
 
@@ -127,7 +128,7 @@ def update_resource(
         slot_delete = slot_delete.where(DiagnosticResourceSlot.scheduled_at >= effective_from)
     session.execute(slot_delete)
     session.commit()
-    generate_slots_for_resource(hospital_id, resource_id)
+    generate_slots_for_resource(hospital_id, resource_id, days_ahead=get_future_booking_days(hospital_id))
     return {"id": resource_id, "name": name}
 
 
@@ -258,5 +259,5 @@ def remove_resource_leave(hospital_id: int, resource_id: str, leave_date: str) -
         (hospital_id, resource_id, leave_date),
     )
     conn.commit()
-    generate_slots_for_resource(hospital_id, resource_id)
+    generate_slots_for_resource(hospital_id, resource_id, days_ahead=get_future_booking_days(hospital_id))
     return cur.rowcount > 0

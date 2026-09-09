@@ -243,13 +243,12 @@ async def test_date_and_time_menus_capped_to_whatsapp_list_limit(hospital_id):
 
 @pytest.mark.asyncio
 async def test_select_date_menu_never_offers_a_stale_past_only_date(hospital_id):
-    """get_slots() (db/repositories/slots.py) filters out already-past slots,
-    but generate_slots_for_doctor() never deletes old rows once their date
-    has passed -- a manually-seeded past-only date must not appear as a row
-    in the Select Date list, since _send_date_menu derives its rows purely
-    from get_available_slots()'s own output (no separate date query)."""
-    import db.connection as db_connection
-
+    """get_slots() (db/repositories/slots.py) filters out already-past slots.
+    A normal-pattern slot can never be stale (compute_doctor_candidate_slots()
+    only ever computes future dates), so a manually-added CUSTOM slot for a
+    past date is the way to simulate one here -- it must still not appear as
+    a row in the Select Date list, since _send_date_menu derives its rows
+    purely from get_available_slots()'s own output (no separate date query)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     department = db.get_departments(hospital_id)[0]
@@ -259,12 +258,7 @@ async def test_select_date_menu_never_offers_a_stale_past_only_date(hospital_id)
         working_hours=["09:00-10:00"], slot_duration_minutes=60,
     )
     yesterday = (datetime.now() - timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-    conn = db_connection.get_connection()
-    conn.execute(
-        "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?)",
-        (hospital_id, doctor["id"], yesterday.isoformat()),
-    )
-    conn.commit()
+    db.add_custom_slot(hospital_id, doctor["id"], yesterday.isoformat())
 
     sessions.set(hospital_id, PHONE, "AWAITING_DOCTOR", {"department_id": department["id"], "department_name": department["name"]})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor["id"]))

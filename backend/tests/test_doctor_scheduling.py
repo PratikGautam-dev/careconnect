@@ -14,7 +14,6 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-import db.connection as db_connection
 import db.repository as db
 from db.connection import IntegrityError
 
@@ -244,23 +243,20 @@ def test_max_bookings_per_slot_two_still_offers_slot_after_one_booking(hospital_
 # --- get_slots(): past slots never offered ---
 
 def test_get_slots_excludes_already_past_slots(hospital_id):
-    """generate_slots_for_doctor() never deletes old rows once their date has
-    passed -- get_slots() (the patient-facing date/time menu source) must
-    filter them out itself, same `scheduled_at >= now` discipline
-    get_doctor_slots_for_admin() already applies for its own "from now
-    onward" mode."""
+    """compute_doctor_candidate_slots() only ever computes future dates, so a
+    normal-pattern slot can never be stale -- the one way a past scheduled_at
+    can still exist is a custom-added override (staff can add one for any
+    date, including an already-past one) -- get_slots() (the patient-facing
+    date/time menu source) must filter it out regardless, same
+    `scheduled_at >= now` discipline get_doctor_slots_for_admin() applies for
+    its own "from now onward" mode."""
     doctor = db.create_doctor(
         hospital_id, "cardiology", "Dr. Stale Slots",
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         working_hours=["09:00-10:00"], slot_duration_minutes=60,
     )
-    conn = db_connection.get_connection()
     yesterday = (datetime.now() - timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-    conn.execute(
-        "INSERT INTO doctor_slots (hospital_id, doctor_id, scheduled_at) VALUES (?, ?, ?)",
-        (hospital_id, doctor["id"], yesterday.isoformat()),
-    )
-    conn.commit()
+    db.add_custom_slot(hospital_id, doctor["id"], yesterday.isoformat())
 
     slots = db.get_slots(hospital_id, doctor["id"])
 

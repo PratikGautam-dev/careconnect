@@ -363,7 +363,7 @@ export function useAppointments(ready: boolean) {
   const allSelected = deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
 
   return {
-    appointments, error, filteredAppointments, typeCounts,
+    appointments, error, load, filteredAppointments, typeCounts,
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
     reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,

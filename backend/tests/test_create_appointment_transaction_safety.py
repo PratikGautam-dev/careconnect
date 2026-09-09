@@ -113,11 +113,11 @@ def test_quota_rejection_also_leaves_connection_clean(hospital_id):
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         working_hours=["09:00-10:00"], slot_duration_minutes=60, daily_booking_limit=0,
     )
-    # daily_booking_limit=0 means generate_slots_for_doctor() produces no
-    # doctor_slots rows at all for this doctor -- irrelevant here, since
-    # create_appointment() only ever checks the appointments table itself,
-    # not doctor_slots, so an explicit future time reaches the quota check
-    # the same way a real (slot-picker-driven) booking attempt would.
+    # daily_booking_limit=0 means this doctor's computed grid is empty --
+    # irrelevant here, since create_appointment() only ever checks the
+    # appointments table itself, not the doctor's grid, so an explicit
+    # future time reaches the quota check the same way a real
+    # (slot-picker-driven) booking attempt would.
     scheduled_at = datetime.now() + timedelta(days=1)
 
     with pytest.raises(db.QuotaExceededError):

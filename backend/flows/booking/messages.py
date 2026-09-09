@@ -445,9 +445,9 @@ async def _send_date_menu(
     """Section 12.12, booking flow's step 1 of the date/time split: the
     distinct dates (soonest first, since get_available_slots() is already
     sorted that way) this doctor has ANY bookable slot on, capped to Meta's
-    10-row limit -- a doctor generates up to 14 days ahead
-    (db/repository.py's _SLOT_DAYS_AHEAD), so this can legitimately exceed 10
-    distinct dates for a doctor who works every day.
+    10-row limit -- a doctor's grid computes up to future_booking_days ahead
+    (db/repositories/hospital_settings.py, default 14), so this can
+    legitimately exceed 10 distinct dates for a doctor who works every day.
 
     min_date (Follow-up only, docs/per-appointment-type-flow-plan.md Phase 2
     Step 2 follow-up): dates strictly AFTER this "YYYY-MM-DD" string are kept

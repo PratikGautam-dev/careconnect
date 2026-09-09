@@ -10,8 +10,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_session
-from db.orm_models import DoctorLeave, DoctorSlot
-from db.repositories.doctors import generate_slots_for_doctor
+from db.orm_models import DoctorLeave
+from db.repositories.doctors import invalidate_doctor_slots_cache
 
 # --- Doctor leave (Section 14.7 -- whole-day unavailability) ---
 
@@ -26,37 +26,25 @@ def get_doctor_leave(hospital_id: int, doctor_id: str) -> list[dict]:
 
 
 def create_doctor_leave(hospital_id: int, doctor_id: str, leave_date: str, reason: str | None = None) -> dict:
-    """leave_date is an ISO 'YYYY-MM-DD' string, matching doctor_slots'/
-    appointments' own "store dates/datetimes as ISO text" convention.
-    UNIQUE(doctor_id, date) (db/schema.sql) makes re-adding the same date
-    harmless -- ON CONFLICT DO NOTHING rather than erroring, since a staff
-    member re-submitting a date they already marked isn't a real problem.
-    Regenerates this doctor's slots immediately so the new leave date takes
-    effect right away, not just on the next periodic top-up.
+    """leave_date is an ISO 'YYYY-MM-DD' string, matching appointments' own
+    "store dates/datetimes as ISO text" convention. UNIQUE(doctor_id, date)
+    (db/schema.sql) makes re-adding the same date harmless -- ON CONFLICT DO
+    NOTHING rather than erroring, since a staff member re-submitting a date
+    they already marked isn't a real problem.
 
-    generate_slots_for_doctor() (doctors.py) deliberately stayed raw-SQL/
-    conn-based even after the rest of that file migrated (see its own
-    docstring -- db/seed.py's bootstrap-time conn override), so it isn't
-    passed this function's session (unlike the original raw conn, which WAS
-    passed through) -- it falls back to its own get_connection() instead.
-    Safe because session.commit() below runs first: the DELETE is durably
-    visible to any other connection by the time generate_slots_for_doctor()
-    reads doctor_slots, exactly as it was when the original code passed the
-    same (but already-committed, autocommit=True) conn through."""
+    No slot regeneration needed (migration 0032): a doctor's grid is
+    computed live and already reads doctor_leave fresh every time
+    (db/repositories/doctors.py's compute_doctor_candidate_slots()) -- this
+    date takes effect on the very next read. Only the cached grid needs
+    invalidating so that next read doesn't serve a stale pre-leave result."""
     session = get_session()
     session.execute(
         pg_insert(DoctorLeave)
         .values(hospital_id=hospital_id, doctor_id=doctor_id, date=leave_date, reason=reason)
         .on_conflict_do_nothing(index_elements=["doctor_id", "date"])
     )
-    session.execute(
-        delete(DoctorSlot).where(
-            DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id,
-            DoctorSlot.scheduled_at >= leave_date,
-        )
-    )
     session.commit()
-    generate_slots_for_doctor(hospital_id, doctor_id)
+    invalidate_doctor_slots_cache(hospital_id, doctor_id)
     return {"date": leave_date, "reason": reason}
 
 
@@ -68,15 +56,13 @@ def create_doctor_leave_range(
 ) -> list[str]:
     """Item 10 (Spec.md Section 0): From/To range with one Confirm, instead
     of adding leave dates one at a time. Composes with the existing
-    exclusion logic unchanged -- generate_slots_for_doctor() (Section 14.7)
-    already skips any date present in doctor_leave, so a doctor
+    exclusion logic unchanged -- compute_doctor_candidate_slots() (Section
+    14.7) already skips any date present in doctor_leave, so a doctor
     automatically shows as unavailable for booking across the whole range
-    the moment these rows exist and slots regenerate below; no SEPARATE
-    availability-toggle mechanism is needed (a global is_active flip would
-    be wrong here anyway -- it isn't date-scoped, so it would incorrectly
-    block booking outside the leave range too). Regenerates slots ONCE after
-    inserting every date in the range, not once per date (create_doctor_leave()'s
-    own per-call regeneration would be wasteful looped N times here)."""
+    the moment these rows exist; no SEPARATE availability-toggle mechanism
+    is needed (a global is_active flip would be wrong here anyway -- it
+    isn't date-scoped, so it would incorrectly block booking outside the
+    leave range too)."""
     start = date.fromisoformat(from_date)
     end = date.fromisoformat(to_date)
     if end < start:
@@ -96,22 +82,16 @@ def create_doctor_leave_range(
         )
         created_dates.append(iso)
         d += timedelta(days=1)
-    session.execute(
-        delete(DoctorSlot).where(
-            DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id,
-            DoctorSlot.scheduled_at >= start.isoformat(),
-        )
-    )
     session.commit()
-    generate_slots_for_doctor(hospital_id, doctor_id)
+    invalidate_doctor_slots_cache(hospital_id, doctor_id)
     return created_dates
 
 
 def delete_doctor_leave(hospital_id: int, doctor_id: str, leave_id: int) -> bool:
     """Returns False if no such leave row exists for this doctor/hospital
     (nothing deleted) -- same hospital_id-scoped-guard discipline as every
-    other write here. Regenerates slots so the now-freed date becomes
-    bookable again immediately."""
+    other write here. Invalidates the cached grid so the now-freed date
+    becomes bookable again on the very next read."""
     session = get_session()
     result = cast(CursorResult, session.execute(
         delete(DoctorLeave).where(
@@ -122,7 +102,5 @@ def delete_doctor_leave(hospital_id: int, doctor_id: str, leave_id: int) -> bool
         session.commit()  # nothing changed, but closes out this statement's implicit transaction
         return False
     session.commit()
-    generate_slots_for_doctor(hospital_id, doctor_id)
+    invalidate_doctor_slots_cache(hospital_id, doctor_id)
     return True
-
-

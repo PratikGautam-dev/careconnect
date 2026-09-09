@@ -20,7 +20,8 @@
     "react-dom": "19.2.8",
     "recharts": "^2.15.4",
     "tailwind-merge": "^3.6.0",
-    "use-immer": "^0.11.0"
+    "use-immer": "^0.11.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

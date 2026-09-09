@@ -1457,6 +1457,9 @@ def test_settings_get_includes_new_customization_fields_with_safe_defaults(two_h
     assert data["followup_validity_days"] == 30
     assert data["followup_fee"] is None
     assert data["new_consultation_fee"] is None
+    # Live-found bug follow-up: 14-day code default, matching the old
+    # hardcoded _SLOT_DAYS_AHEAD every generate_slots_for_*() used to have.
+    assert data["future_booking_days"] == 14
 
 
 def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
@@ -1500,6 +1503,22 @@ def test_settings_post_rejects_followup_validity_days_out_of_bounds(two_hospital
     resp = client.post(
         "/api/portal/settings",
         json={"reminder_offsets_hours": "24", "followup_validity_days": 400},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_settings_post_rejects_future_booking_days_out_of_bounds(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "future_booking_days": 0},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "future_booking_days": 91},
         headers=_auth(a["token"]),
     )
     assert resp.status_code == 400

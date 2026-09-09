@@ -334,18 +334,37 @@ class DoctorLeave(Base):
     reason: Mapped[str | None]
 
 
-class DoctorSlot(Base):
-    """db/schema.sql's doctor_slots table -- real, persisted bookable slots
-    (Section 12.1.1). created_at isn't mapped -- nothing ORM-migrated so far
-    (leave.py's DELETE, slots.py's own reads/writes) reads or writes it."""
-    __tablename__ = "doctor_slots"
+class DoctorSlotOverride(Base):
+    """db/schema.sql's doctor_slot_overrides table (migration 0032) --
+    replaces the old doctor_slots table's "one row per every possible slot,
+    pre-generated ahead of time" shape (found to scale badly and be the root
+    cause of a stale-window bug -- confirmed with the user) with "one row
+    only for a slot staff has actually touched." A doctor's normal bookable
+    grid is now computed live from working_days/working_hours/
+    slot_duration_minutes/breaks/doctor_leave (db/repositories/doctors.py's
+    _compute_candidate_slots()) -- this table only ever holds exceptions:
+    - is_custom=True: a one-off extra slot OUTSIDE that normal pattern
+      (portal's "Add slot"), which the live computation would never produce
+      on its own.
+    - blocked=True: this scheduled_at (whether a normal-pattern slot or a
+      custom one) must never be offered (portal's "Block slot"), but still
+      shows up in the admin view so staff can unblock it later.
+    - excluded=True (migration 0034): this scheduled_at is gone outright
+      (portal's "Remove slot") -- dropped from every view, not just hidden
+      from booking, which is what distinguishes it from blocked=True.
+    A row can combine is_custom/blocked/excluded -- a row with none of the
+    three True has no reason to exist and is deleted rather than kept
+    (db/repositories/slots.py's set_slot_blocked())."""
+    __tablename__ = "doctor_slot_overrides"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
     scheduled_at: Mapped[str]
+    is_custom: Mapped[bool]
     blocked: Mapped[bool]
     block_reason: Mapped[str | None]
+    excluded: Mapped[bool]
 
 
 class Department(Base):
@@ -389,6 +408,20 @@ class DoctorRow(Base):
     is_active: Mapped[bool]
     email: Mapped[str | None]
     password_hash: Mapped[str | None]
+    # Migration 0033: a QUEUED future schedule change -- when a schedule
+    # edit's effective_from is still in the future, the submitted pattern
+    # goes here instead of overwriting the columns above immediately, so the
+    # CURRENT pattern keeps being served for near-term dates until
+    # pending_effective_from arrives (db/repositories/doctors.py's
+    # compute_doctor_candidate_slots() picks whichever pattern applies to
+    # each computed date, purely by comparing dates -- no promotion job
+    # needed). NULL pending_effective_from means no change is queued.
+    pending_working_days: Mapped[str | None]
+    pending_working_hours: Mapped[str | None]
+    pending_slot_duration_minutes: Mapped[int | None]
+    pending_breaks: Mapped[str | None]
+    pending_daily_booking_limit: Mapped[int | None]
+    pending_effective_from: Mapped[str | None]
 
 
 class AppointmentRow(Base):
@@ -864,6 +897,14 @@ class HospitalSettings(Base):
     # Test booking's price review, same "unset omits the line" convention as
     # the two fees above.
     home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    # Slot-generation window (migration 0031): how many days ahead a
+    # doctor's grid is computed live (db/repositories/doctors.py's
+    # compute_doctor_candidate_slots(), migration 0032) and a diagnostic/
+    # procedure resource's rolling window is extended
+    # (generate_slots_for_resource()/_procedure_resource()). NULL means "use
+    # the code-level DEFAULT_FUTURE_BOOKING_DAYS default" (db/repositories/
+    # hospital_settings.py), same convention as followup_validity_days above.
+    future_booking_days: Mapped[int | None]
 
 
 class GoogleCalendarConnection(Base):

@@ -373,9 +373,8 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     autocommitted statement provides no protection at all against a second,
     genuinely concurrent call racing in between statements. This is exactly
     the class of concurrency-critical code the migration plan's own
-    guarantee calls out to leave untouched permanently, alongside
-    generate_slots_for_doctor() (doctors.py) and the atomic reference/
-    display-id counters (db/models.py). Also still calls
+    guarantee calls out to leave untouched permanently, alongside the
+    atomic reference/display-id counters (db/models.py). Also still calls
     _get_or_create_account_in_conn() (accounts.py's raw-conn helper) inside
     this same transaction -- see consent.py's docstring for that
     dependency's own status."""

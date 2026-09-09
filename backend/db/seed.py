@@ -15,12 +15,12 @@ Seed data. Two kinds:
 Every seeded doctor gets the same working pattern (all 7 days, 10:00-11:00 and
 15:00-16:00, 60-minute slots -- exactly the old hardcoded _SLOT_TIMES) so
 db.repository.get_slots() keeps returning the same "10:00"/"15:00" slots
-existing tests already expect, now sourced from real generated doctor_slots
-rows (Section 12.1.1) instead of computed on the fly.
+existing tests already expect -- computed live from this same working-pattern
+config every time (migration 0032), not pre-generated at seed time, so
+nothing here needs to touch slot generation at all anymore.
 """
 from db.display_ids import GLOBAL_SCOPE_KEY, HOSPITAL_PREFIX, generate_yearly_display_id_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
-from db.repository import generate_slots_for_doctor
 
 _DEFAULT_WORKING_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _DEFAULT_WORKING_HOURS = ["10:00-11:00", "15:00-16:00"]
@@ -111,7 +111,6 @@ def seed_default_hospital(
                 (doc["id"], hospital_id, department_id, doc["name"],
                  ",".join(_DEFAULT_WORKING_DAYS), ",".join(_DEFAULT_WORKING_HOURS), _DEFAULT_SLOT_DURATION_MINUTES),
             )
-            generate_slots_for_doctor(hospital_id, doc["id"], conn=conn)
     conn.commit()
     return hospital_id
 
@@ -172,7 +171,6 @@ def seed_test_hospital(
                 (doc["id"], hospital_id, department_id, doc["name"],
                  ",".join(_DEFAULT_WORKING_DAYS), ",".join(_DEFAULT_WORKING_HOURS), _DEFAULT_SLOT_DURATION_MINUTES),
             )
-            generate_slots_for_doctor(hospital_id, doc["id"], conn=conn)
     _seed_appointment_types(conn, hospital_id)
     conn.commit()
     return hospital_id

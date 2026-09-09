@@ -88,8 +88,7 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
     one between statements, which isn't worth the risk for the single most
     concurrency-critical code path in the app (this function is called from
     inside create_appointment(), the actual booking-creation transaction).
-    Same reasoning class as patients.py's create_patient_profile() trio and
-    doctors.py's generate_slots_for_doctor()."""
+    Same reasoning class as patients.py's create_patient_profile() trio."""
     conn.execute("SELECT pg_advisory_lock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
     try:
         existing = conn.execute(

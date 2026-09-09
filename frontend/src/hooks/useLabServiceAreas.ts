@@ -55,8 +55,6 @@ export function useLabServiceAreas() {
   }
 
   async function removeArea(area: ServiceArea) {
-    const label = area.pincode ?? `${area.range_start}–${area.range_end}`;
-    if (!window.confirm(`Remove PIN code "${label}" from serviceable areas?`)) return;
     setPendingId(area.id);
     setError(null);
     const result = await portalFetch(`/api/portal/lab-service-areas/${area.id}`, { method: "DELETE" });

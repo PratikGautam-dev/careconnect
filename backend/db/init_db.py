@@ -1238,6 +1238,43 @@ def init_db_on_connection(conn) -> int:
         "CHECK ((pincode IS NOT NULL AND range_start IS NULL AND range_end IS NULL) OR "
         "(pincode IS NULL AND range_start IS NOT NULL AND range_end IS NOT NULL AND range_start <= range_end))"
     )
+    # Migration 0031: hospital-configurable slot-generation window, replacing
+    # the hardcoded 14-day _SLOT_DAYS_AHEAD default.
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS future_booking_days INTEGER")
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_future_booking_days_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_future_booking_days_check "
+        "CHECK (future_booking_days IS NULL OR future_booking_days > 0)"
+    )
+    # Migration 0032: doctor_slot_overrides replaces bulk-pre-generated
+    # doctor_slots -- a doctor's normal grid is computed live now, this table
+    # only ever holds a row for a slot staff has actually blocked or
+    # custom-added. No data migration needed here (unlike the real Alembic
+    # migration) -- init_db_on_connection() only ever runs against a fresh
+    # test schema with no pre-existing doctor_slots data to carry over.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS doctor_slot_overrides ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "doctor_id TEXT NOT NULL REFERENCES doctors(id), scheduled_at TEXT NOT NULL, "
+        "is_custom BOOLEAN NOT NULL DEFAULT FALSE, blocked BOOLEAN NOT NULL DEFAULT FALSE, "
+        "block_reason TEXT, "
+        "UNIQUE(doctor_id, scheduled_at)"
+        ")"
+    )
+    conn.execute("DROP TABLE IF EXISTS doctor_slots")
+    # Migration 0033: a queued future schedule change (see that migration's
+    # own docstring) -- read at compute time, not promoted by any job.
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS pending_working_days TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS pending_working_hours TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS pending_slot_duration_minutes INTEGER")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS pending_breaks TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS pending_daily_booking_limit INTEGER")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS pending_effective_from TEXT")
+    # Migration 0034: outright-removed slots are their own exception,
+    # distinct from `blocked` -- see that migration's own docstring.
+    conn.execute(
+        "ALTER TABLE doctor_slot_overrides ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

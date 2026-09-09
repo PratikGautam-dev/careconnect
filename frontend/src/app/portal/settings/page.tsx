@@ -168,6 +168,28 @@ function PortalSettingsPageContent() {
                 </CheckboxRow>
               </Card>
 
+              <Card className="p-space-5">
+                <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Appointment scheduling</h2>
+                <p className="mb-space-3 text-[12.5px] text-ink-400">
+                  How far ahead patients can book. Applies to every doctor, diagnostic/lab resource, and
+                  procedure at this hospital.
+                </p>
+                <Field
+                  label="Future booking window (days)"
+                  htmlFor="future_booking_days"
+                  hint="Between 1 and 90 days ahead."
+                >
+                  <Input
+                    id="future_booking_days"
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={settings.future_booking_days}
+                    onChange={(e) => setSettings({ ...settings, future_booking_days: Number(e.target.value) })}
+                  />
+                </Field>
+              </Card>
+
               <Card className="p-space-5 lg:col-span-2">
                 <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Follow-up appointments</h2>
                 <p className="mb-space-3 text-[12.5px] text-ink-400">
