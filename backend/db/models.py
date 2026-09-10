@@ -94,8 +94,8 @@ _APPOINTMENT_SELECT = """
            a.doctor_id, doc.name AS doctor_name, a.scheduled_at, a.status, a.source, a.reference_id,
            a.patient_id, p.patient_display_id, a.appointment_type_id, a.consent_given_at, a.video_link,
            a.created_at, a.followup_override_until,
-           a.resource_id, res.name AS resource_name, a.diagnostic_test_id, a.diagnostic_test_variant_id,
-           a.diagnostic_test_label, a.diagnostic_variant_label, a.diagnostic_price,
+           a.resource_id, res.name AS resource_name, a.diagnostic_test_id,
+           a.diagnostic_test_label, a.diagnostic_price,
            a.collection_method, a.collection_address, a.collection_pincode, a.home_collection_charge, a.lab_status,
            a.procedure_id, proc.name AS procedure_name, a.procedure_status,
            a.procedure_estimated_price_min, a.procedure_estimated_price_max,
@@ -103,7 +103,7 @@ _APPOINTMENT_SELECT = """
     FROM appointments a
     LEFT JOIN departments d ON d.id = a.department_id
     LEFT JOIN doctors doc ON doc.id = a.doctor_id
-    LEFT JOIN diagnostic_resources res ON res.id = a.resource_id
+    LEFT JOIN diagnostic_tests res ON res.id = a.resource_id
     LEFT JOIN patients p ON p.id = a.patient_id
     LEFT JOIN procedures proc ON proc.id = a.procedure_id
     WHERE a.deleted_at IS NULL
@@ -256,18 +256,16 @@ class Appointment:
     followup_override_until: str | None = None
     # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
     # the machine/equipment this booking is bound to, and a snapshot of which
-    # test/variant/price were chosen at booking time. None for every
-    # doctor-bound appointment type, and for a resource-less diagnostic/lab test.
-    resource_id: str | None = None
+    # test/price were chosen at booking time. None for every doctor-bound
+    # appointment type, and for a resource-less diagnostic/lab test.
+    resource_id: int | None = None
     resource_name: str | None = None
     diagnostic_test_id: int | None = None
-    diagnostic_test_variant_id: int | None = None
     diagnostic_test_label: str | None = None
-    diagnostic_variant_label: str | None = None
     diagnostic_price: float | None = None
     # Lab Test Phase 2 follow-up: collection details + the post-booking
     # report lifecycle, only ever set for a Lab Test booking. The basket
-    # itself (N test/variant rows) is fetched separately, via
+    # itself (N test rows) is fetched separately, via
     # db.get_lab_basket_for_appointment() -- not part of this dataclass.
     collection_method: str | None = None
     collection_address: str | None = None
@@ -315,9 +313,7 @@ def _row_to_appointment(row) -> Appointment:
         resource_id=row["resource_id"],
         resource_name=row["resource_name"],
         diagnostic_test_id=row["diagnostic_test_id"],
-        diagnostic_test_variant_id=row["diagnostic_test_variant_id"],
         diagnostic_test_label=row["diagnostic_test_label"],
-        diagnostic_variant_label=row["diagnostic_variant_label"],
         diagnostic_price=float(row["diagnostic_price"]) if row["diagnostic_price"] is not None else None,
         collection_method=row["collection_method"],
         collection_address=row["collection_address"],

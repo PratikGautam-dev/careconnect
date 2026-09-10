@@ -109,24 +109,24 @@ class Tier1Connector(Connector):
 
     def get_available_resource_slots(self, hospital_id, resource_id):
         _ensure_topped_up(
-            f"resource:{hospital_id}:{resource_id}",
-            lambda: repo.generate_slots_for_resource(
+            f"test:{hospital_id}:{resource_id}",
+            lambda: repo.generate_slots_for_test(
                 hospital_id, resource_id, days_ahead=repo.get_future_booking_days(hospital_id),
             ),
         )
-        cache_key = f"slots:resource:{hospital_id}:{resource_id}"
+        cache_key = f"slots:test:{hospital_id}:{resource_id}"
         cached = cache_get_json(cache_key)
         if cached is not None:
             return cached
-        slots = repo.get_resource_slots(hospital_id, resource_id)
+        slots = repo.get_test_slots(hospital_id, resource_id)
         cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
         return slots
 
     def get_diagnostic_tests(self, hospital_id, category):
         return repo.get_diagnostic_tests(hospital_id, category)
 
-    def get_diagnostic_resources(self, hospital_id):
-        return repo.get_diagnostic_resources(hospital_id)
+    def get_diagnostic_test_summaries(self, hospital_id):
+        return repo.get_diagnostic_test_summaries(hospital_id)
 
     def get_service_areas(self, hospital_id):
         return repo.get_service_areas(hospital_id)
@@ -134,13 +134,13 @@ class Tier1Connector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         return repo.is_pincode_serviceable(hospital_id, pincode)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_variant_id=None, diagnostic_test_label=None, diagnostic_variant_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
             source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
             appointment_type_id=appointment_type_id, consent_given_at=consent_given_at, resource_id=resource_id,
-            diagnostic_test_id=diagnostic_test_id, diagnostic_test_variant_id=diagnostic_test_variant_id,
-            diagnostic_test_label=diagnostic_test_label, diagnostic_variant_label=diagnostic_variant_label,
+            diagnostic_test_id=diagnostic_test_id,
+            diagnostic_test_label=diagnostic_test_label,
             diagnostic_price=diagnostic_price,
         )
 
@@ -192,10 +192,9 @@ class Tier1Connector(Connector):
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         repo.set_appointment_video_link(hospital_id, appointment_id, video_link)
 
-    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price):
+    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price):
         repo.set_appointment_diagnostic_details(
-            hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id,
-            diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
+            hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price,
         )
 
     def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
@@ -294,9 +293,9 @@ class Tier1Connector(Connector):
         the same way create_procedure_booking() does. See
         connector.request_procedure_reschedule()/confirm_procedure_appointment().
 
-        Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/variant/label/
-        price all carry forward the same way -- rescheduling moves the slot,
-        never re-asks which test/variant was chosen.
+        Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/label/price all
+        carry forward the same way -- rescheduling moves the slot, never
+        re-asks which test was chosen.
 
         Lab Test Phase 2 follow-up: collection_method/address/pincode/
         home_collection_charge carry forward the same way -- rescheduling
@@ -313,9 +312,7 @@ class Tier1Connector(Connector):
             appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
             resource_id=resource_id if resource_id is not None else (old_appointment.resource_id if old_appointment else None),
             diagnostic_test_id=old_appointment.diagnostic_test_id if old_appointment else None,
-            diagnostic_test_variant_id=old_appointment.diagnostic_test_variant_id if old_appointment else None,
             diagnostic_test_label=old_appointment.diagnostic_test_label if old_appointment else None,
-            diagnostic_variant_label=old_appointment.diagnostic_variant_label if old_appointment else None,
             diagnostic_price=old_appointment.diagnostic_price if old_appointment else None,
             collection_method=old_appointment.collection_method if old_appointment else None,
             collection_address=old_appointment.collection_address if old_appointment else None,

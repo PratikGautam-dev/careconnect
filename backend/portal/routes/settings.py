@@ -43,7 +43,7 @@ _MAX_FEE = 1_000_000
 # realistically books that far ahead, and keeps generate_slots_for_*()'s
 # per-entity candidate-building bounded.
 _MIN_FUTURE_BOOKING_DAYS = 1
-_MAX_FUTURE_BOOKING_DAYS = 90
+_MAX_FUTURE_BOOKING_DAYS = 60
 
 
 @router.get("/api/portal/settings")

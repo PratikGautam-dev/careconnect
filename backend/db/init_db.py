@@ -374,10 +374,9 @@ def _backfill_diagnostic_tests(conn) -> None:
     5): seeds DEFAULT_DIAGNOSTIC_TESTS/DEFAULT_LAB_TESTS for every hospital
     that doesn't already have ANY row in either category -- same "has-any"
     gating as _backfill_daycare_duration_options above (an open, hospital-
-    editable catalog, not a fixed one re-keyed by id). Each seeded test gets
-    one default "Standard" variant, resource_id NULL, price/prep unset --
-    hospitals link a real resource and set pricing/instructions afterward
-    via the portal."""
+    editable catalog, not a fixed one re-keyed by id). Each seeded test has
+    no schedule/price configured yet -- hospitals set those up afterward via
+    the portal."""
     hospitals = conn.execute("SELECT id FROM hospitals").fetchall()
     for hospital in hospitals:
         hospital_id = hospital["id"]
@@ -389,15 +388,10 @@ def _backfill_diagnostic_tests(conn) -> None:
             if has_any:
                 continue
             for sort_order, name in enumerate(names):
-                row = conn.execute(
-                    "INSERT INTO diagnostic_tests (hospital_id, category, name, is_active, sort_order) "
-                    "VALUES (?, ?, ?, TRUE, ?) RETURNING id",
-                    (hospital_id, category, name, sort_order),
-                ).fetchone()
                 conn.execute(
-                    "INSERT INTO diagnostic_test_variants (hospital_id, test_id, label, is_active, sort_order) "
-                    "VALUES (?, ?, 'Standard', TRUE, 0)",
-                    (hospital_id, row["id"]),
+                    "INSERT INTO diagnostic_tests (hospital_id, category, name, is_active, sort_order) "
+                    "VALUES (?, ?, ?, TRUE, ?)",
+                    (hospital_id, category, name, sort_order),
                 )
     conn.commit()
 
@@ -1278,6 +1272,61 @@ def init_db_on_connection(conn) -> int:
     # Migration 0035: a resource-bound booking can have no department at all
     # -- see that migration's own docstring.
     conn.execute("ALTER TABLE appointments ALTER COLUMN department_id DROP NOT NULL")
+    # Migration 0036: diagnostic tests/resources merge -- a diagnostic_tests
+    # row now carries its own schedule directly (no separate
+    # diagnostic_resources row, no department) -- see that migration's own
+    # docstring. No data is carried forward from diagnostic_resources.
+    conn.execute("DROP INDEX IF EXISTS ux_appointments_resource_slot_ordinal_booked")
+    conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS resource_id")
+    conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS working_days TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS working_hours TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        "ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS slot_duration_minutes INTEGER NOT NULL DEFAULT 30"
+    )
+    conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        "ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS max_bookings_per_slot INTEGER NOT NULL DEFAULT 1"
+    )
+    conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS daily_booking_limit INTEGER")
+    conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS effective_from TEXT")
+    conn.execute("ALTER TABLE diagnostic_tests DROP COLUMN IF EXISTS resource_id")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_test_slots ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "test_id INTEGER NOT NULL REFERENCES diagnostic_tests(id), scheduled_at TEXT NOT NULL, "
+        "blocked BOOLEAN NOT NULL DEFAULT FALSE, block_reason TEXT, "
+        "UNIQUE(test_id, scheduled_at)"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS diagnostic_test_leave ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "test_id INTEGER NOT NULL REFERENCES diagnostic_tests(id), date TEXT NOT NULL, reason TEXT, "
+        "UNIQUE(test_id, date)"
+        ")"
+    )
+    conn.execute(
+        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES diagnostic_tests(id)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked ON appointments "
+        "(resource_id, scheduled_at, booking_ordinal) WHERE status = 'booked' AND resource_id IS NOT NULL"
+    )
+    conn.execute("DROP TABLE IF EXISTS diagnostic_resource_slots")
+    conn.execute("DROP TABLE IF EXISTS diagnostic_resource_leave")
+    conn.execute("DROP TABLE IF EXISTS diagnostic_resources")
+    # Migration 0037: diagnostic tests/variants merge -- a diagnostic_tests
+    # row now carries its own price directly (it only ever needed exactly
+    # one priced option), so the separate diagnostic_test_variants child
+    # table (and its unused preparation_instructions field) is gone -- see
+    # that migration's own docstring. No data is carried forward.
+    conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2)")
+    conn.execute("ALTER TABLE appointment_lab_tests DROP COLUMN IF EXISTS diagnostic_test_variant_id")
+    conn.execute("ALTER TABLE appointment_lab_tests DROP COLUMN IF EXISTS variant_label")
+    conn.execute("ALTER TABLE appointment_lab_tests DROP COLUMN IF EXISTS preparation_instructions")
+    conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS diagnostic_test_variant_id")
+    conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS diagnostic_variant_label")
+    conn.execute("DROP TABLE IF EXISTS diagnostic_test_variants")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

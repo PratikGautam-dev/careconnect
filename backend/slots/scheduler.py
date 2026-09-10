@@ -31,8 +31,8 @@ def top_up_slots_for_hospital(hospital_id: int, days_ahead: int | None = None) -
     inserted."""
     days_ahead = days_ahead if days_ahead is not None else db.get_future_booking_days(hospital_id)
     total = 0
-    for resource in db.get_diagnostic_resources(hospital_id):
-        total += db.generate_slots_for_resource(hospital_id, resource["id"], days_ahead=days_ahead)
+    for test in db.get_diagnostic_test_summaries(hospital_id):
+        total += db.generate_slots_for_test(hospital_id, test["id"], days_ahead=days_ahead)
     for resource in db.get_all_procedure_resources_for_hospital(hospital_id):
         if resource["is_active"]:
             total += db.generate_slots_for_procedure_resource(hospital_id, resource["id"], days_ahead=days_ahead)

@@ -85,7 +85,7 @@ def _build_new_booking_context(hospital) -> tuple[list[dict], dict, dict, list[d
             for s in slots:
                 by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
             slots_by_doctor[doc["id"]] = by_date
-    resources = connector.get_diagnostic_resources(hospital.id)
+    resources = connector.get_diagnostic_test_summaries(hospital.id)
     slots_by_resource: dict[str, dict[str, list[dict]]] = {}
     for res in resources:
         slots = connector.get_available_resource_slots(hospital.id, res["id"])

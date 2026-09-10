@@ -553,9 +553,9 @@ async def portal_reschedule_booking(
     if appointment.resource_id is not None:
         department_id = appointment.department_id
         doctor_id = None
-        resource = db.get_resource_full(hospital.id, appointment.resource_id)
+        resource = db.get_diagnostic_test(hospital.id, appointment.resource_id)
         if resource is None:
-            errors.append("This resource is no longer available.")
+            errors.append("This test is no longer available.")
     else:
         department_id = (payload or {}).get("department_id") or ""
         doctor_id = (payload or {}).get("doctor_id") or ""

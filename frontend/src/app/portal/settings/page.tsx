@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
+import { DiagnosticTestsManager } from "@/components/portal/DiagnosticTestsManager";
 import { GoogleCalendarCard } from "@/components/portal/GoogleCalendarCard";
 import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
 import { PortalShell } from "@/components/portal/PortalShell";
@@ -22,6 +23,7 @@ function PortalSettingsPageContent() {
   // gating as PortalDoctorsPage's canManageDoctors. Fails open (renders the
   // section) while hospital hasn't loaded yet.
   const canManageAppointmentTypes = !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
+  const canManageTests = !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_resources");
   const { settings, setSettings, error, saving, saved, handleSave } = usePortalSettings(ready);
 
   return (
@@ -271,6 +273,14 @@ function PortalSettingsPageContent() {
               <AppointmentTypeToggles canManage={canManageAppointmentTypes} />
             </Card>
           )}
+
+          <Card className="p-space-5 lg:col-span-2">
+            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Diagnostic tests</h2>
+            <p className="mb-space-3 text-[12.5px] text-ink-400">
+              Manage the tests patients can book under Diagnostic Test / Lab Test, each with its own weekly schedule.
+            </p>
+            <DiagnosticTestsManager canManage={!!canManageTests} />
+          </Card>
 
           {canManageAppointmentTypes && (
             <Card className="p-space-5 lg:col-span-2">

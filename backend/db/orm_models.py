@@ -205,44 +205,29 @@ class AppointmentProcedureResource(Base):
     resource_name: Mapped[str]
 
 
-class DiagnosticResource(Base):
-    """db/schema.sql's diagnostic_resources table (Diagnostic/Lab Phase 2) --
-    a bookable machine/equipment, independent of any doctor. Schedule columns
-    mirror DoctorRow's own."""
-    __tablename__ = "diagnostic_resources"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
-    name: Mapped[str]
-    working_days: Mapped[str]
-    working_hours: Mapped[str]
-    slot_duration_minutes: Mapped[int]
-    breaks: Mapped[str]
-    max_bookings_per_slot: Mapped[int]
-    daily_booking_limit: Mapped[int | None]
-    effective_from: Mapped[str | None]
-    is_active: Mapped[bool]
-
-
-class DiagnosticResourceLeave(Base):
-    """db/schema.sql's diagnostic_resource_leave table -- mirrors DoctorLeave."""
-    __tablename__ = "diagnostic_resource_leave"
+class DiagnosticTestLeave(Base):
+    """db/schema.sql's diagnostic_test_leave table -- mirrors DoctorLeave.
+    Diagnostic tests/resources merge: a test IS the bookable
+    machine/equipment now, so this is keyed on test_id directly (no more
+    separate diagnostic_resources table)."""
+    __tablename__ = "diagnostic_test_leave"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    resource_id: Mapped[str] = mapped_column(ForeignKey("diagnostic_resources.id"))
+    test_id: Mapped[int] = mapped_column(ForeignKey("diagnostic_tests.id"))
     date: Mapped[str]
     reason: Mapped[str | None]
 
 
-class DiagnosticResourceSlot(Base):
-    """db/schema.sql's diagnostic_resource_slots table -- mirrors DoctorSlot."""
-    __tablename__ = "diagnostic_resource_slots"
+class DiagnosticTestSlot(Base):
+    """db/schema.sql's diagnostic_test_slots table -- mirrors DoctorSlot.
+    See DiagnosticTestLeave's docstring for the test_id-instead-of-
+    resource_id rationale."""
+    __tablename__ = "diagnostic_test_slots"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    resource_id: Mapped[str] = mapped_column(ForeignKey("diagnostic_resources.id"))
+    test_id: Mapped[int] = mapped_column(ForeignKey("diagnostic_tests.id"))
     scheduled_at: Mapped[str]
     blocked: Mapped[bool]
     block_reason: Mapped[str | None]
@@ -250,30 +235,27 @@ class DiagnosticResourceSlot(Base):
 
 class DiagnosticTest(Base):
     """db/schema.sql's diagnostic_tests table -- the catalog a patient picks
-    from for Diagnostic Test / Lab Test (category discriminates the two)."""
+    from for Diagnostic Test / Lab Test (category discriminates the two).
+    Diagnostic tests/resources merge: a test now carries its own schedule
+    directly (no separate diagnostic_resources row, no department -- a
+    diagnostic/lab booking never has a department at all). Test/variant
+    merge: price lives directly here too now -- a test only ever needed
+    exactly one priced option, so the separate diagnostic_test_variants
+    child table (and its unused preparation_instructions field) is gone."""
     __tablename__ = "diagnostic_tests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     category: Mapped[str]
     name: Mapped[str]
-    resource_id: Mapped[str | None] = mapped_column(ForeignKey("diagnostic_resources.id"))
-    is_active: Mapped[bool]
-    sort_order: Mapped[int]
-
-
-class DiagnosticTestVariant(Base):
-    """db/schema.sql's diagnostic_test_variants table -- every test has >=1
-    variant; price/preparation_instructions always live here, never on
-    DiagnosticTest itself."""
-    __tablename__ = "diagnostic_test_variants"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    test_id: Mapped[int] = mapped_column(ForeignKey("diagnostic_tests.id"))
-    label: Mapped[str]
     price: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    preparation_instructions: Mapped[str | None]
+    working_days: Mapped[str]
+    working_hours: Mapped[str]
+    slot_duration_minutes: Mapped[int]
+    breaks: Mapped[str]
+    max_bookings_per_slot: Mapped[int]
+    daily_booking_limit: Mapped[int | None]
+    effective_from: Mapped[str | None]
     is_active: Mapped[bool]
     sort_order: Mapped[int]
 
@@ -294,20 +276,17 @@ class LabServiceArea(Base):
 
 class AppointmentLabTest(Base):
     """db/schema.sql's appointment_lab_tests table -- the Lab Test basket: N
-    rows per one `appointments` row, one per selected test+variant. Snapshot
-    columns (test_label/variant_label/price/preparation_instructions) follow
-    the same denormalization convention as appointments.diagnostic_test_label."""
+    rows per one `appointments` row, one per selected test. test_label/price
+    snapshot columns follow the same denormalization convention as
+    appointments.diagnostic_test_label."""
     __tablename__ = "appointment_lab_tests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"))
     diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
-    diagnostic_test_variant_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_test_variants.id"))
     test_label: Mapped[str]
-    variant_label: Mapped[str]
     price: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    preparation_instructions: Mapped[str | None]
 
 
 class FaqTopic(Base):
@@ -471,16 +450,17 @@ class AppointmentRow(Base):
     # Follow-up validity override (migration 0024) -- see db/schema.sql's own
     # column comment. NULL means no override has ever been granted.
     followup_override_until: Mapped[str | None]
-    # Diagnostic/Lab Phase 2: the machine/equipment this booking is bound to
-    # (None for every doctor-bound appointment type, and for a resource-less
-    # diagnostic/lab test). diagnostic_test_label/diagnostic_variant_label/
-    # diagnostic_price are snapshots at booking time, same denormalization
-    # convention as patient_name/patient_phone.
-    resource_id: Mapped[str | None] = mapped_column(ForeignKey("diagnostic_resources.id"))
+    # Diagnostic/Lab Phase 2: the diagnostic_tests row this booking is bound
+    # to for scheduling purposes (None for every doctor-bound appointment
+    # type). Diagnostic tests/resources merge: this now points straight at
+    # diagnostic_tests.id -- for a Lab Test basket booking it's whichever
+    # basket item anchors the slot (see flows/booking/types/lab.py), not
+    # necessarily the same row as diagnostic_test_id below.
+    # diagnostic_test_label/diagnostic_price are snapshots at booking time,
+    # same denormalization convention as patient_name/patient_phone.
+    resource_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
     diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
-    diagnostic_test_variant_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_test_variants.id"))
     diagnostic_test_label: Mapped[str | None]
-    diagnostic_variant_label: Mapped[str | None]
     diagnostic_price: Mapped[float | None] = mapped_column(Numeric(10, 2))
     # Lab Test Phase 2 follow-up: collection details + the post-booking
     # report lifecycle, only ever set for a Lab Test booking -- see

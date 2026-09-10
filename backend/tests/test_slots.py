@@ -39,31 +39,35 @@ client = TestClient(app)
 # --- top_up_slots_for_hospital(): diagnostic/procedure resources only now ---
 
 def test_top_up_slots_for_hospital_is_a_no_op_when_window_already_populated(hospital_id):
-    """The seeded default hospital has no diagnostic/procedure resources at
-    all -- a top-up run finds nothing to do (doctors are no longer part of
-    this job, see module docstring)."""
+    """The seeded default hospital's diagnostic/lab tests have no schedule
+    configured (blank working_days/hours) and there are no procedure
+    resources -- a top-up run finds nothing to do (doctors are no longer
+    part of this job, see module docstring)."""
     generated = top_up_slots_for_hospital(hospital_id)
     assert generated == 0
 
 
-def test_top_up_slots_for_hospital_extends_a_resource_added_without_slots(hospital_id):
-    """A diagnostic resource inserted directly (not through create_resource(),
-    which auto-generates) has a working pattern but zero slots until topped
-    up -- same "manually inserted, generation is separate" scenario the old
-    doctor-based version of this test covered before migration 0032."""
+def test_top_up_slots_for_hospital_extends_a_test_added_without_slots(hospital_id):
+    """A diagnostic test inserted directly (not through create_diagnostic_
+    test(), which auto-generates) has a working pattern but zero slots until
+    topped up -- same "manually inserted, generation is separate" scenario
+    the old doctor-based version of this test covered before migration 0032."""
     conn = db_connection.get_connection()
     conn.execute(
-        "INSERT INTO diagnostic_resources (id, hospital_id, name, working_days, working_hours, slot_duration_minutes) "
-        "VALUES ('manual_res', ?, 'MRI Machine', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
+        "INSERT INTO diagnostic_tests (hospital_id, category, name, working_days, working_hours, slot_duration_minutes) "
+        "VALUES (?, 'diagnostic', 'MRI Machine', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
         (hospital_id,),
     )
     conn.commit()
-    assert db.get_resource_slots(hospital_id, "manual_res") == []
+    test_id = conn.execute(
+        "SELECT id FROM diagnostic_tests WHERE hospital_id = ? AND name = 'MRI Machine'", (hospital_id,),
+    ).fetchone()["id"]
+    assert db.get_test_slots(hospital_id, test_id) == []
 
     generated = top_up_slots_for_hospital(hospital_id)
 
     assert generated == 14  # one slot/day across the default 14-day window
-    assert len(db.get_resource_slots(hospital_id, "manual_res")) == 14
+    assert len(db.get_test_slots(hospital_id, test_id)) == 14
 
 
 def test_top_up_slots_endpoint_requires_internal_secret(hospital_id):
@@ -103,42 +107,45 @@ def test_top_up_slots_for_hospital_respects_configured_future_booking_days(hospi
     )
     conn = db_connection.get_connection()
     conn.execute(
-        "INSERT INTO diagnostic_resources (id, hospital_id, name, working_days, working_hours, slot_duration_minutes) "
-        "VALUES ('manual_res_20', ?, 'CT Scanner', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
+        "INSERT INTO diagnostic_tests (hospital_id, category, name, working_days, working_hours, slot_duration_minutes) "
+        "VALUES (?, 'diagnostic', 'CT Scanner', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
         (hospital_id,),
     )
     conn.commit()
+    test_id = conn.execute(
+        "SELECT id FROM diagnostic_tests WHERE hospital_id = ? AND name = 'CT Scanner'", (hospital_id,),
+    ).fetchone()["id"]
 
     top_up_slots_for_hospital(hospital_id)
 
-    assert len(db.get_resource_slots(hospital_id, "manual_res_20")) == 20  # one slot/day, 20-day window
+    assert len(db.get_test_slots(hospital_id, test_id)) == 20  # one slot/day, 20-day window
 
 
-def test_self_healing_top_up_recovers_a_resource_whose_window_ran_dry(hospital_id):
-    """Diagnostic/procedure resources still depend on connectors/tier1.py's
-    self-healing top-up (doctors no longer do -- migration 0032 replaced
-    their whole pre-generation model). The live bug this covers: a
-    resource's rolling window can run out entirely if nothing ever tops it
-    up (the external cron this depends on isn't guaranteed to exist) -- the
+def test_self_healing_top_up_recovers_a_test_whose_window_ran_dry(hospital_id):
+    """Diagnostic tests/procedure resources still depend on connectors/
+    tier1.py's self-healing top-up (doctors no longer do -- migration 0032
+    replaced their whole pre-generation model). The live bug this covers: a
+    test's rolling window can run out entirely if nothing ever tops it up
+    (the external cron this depends on isn't guaranteed to exist) -- the
     very next bot-facing read must regenerate the window automatically, with
     no manual intervention."""
-    resource = db.create_resource(
-        hospital_id, "Ultrasound Machine",
+    test = db.create_diagnostic_test(
+        hospital_id, "diagnostic", "Ultrasound Machine",
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         working_hours=["09:00-17:00"], slot_duration_minutes=60,
     )
-    assert db.get_resource_slots(hospital_id, resource["id"]) != []  # sanity: freshly created, has slots
+    assert db.get_test_slots(hospital_id, test["id"]) != []  # sanity: freshly created, has slots
 
     conn = db_connection.get_connection()
     conn.execute(
-        "DELETE FROM diagnostic_resource_slots WHERE hospital_id = ? AND resource_id = ?",
-        (hospital_id, resource["id"]),
+        "DELETE FROM diagnostic_test_slots WHERE hospital_id = ? AND test_id = ?",
+        (hospital_id, test["id"]),
     )
     conn.commit()
-    assert db.get_resource_slots(hospital_id, resource["id"]) == []
+    assert db.get_test_slots(hospital_id, test["id"]) == []
 
     connector = Tier1Connector()
-    slots = connector.get_available_resource_slots(hospital_id, resource["id"])
+    slots = connector.get_available_resource_slots(hospital_id, test["id"])
 
     assert slots != []
 

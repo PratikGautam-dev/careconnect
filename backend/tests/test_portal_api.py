@@ -1303,13 +1303,13 @@ def test_reschedule_resource_bound_appointment_needs_no_department_or_doctor(two
     the payload, matching the read-only Department/Doctor fields the
     frontend already shows for a doctor consultation."""
     a = two_hospitals["a"]
-    resource = db.create_resource(
-        a["id"], "MRI Machine",
+    test = db.create_diagnostic_test(
+        a["id"], "diagnostic", "MRI Machine",
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], working_hours=["09:00-17:00"], slot_duration_minutes=60,
     )
-    slots = db.get_resource_slots(a["id"], resource["id"])
+    slots = db.get_test_slots(a["id"], test["id"])
     appt = db.create_appointment(
-        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=resource["id"],
+        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=test["id"],
     )
     new_slot = slots[1]
 
@@ -1327,19 +1327,19 @@ def test_reschedule_resource_bound_appointment_needs_no_department_or_doctor(two
         if x.phone == "5490001111" and x.status == db.STATUS_BOOKED
     ]
     assert len(new_appts) == 1
-    assert new_appts[0].resource_id == resource["id"]
+    assert new_appts[0].resource_id == test["id"]
     assert new_appts[0].scheduled_at.isoformat() == new_slot["id"]
 
 
 def test_reschedule_resource_bound_appointment_rejects_missing_slot(two_hospitals):
     a = two_hospitals["a"]
-    resource = db.create_resource(
-        a["id"], "CT Scanner",
+    test = db.create_diagnostic_test(
+        a["id"], "diagnostic", "CT Scanner",
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], working_hours=["09:00-17:00"], slot_duration_minutes=60,
     )
-    slots = db.get_resource_slots(a["id"], resource["id"])
+    slots = db.get_test_slots(a["id"], test["id"])
     appt = db.create_appointment(
-        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=resource["id"],
+        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=test["id"],
     )
 
     resp = client.post(

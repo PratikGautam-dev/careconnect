@@ -8,10 +8,11 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Diagnostic/Lab Phase 2: the resource-scoped sibling of useDoctorSlots --
-// same manual per-slot override shape, pointed at /api/portal/diagnostic-
-// resources/{resourceId}/slots... instead of /api/portal/doctors/....
-export function useResourceSlots(resourceId: string) {
+// The test-scoped sibling of useDoctorSlots -- same manual per-slot override
+// shape, pointed at /api/portal/diagnostic-tests/{testId}/slots... instead
+// of /api/portal/doctors/.... Renamed from useResourceSlots when diagnostic
+// tests/resources merged into one entity.
+export function useTestSlots(testId: number) {
   const [date, setDate] = useState(todayIso());
   const [viewAll, setViewAll] = useState(false);
   const [slots, setSlots] = useState<Slot[] | null>(null);
@@ -24,9 +25,9 @@ export function useResourceSlots(resourceId: string) {
   const load = useCallback(async () => {
     setSlots(null);
     const qs = viewAll ? "" : `?date=${date}`;
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/slots${qs}`);
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/slots${qs}`);
     if (result.ok) setSlots((result.data as { slots: Slot[] }).slots);
-  }, [resourceId, date, viewAll]);
+  }, [testId, date, viewAll]);
 
   useEffect(() => {
     load();
@@ -45,7 +46,7 @@ export function useResourceSlots(resourceId: string) {
   async function toggleBlock(slot: Slot) {
     setPendingId(slot.scheduled_at);
     setError(null);
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/slots/block`, {
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/slots/block`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scheduled_at: slot.scheduled_at, blocked: !slot.blocked }),
@@ -64,7 +65,7 @@ export function useResourceSlots(resourceId: string) {
     if (!window.confirm(`Remove the ${slot.time} slot on ${slot.date}? This deletes it outright, not just blocks it.`)) return;
     setPendingId(slot.scheduled_at);
     setError(null);
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/slots/remove`, {
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/slots/remove`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scheduled_at: slot.scheduled_at }),
@@ -83,7 +84,7 @@ export function useResourceSlots(resourceId: string) {
     if (!newTime) return;
     setAdding(true);
     setError(null);
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/slots/add`, {
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/slots/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date: viewAll ? newDate : date, time: newTime }),

@@ -16,8 +16,9 @@ export type Appointment = {
   doctor_name: string | null;
   // Diagnostic/Lab reschedule follow-up: set (doctor_id/doctor_name both
   // null) for a resource-bound booking -- an MRI machine or lab collection
-  // point, not a doctor.
-  resource_id: string | null;
+  // point, not a doctor. Diagnostic tests/resources merge: this is a
+  // diagnostic_tests.id now -- a test IS the schedulable resource.
+  resource_id: number | null;
   resource_name: string | null;
   scheduled_at: string;
   status: string;
@@ -44,7 +45,7 @@ export type Appointment = {
 
 export type Department = { id: string; name: string };
 export type Doctor = { id: string; name: string };
-export type Resource = { id: string; name: string; department_id: string | null };
+export type Resource = { id: number; name: string };
 export type Slot = { id: string; label: string };
 export type NewBookingContext = {
   departments: Department[];
@@ -334,7 +335,7 @@ export function useAppointments(ready: boolean) {
     setRescheduleErrors([]);
     const appointment = appointments?.find((a) => a.id === id);
     setRDoctorId(appointment?.doctor_id || "");
-    setRResourceId(appointment?.resource_id || "");
+    setRResourceId(appointment?.resource_id != null ? String(appointment.resource_id) : "");
     setRDate("");
     setRSlotId("");
     if (!rescheduleCtx) {
@@ -361,7 +362,7 @@ export function useAppointments(ready: boolean) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         department_id: appointment?.department_id || "", doctor_id: appointment?.doctor_id || rDoctorId,
-        resource_id: appointment?.resource_id || rResourceId,
+        resource_id: appointment?.resource_id ?? (rResourceId ? Number(rResourceId) : null),
         slot_id: rSlotId, message: rescheduleMessage.trim(),
       }),
     });

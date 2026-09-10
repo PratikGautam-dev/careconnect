@@ -1258,37 +1258,35 @@ async def test_followup_back_from_date_returns_to_eligible_list(hospital_id):
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
 
 
-def _link_test_to_new_resource(hospital_id, category: str, test_index: int = 0):
+def _configure_test_schedule(hospital_id, category: str, test_index: int = 0):
     """Confirmed with the user directly: a diagnostic/lab test with no
-    resource linked no longer falls back to any-doctor-with-open-slots --
-    it's simply "not available" until an admin links one, same as an
+    schedule configured no longer falls back to any-doctor-with-open-slots --
+    it's simply "not available" until an admin configures one, same as an
     unconfigured doctor. Every test below that needs to actually reach date
-    selection now has to link a real resource first, same as
-    test_diagnostic_resources.py's own tests already do."""
-    resource = db.create_resource(
-        hospital_id, "Test Resource",
+    selection now has to configure a real schedule first, same as
+    test_diagnostic_test_scheduling.py's own tests already do."""
+    test = db.get_diagnostic_tests(hospital_id, category)[test_index]
+    db.update_diagnostic_test(
+        hospital_id, test["id"], test["name"],
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], working_hours=["09:00-17:00"], slot_duration_minutes=30,
     )
-    test = db.get_diagnostic_tests(hospital_id, category)[test_index]
-    db.update_diagnostic_test(hospital_id, test["id"], test["name"], resource["id"])
-    return test, resource
+    return test
 
 
 @pytest.mark.asyncio
 async def test_diagnostic_appointment_type_skips_department_and_doctor_selection(hospital_id):
     """docs/per-appointment-type-flow-plan.md Phase 2 Step 5: 'diagnostic'
-    inserts a test+variant pick (flows/booking/types/_diagnostic_shared.py)
-    but still has no department/doctor step of its own -- picking a test
-    (with its single default "Standard" variant, auto-skipped) should jump
-    straight to date selection. Migration 0035: _link_test_to_new_resource's
-    resource has no department configured, so department_id is genuinely
-    None here -- not an arbitrary fallback to the hospital's first
-    department (the bug that fallback caused: every department-less
-    diagnostic/lab/procedure booking silently misrepresented as whichever
-    department happened to sort first)."""
+    inserts a test pick (flows/booking/types/_diagnostic_shared.py) but
+    still has no department/doctor step of its own -- picking a test should
+    jump straight to date selection. Diagnostic tests/resources merge: a
+    test never has a department at all (unlike doctor-based types), so
+    department_id is unconditionally None here -- not an arbitrary fallback
+    to the hospital's first department (the bug that fallback caused: every
+    department-less diagnostic/lab/procedure booking silently misrepresented
+    as whichever department happened to sort first)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    test, resource = _link_test_to_new_resource(hospital_id, "diagnostic")
+    test = _configure_test_schedule(hospital_id, "diagnostic")
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
@@ -1299,34 +1297,10 @@ async def test_diagnostic_appointment_type_skips_department_and_doctor_selection
     assert session["state"] == "AWAITING_DATE"
     assert session["context"]["appointment_type_id"] == "diagnostic"
     assert session["context"]["department_id"] is None
-    assert session["context"]["resource_id"] == resource["id"]
+    assert session["context"]["resource_id"] == test["id"]
     assert session["context"]["doctor_id"] is None
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"  # the date list's own follow-up Back button
-
-
-@pytest.mark.asyncio
-async def test_diagnostic_resource_with_a_real_department_resolves_it(hospital_id):
-    """The other half of migration 0035: a resource that DOES have a
-    department configured still resolves it correctly -- only a genuinely
-    department-less resource gets None."""
-    wa = FakeWhatsAppClient()
-    sessions = InMemorySessionStore()
-    department = db.get_departments(hospital_id)[0]
-    resource = db.create_resource(
-        hospital_id, "Departmental Resource", department_id=department["id"],
-        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], working_hours=["09:00-17:00"], slot_duration_minutes=30,
-    )
-    test = db.get_diagnostic_tests(hospital_id, "diagnostic")[0]
-    db.update_diagnostic_test(hospital_id, test["id"], test["name"], resource["id"])
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
-
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
-    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
-
-    session = sessions.get(hospital_id, PHONE)
-    assert session["context"]["department_id"] == department["id"]
-    assert session["context"]["department_name"] == department["name"]
 
 
 @pytest.mark.asyncio
@@ -1338,7 +1312,7 @@ async def test_diagnostic_back_from_date_returns_to_test_then_appointment_type(h
     selection -- never doctor."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    test, _resource = _link_test_to_new_resource(hospital_id, "diagnostic")
+    test = _configure_test_schedule(hospital_id, "diagnostic")
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DIAGNOSTIC_TEST"
@@ -1362,15 +1336,14 @@ async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hosp
     """Confirmation's "what would you like to change?" sub-menu should not
     offer Change Department/Change Doctor for a type whose flow never asked
     for either -- there'd be no history frame to jump back to. It SHOULD
-    offer "Change Test" (diagnostic/lab's own step), but not "Change Test
-    Option" -- the seeded default test has only one ("Standard") variant."""
+    offer "Change Test" (diagnostic/lab's own step)."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    test, resource = _link_test_to_new_resource(hospital_id, "diagnostic")
+    test = _configure_test_schedule(hospital_id, "diagnostic")
     sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
-    all_slots = db.get_resource_slots(hospital_id, resource["id"])
+    all_slots = db.get_test_slots(hospital_id, test["id"])
     date_str = all_slots[0]["date"]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
     slot = [s for s in all_slots if s["date"] == date_str][0]
@@ -1386,7 +1359,6 @@ async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hosp
     assert "change_date" in row_ids
     assert "change_time" in row_ids
     assert "change_diagnostic_test" in row_ids
-    assert "change_diagnostic_variant" not in row_ids
 
 
 # --- docs/per-appointment-type-flow-plan.md Phase 2 Step 3: Tele-consultation
@@ -1418,24 +1390,24 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
         doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap(doctor_id))
     elif session["state"] == "AWAITING_DIAGNOSTIC_TEST":
-        # Diagnostic Phase 2's own pre-date steps: a test needs a linked
-        # resource to be bookable at all (confirmed with the user: no more
-        # any-doctor fallback) -- pick the first seeded test (single default
-        # "Standard" variant auto-skips the variant step) after linking one.
-        test, _resource = _link_test_to_new_resource(hospital_id, appointment_type_id)
+        # Diagnostic Phase 2's own pre-date step: a test needs a schedule
+        # configured to be bookable at all (confirmed with the user: no
+        # more any-doctor fallback) -- pick the first seeded test after
+        # configuring one.
+        test = _configure_test_schedule(hospital_id, appointment_type_id)
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
     elif session["state"] == "AWAITING_LAB_TEST":
         # Lab Test Phase 2 follow-up's own basket + collection-method steps:
-        # add the first seeded test (single default variant auto-skips, and
-        # needs a linked resource, same reasoning as diagnostic above),
-        # finish the basket, and pick "Visit Hospital/Lab".
-        test, _resource = _link_test_to_new_resource(hospital_id, "lab")
+        # add the first seeded test (needs a configured schedule, same
+        # reasoning as diagnostic above), finish the basket, and pick
+        # "Visit Hospital/Lab".
+        test = _configure_test_schedule(hospital_id, "lab")
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap("lab_done"))
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap("collection_visit"))
     context = sessions.get(hospital_id, PHONE)["context"]
     resource_id = context.get("resource_id")
-    all_slots = db.get_resource_slots(hospital_id, resource_id) if resource_id else db.get_slots(hospital_id, context["doctor_id"])
+    all_slots = db.get_test_slots(hospital_id, resource_id) if resource_id else db.get_slots(hospital_id, context["doctor_id"])
     date_str = all_slots[0]["date"]
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(date_str))
     slot = [s for s in all_slots if s["date"] == date_str][0]

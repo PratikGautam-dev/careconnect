@@ -19,7 +19,7 @@ from db.models import (
 )
 from db.orm_models import (
     AppointmentLabTest, AppointmentProcedureResource, AppointmentReminder, AppointmentRow, Department,
-    DiagnosticResource, DoctorRow, PatientLink, PatientRow, Procedure,
+    DiagnosticTest, DoctorRow, PatientLink, PatientRow, Procedure,
 )
 
 
@@ -45,9 +45,8 @@ def _appointment_select_stmt():
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
             AppointmentRow.created_at, AppointmentRow.followup_override_until,
-            AppointmentRow.resource_id, DiagnosticResource.name.label("resource_name"),
-            AppointmentRow.diagnostic_test_id, AppointmentRow.diagnostic_test_variant_id,
-            AppointmentRow.diagnostic_test_label, AppointmentRow.diagnostic_variant_label,
+            AppointmentRow.resource_id, DiagnosticTest.name.label("resource_name"),
+            AppointmentRow.diagnostic_test_id, AppointmentRow.diagnostic_test_label,
             AppointmentRow.diagnostic_price,
             AppointmentRow.collection_method, AppointmentRow.collection_address, AppointmentRow.collection_pincode,
             AppointmentRow.home_collection_charge, AppointmentRow.lab_status,
@@ -58,7 +57,7 @@ def _appointment_select_stmt():
         .select_from(AppointmentRow)
         .outerjoin(Department, Department.id == AppointmentRow.department_id)
         .outerjoin(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
-        .outerjoin(DiagnosticResource, DiagnosticResource.id == AppointmentRow.resource_id)
+        .outerjoin(DiagnosticTest, DiagnosticTest.id == AppointmentRow.resource_id)
         .outerjoin(PatientRow, PatientRow.id == AppointmentRow.patient_id)
         .outerjoin(Procedure, Procedure.id == AppointmentRow.procedure_id)
         .where(AppointmentRow.deleted_at.is_(None))
@@ -136,11 +135,9 @@ def create_appointment(
     exclude_appointment_id: int | None = None,
     appointment_type_id: str | None = None,
     consent_given_at: str | None = None,
-    resource_id: str | None = None,
+    resource_id: int | None = None,
     diagnostic_test_id: int | None = None,
-    diagnostic_test_variant_id: int | None = None,
     diagnostic_test_label: str | None = None,
-    diagnostic_variant_label: str | None = None,
     diagnostic_price: float | None = None,
     collection_method: str | None = None,
     collection_address: str | None = None,
@@ -157,11 +154,12 @@ def create_appointment(
     exactly one of doctor_id/resource_id is ever set (appointments_doctor_or_
     resource_chk enforces this at the DB level too) -- a resource-bound
     booking runs the identical advisory-lock/quota/ordinal logic below, keyed
-    on resource_id against diagnostic_resources' own max_bookings_per_slot/
-    daily_booking_limit instead of doctors'. There's no online/walkin-quota
-    or duplicate-booking-by-doctor equivalent for resources (both are
-    doctor-consultation-specific concepts) -- skipped entirely when doctor_id
-    is None.
+    on resource_id against diagnostic_tests' own max_bookings_per_slot/
+    daily_booking_limit instead of doctors' (diagnostic tests/resources
+    merged into one entity -- resource_id now points straight at
+    diagnostic_tests.id). There's no online/walkin-quota or duplicate-
+    booking-by-doctor equivalent for resources (both are doctor-consultation-
+    specific concepts) -- skipped entirely when doctor_id is None.
 
     `source` ("whatsapp"/"staff") is purely descriptive except for which
     quota column it counts against. `patient_id`, when given, resolves
@@ -215,7 +213,7 @@ def create_appointment(
             source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
     elif resource_id is not None:
         resource_row = conn.execute(
-            "SELECT max_bookings_per_slot, daily_booking_limit FROM diagnostic_resources "
+            "SELECT max_bookings_per_slot, daily_booking_limit FROM diagnostic_tests "
             "WHERE hospital_id = ? AND id = ?",
             (hospital_id, resource_id),
         ).fetchone()
@@ -322,13 +320,13 @@ def create_appointment(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
             "appointment_type_id, consent_given_at, resource_id, diagnostic_test_id, "
-            "diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price, "
+            "diagnostic_test_label, diagnostic_price, "
             "collection_method, collection_address, collection_pincode, home_collection_charge, lab_status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
              _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
              appointment_type_id, consent_given_at, resource_id, diagnostic_test_id,
-             diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
+             diagnostic_test_label, diagnostic_price,
              collection_method, collection_address, collection_pincode, home_collection_charge, lab_status),
         )
         new_id_row = cur.fetchone()
@@ -363,8 +361,8 @@ def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link
 
 
 def set_appointment_diagnostic_details(
-    hospital_id: int, appointment_id: int, diagnostic_test_id: int, diagnostic_test_variant_id: int,
-    diagnostic_test_label: str, diagnostic_variant_label: str, diagnostic_price: float | None,
+    hospital_id: int, appointment_id: int, diagnostic_test_id: int,
+    diagnostic_test_label: str, diagnostic_price: float | None,
 ) -> None:
     """Diagnostic/Lab Phase 2: called once, right after create_appointment()
     succeeds, by flows/booking/types/_diagnostic_shared.py's
@@ -374,11 +372,10 @@ def set_appointment_diagnostic_details(
     advisory-lock/double-booking logic."""
     conn = get_connection()
     conn.execute(
-        "UPDATE appointments SET diagnostic_test_id = ?, diagnostic_test_variant_id = ?, "
-        "diagnostic_test_label = ?, diagnostic_variant_label = ?, diagnostic_price = ? "
+        "UPDATE appointments SET diagnostic_test_id = ?, "
+        "diagnostic_test_label = ?, diagnostic_price = ? "
         "WHERE id = ? AND hospital_id = ?",
-        (diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label,
-         diagnostic_price, appointment_id, hospital_id),
+        (diagnostic_test_id, diagnostic_test_label, diagnostic_price, appointment_id, hospital_id),
     )
     conn.commit()
 
@@ -393,8 +390,7 @@ def set_appointment_lab_order_details(
     transaction" rationale as set_appointment_diagnostic_details() above.
     Sets lab_status to 'booked' (the start of the report lifecycle) and
     bulk-inserts the basket into appointment_lab_tests. `basket_items`: list
-    of {diagnostic_test_id, diagnostic_test_variant_id, test_label,
-    variant_label, price, preparation_instructions}."""
+    of {diagnostic_test_id, test_label, price}."""
     conn = get_connection()
     conn.execute(
         "UPDATE appointments SET collection_method = ?, collection_address = ?, collection_pincode = ?, "
@@ -404,10 +400,8 @@ def set_appointment_lab_order_details(
     for item in basket_items:
         conn.execute(
             "INSERT INTO appointment_lab_tests (hospital_id, appointment_id, diagnostic_test_id, "
-            "diagnostic_test_variant_id, test_label, variant_label, price, preparation_instructions) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (hospital_id, appointment_id, item.get("diagnostic_test_id"), item.get("diagnostic_test_variant_id"),
-             item["test_label"], item["variant_label"], item.get("price"), item.get("preparation_instructions")),
+            "test_label, price) VALUES (?, ?, ?, ?, ?)",
+            (hospital_id, appointment_id, item.get("diagnostic_test_id"), item["test_label"], item.get("price")),
         )
     conn.commit()
 
@@ -421,17 +415,15 @@ def copy_lab_basket(hospital_id: int, from_appointment_id: int, to_appointment_i
     time."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT diagnostic_test_id, diagnostic_test_variant_id, test_label, variant_label, price, "
-        "preparation_instructions FROM appointment_lab_tests WHERE hospital_id = ? AND appointment_id = ?",
+        "SELECT diagnostic_test_id, test_label, price "
+        "FROM appointment_lab_tests WHERE hospital_id = ? AND appointment_id = ?",
         (hospital_id, from_appointment_id),
     ).fetchall()
     for row in rows:
         conn.execute(
             "INSERT INTO appointment_lab_tests (hospital_id, appointment_id, diagnostic_test_id, "
-            "diagnostic_test_variant_id, test_label, variant_label, price, preparation_instructions) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (hospital_id, to_appointment_id, row["diagnostic_test_id"], row["diagnostic_test_variant_id"],
-             row["test_label"], row["variant_label"], row["price"], row["preparation_instructions"]),
+            "test_label, price) VALUES (?, ?, ?, ?, ?)",
+            (hospital_id, to_appointment_id, row["diagnostic_test_id"], row["test_label"], row["price"]),
         )
     conn.commit()
 
@@ -442,9 +434,8 @@ def get_lab_basket_for_appointment(hospital_id: int, appointment_id: int) -> lis
     session = get_session()
     rows = session.execute(
         select(
-            AppointmentLabTest.id, AppointmentLabTest.diagnostic_test_id, AppointmentLabTest.diagnostic_test_variant_id,
-            AppointmentLabTest.test_label, AppointmentLabTest.variant_label, AppointmentLabTest.price,
-            AppointmentLabTest.preparation_instructions,
+            AppointmentLabTest.id, AppointmentLabTest.diagnostic_test_id,
+            AppointmentLabTest.test_label, AppointmentLabTest.price,
         )
         .where(AppointmentLabTest.hospital_id == hospital_id, AppointmentLabTest.appointment_id == appointment_id)
         .order_by(AppointmentLabTest.id)

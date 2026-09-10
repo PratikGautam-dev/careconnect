@@ -24,12 +24,12 @@ MANAGE_BOOKINGS = "manage_bookings"
 MANAGE_SETTINGS = "manage_settings"
 MANAGE_STAFF = "manage_staff"
 # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): a
-# diagnostic resource (machine/equipment) is a schedulable entity of the
-# same weight as a doctor -- hospital-tier only, same default tier as
-# MANAGE_DOCTORS/MANAGE_DEPARTMENTS. Test/variant catalog CRUD reuses
-# MANAGE_APPOINTMENT_TYPES instead (same portal screen area as
-# daycare_duration_options -- no new capability needed for a catalog toggle/
-# edit screen).
+# diagnostic test is a schedulable entity of the same weight as a doctor
+# (tests/resources merged into one entity -- a test carries its own
+# schedule directly, there's no separate resource) -- hospital-tier only,
+# same default tier as MANAGE_DOCTORS/MANAGE_DEPARTMENTS. Gates every
+# mutation on portal/routes/diagnostic_tests.py, not just schedule edits --
+# catalog/variant edits on the same row carry the same weight now.
 MANAGE_DIAGNOSTIC_RESOURCES = "manage_diagnostic_resources"
 # Daycare/Procedure rebuild: a dedicated capability rather than reusing
 # MANAGE_APPOINTMENT_TYPES -- unlike the old duration-options catalog, this

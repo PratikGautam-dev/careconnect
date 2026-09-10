@@ -47,7 +47,6 @@ from core.translations.booking import (
     CHANGE_DATE_OPTION,
     CHANGE_DEPARTMENT_OPTION,
     CHANGE_DIAGNOSTIC_TEST_OPTION,
-    CHANGE_DIAGNOSTIC_VARIANT_OPTION,
     CHANGE_DOCTOR_OPTION,
     CHANGE_OPTIONS_SECTION_TITLE,
     CHANGE_TIME_OPTION,
@@ -91,13 +90,13 @@ from core.whatsapp import WhatsAppClient
 from flows.booking.state import (
     ADD_PATIENT_ROW_ID, ALL_PATIENTS_ROW_ID, BACK_ID, CHANGE_APPOINTMENT_TYPE, CHANGE_COLLECTION_METHOD, CHANGE_DATE,
     CHANGE_DEPARTMENT, GOTO_MAIN_MENU,
-    CHANGE_DIAGNOSTIC_TEST, CHANGE_DIAGNOSTIC_VARIANT, CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES,
+    CHANGE_DIAGNOSTIC_TEST, CHANGE_DOCTOR, CHANGE_TIME, CONFIRM_NO, CONFIRM_YES,
     MAIN_MENU_BOOK, MAIN_MENU_CANCEL, MAIN_MENU_FAQ,
     MAIN_MENU_RESCHEDULE, NEXT_TIMES_ID, PREV_TIMES_ID, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_DATE,
     STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
-    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
+    STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DIAGNOSTIC_TEST,
     STATE_AWAITING_FOLLOWUP_SELECTION, STATE_AWAITING_LAB_TEST,
-    STATE_AWAITING_LAB_TEST_VARIANT, STATE_AWAITING_TELE_SUB_TYPE,
+    STATE_AWAITING_TELE_SUB_TYPE,
     STATE_AWAITING_DOCTOR, STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_SELECTION,
     STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
     _CHANGE_TARGETS, _MAX_LIST_ROWS, _appointment_row_id, _cap_rows, _date_label, _history_pop, _history_pop_to,
@@ -716,15 +715,6 @@ async def _send_change_selection_menu(
     rows.append({"id": CHANGE_TIME, "title": t(CHANGE_TIME_OPTION, language)})
     if flow.has_step(STATE_AWAITING_DIAGNOSTIC_TEST):
         rows.append({"id": CHANGE_DIAGNOSTIC_TEST, "title": t(CHANGE_DIAGNOSTIC_TEST_OPTION, language)})
-        # "Change Test Option" only when the currently-selected test actually
-        # HAS more than one active variant -- re-queried live, never trusted
-        # from a stashed list (same discipline followup.py's eligibility
-        # re-check uses).
-        ctx = context or {}
-        tests = connector.get_diagnostic_tests(hospital_id, ctx.get("appointment_type_id"))
-        current_test = next((t_ for t_ in tests if t_["id"] == ctx.get("diagnostic_test_id")), None)
-        if current_test and len(current_test["variants"]) > 1:
-            rows.append({"id": CHANGE_DIAGNOSTIC_VARIANT, "title": t(CHANGE_DIAGNOSTIC_VARIANT_OPTION, language)})
     if flow.has_step(STATE_AWAITING_COLLECTION_METHOD):
         rows.append({"id": CHANGE_COLLECTION_METHOD, "title": t(CHANGE_COLLECTION_METHOD_OPTION, language)})
     # Previously a dead end -- every row here picked a field to change, with
@@ -794,21 +784,9 @@ async def _resend_menu_for_state(
         from flows.booking.types._diagnostic_shared import _send_test_menu
         category = context["appointment_type_id"]  # always set by the time this state is reached
         await _send_test_menu(wa, phone, hospital_id, category, connector, language=language)
-    elif state == STATE_AWAITING_DIAGNOSTIC_VARIANT:
-        from flows.booking.types._diagnostic_shared import _send_variant_menu
-        tests = connector.get_diagnostic_tests(hospital_id, context["appointment_type_id"])
-        test = next((t_ for t_ in tests if t_["id"] == context.get("diagnostic_test_id")), None)
-        if test is not None:
-            await _send_variant_menu(wa, phone, test, language=language)
     elif state == STATE_AWAITING_LAB_TEST:
         from flows.booking.types.lab import _send_lab_test_menu
         await _send_lab_test_menu(wa, phone, hospital_id, connector, context.get("lab_basket") or [], language=language)
-    elif state == STATE_AWAITING_LAB_TEST_VARIANT:
-        from flows.booking.types.lab import _send_lab_variant_menu
-        tests = connector.get_diagnostic_tests(hospital_id, "lab")
-        test = next((t_ for t_ in tests if t_["id"] == context.get("_lab_pending_test_id")), None)
-        if test is not None:
-            await _send_lab_variant_menu(wa, phone, test, language=language)
     elif state == STATE_AWAITING_COLLECTION_METHOD:
         from flows.booking.types.lab import _send_collection_method_menu
         await _send_collection_method_menu(wa, phone, language=language)
