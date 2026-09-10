@@ -1423,6 +1423,37 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
 
 
 @pytest.mark.asyncio
+async def test_tele_sub_type_back_from_department_returns_to_new_or_followup_prompt(hospital_id):
+    """Tele-consultation's own pre-step (New Appointment vs Follow-up): a
+    patient who picked "New Appointment" and then taps Back from department
+    selection must land back on the New/Follow-up prompt, not skip past it
+    straight to the appointment-type list -- the sub-type choice is itself a
+    real step in the history stack, same as every other step."""
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("tele"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_TELE_SUB_TYPE"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap("tele_sub_type_new"))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+
+    session = sessions.get(hospital_id, PHONE)
+    assert session["state"] == "AWAITING_TELE_SUB_TYPE"
+    kind, kwargs = wa.sent[-2]
+    assert kind == "buttons"
+    button_ids = {b["id"] for b in kwargs["buttons"]}
+    assert button_ids == {"tele_sub_type_new", "tele_sub_type_followup"}
+
+    # And Back from THERE returns to appointment-type selection.
+    await handle_incoming(wa, sessions, PHONE, hospital_id, tap(BACK_ID))
+    assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_APPOINTMENT_TYPE"
+
+
+@pytest.mark.asyncio
 async def test_tele_consultation_booking_generates_and_stores_a_video_link(hospital_id):
     """Confirmed with the user directly, after real-world testing raised the
     question of when the doctor/patient actually get to use this link: the

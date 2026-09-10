@@ -126,8 +126,10 @@ async def _handle_awaiting_tele_sub_type(
                 sessions.reset(hospital_id, phone)
                 await _send_main_menu(wa, phone, "the hospital", language=language)
                 return
+            history = _push_history(context, STATE_AWAITING_TELE_SUB_TYPE)
+            new_context = {**context, _HISTORY_KEY: history}
             await _proceed_to_department_or_skip(
-                wa, sessions, phone, hospital_id, appt_type, context, connector, language=language,
+                wa, sessions, phone, hospital_id, appt_type, new_context, connector, language=language,
             )
             return
         if reply["id"] == TELE_SUB_TYPE_FOLLOWUP:
