@@ -1,9 +1,12 @@
 import type { ColumnDef } from "@tanstack/react-table";
+import { CalendarCheck } from "lucide-react";
 import Link from "next/link";
+import { AVATAR_TINTS, STATUS_LABELS, STATUS_STYLES, TYPE_ICONS, initials } from "@/app/portal/appointments/_components/appointments-columns";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
+import { TYPE_LABELS } from "@/hooks/useAppointments";
 
 type Appointment = {
   id: number;
@@ -16,29 +19,16 @@ type Appointment = {
   status: string;
   source: string;
   reference_id: string | null;
+  appointment_type_id: string | null;
+  video_link: string | null;
 };
 
-// Item 9 (Spec.md Section 0): kept identical to the full Appointments
-// page's own STATUS_STYLES/LABELS -- both were drifting out of sync
-// (missing attended/no_show here) before this alignment pass.
-const STATUS_STYLES: Record<string, string> = {
-  booked: "bg-success-tint text-success",
-  cancelled: "bg-error-tint text-error",
-  rescheduled: "bg-clay-100 text-clay-700",
-  attended: "bg-success-tint text-success",
-  no_show: "bg-error-tint text-error",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  booked: "Confirmed",
-  cancelled: "Cancelled",
-  rescheduled: "Rescheduled",
-  attended: "Attended",
-  no_show: "No-show",
-};
-
-const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
-
+// Same columns/styling as the Doctor appointments table (appointments-
+// columns.tsx) -- this widget is a read-only preview of it, so it reuses
+// that table's exact status/type/avatar treatment rather than keeping its
+// own drifted copy (Item 9, Spec.md Section 0). No select/Actions column
+// here -- managing a booking happens on the full page this links to, not
+// from a dashboard preview row.
 const columns: ColumnDef<Appointment>[] = [
   {
     id: "scheduled_at",
@@ -48,24 +38,24 @@ const columns: ColumnDef<Appointment>[] = [
     ),
   },
   {
-    id: "reference_id",
-    header: "Reference",
-    cell: ({ row }) => (
-      <span className="whitespace-nowrap font-mono text-[12px] text-ink-400">{row.original.reference_id || "—"}</span>
-    ),
-  },
-  {
     id: "patient",
     header: "Patient",
     cell: ({ row }) => {
       const a = row.original;
       return (
-        <div className="text-ink-900">
-          <div>
-            <span className="font-semibold">{a.patient_name || a.phone}</span>
-            {a.patient_name && <span className="ml-space-2 text-[12px] text-ink-400">{a.phone}</span>}
+        <div className="flex items-center gap-space-2">
+          <span
+            className={cn(
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+              AVATAR_TINTS[a.id % AVATAR_TINTS.length],
+            )}
+          >
+            {initials(a.patient_name, a.phone)}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-ink-900">{a.patient_name || a.phone}</p>
+            {a.patient_name && <p className="truncate text-[11.5px] text-ink-400">{a.phone}</p>}
           </div>
-          {a.patient_display_id && <div className="font-mono text-[11px] text-ink-400">{a.patient_display_id}</div>}
         </div>
       );
     },
@@ -73,17 +63,26 @@ const columns: ColumnDef<Appointment>[] = [
   {
     id: "doctor_name",
     header: "Doctor",
-    cell: ({ row }) => <span className="text-ink-600">{row.original.doctor_name}</span>,
+    cell: ({ row }) => <span className="text-ink-600">{row.original.doctor_name || "—"}</span>,
   },
   {
     id: "department_name",
     header: "Department",
-    cell: ({ row }) => <span className="text-ink-600">{row.original.department_name}</span>,
+    cell: ({ row }) => <span className="text-ink-600">{row.original.department_name || "—"}</span>,
   },
   {
-    id: "source",
-    header: "Source",
-    cell: ({ row }) => <span className="text-ink-600">{SOURCE_LABELS[row.original.source] || row.original.source}</span>,
+    id: "type",
+    header: "Appointment type",
+    cell: ({ row }) => {
+      const a = row.original;
+      const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+      return (
+        <span className="inline-flex items-center gap-space-2 text-ink-600">
+          <Icon size={14} strokeWidth={2} className="shrink-0 text-ink-400" />
+          {a.appointment_type_id ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id : "Consultation"}
+        </span>
+      );
+    },
   },
   {
     id: "status",
@@ -99,6 +98,23 @@ const columns: ColumnDef<Appointment>[] = [
       </span>
     ),
   },
+  {
+    id: "mode",
+    header: "Mode",
+    cell: ({ row }) => {
+      const a = row.original;
+      if (a.appointment_type_id === "tele") {
+        return a.video_link ? (
+          <a href={a.video_link} target="_blank" rel="noopener noreferrer" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+            Video · Join
+          </a>
+        ) : (
+          <span className="text-[12.5px] text-ink-600">Video</span>
+        );
+      }
+      return <span className="text-[12.5px] text-ink-600">In-person</span>;
+    },
+  },
 ];
 
 export function RecentAppointmentsTable({ appointments }: { appointments: Appointment[] }) {
@@ -106,8 +122,8 @@ export function RecentAppointmentsTable({ appointments }: { appointments: Appoin
     <Card className="p-space-4">
       <div className="mb-space-3 flex items-center justify-between">
         <h3 className="text-label font-bold text-ink-900">Recent appointments</h3>
-        <Link href="/portal/patients" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
-          View all patients →
+        <Link href="/portal/appointments" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+          View all appointments →
         </Link>
       </div>
       {appointments.length === 0 ? (

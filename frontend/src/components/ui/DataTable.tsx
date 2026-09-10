@@ -70,7 +70,35 @@ type DataTableProps<TData> = {
    * choice is saved under, so it's remembered per person, not shared. */
   enableColumnVisibility?: boolean;
   tableId?: string;
+  /** Opt-in: swaps the default Prev/Next footer for numbered page buttons
+   * (with ellipsis for a long run) plus a "N per page" size dropdown built
+   * from these options. Omit to keep the plain Prev/Next footer every other
+   * table here already uses. Ignored in server-pagination mode (below). */
+  pageSizeOptions?: number[];
+  /** Server-driven pagination -- pass this (+ onPageChange) when `data` is
+   * already just the current page's rows (e.g. appointments/page.tsx's
+   * paginated + filtered /api/portal/bookings fetch) instead of the whole
+   * list. Presence of this prop is what switches the table out of its
+   * default client-side pagination (TanStack's own getPaginationRowModel
+   * slicing `data` itself) -- same "pagination prop means server-paged"
+   * convention sarvaya-dashboard's own DataTable uses. */
+  pagination?: { page: number; limit: number; total: number };
+  onPageChange?: (page: number) => void;
 };
+
+function pageNumbers(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const nums = new Set([1, 2, total - 1, total, current, current - 1, current + 1]);
+  const sorted = [...nums].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out: (number | "…")[] = [];
+  let prev = 0;
+  for (const n of sorted) {
+    if (prev && n - prev > 1) out.push("…");
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
 
 /** Shared, reusable table for portal list pages -- headless via
  * @tanstack/react-table (same library sarvaya-dashboard's own DataTable
@@ -95,6 +123,9 @@ export function DataTable<TData>({
   stickyHeader = false,
   enableColumnVisibility = false,
   tableId,
+  pageSizeOptions,
+  pagination: serverPagination,
+  onPageChange,
 }: DataTableProps<TData>) {
   const staffId = useStaffSession()?.id;
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -122,15 +153,25 @@ export function DataTable<TData>({
     columns,
     getRowId: getRowId as ((row: TData, index: number) => string) | undefined,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    // Server mode: `data` is already just this page's rows -- TanStack must
+    // render all of them, not slice again on top of the server's own paging.
+    ...(serverPagination ? {} : { getPaginationRowModel: getPaginationRowModel() }),
     state: { columnVisibility },
     onColumnVisibilityChange: setColumnVisibility,
     initialState: { pagination: { pageSize } },
   });
 
   const rows = table.getRowModel().rows;
-  const { pageIndex, pageSize: currentPageSize } = table.getState().pagination;
-  const totalRows = table.getFilteredRowModel().rows.length;
+  const { pageIndex, pageSize: currentPageSize } = serverPagination
+    ? { pageIndex: serverPagination.page - 1, pageSize: serverPagination.limit }
+    : table.getState().pagination;
+  const totalRows = serverPagination ? serverPagination.total : table.getFilteredRowModel().rows.length;
+  const pageCount = serverPagination ? Math.max(1, Math.ceil(serverPagination.total / serverPagination.limit)) : table.getPageCount();
+  const canPreviousPage = serverPagination ? serverPagination.page > 1 : table.getCanPreviousPage();
+  const canNextPage = serverPagination ? serverPagination.page < pageCount : table.getCanNextPage();
+  const goToPage = (page: number) => (serverPagination ? onPageChange?.(page) : table.setPageIndex(page - 1));
+  const goPrev = () => (serverPagination ? onPageChange?.(serverPagination.page - 1) : table.previousPage());
+  const goNext = () => (serverPagination ? onPageChange?.(serverPagination.page + 1) : table.nextPage());
 
   return (
     <div>
@@ -192,22 +233,59 @@ export function DataTable<TData>({
           <p className="text-[12px] text-ink-400">
             Showing {pageIndex * currentPageSize + 1}–{Math.min((pageIndex + 1) * currentPageSize, totalRows)} of {totalRows}
           </p>
-          <div className="flex items-center gap-space-2">
-            <Button
-              size="md"
-              variant="secondary"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              <ArrowLeft size={13} /> Prev
-            </Button>
-            <span className="text-[12px] font-semibold text-ink-600">
-              Page {pageIndex + 1} of {Math.max(1, table.getPageCount())}
-            </span>
-            <Button size="md" variant="secondary" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-              Next <ArrowRight size={13} />
-            </Button>
-          </div>
+          {pageSizeOptions && !serverPagination ? (
+            <div className="flex items-center gap-space-2">
+              <Button size="md" variant="secondary" onClick={goPrev} disabled={!canPreviousPage}>
+                <ArrowLeft size={13} />
+              </Button>
+              {pageNumbers(pageIndex + 1, pageCount).map((n, i) =>
+                n === "…" ? (
+                  <span key={`e${i}`} className="px-space-1 text-[12px] text-ink-400">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => goToPage(n)}
+                    className={cn(
+                      "flex h-8 min-w-8 items-center justify-center rounded-md px-space-2 text-[12px] font-semibold",
+                      n === pageIndex + 1 ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-black/4",
+                    )}
+                  >
+                    {n}
+                  </button>
+                ),
+              )}
+              <Button size="md" variant="secondary" onClick={goNext} disabled={!canNextPage}>
+                <ArrowRight size={13} />
+              </Button>
+              <select
+                value={currentPageSize}
+                onChange={(e) => table.setPageSize(Number(e.target.value))}
+                className="h-8 rounded-md border border-line bg-card px-space-2 text-[12px] text-ink-900"
+                aria-label="Rows per page"
+              >
+                {pageSizeOptions.map((n) => (
+                  <option key={n} value={n}>
+                    {n} per page
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="flex items-center gap-space-2">
+              <Button size="md" variant="secondary" onClick={goPrev} disabled={!canPreviousPage}>
+                <ArrowLeft size={13} /> Prev
+              </Button>
+              <span className="text-[12px] font-semibold text-ink-600">
+                Page {pageIndex + 1} of {pageCount}
+              </span>
+              <Button size="md" variant="secondary" onClick={goNext} disabled={!canNextPage}>
+                Next <ArrowRight size={13} />
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

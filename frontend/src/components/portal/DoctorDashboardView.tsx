@@ -10,7 +10,7 @@ import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { AppointmentCalendar } from "@/components/doctor/AppointmentCalendar";
 import { cn } from "@/lib/cn";
-import { formatShortDateTime } from "@/lib/formatDate";
+import { formatHeaderDateNoYear, formatShortDateTime } from "@/lib/formatDate";
 import { staffFetch } from "@/lib/staffAuth";
 
 const DELAY_PRESETS = [10, 15, 30, 45, 60];
@@ -126,9 +126,7 @@ export function DoctorDashboardView() {
       <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
         <div>
           <h1 className="text-display">Dashboard</h1>
-          <p className="text-body">
-            {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-          </p>
+          <p className="text-body">{formatHeaderDateNoYear(new Date())}</p>
         </div>
         <Button variant="secondary" size="md" onClick={() => setDelayPanelOpen((v) => !v)}>
           <Clock size={15} /> Running late?

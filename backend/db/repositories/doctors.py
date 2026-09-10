@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import cast
 
 import sqlalchemy.exc
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import CursorResult
 
 from db.connection import get_session, reraise_as_driver_integrity_error
@@ -177,18 +177,40 @@ def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
     of walking get_departments() -> get_doctors() per department. Deliberately
     NOT filtered by is_active -- this is the management view, so an inactive
     doctor must still show up (with its off state) so staff can toggle it
-    back on; get_doctors() is the one that hides them from bookable lists."""
+    back on; get_doctors() is the one that hides them from bookable lists.
+
+    Carries qualification/years_experience/email/working_days/working_hours
+    too (same query, no extra round trip) -- the doctors list page's own
+    table + detail panel need these, and get_doctor_full() below is a
+    separate per-doctor fetch this list intentionally avoids doing 1-per-row."""
     session = get_session()
     rows = session.execute(
         select(
             DoctorRow.id, DoctorRow.department_id, Department.name.label("department_name"),
             DoctorRow.name, DoctorRow.specialization, DoctorRow.is_active,
+            DoctorRow.qualification, DoctorRow.years_experience, DoctorRow.email,
+            DoctorRow.working_days, DoctorRow.working_hours,
         )
         .join(Department, Department.id == DoctorRow.department_id)
         .where(DoctorRow.hospital_id == hospital_id)
         .order_by(Department.name, DoctorRow.name)
     ).all()
-    return [dict(r._mapping) for r in rows]
+    doctors = [dict(r._mapping) for r in rows]
+    for d in doctors:
+        d["working_days"] = [x for x in d["working_days"].split(",") if x]
+        d["working_hours"] = [x for x in d["working_hours"].split(",") if x]
+    return doctors
+
+
+def get_doctors_on_leave_today_count(hospital_id: int, today: date | None = None) -> int:
+    """Doctors list page's "On leave" stat tile -- distinct doctors with a
+    doctor_leave row for today's date (Section 14.7's whole-day leave)."""
+    session = get_session()
+    today = today or date.today()
+    return session.execute(
+        select(func.count(func.distinct(DoctorLeave.doctor_id)))
+        .where(DoctorLeave.hospital_id == hospital_id, DoctorLeave.date == today.isoformat())
+    ).scalar_one()
 
 
 def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool:

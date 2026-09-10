@@ -1,7 +1,7 @@
 import logging
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse
 
 import connectors
@@ -102,17 +102,58 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
 
 
 @router.get("/api/portal/bookings")
-async def portal_bookings(authorization: str | None = Header(default=None)):
+async def portal_bookings(
+    authorization: str | None = Header(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=10, ge=1, le=200),
+    category: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    type: str | None = Query(default=None),
+    when: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+):
     """Scoped to the caller's own appointments when role=="doctor" -- this
     route is now shared by the doctor portal too, and a doctor must never
-    see another doctor's patients/appointments through it."""
+    see another doctor's patients/appointments through it.
+
+    status/type/search/page/limit are all applied server-side (see
+    get_appointments_page) -- the portal's appointments/diagnostic-
+    appointments list pages send these from their FilterSelect dropdowns
+    and search box instead of filtering the old unpaginated 500-row dump
+    client-side."""
     hospital, role, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    if role == "doctor" and doctor_id is not None:
-        appointments = db.get_doctor_appointments(hospital.id, doctor_id)
-    else:
-        appointments = db.get_all_appointments_for_hospital(hospital.id)
+    scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
+    appointments, total = db.get_appointments_page(
+        hospital.id, doctor_id=scoped_doctor_id, category=category, status=status, appointment_type_id=type,
+        when=when, search=search, page=page, limit=limit,
+    )
+    validity_days = db.get_followup_validity_days(hospital.id)
+    return JSONResponse({
+        "appointments": [_appointment_json(a, validity_days) for a in appointments],
+        "total": total, "page": page, "limit": limit,
+    })
+
+
+@router.get("/api/portal/bookings/summary")
+async def portal_bookings_summary(
+    authorization: str | None = Header(default=None),
+    category: str | None = Query(default=None),
+):
+    """Full (up to 500), category-scoped, unfiltered/unpaginated list --
+    powers the appointments/diagnostic-appointments pages' stat tiles,
+    tab-count badges, and "today's schedule"/lab-queue sidebar widgets,
+    which all need the WHOLE scoped dataset to compute from, unlike the
+    table itself (portal_bookings above), which only needs its current
+    10-row page. Same get_appointments_page this reuses, just with no
+    status/type/search/when filters and a big limit instead of page=1's
+    usual 10."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
+    appointments, _total = db.get_appointments_page(hospital.id, doctor_id=scoped_doctor_id, category=category, limit=500, page=1)
     validity_days = db.get_followup_validity_days(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a, validity_days) for a in appointments]})
 

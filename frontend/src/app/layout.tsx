@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, IBM_Plex_Sans } from "next/font/google";
 import { Toaster } from "@/components/ui/toast";
+import { Providers } from "./Providers";
 import "./globals.css";
 
 // Plus Jakarta Sans: a warm, slightly rounded geometric sans for display/
@@ -35,8 +36,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
       <body>
-        {children}
-        <Toaster />
+        <Providers>
+          {children}
+          <Toaster />
+        </Providers>
       </body>
     </html>
   );

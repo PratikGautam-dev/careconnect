@@ -9,7 +9,7 @@ from sqlalchemy.orm import aliased
 
 from db.connection import get_session
 from db.models import STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED
-from db.orm_models import AppointmentRow, Department, DoctorRow
+from db.orm_models import AppointmentRow, Department, DoctorRow, Identity, StaffDetail
 
 # --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
 # Every query here is hospital_id-scoped, same discipline as everywhere else
@@ -201,6 +201,35 @@ def get_appointments_by_department(hospital_id: int, days: int = 30, now: dateti
         .order_by(func.count().desc())
     ).all()
     return [{"department_name": r.department_name, "count": r.c} for r in rows]
+
+
+def get_staffing_stats(hospital_id: int) -> dict:
+    """Doctor/staff headcounts for the dashboard's stat tiles -- COUNT over
+    the same tables the Doctors/Staff pages already list in full. No
+    attendance concept exists in this schema: active_staff is the roster's
+    active-account count, not a "present today" check-in count."""
+    session = get_session()
+    active_doctors = session.execute(
+        select(func.count()).select_from(DoctorRow)
+        .where(DoctorRow.hospital_id == hospital_id, DoctorRow.is_active.is_(True))
+    ).scalar_one()
+    total_doctors = session.execute(
+        select(func.count()).select_from(DoctorRow).where(DoctorRow.hospital_id == hospital_id)
+    ).scalar_one()
+    active_staff = session.execute(
+        select(func.count()).select_from(StaffDetail)
+        .join(Identity, Identity.id == StaffDetail.identity_id)
+        .where(StaffDetail.hospital_id == hospital_id, Identity.is_active.is_(True))
+    ).scalar_one()
+    total_staff = session.execute(
+        select(func.count()).select_from(StaffDetail).where(StaffDetail.hospital_id == hospital_id)
+    ).scalar_one()
+    return {
+        "active_doctors": active_doctors,
+        "total_doctors": total_doctors,
+        "active_staff": active_staff,
+        "total_staff": total_staff,
+    }
 
 
 def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:

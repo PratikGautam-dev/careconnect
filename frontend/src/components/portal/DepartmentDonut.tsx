@@ -32,24 +32,30 @@ export function DepartmentDonut({ data }: { data: Slice[] }) {
         </div>
       ) : (
         <div className="flex items-center gap-space-4">
-          <ResponsiveContainer width="55%" height={200}>
-            <PieChart>
-              <Pie
-                data={data}
-                dataKey="count"
-                nameKey="department_name"
-                innerRadius={55}
-                outerRadius={85}
-                paddingAngle={data.length > 1 ? 2 : 0}
-                strokeWidth={0}
-              >
-                {data.map((entry, i) => (
-                  <Cell key={entry.department_name} fill={SLOT_COLORS[i % SLOT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<DonutTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
+          <div className="relative w-[55%] shrink-0">
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={data}
+                  dataKey="count"
+                  nameKey="department_name"
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={data.length > 1 ? 2 : 0}
+                  strokeWidth={0}
+                >
+                  {data.map((entry, i) => (
+                    <Cell key={entry.department_name} fill={SLOT_COLORS[i % SLOT_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<DonutTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-[22px] font-bold leading-none text-ink-900">{total}</span>
+              <span className="text-[11px] text-ink-400">Total</span>
+            </div>
+          </div>
           <ul className="flex-1 space-y-space-2">
             {data.map((d, i) => (
               <li key={d.department_name} className="flex items-center gap-space-2 text-[12.5px]">

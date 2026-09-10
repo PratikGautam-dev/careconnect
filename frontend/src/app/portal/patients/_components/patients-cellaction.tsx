@@ -1,7 +1,6 @@
 "use client";
 
 import { Eye, MoreHorizontal, Trash2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,15 +15,18 @@ import type { Patient } from "@/hooks/usePatients";
 type PatientCellActionProps = {
   patient: Patient;
   onDelete: (patient: Patient) => void;
+  /** Selects this row in the page's own detail rail -- "View Details" no
+   * longer navigates away (the mockup's row-click behavior), it opens the
+   * same panel a row click does. The full /portal/patients/[id] record is
+   * still one click further, from that panel's own "Open full record" link. */
+  onSelect: (patient: Patient) => void;
 };
 
 /** Single combined actions menu (View Details / Delete) -- replaces the two
  * separate trailing columns the hand-rolled table used to render. Stops
  * propagation on its own wrapper so opening the menu (or picking an item in
- * it) doesn't also trigger the row's own onRowClick navigation. */
-export function PatientCellAction({ patient, onDelete }: PatientCellActionProps) {
-  const router = useRouter();
-
+ * it) doesn't also trigger the row's own onRowClick selection. */
+export function PatientCellAction({ patient, onDelete, onSelect }: PatientCellActionProps) {
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
@@ -37,7 +39,7 @@ export function PatientCellAction({ patient, onDelete }: PatientCellActionProps)
         <DropdownMenuContent>
           <DropdownMenuGroup>
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => router.push(`/portal/patients/${patient.id}`)}>
+            <DropdownMenuItem onClick={() => onSelect(patient)}>
               <Eye size={14} /> View Details
             </DropdownMenuItem>
             <PermissionGate page="patients" action="delete">

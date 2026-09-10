@@ -14,6 +14,7 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
 
     stats = db.get_dashboard_stats(hospital.id)
+    staffing = db.get_staffing_stats(hospital.id)
     weekly_counts = db.get_weekly_appointment_counts(hospital.id)
     dept_breakdown = db.get_appointments_by_department(hospital.id)
     recent_appointments = db.get_all_appointments_for_hospital(hospital.id, limit=10)
@@ -23,6 +24,7 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
     return JSONResponse({
         "hospital": _hospital_summary(hospital),
         "stats": stats,
+        "staffing": staffing,
         "weekly_counts": weekly_counts,
         "department_breakdown": dept_breakdown,
         "recent_patients": recent_patients,
@@ -46,6 +48,11 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
                 # Item 9 (Spec.md Section 0): column parity with the full
                 # Appointments page, which already surfaces this.
                 "reference_id": a.reference_id,
+                # Column parity with the Doctor appointments table's
+                # Appointment type/Mode cells -- already on this same row via
+                # _APPOINTMENT_SELECT, no extra query.
+                "appointment_type_id": a.appointment_type_id,
+                "video_link": a.video_link,
             }
             for a in recent_appointments
         ],

@@ -1,15 +1,20 @@
 "use client";
 
 import {
+  BarChart3,
   CalendarCheck,
   CalendarClock,
   ChevronsUpDown,
+  ClipboardCheck,
+  FlaskConical,
   LayoutDashboard,
   LogOut,
   MessageCircle,
+  Receipt,
   Settings,
   ShieldCheck,
   Stethoscope,
+  UserCog,
   Users,
   X,
 } from "lucide-react";
@@ -31,20 +36,29 @@ const ROLE_LABEL: Record<string, string> = {
   doctor: "Doctor",
 };
 
-// Staff/Branches/Reports/Calendar/Departments were removed (not just hidden)
-// -- Calendar had no backend and no near-term plan to build one; Departments
-// duplicated Doctors (same /portal/doctors page manages both) so it was a
-// second sidebar entry pointing at a page already reachable via "Doctors."
+// Menu list/order matches the reference dashboard mockup (visual pass
+// only, per the conversation -- deeper wiring for the items with no href
+// below is deliberate follow-up work, not done here). Items with no href
+// render as disabled "Coming soon" rows (see the .filter/.map below) --
+// there's no backend yet for report review, billing, report analytics, or a
+// leave-request queue. Doctor appointments and Diagnostic & lab test
+// appointments share the "appointments" permission -- both are views over
+// the same underlying appointment list, just scoped to a different
+// appointment_type_id category (useAppointments' `category` param).
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
-  { key: "appointments", label: "Appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
+  { key: "appointments", label: "Doctor appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
+  { key: "diagnostic", label: "Diagnostic & lab test appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
+  { key: "report-review", label: "Report review", icon: ClipboardCheck, pageKey: "report-review" },
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
-  { key: "schedule", label: "Schedule", icon: CalendarClock, href: "/portal/schedule", pageKey: "schedule" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
+  { key: "staff", label: "Staff", icon: UserCog, href: "/portal/settings/staff", pageKey: "staff" },
   { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages", pageKey: "messages" },
+  { key: "billing", label: "Billing", icon: Receipt, pageKey: "billing" },
+  { key: "report-analytics", label: "Report analytics", icon: BarChart3, pageKey: "report-analytics" },
+  { key: "roles", label: "Roles & permissions", icon: ShieldCheck, href: "/portal/settings/roles", pageKey: "roles" },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },
-  { key: "staff", label: "Staff", icon: Users, href: "/portal/settings/staff", pageKey: "staff" },
-  { key: "roles", label: "Roles & Permissions", icon: ShieldCheck, href: "/portal/settings/roles", pageKey: "roles" },
+  { key: "leave-requests", label: "Leave requests", icon: CalendarClock, pageKey: "leave-requests" },
 ];
 
 type Props = {
@@ -112,7 +126,10 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             // once per item inside this loop). Fails OPEN the same way the
             // old hardcoded "doctors" capability check did -- this is only a
             // UI convenience, the backend's 403 is the real enforcement.
-            (item) => hasPermission(session, item.pageKey, "view"),
+            // Hrefless rows are visual placeholders, not real gated
+            // capabilities, so they skip the permission map entirely --
+            // otherwise an unrecognized pageKey would hide them outright.
+            (item) => !item.href || hasPermission(session, item.pageKey, "view"),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

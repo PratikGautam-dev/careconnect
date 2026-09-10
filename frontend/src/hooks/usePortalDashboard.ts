@@ -16,6 +16,14 @@ export type DashboardData = {
     no_shows_today_delta_pct: number | null;
     upcoming_appointments: number;
   };
+  /** active_staff/total_staff are active-account counts, not a today/"on
+   * duty" attendance figure -- no attendance tracking exists. */
+  staffing: {
+    active_doctors: number;
+    total_doctors: number;
+    active_staff: number;
+    total_staff: number;
+  };
   weekly_counts: { date: string; label: string; count: number }[];
   department_breakdown: { department_name: string; count: number }[];
   recent_appointments: {
@@ -29,6 +37,15 @@ export type DashboardData = {
     status: string;
     source: string;
     reference_id: string | null;
+    appointment_type_id: string | null;
+    video_link: string | null;
+  }[];
+  activity_feed: {
+    label: string;
+    phone: string;
+    doctor_name: string;
+    department_name: string;
+    at: string;
   }[];
 };
 

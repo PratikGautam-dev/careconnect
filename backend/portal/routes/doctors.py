@@ -22,7 +22,8 @@ async def portal_doctors(authorization: str | None = Header(default=None)):
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     departments = db.get_departments(hospital.id)
     doctors = db.get_all_doctors_for_hospital(hospital.id)
-    return JSONResponse({"departments": departments, "doctors": doctors})
+    on_leave_today_count = db.get_doctors_on_leave_today_count(hospital.id)
+    return JSONResponse({"departments": departments, "doctors": doctors, "on_leave_today_count": on_leave_today_count})
 
 
 @router.post("/api/portal/departments")

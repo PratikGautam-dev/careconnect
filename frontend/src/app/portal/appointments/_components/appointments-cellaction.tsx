@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Eye, MoreHorizontal, Trash2, XCircle } from "lucide-react";
+import { Beaker, CalendarClock, Check, Eye, MoreHorizontal, Trash2, UserX, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
@@ -21,6 +21,21 @@ type AppointmentCellActionProps = {
   onOpenCancel: (id: number) => void;
   deletingId: number | null;
   onDelete: (id: number) => void;
+  /** Optional -- attendance marking folded into this menu (Mark attended /
+   * Mark no-show for a still-'booked' row) so the doctor-appointments table
+   * doesn't need its own separate "Visited" column just for this. */
+  markingAttendanceId?: number | null;
+  onAttendance?: (id: number, attended: boolean) => void;
+  /** Optional -- lab_status advancement (Mark Sample Collected / Mark
+   * Processing), only ever offered for a row that actually has a
+   * lab_status (Lab Test appointments only). */
+  advancingLabStatusId?: number | null;
+  onAdvanceLabStatus?: (id: number) => void;
+};
+
+const LAB_STATUS_NEXT_LABEL: Record<string, string> = {
+  booked: "Mark sample collected",
+  sample_collected: "Mark processing",
 };
 
 /** Trailing actions cell -- one combined dropdown menu, same pattern as
@@ -37,6 +52,10 @@ export function AppointmentCellAction({
   onOpenCancel,
   deletingId,
   onDelete,
+  markingAttendanceId,
+  onAttendance,
+  advancingLabStatusId,
+  onAdvanceLabStatus,
 }: AppointmentCellActionProps) {
   const router = useRouter();
 
@@ -59,6 +78,21 @@ export function AppointmentCellAction({
             </DropdownMenuItem>
             {a.status === "booked" ? (
               <>
+                {onAttendance && (
+                  <>
+                    <DropdownMenuItem disabled={markingAttendanceId === a.id} onClick={() => onAttendance(a.id, true)}>
+                      <Check size={14} /> Mark attended
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={markingAttendanceId === a.id} onClick={() => onAttendance(a.id, false)}>
+                      <UserX size={14} /> Mark no-show
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {onAdvanceLabStatus && a.lab_status && LAB_STATUS_NEXT_LABEL[a.lab_status] && (
+                  <DropdownMenuItem disabled={advancingLabStatusId === a.id} onClick={() => onAdvanceLabStatus(a.id)}>
+                    <Beaker size={14} /> {LAB_STATUS_NEXT_LABEL[a.lab_status]}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => onOpenReschedule(a.id)}>
                   <CalendarClock size={14} /> Reschedule
                 </DropdownMenuItem>

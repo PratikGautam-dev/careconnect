@@ -12,6 +12,7 @@ from sqlalchemy.engine import CursorResult
 
 from db.connection import IntegrityError, get_connection, get_session
 from db.display_ids import _generate_reference_id
+from db.repositories.appointment_types import BOOK_DOCTOR_APPOINTMENT_CATEGORY, TESTS_DIAGNOSTICS_CATEGORY
 from db.models import (
     Appointment, DuplicateBookingError, QuotaExceededError,
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
@@ -928,6 +929,79 @@ def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> lis
         .limit(limit)
     ).all()
     return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def get_appointments_page(
+    hospital_id: int,
+    *,
+    doctor_id: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    appointment_type_id: str | None = None,
+    when: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    limit: int = 10,
+) -> tuple[list[Appointment], int]:
+    """Server-side paginated + filtered list for the /api/portal/bookings
+    list endpoint -- unlike get_all_appointments_for_hospital/
+    get_doctor_appointments above (still used unfiltered for the dashboard's
+    "recent" widget and tests), category/status/appointment_type_id/search
+    are all applied here, in SQL, before paging.
+
+    `category` ("doctor" | "diagnostic") mirrors the frontend's own
+    matchesCategory() (useAppointments.ts) -- "doctor" also includes legacy
+    rows with no appointment_type_id at all (they predate the column), same
+    as that client-side check did back when this endpoint returned its
+    whole unfiltered list for the page to filter itself.
+
+    search is the same ILIKE-across-columns pattern
+    db/repositories/patients.py's search_patients() and staff_users.py's
+    list_all_staff_users() use. Returns (this page's rows, total rows
+    matching the filters) -- the frontend needs the total to render page
+    count, not just the 10 rows themselves."""
+    session = get_session()
+    stmt = _appointment_select_stmt().where(AppointmentRow.hospital_id == hospital_id)
+    if doctor_id is not None:
+        stmt = stmt.where(AppointmentRow.doctor_id == doctor_id)
+    if category == "doctor":
+        stmt = stmt.where(
+            or_(AppointmentRow.appointment_type_id.is_(None), AppointmentRow.appointment_type_id.in_(BOOK_DOCTOR_APPOINTMENT_CATEGORY))
+        )
+    elif category == "diagnostic":
+        stmt = stmt.where(AppointmentRow.appointment_type_id.in_(TESTS_DIAGNOSTICS_CATEGORY))
+    if status:
+        stmt = stmt.where(AppointmentRow.status == status)
+    if appointment_type_id:
+        stmt = stmt.where(AppointmentRow.appointment_type_id == appointment_type_id)
+    # `when` backs the appointments/diagnostic pages' "Today"/"Upcoming" tab
+    # pills -- moved server-side (from the pages' old client-side matchesTab())
+    # so a tab pill still means "all matching rows", not just whichever ones
+    # happened to land on the current 10-row page.
+    if when == "today":
+        now = datetime.now()
+        day_start = datetime.combine(now.date(), datetime.min.time()).isoformat()
+        day_end = datetime.combine(now.date(), datetime.max.time()).isoformat()
+        stmt = stmt.where(AppointmentRow.scheduled_at >= day_start, AppointmentRow.scheduled_at <= day_end)
+    elif when == "upcoming":
+        stmt = stmt.where(AppointmentRow.status == STATUS_BOOKED, AppointmentRow.scheduled_at > datetime.now().isoformat())
+    if search:
+        like = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                AppointmentRow.phone.ilike(like),
+                AppointmentRow.patient_name.ilike(like),
+                DoctorRow.name.ilike(like),
+                Department.name.ilike(like),
+                AppointmentRow.reference_id.ilike(like),
+                PatientRow.patient_display_id.ilike(like),
+            )
+        )
+    total = session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    rows = session.execute(
+        stmt.order_by(AppointmentRow.scheduled_at.desc()).limit(limit).offset((page - 1) * limit)
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows], total
 
 
 def soft_delete_appointment(hospital_id: int, appointment_id: int) -> bool:

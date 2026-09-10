@@ -12,7 +12,10 @@ from db.connection import get_connection, get_session
 from db.models import (
     STATUS_ATTENDED, STATUS_BOOKED, DuplicateSelfLinkError, TooManyLinkedPatientsError, _generate_patient_identifiers,
 )
-from db.orm_models import AppointmentReminder, AppointmentRow, PatientDocument, PatientLink, PatientRow, PatientVisitNote
+from db.orm_models import (
+    AppointmentReminder, AppointmentRow, Department, DoctorRow, PatientDocument, PatientLink, PatientRow,
+    PatientVisitNote,
+)
 from db.repositories.accounts import _get_or_create_account_in_conn
 
 # --- Patients (Section 12.9 -- staff-created bookings need to search by name,
@@ -81,11 +84,42 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     last_visit = func.max(AppointmentRow.scheduled_at)
     visit_count = func.count(AppointmentRow.id)
     visited_count = func.count(case((AppointmentRow.status == STATUS_ATTENDED, AppointmentRow.id)))
+    # Department/doctor of the MOST RECENT appointment -- correlated scalar
+    # subqueries (not a plain join) since the outer query is already grouped
+    # to one row per patient and "which row is last_visit" can't be picked
+    # out of a join without this. Both ordered identically so they always
+    # name the same underlying appointment.
+    _latest_appt = (
+        select(AppointmentRow.id)
+        .where(AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.patient_id == PatientRow.id)
+        .order_by(AppointmentRow.scheduled_at.desc())
+        .limit(1)
+        .correlate(PatientRow)
+        .scalar_subquery()
+    )
+    last_visit_department = (
+        select(Department.name)
+        .select_from(AppointmentRow)
+        .outerjoin(Department, Department.id == AppointmentRow.department_id)
+        .where(AppointmentRow.id == _latest_appt)
+        .correlate(PatientRow)
+        .scalar_subquery()
+    )
+    last_visit_doctor = (
+        select(DoctorRow.name)
+        .select_from(AppointmentRow)
+        .outerjoin(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
+        .where(AppointmentRow.id == _latest_appt)
+        .correlate(PatientRow)
+        .scalar_subquery()
+    )
     stmt = (
         select(
             PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
+            PatientRow.date_of_birth, PatientRow.gender, PatientRow.age, PatientRow.status, PatientRow.created_at,
             last_visit.label("last_visit"), visit_count.label("visit_count"),
-            visited_count.label("visited_count"),
+            visited_count.label("visited_count"), last_visit_department.label("department_name"),
+            last_visit_doctor.label("doctor_name"),
         )
         .select_from(PatientRow)
         .outerjoin(
@@ -93,7 +127,10 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
             and_(AppointmentRow.hospital_id == PatientRow.hospital_id, AppointmentRow.patient_id == PatientRow.id),
         )
         .where(PatientRow.hospital_id == hospital_id)
-        .group_by(PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn)
+        .group_by(
+            PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
+            PatientRow.date_of_birth, PatientRow.gender, PatientRow.age, PatientRow.status, PatientRow.created_at,
+        )
         .order_by(last_visit.desc().nulls_last(), PatientRow.name.nulls_last(), PatientRow.phone)
     )
     if search:
@@ -115,7 +152,9 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
         {
             "id": r.id, "phone": r.phone, "name": r.name, "patient_display_id": r.patient_display_id,
             "mrn": r.mrn, "last_visit": r.last_visit, "visit_count": r.visit_count,
-            "visited_count": r.visited_count,
+            "visited_count": r.visited_count, "date_of_birth": r.date_of_birth, "gender": r.gender,
+            "age": r.age, "status": r.status, "created_at": r.created_at,
+            "department_name": r.department_name, "doctor_name": r.doctor_name,
         }
         for r in rows
     ]

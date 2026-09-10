@@ -2,18 +2,18 @@
 
 import { useMemo, useState } from "react";
 import {
-  CalendarClock,
+  Beaker,
   CalendarPlus,
-  CalendarRange,
-  CheckCircle2,
-  Clock,
-  FileDown,
+  ClipboardList,
+  FileClock,
+  FilePlus2,
+  FileText,
   Search,
   Send,
   SlidersHorizontal,
   Trash2,
+  UploadCloud,
   X,
-  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -25,28 +25,29 @@ import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
-import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
-import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
+import { formatHeaderDate } from "@/lib/formatDate";
 import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
-import { createAppointmentColumns, STATUS_LABELS } from "./_components/appointments-columns";
-import { RescheduleDialog } from "./_components/RescheduleDialog";
+import { STATUS_LABELS } from "../_components/appointments-columns";
+import { createDiagnosticAppointmentColumns } from "../_components/diagnostic-appointments-columns";
+import { RescheduleDialog } from "../_components/RescheduleDialog";
 
-// This page is doctor-appointments-only (see useAppointments(ready, "doctor")
-// below) -- restricted to just those 3 types, same scoping reasoning as that
-// hook call's own comment.
-const DOCTOR_TYPE_OPTIONS = (["new", "followup", "tele"] as const).map((value) => ({ value, label: TYPE_LABELS[value] }));
+// This page is diagnostic-appointments-only (see useAppointments(ready,
+// "diagnostic") below) -- restricted to just those 3 types, same scoping
+// reasoning as that hook call's own comment.
+const TEST_TYPE_OPTIONS = (["diagnostic", "lab", "daycare"] as const).map((value) => ({ value, label: TYPE_LABELS[value] }));
 const APPOINTMENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
 
-type Tab = "all" | "today" | "upcoming" | "completed" | "cancelled";
+type Tab = "all" | "diagnostics" | "lab" | "completed" | "pending" | "cancelled";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "today", label: "Today" },
-  { id: "upcoming", label: "Upcoming" },
+  { id: "all", label: "All bookings" },
+  { id: "diagnostics", label: "Diagnostics" },
+  { id: "lab", label: "Lab tests" },
   { id: "completed", label: "Completed" },
+  { id: "pending", label: "Pending" },
   { id: "cancelled", label: "Cancelled" },
 ];
 
@@ -55,30 +56,31 @@ function isSameDate(iso: string, ref: Date): boolean {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
 }
 
-function matchesTab(a: Appointment, tab: Tab, now: Date): boolean {
+function matchesTab(a: Appointment, tab: Tab): boolean {
   switch (tab) {
-    case "today": return isSameDate(a.scheduled_at, now);
-    case "upcoming": return a.status === "booked" && new Date(a.scheduled_at) > now;
+    case "diagnostics": return a.appointment_type_id === "diagnostic";
+    case "lab": return a.appointment_type_id === "lab";
     case "completed": return a.status === "attended";
+    // "Still open" -- anything not yet resolved either way, regardless of
+    // date (there's no separate "pending confirmation" concept here, unlike
+    // the mockup's per-row Pending pill, which this reuses for the tab).
+    case "pending": return a.status === "booked";
     case "cancelled": return a.status === "cancelled";
     default: return true;
   }
 }
 
-/** Same delta-vs-previous-period shape the dashboard's own stat tiles use
- * (db/repositories/dashboard.py's _delta_pct) -- null on a zero baseline
- * rather than a misleading "+100%". */
+/** Same delta-vs-previous-period shape the other appointment pages use. */
 function pctDelta(current: number, previous: number): number | null {
   if (previous === 0) return null;
   return Math.round(((current - previous) / previous) * 1000) / 10;
 }
 
-export default function PortalAppointmentsPage() {
+export default function PortalDiagnosticAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
-  const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
   const {
-    appointments, allAppointments, error, load,
+    appointments, allAppointments, error,
     page, setPage, total, pageSize,
     searchQuery, setSearchQuery,
     statusFilter, setStatusFilter, typeFilter, setTypeFilter,
@@ -89,73 +91,89 @@ export default function PortalAppointmentsPage() {
     rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
+    advancingLabStatusId, handleAdvanceLabStatus,
     deletingId, handleDelete,
     selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
     pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,
-    // Scoped to "new"/"followup"/"tele" appointment types only -- diagnostic/
-    // lab/daycare and second-opinion (report review) appointments have their
-    // own sidebar entries and will get their own page later.
-  } = useAppointments(ready, "doctor", tab);
+    // Scoped to "diagnostic"/"lab"/"daycare" appointment types only --
+    // doctor consultations and report-review appointments have their own
+    // sidebar entries.
+  } = useAppointments(ready, "diagnostic", tab);
 
   const today = new Date();
 
-  // Tab counts + stat tiles + "today's schedule" all read `allAppointments`
-  // (the hook's separate full, category-scoped, unpaginated fetch) rather
-  // than `appointments` (the table's own current 10-row page) -- they need
-  // the whole dataset to compute their numbers from, same as before the
-  // table itself became server-paginated.
+  // Tab counts + stat tiles + lab queue all read `allAppointments` (the
+  // hook's separate full, category-scoped, unpaginated fetch) rather than
+  // `appointments` (the table's own current 10-row page) -- they need the
+  // whole dataset to compute their numbers from, same as before the table
+  // itself became server-paginated.
   const tabCounts = useMemo(() => {
-    if (!allAppointments) return { all: 0, today: 0, upcoming: 0, completed: 0, cancelled: 0 };
-    const now = new Date();
-    const counts = { all: allAppointments.length, today: 0, upcoming: 0, completed: 0, cancelled: 0 };
+    if (!allAppointments) return { all: 0, diagnostics: 0, lab: 0, completed: 0, pending: 0, cancelled: 0 };
+    const counts = { all: allAppointments.length, diagnostics: 0, lab: 0, completed: 0, pending: 0, cancelled: 0 };
     for (const a of allAppointments) {
       for (const t of TABS) {
-        if (t.id !== "all" && matchesTab(a, t.id, now)) counts[t.id]++;
+        if (t.id !== "all" && matchesTab(a, t.id)) counts[t.id]++;
       }
     }
     return counts;
   }, [allAppointments]);
 
-  // Real stats, all derived from the same loaded list -- no backend
-  // "pending confirmation" status exists in this app (see that tile below),
-  // so that one is the one honest gap here.
+  // Real stats -- Pending report uploads is Lab Test-only (see its hint):
+  // Diagnostics-type bookings have no equivalent report-status tracking at
+  // all, so there's nothing honest to count for them here.
   const stats = useMemo(() => {
     if (!allAppointments) return null;
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    const todayCount = allAppointments.filter((a) => isSameDate(a.scheduled_at, now)).length;
-    const yesterdayCount = allAppointments.filter((a) => isSameDate(a.scheduled_at, yesterday)).length;
+    const diagnosticsToday = allAppointments.filter((a) => a.appointment_type_id === "diagnostic" && isSameDate(a.scheduled_at, now)).length;
+    const diagnosticsYesterday = allAppointments.filter(
+      (a) => a.appointment_type_id === "diagnostic" && isSameDate(a.scheduled_at, yesterday),
+    ).length;
+    const labToday = allAppointments.filter((a) => a.appointment_type_id === "lab" && isSameDate(a.scheduled_at, now)).length;
+    const labYesterday = allAppointments.filter((a) => a.appointment_type_id === "lab" && isSameDate(a.scheduled_at, yesterday)).length;
+    const pendingReports = allAppointments.filter(
+      (a) => a.appointment_type_id === "lab" && a.status === "booked" && a.lab_status !== "report_ready",
+    ).length;
     return {
       total: allAppointments.length,
-      today: todayCount,
-      todayDeltaPct: pctDelta(todayCount, yesterdayCount),
-      completed: allAppointments.filter((a) => a.status === "attended").length,
+      diagnosticsToday, diagnosticsDeltaPct: pctDelta(diagnosticsToday, diagnosticsYesterday),
+      labToday, labDeltaPct: pctDelta(labToday, labYesterday),
+      pendingReports,
     };
   }, [allAppointments]);
 
-  const todaysSchedule = useMemo(() => {
-    if (!allAppointments) return [];
-    return allAppointments
-      .filter((a) => isSameDate(a.scheduled_at, today) && a.status !== "cancelled")
-      .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
-      .slice(0, 6);
+  // Real lab-queue breakdown, by lab_status, among today's Lab Test
+  // bookings -- there's no equivalent stage tracking for Diagnostics-type
+  // bookings (see the Status column's own note), so this card is Lab
+  // Test-only, same scope as the Pending report uploads tile above.
+  const labQueue = useMemo(() => {
+    if (!allAppointments) return { waiting: 0, collected: 0, processing: 0, ready: 0, total: 0 };
+    const rows = allAppointments.filter((a) => a.appointment_type_id === "lab" && isSameDate(a.scheduled_at, today));
+    return {
+      waiting: rows.filter((a) => a.lab_status === "booked").length,
+      collected: rows.filter((a) => a.lab_status === "sample_collected").length,
+      processing: rows.filter((a) => a.lab_status === "processing").length,
+      ready: rows.filter((a) => a.lab_status === "report_ready").length,
+      total: rows.length,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allAppointments]);
 
   const columns = useMemo(
     () =>
-      createAppointmentColumns({
+      createDiagnosticAppointmentColumns({
         selected, toggleSelected, toggleSelectAll, allSelected,
         deletableCount: deletableAppointments.length,
         markingAttendanceId, onAttendance: handleAttendance,
+        advancingLabStatusId, onAdvanceLabStatus: handleAdvanceLabStatus,
         cancelPanelId, reschedulePanelId,
         onOpenReschedule: openReschedulePanel, onOpenCancel: openCancelPanel,
         deletingId, onDelete: handleDelete,
       }),
     [
       selected, toggleSelected, toggleSelectAll, allSelected, deletableAppointments.length,
-      markingAttendanceId, handleAttendance,
+      markingAttendanceId, handleAttendance, advancingLabStatusId, handleAdvanceLabStatus,
       cancelPanelId, reschedulePanelId, openReschedulePanel, openCancelPanel, deletingId, handleDelete,
     ],
   );
@@ -195,9 +213,9 @@ export default function PortalAppointmentsPage() {
   }
 
   return (
-    <PortalShell hospital={hospital} active="appointments">
+    <PortalShell hospital={hospital} active="diagnostic">
         <PageHeader
-          title="Doctor appointments"
+          title="Diagnostic & lab test appointments"
           description={formatHeaderDate(today)}
           actions={<PortalTopBarActions />}
         />
@@ -205,29 +223,28 @@ export default function PortalAppointmentsPage() {
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
         <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile label="Total doctor appointments" value={stats?.total ?? null} deltaPct={null} hint="Live count" icon={CalendarRange} />
+          <StatTile label="Total test bookings" value={stats?.total ?? null} deltaPct={null} hint="Live count" icon={Beaker} />
           <StatTile
-            label="Today's appointments"
-            value={stats?.today ?? null}
-            deltaPct={stats?.todayDeltaPct ?? null}
+            label="Diagnostics today"
+            value={stats?.diagnosticsToday ?? null}
+            deltaPct={stats?.diagnosticsDeltaPct ?? null}
             hint="vs yesterday"
-            icon={CalendarClock}
+            icon={FileText}
           />
           <StatTile
-            label="Pending confirmations"
-            value={null}
+            label="Lab tests today"
+            value={stats?.labToday ?? null}
+            deltaPct={stats?.labDeltaPct ?? null}
+            hint="vs yesterday"
+            icon={ClipboardList}
+          />
+          <StatTile
+            label="Pending report uploads"
+            value={stats?.pendingReports ?? null}
             deltaPct={null}
-            hint="No such status exists yet — every booked row already reads Confirmed"
-            icon={Clock}
+            hint="Lab tests only — Diagnostics bookings have no report-status tracking"
+            icon={FileClock}
             tint="clay"
-          />
-          <StatTile
-            label="Completed consultations"
-            value={stats?.completed ?? null}
-            deltaPct={null}
-            hint="Attended, all-time in this list"
-            icon={CheckCircle2}
-            tint="success"
           />
         </div>
 
@@ -272,13 +289,13 @@ export default function PortalAppointmentsPage() {
                 <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
                 <input
                   type="text"
-                  placeholder="Search by patient name, doctor, or ID…"
+                  placeholder="Search by patient name, test, or ID…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
                 />
               </div>
-              <FilterSelect value={typeFilter} onChange={setTypeFilter} allLabel="All Types" options={DOCTOR_TYPE_OPTIONS} />
+              <FilterSelect value={typeFilter} onChange={setTypeFilter} allLabel="All Types" options={TEST_TYPE_OPTIONS} />
               <FilterSelect
                 value={statusFilter}
                 onChange={setStatusFilter}
@@ -300,12 +317,13 @@ export default function PortalAppointmentsPage() {
             </div>
 
             <Card className="p-space-4">
+              <h3 className="text-label mb-space-3 font-bold text-ink-900">Test appointments &amp; bookings</h3>
               {!appointments ? (
                 <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
               ) : allAppointments && allAppointments.length === 0 ? (
-                <p className="py-space-4 text-center text-[13px] text-ink-400">No doctor appointments yet.</p>
+                <p className="py-space-4 text-center text-[13px] text-ink-400">No diagnostic or lab bookings yet.</p>
               ) : total === 0 ? (
-                <p className="py-space-4 text-center text-[13px] text-ink-400">No appointments match your search/filter.</p>
+                <p className="py-space-4 text-center text-[13px] text-ink-400">No bookings match your search/filter.</p>
               ) : (
                 <DataTable
                   columns={columns}
@@ -323,57 +341,61 @@ export default function PortalAppointmentsPage() {
           <div className="space-y-space-4">
             <Card className="p-space-4">
               <div className="mb-space-3 flex items-center justify-between">
-                <h3 className="text-label font-bold text-ink-900">Today&apos;s schedule</h3>
-                <button type="button" onClick={() => setTab("today")} className="text-[12px] font-semibold text-brand-600 hover:underline">
+                <h3 className="text-label font-bold text-ink-900">Today&apos;s lab queue</h3>
+                <button type="button" onClick={() => setTab("lab")} className="text-[12px] font-semibold text-brand-600 hover:underline">
                   View all →
                 </button>
               </div>
-              {todaysSchedule.length === 0 ? (
-                <p className="py-space-2 text-center text-[13px] text-ink-400">Nothing scheduled today.</p>
-              ) : (
-                <ul className="space-y-space-3">
-                  {todaysSchedule.map((a) => (
-                    <li key={a.id} className="flex items-start gap-space-3 text-[12.5px]">
-                      <span className="mt-0.5 w-[52px] shrink-0 tabular-nums text-ink-400">{formatTimeOnly(a.scheduled_at)}</span>
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-ink-900">{a.patient_name || a.phone}</p>
-                        <p className="truncate text-ink-400">Dr. {a.doctor_name || "—"}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ul className="space-y-space-2 text-[12.5px]">
+                <li className="flex items-center gap-space-2 text-ink-600">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-clay-500" /> Waiting for sample collection
+                  <span className="ml-auto font-semibold text-ink-900">{labQueue.waiting}</span>
+                </li>
+                <li className="flex items-center gap-space-2 text-ink-600">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand-600" /> Sample collected
+                  <span className="ml-auto font-semibold text-ink-900">{labQueue.collected}</span>
+                </li>
+                <li className="flex items-center gap-space-2 text-ink-600">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand-300" /> In testing
+                  <span className="ml-auto font-semibold text-ink-900">{labQueue.processing}</span>
+                </li>
+                <li className="flex items-center gap-space-2 text-ink-600">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-success" /> Reports ready
+                  <span className="ml-auto font-semibold text-ink-900">{labQueue.ready}</span>
+                </li>
+              </ul>
+              <div className="mt-space-3 flex items-center justify-between border-t border-line pt-space-3 text-[12.5px] font-semibold">
+                <span className="text-ink-600">Total today</span>
+                <span className="text-ink-900">{labQueue.total}</span>
+              </div>
             </Card>
 
             <Card className="p-space-4">
               <h3 className="text-label mb-space-3 font-bold text-ink-900">Quick actions</h3>
               <div className="space-y-space-2">
-                <Button type="button" variant="primary" className="w-full justify-start" onClick={() => setNewBookingOpen(true)}>
-                  <CalendarPlus size={15} className="shrink-0" /> Add new appointment
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full justify-start"
+                  disabled
+                  title="Coming soon — new bookings here need a doctor/date/slot picker; test bookings need their own resource/slot picker, which doesn't exist yet"
+                >
+                  <CalendarPlus size={15} className="shrink-0" /> New test booking
                 </Button>
                 <Button
                   type="button"
                   variant="secondary"
                   className="w-full justify-start"
                   disabled
-                  title="Coming soon — use a row's own Reschedule action for now"
+                  title="Coming soon — report upload exists on a patient's own page, not scoped to a booking yet"
                 >
-                  <CalendarClock size={15} className="shrink-0" /> Reschedule appointment
+                  <UploadCloud size={15} className="shrink-0" /> Upload lab report
                 </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-full justify-start"
-                  disabled
-                  title="Coming soon — use a row's own Cancel action for now"
-                >
-                  <XCircle size={15} className="shrink-0" /> Cancel appointment
+                <Button type="button" variant="secondary" className="w-full justify-start" onClick={() => setTab("pending")}>
+                  <FilePlus2 size={15} className="shrink-0" /> View pending reports
                 </Button>
                 <Button type="button" variant="secondary" className="w-full justify-start" disabled title="Coming soon">
-                  <Send size={15} className="shrink-0" /> Send reminder
-                </Button>
-                <Button type="button" variant="secondary" className="w-full justify-start" disabled title="Coming soon">
-                  <FileDown size={15} className="shrink-0" /> Export appointments
+                  <FileText size={15} className="shrink-0" /> Generate test report
                 </Button>
               </div>
             </Card>
@@ -384,11 +406,11 @@ export default function PortalAppointmentsPage() {
 
         <ConfirmDialog
           open={pendingDelete !== null}
-          title={pendingDelete && pendingDelete.length > 1 ? `Delete ${pendingDelete.length} appointments?` : "Delete appointment?"}
+          title={pendingDelete && pendingDelete.length > 1 ? `Delete ${pendingDelete.length} bookings?` : "Delete booking?"}
           message={
             pendingDelete
               ? `This will permanently delete ${
-                  pendingDelete.length > 1 ? `${pendingDelete.length} appointment records` : `the ${pendingDelete[0].reference_id || "selected"} appointment`
+                  pendingDelete.length > 1 ? `${pendingDelete.length} booking records` : `the ${pendingDelete[0].reference_id || "selected"} booking`
                 }. This action is irreversible.`
               : ""
           }
@@ -397,13 +419,6 @@ export default function PortalAppointmentsPage() {
           busy={bulkDeleting}
           onConfirm={() => pendingDelete && runBulkDelete(pendingDelete)}
           onCancel={() => setPendingDelete(null)}
-        />
-
-        <NewBookingDialog
-          open={newBookingOpen}
-          onOpenChange={setNewBookingOpen}
-          hospital={hospital}
-          onBooked={load}
         />
 
         <RescheduleDialog

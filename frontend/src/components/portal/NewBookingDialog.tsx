@@ -16,19 +16,26 @@ type NewBookingDialogProps = {
    * dialog's own success state -- lets the caller (the appointments list)
    * refresh in the background rather than waiting on "Done". */
   onBooked: () => void;
+  /** Pre-fills the patient fields when opened from a specific patient's
+   * context (e.g. the Patients page detail panel) -- omit for the generic
+   * "pick any patient" entry points. */
+  initialPatientName?: string;
+  initialPatientPhone?: string;
 };
 
 /** Staff-created booking, as a dialog on top of /portal/appointments rather
  * than its own page -- same form/hook (useNewBooking) as before, just
  * mounted for the dialog's lifetime instead of a page's. */
-export function NewBookingDialog({ open, onOpenChange, hospital, onBooked }: NewBookingDialogProps) {
+export function NewBookingDialog({
+  open, onOpenChange, hospital, onBooked, initialPatientName, initialPatientPhone,
+}: NewBookingDialogProps) {
   const {
     ctx, error, errors, submitting, success,
     patientName, setPatientName, patientPhone, setPatientPhone,
     departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
     doctors, datesForDoctor, slotsForDate,
     handleSubmit,
-  } = useNewBooking(open, onBooked);
+  } = useNewBooking(open, onBooked, initialPatientName, initialPatientPhone);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

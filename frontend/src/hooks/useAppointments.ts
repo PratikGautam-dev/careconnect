@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
+
+const PAGE_SIZE = 10;
 
 const DEFAULT_CANCEL_MESSAGE = "Your appointment has been cancelled.";
 const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
@@ -72,17 +75,49 @@ export const TYPE_LABELS: Record<string, string> = {
   daycare: "Daycare",
 };
 
-function typeBucket(a: Appointment) {
-  return a.appointment_type_id && a.appointment_type_id in TYPE_LABELS ? a.appointment_type_id : "other";
+// Mirrors backend/db/repositories/appointment_types.py's
+// BOOK_DOCTOR_APPOINTMENT_CATEGORY/TESTS_DIAGNOSTICS_CATEGORY -- the same
+// 3-way split the WhatsApp booking menu and the portal sidebar (Doctor
+// appointments / Diagnostic & lab / Report review) both use. Scoping by
+// category now happens server-side (get_appointments_page's own `category`
+// param) -- this type just labels which scope a page's hook call wants.
+export type AppointmentCategory = "all" | "doctor" | "diagnostic";
+
+// Shared vocabulary for every list page's tab pills (appointments/page.tsx's
+// Today/Upcoming/Completed/Cancelled, diagnostic/page.tsx's own
+// Diagnostics/Lab tests/Completed/Pending/Cancelled) -- each page still owns
+// its own tab id/label list (they differ per page), it just needs to be
+// drawn from this set so tabToServerParams below knows every id. Resolving
+// a tab to server params (rather than filtering the loaded page client-side,
+// like both pages used to) is what keeps a tab pill meaning "every matching
+// row", not just whichever ones landed on the current 10-row page.
+export type AppointmentTab = "all" | "today" | "upcoming" | "completed" | "cancelled" | "pending" | "diagnostics" | "lab";
+
+function tabToServerParams(tab: string): { status?: string; type?: string; when?: string } {
+  switch (tab as AppointmentTab) {
+    case "today": return { when: "today" };
+    case "upcoming": return { when: "upcoming" };
+    case "completed": return { status: "attended" };
+    case "cancelled": return { status: "cancelled" };
+    case "pending": return { status: "booked" };
+    case "diagnostics": return { type: "diagnostic" };
+    case "lab": return { type: "lab" };
+    default: return {};
+  }
 }
 
 /** Loads + owns every mutation on the /portal/appointments list -- cancel,
  * reschedule, attendance marking, delete -- plus the search/status/type
- * filters and the cancel/reschedule inline panels' own form state. */
-export function useAppointments(ready: boolean) {
+ * filters, pagination, and the cancel/reschedule inline panels' own form
+ * state. `category` scopes the loaded list itself (not just a tab filter)
+ * -- "doctor" for the Doctor appointments page, "diagnostic" for the
+ * Diagnostic & lab test page, "all" (default) elsewhere. `tab` is the
+ * calling page's own current tab pill id (see AppointmentTab) -- passed in
+ * rather than owned here since each page's tab labels/ids differ; this
+ * hook only needs the id to resolve it to server params. */
+export function useAppointments(ready: boolean, category: AppointmentCategory = "all", tab: string = "all") {
   const router = useRouter();
-  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [cancelPanelId, setCancelPanelId] = useState<number | null>(null);
   const [cancelMessage, setCancelMessage] = useState(DEFAULT_CANCEL_MESSAGE);
@@ -109,32 +144,110 @@ export function useAppointments(ready: boolean) {
   const [pendingDelete, setPendingDelete] = useState<Appointment[] | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  // Item 2 (Spec.md Section 0): search (patient phone / doctor / department
-  // name) + status filter -- computed client-side, same reasoning the
-  // doctors page uses (this list is already bounded to 500 rows by the
-  // backend, small enough that a server round-trip per keystroke isn't
-  // needed).
+  const [page, setPage] = useState(1);
+
+  // "Draft" values -- what the search box/FilterSelect dropdowns show and
+  // update live as the user types/picks. Nothing is sent to the server
+  // until applyFilters() runs (the Filter button); resetFilters() clears
+  // both draft and applied. Same staged-then-Apply pattern sarvaya-
+  // dashboard's own filter bars (ExpenseFilterBar etc.) use -- a network
+  // request per keystroke isn't wanted now that search hits the backend.
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  // Divides the appointments list by type (New Consultation, Follow-up,
-  // Tele-consultation, ...) as its own tab row -- "other" covers any
-  // appointment predating appointment_type_id (never backfilled, so an
-  // old row is legitimately typeless, not a bug).
   const [typeFilter, setTypeFilter] = useState("all");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [appliedStatus, setAppliedStatus] = useState("all");
+  const [appliedType, setAppliedType] = useState("all");
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/bookings");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setAppointments((result.data as { appointments: Appointment[] }).appointments);
-  }, [router]);
+  const applyFilters = useCallback(() => {
+    setAppliedSearch(searchQuery.trim());
+    setAppliedStatus(statusFilter);
+    setAppliedType(typeFilter);
+    setPage(1);
+  }, [searchQuery, statusFilter, typeFilter]);
 
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
+  const resetFilters = useCallback(() => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setTypeFilter("all");
+    setAppliedSearch("");
+    setAppliedStatus("all");
+    setAppliedType("all");
+    setPage(1);
+  }, []);
+
+  const filtersDirty = searchQuery.trim() !== appliedSearch || statusFilter !== appliedStatus || typeFilter !== appliedType;
+
+  // A tab pill switch changes which rows exist at all -- staying on page 3
+  // of the old tab would otherwise render an empty table under the new one.
+  // Reset during render (React's own "adjusting state when a prop changes"
+  // pattern) rather than in an effect, which would cause an extra render.
+  const [prevTab, setPrevTab] = useState(tab);
+  if (tab !== prevTab) {
+    setPrevTab(tab);
+    setPage(1);
+  }
+
+  const queryKey = ["portal-bookings", category, page, appliedSearch, appliedStatus, appliedType, tab] as const;
+
+  const {
+    data, isFetching, error: queryError, refetch,
+  } = useQuery({
+    queryKey,
+    enabled: ready,
+    placeholderData: keepPreviousData,
+    retry: false,
+    queryFn: async () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      if (category !== "all") params.set("category", category);
+      const tabParams = tabToServerParams(tab);
+      const status = tabParams.status || (appliedStatus !== "all" ? appliedStatus : "");
+      const type = tabParams.type || (appliedType !== "all" ? appliedType : "");
+      if (status) params.set("status", status);
+      if (type) params.set("type", type);
+      if (tabParams.when) params.set("when", tabParams.when);
+      if (appliedSearch) params.set("search", appliedSearch);
+      const result = await portalFetch(`/api/portal/bookings?${params.toString()}`);
+      if (!result.ok) {
+        if (result.unauthorized) router.push("/portal/login");
+        throw new Error(result.unauthorized ? "Not authenticated." : result.error);
+      }
+      return result.data as { appointments: Appointment[]; total: number };
+    },
+  });
+
+  const appointments = data?.appointments ?? null;
+  const total = data?.total ?? 0;
+
+  // Full (up to 500), category-scoped, unfiltered/unpaginated -- unlike
+  // `appointments` above (this page's own 10-row slice of the table),
+  // stat tiles/tab-count badges/"today's schedule"/lab-queue widgets all
+  // need the WHOLE scoped dataset to compute their numbers from. Same
+  // "small enough to fetch whole and compute client-side" reasoning this
+  // hook always used, just no longer shared with the table's own fetch now
+  // that the table itself needs to scale past 500 rows via real pagination.
+  const { data: summaryData, refetch: refetchSummary } = useQuery({
+    queryKey: ["portal-bookings-summary", category],
+    enabled: ready,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (category !== "all") params.set("category", category);
+      const result = await portalFetch(`/api/portal/bookings/summary?${params.toString()}`);
+      if (!result.ok) {
+        if (result.unauthorized) router.push("/portal/login");
+        throw new Error(result.unauthorized ? "Not authenticated." : result.error);
+      }
+      return (result.data as { appointments: Appointment[] }).appointments;
+    },
+  });
+  const allAppointments = summaryData ?? null;
+
+  const error = mutationError ?? (queryError ? "Couldn't load appointments — try again." : null);
+
+  const load = useCallback(() => {
+    refetch();
+    refetchSummary();
+  }, [refetch, refetchSummary]);
 
   // Shared success/error-toast handling for the many fire-and-forget row
   // actions below (attendance, lab status, procedure actions, delete) --
@@ -151,34 +264,6 @@ export function useAppointments(ready: boolean) {
     toast.error(failureMessage, result.error);
     return false;
   }
-
-  const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: appointments?.length ?? 0 };
-    for (const a of appointments || []) {
-      const bucket = typeBucket(a);
-      counts[bucket] = (counts[bucket] || 0) + 1;
-    }
-    return counts;
-  }, [appointments]);
-
-  const filteredAppointments = useMemo(() => {
-    if (!appointments) return appointments;
-    const q = searchQuery.trim().toLowerCase();
-    return appointments.filter((a) => {
-      if (typeFilter !== "all" && typeBucket(a) !== typeFilter) return false;
-      if (statusFilter !== "all" && a.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        a.phone.toLowerCase().includes(q) ||
-        (a.patient_name || "").toLowerCase().includes(q) ||
-        (a.doctor_name || "").toLowerCase().includes(q) ||
-        (a.resource_name || "").toLowerCase().includes(q) ||
-        (a.department_name || "").toLowerCase().includes(q) ||
-        (a.reference_id || "").toLowerCase().includes(q) ||
-        (a.patient_display_id || "").toLowerCase().includes(q)
-      );
-    });
-  }, [appointments, searchQuery, statusFilter, typeFilter]);
 
   // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
   // real status" gap -- a still-'booked' appointment whose scheduled time
@@ -277,7 +362,7 @@ export function useAppointments(ready: boolean) {
     });
   };
 
-  const deletableAppointments = (filteredAppointments ?? appointments ?? []).filter((a) => a.status !== "booked");
+  const deletableAppointments = (appointments ?? []).filter((a) => a.status !== "booked");
 
   const toggleSelectAll = (checked: boolean) => {
     setSelected(checked ? new Set(deletableAppointments.map((a) => a.id)) : new Set());
@@ -294,11 +379,11 @@ export function useAppointments(ready: boolean) {
     setPendingDelete(null);
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
+      else setMutationError(result.error);
       return;
     }
     const deletedIds = new Set((result.data as { deleted: number[] }).deleted);
-    setAppointments((prev) => (prev ? prev.filter((a) => !deletedIds.has(a.id)) : prev));
+    load();
     setSelected((prev) => {
       const next = new Set(prev);
       deletedIds.forEach((id) => next.delete(id));
@@ -396,8 +481,10 @@ export function useAppointments(ready: boolean) {
   const allSelected = deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
 
   return {
-    appointments, error, load, filteredAppointments, typeCounts,
+    appointments, allAppointments, error, load, isFetching,
+    page, setPage, total, pageSize: PAGE_SIZE,
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
+    applyFilters, resetFilters, filtersDirty,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
     reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
     rDate, setRDate, rSlotId, setRSlotId,

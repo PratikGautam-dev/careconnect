@@ -1,11 +1,15 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import { CalendarCheck, RotateCcw, Video, type LucideIcon } from "lucide-react";
 import { PermissionGate } from "@/components/portal/PermissionGate";
+import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { TYPE_LABELS, type Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
+
+export { AVATAR_TINTS };
 
 // Each status gets its own color (same tone vocabulary as Badge.tsx) so
 // they read apart at a glance instead of booked/attended and
@@ -38,10 +42,6 @@ export const LAB_STATUS_LABELS: Record<string, string> = {
   processing: "Processing",
   report_ready: "Report Ready",
 };
-const LAB_STATUS_NEXT_LABEL: Record<string, string> = {
-  booked: "Mark Sample Collected",
-  sample_collected: "Mark Processing",
-};
 
 type CreateAppointmentColumnsOptions = {
   selected: Set<number>;
@@ -51,8 +51,6 @@ type CreateAppointmentColumnsOptions = {
   deletableCount: number;
   markingAttendanceId: number | null;
   onAttendance: (id: number, attended: boolean) => void;
-  advancingLabStatusId: number | null;
-  onAdvanceLabStatus: (id: number) => void;
   cancelPanelId: number | null;
   reschedulePanelId: number | null;
   onOpenReschedule: (id: number) => void;
@@ -61,9 +59,30 @@ type CreateAppointmentColumnsOptions = {
   onDelete: (id: number) => void;
 };
 
-/** Column definitions for the /portal/appointments DataTable, expressed as
- * ColumnDefs so DataTable (@tanstack/react-table under the hood) owns
- * rendering + client-side pagination. */
+// Doctor-appointment types only (this table is scoped to those, page-level)
+// -- a small icon per type so the "Appointment Type" cell reads at a glance,
+// same idea as the reference mockup's icon+label cells. Exported so any
+// other table showing this same icon+label style (e.g. the dashboard's
+// RecentAppointmentsTable) reuses it rather than defining its own map --
+// falls back to CalendarCheck for a type with no icon of its own
+// (diagnostic/lab/daycare/second_opinion, which never appear on this
+// doctor-appointments-only page but can elsewhere).
+export const TYPE_ICONS: Record<string, LucideIcon> = { new: CalendarCheck, followup: RotateCcw, tele: Video };
+
+
+export function initials(name: string | null, phone: string): string {
+  if (!name) return phone.slice(-2);
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || phone.slice(-2);
+}
+
+/** Column definitions for the /portal/appointments (Doctor appointments)
+ * DataTable -- deliberately lean, matching the reference mockup's columns
+ * rather than every field this app tracks (Reference/Patient ID/Booked-at/
+ * Source stay reachable on the appointment detail page instead). No lab/
+ * diagnostic columns -- this table is doctor-appointments-only, so
+ * lab_status is always null here anyway. Attendance marking (Mark attended/
+ * no-show) moved into the Actions menu instead of its own column. */
 export function createAppointmentColumns({
   selected,
   toggleSelected,
@@ -72,8 +91,6 @@ export function createAppointmentColumns({
   deletableCount,
   markingAttendanceId,
   onAttendance,
-  advancingLabStatusId,
-  onAdvanceLabStatus,
   cancelPanelId,
   reschedulePanelId,
   onOpenReschedule,
@@ -115,101 +132,57 @@ export function createAppointmentColumns({
     },
     {
       id: "scheduled_at",
-      header: "Appointment time",
+      header: "Time",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">
-          {formatShortDateTime(row.original.scheduled_at)}
-        </span>
+        <span className="whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(row.original.scheduled_at)}</span>
       ),
     },
     {
-      id: "created_at",
-      header: "Booked",
-      cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-400">
-          {row.original.created_at
-            ? formatShortDateTime(row.original.created_at)
-            : "—"}
-        </span>
-      ),
-    },
-    {
-      id: "reference_id",
-      header: "Reference",
-      cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-400">
-          {row.original.reference_id || "—"}
-        </span>
-      ),
-    },
-    {
-      id: "patient_display_id",
-      header: "Patient ID",
-      cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
-          {row.original.patient_display_id || "—"}
-        </span>
-      ),
-    },
-    {
-      id: "patient_name",
-      header: "Patient Name",
-      cell: ({ row }) => (
-        <span className="text-ink-900">{row.original.patient_name || "—"}</span>
-      ),
-    },
-    {
-      id: "doctor_name",
-      header: "Doctor",
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.doctor_name || row.original.resource_name || "—"}</span>
-      ),
-    },
-    {
-      id: "department_name",
-      header: "Department",
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.department_name || "—"}</span>
-      ),
-    },
-    {
-      id: "type",
-      header: "Type",
+      id: "patient",
+      header: "Patient",
       cell: ({ row }) => {
         const a = row.original;
         return (
-          <div className="text-ink-600">
-            <div>
-              {a.appointment_type_id
-                ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
-                : "—"}
+          <div className="flex items-center gap-space-2">
+            <span
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                AVATAR_TINTS[a.id % AVATAR_TINTS.length],
+              )}
+            >
+              {initials(a.patient_name, a.phone)}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-ink-900">{a.patient_name || a.phone}</p>
+              {a.patient_name && <p className="truncate text-[11.5px] text-ink-400">{a.phone}</p>}
             </div>
-            {/* Tele-consultation Phase 2 (confirmed with the user directly):
-                staff need the video link too, not just the doctor's own
-                "Today's appointments" widget -- withheld from the patient's
-                immediate confirmation, but always visible here. */}
-            {a.appointment_type_id === "tele" && a.video_link && (
-              <a
-                href={a.video_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[11.5px] font-semibold text-brand-600 hover:underline"
-              >
-                🎥 Join
-              </a>
-            )}
           </div>
         );
       },
     },
     {
-      id: "source",
-      header: "Source",
-      cell: ({ row }) => (
-        <span className="text-ink-600">
-          {SOURCE_LABELS[row.original.source] || row.original.source}
-        </span>
-      ),
+      id: "doctor_name",
+      header: "Doctor",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.doctor_name || "—"}</span>,
+    },
+    {
+      id: "department_name",
+      header: "Department",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.department_name || "—"}</span>,
+    },
+    {
+      id: "type",
+      header: "Appointment type",
+      cell: ({ row }) => {
+        const a = row.original;
+        const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+        return (
+          <span className="inline-flex items-center gap-space-2 text-ink-600">
+            <Icon size={14} strokeWidth={2} className="shrink-0 text-ink-400" />
+            {a.appointment_type_id ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id : "Consultation"}
+          </span>
+        );
+      },
     },
     {
       id: "status",
@@ -218,8 +191,7 @@ export function createAppointmentColumns({
         <span
           className={cn(
             "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-            STATUS_STYLES[row.original.status] ||
-              "bg-black/[0.04] text-ink-600",
+            STATUS_STYLES[row.original.status] || "bg-black/4 text-ink-600",
           )}
         >
           {STATUS_LABELS[row.original.status] || row.original.status}
@@ -227,84 +199,23 @@ export function createAppointmentColumns({
       ),
     },
     {
-      id: "visited",
-      header: "Visited",
+      id: "mode",
+      header: "Mode",
       cell: ({ row }) => {
         const a = row.original;
-        if (
-          a.status !== "booked" &&
-          a.status !== "attended" &&
-          a.status !== "no_show"
-        ) {
-          return <span className="text-[12.5px] text-ink-300">—</span>;
+        // Real, derived from appointment_type_id/video_link -- there's no
+        // room-assignment concept anywhere in this schema, so unlike the
+        // mockup's "Room / Mode" column, this never shows a room.
+        if (a.appointment_type_id === "tele") {
+          return a.video_link ? (
+            <a href={a.video_link} target="_blank" rel="noopener noreferrer" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+              Video · Join
+            </a>
+          ) : (
+            <span className="text-[12.5px] text-ink-600">Video</span>
+          );
         }
-        // Admin-editable at any time, not gated on the scheduled time having
-        // passed, and freely re-toggleable (not a one-way door) -- per direct
-        // portal feedback.
-        return (
-          <span className="inline-flex items-center gap-space-2 whitespace-nowrap">
-            <button
-              type="button"
-              onClick={() => onAttendance(a.id, true)}
-              disabled={markingAttendanceId === a.id}
-              className={cn(
-                "text-[12.5px] font-semibold disabled:opacity-50",
-                a.status === "attended"
-                  ? "text-success underline"
-                  : "text-ink-400 hover:text-success hover:underline",
-              )}
-            >
-              Yes
-            </button>
-            <span className="text-ink-300">/</span>
-            <button
-              type="button"
-              onClick={() => onAttendance(a.id, false)}
-              disabled={markingAttendanceId === a.id}
-              className={cn(
-                "text-[12.5px] font-semibold disabled:opacity-50",
-                a.status === "no_show"
-                  ? "text-error underline"
-                  : "text-ink-400 hover:text-error hover:underline",
-              )}
-            >
-              No
-            </button>
-          </span>
-        );
-      },
-    },
-    {
-      id: "lab_status",
-      header: "Lab Status",
-      cell: ({ row }) => {
-        const a = row.original;
-        if (!a.lab_status)
-          return <span className="text-[12.5px] text-ink-300">—</span>;
-        return (
-          <span className="inline-flex items-center gap-space-2 whitespace-nowrap">
-            <span
-              className={cn(
-                "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                a.lab_status === "report_ready"
-                  ? "bg-success-tint text-success"
-                  : "bg-black/[0.04] text-ink-600",
-              )}
-            >
-              {LAB_STATUS_LABELS[a.lab_status] || a.lab_status}
-            </span>
-            {LAB_STATUS_NEXT_LABEL[a.lab_status] && (
-              <button
-                type="button"
-                onClick={() => onAdvanceLabStatus(a.id)}
-                disabled={advancingLabStatusId === a.id}
-                className="text-[12px] font-semibold text-brand-600 hover:underline disabled:opacity-50"
-              >
-                {LAB_STATUS_NEXT_LABEL[a.lab_status]}
-              </button>
-            )}
-          </span>
-        );
+        return <span className="text-[12.5px] text-ink-600">In-person</span>;
       },
     },
     {
@@ -320,6 +231,8 @@ export function createAppointmentColumns({
           onOpenCancel={onOpenCancel}
           deletingId={deletingId}
           onDelete={onDelete}
+          markingAttendanceId={markingAttendanceId}
+          onAttendance={onAttendance}
         />
       ),
     },

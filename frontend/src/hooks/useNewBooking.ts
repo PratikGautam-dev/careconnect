@@ -17,7 +17,9 @@ export type NewBookingContext = {
  * form -- context is only fetched while the dialog is open, and every field
  * resets the moment it closes, so reopening always starts from a clean
  * form rather than showing the last attempt's leftover values/errors. */
-export function useNewBooking(open: boolean, onBooked?: () => void) {
+export function useNewBooking(
+  open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
+) {
   const router = useRouter();
   const [ctx, setCtx] = useState<NewBookingContext | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +46,8 @@ export function useNewBooking(open: boolean, onBooked?: () => void) {
 
   useEffect(() => {
     if (open) {
+      setPatientName(initialPatientName ?? "");
+      setPatientPhone(initialPatientPhone ?? "");
       load();
       return;
     }
@@ -59,7 +63,7 @@ export function useNewBooking(open: boolean, onBooked?: () => void) {
     setDoctorIdRaw("");
     setDateRaw("");
     setSlotId("");
-  }, [open, load]);
+  }, [open, load, initialPatientName, initialPatientPhone]);
 
   function setDepartmentId(id: string) {
     setDepartmentIdRaw(id);

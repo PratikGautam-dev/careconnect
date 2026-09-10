@@ -12,6 +12,11 @@ export type Doctor = {
   name: string;
   specialization: string | null;
   is_active: boolean;
+  qualification: string | null;
+  years_experience: number | null;
+  email: string | null;
+  working_days: string[];
+  working_hours: string[];
 };
 
 /** Loads + owns every mutation on the /portal/doctors page: department
@@ -21,6 +26,7 @@ export function useDoctors(ready: boolean) {
   const router = useRouter();
   const [departments, setDepartments] = useState<Department[] | null>(null);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [onLeaveTodayCount, setOnLeaveTodayCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [newDeptName, setNewDeptName] = useState("");
   const [addingDept, setAddingDept] = useState(false);
@@ -55,9 +61,10 @@ export function useDoctors(ready: boolean) {
       else setError(result.error);
       return;
     }
-    const data = result.data as { departments: Department[]; doctors: Doctor[] };
+    const data = result.data as { departments: Department[]; doctors: Doctor[]; on_leave_today_count: number };
     setDepartments(data.departments);
     setDoctors(data.doctors);
+    setOnLeaveTodayCount(data.on_leave_today_count);
   }, [router]);
 
   useEffect(() => {
@@ -228,7 +235,7 @@ export function useDoctors(ready: boolean) {
   }, [doctors, searchQuery, activeFilter]);
 
   return {
-    departments, doctors, error, load,
+    departments, doctors, onLeaveTodayCount, error, load,
     newDeptName, setNewDeptName, addingDept, handleAddDepartment,
     showDoctorForm, showCsvImport, doctorForm, setDoctorForm, doctorErrors, savingDoctor,
     editingDoctorId, loadingDoctorForEdit,
