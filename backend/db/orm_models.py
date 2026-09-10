@@ -205,16 +205,50 @@ class AppointmentProcedureResource(Base):
     resource_name: Mapped[str]
 
 
-class DiagnosticResource(Base):
-    """db/schema.sql's diagnostic_resources table (Diagnostic/Lab Phase 2) --
-    a bookable machine/equipment, independent of any doctor. Schedule columns
-    mirror DoctorRow's own."""
-    __tablename__ = "diagnostic_resources"
+class DiagnosticTestLeave(Base):
+    """db/schema.sql's diagnostic_test_leave table -- mirrors DoctorLeave.
+    Diagnostic tests/resources merge: a test IS the bookable
+    machine/equipment now, so this is keyed on test_id directly (no more
+    separate diagnostic_resources table)."""
+    __tablename__ = "diagnostic_test_leave"
 
-    id: Mapped[str] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
+    test_id: Mapped[int] = mapped_column(ForeignKey("diagnostic_tests.id"))
+    date: Mapped[str]
+    reason: Mapped[str | None]
+
+
+class DiagnosticTestSlot(Base):
+    """db/schema.sql's diagnostic_test_slots table -- mirrors DoctorSlot.
+    See DiagnosticTestLeave's docstring for the test_id-instead-of-
+    resource_id rationale."""
+    __tablename__ = "diagnostic_test_slots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    test_id: Mapped[int] = mapped_column(ForeignKey("diagnostic_tests.id"))
+    scheduled_at: Mapped[str]
+    blocked: Mapped[bool]
+    block_reason: Mapped[str | None]
+
+
+class DiagnosticTest(Base):
+    """db/schema.sql's diagnostic_tests table -- the catalog a patient picks
+    from for Diagnostic Test / Lab Test (category discriminates the two).
+    Diagnostic tests/resources merge: a test now carries its own schedule
+    directly (no separate diagnostic_resources row, no department -- a
+    diagnostic/lab booking never has a department at all). Test/variant
+    merge: price lives directly here too now -- a test only ever needed
+    exactly one priced option, so the separate diagnostic_test_variants
+    child table (and its unused preparation_instructions field) is gone."""
+    __tablename__ = "diagnostic_tests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    category: Mapped[str]
     name: Mapped[str]
+    price: Mapped[float | None] = mapped_column(Numeric(10, 2))
     working_days: Mapped[str]
     working_hours: Mapped[str]
     slot_duration_minutes: Mapped[int]
@@ -223,88 +257,36 @@ class DiagnosticResource(Base):
     daily_booking_limit: Mapped[int | None]
     effective_from: Mapped[str | None]
     is_active: Mapped[bool]
-
-
-class DiagnosticResourceLeave(Base):
-    """db/schema.sql's diagnostic_resource_leave table -- mirrors DoctorLeave."""
-    __tablename__ = "diagnostic_resource_leave"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    resource_id: Mapped[str] = mapped_column(ForeignKey("diagnostic_resources.id"))
-    date: Mapped[str]
-    reason: Mapped[str | None]
-
-
-class DiagnosticResourceSlot(Base):
-    """db/schema.sql's diagnostic_resource_slots table -- mirrors DoctorSlot."""
-    __tablename__ = "diagnostic_resource_slots"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    resource_id: Mapped[str] = mapped_column(ForeignKey("diagnostic_resources.id"))
-    scheduled_at: Mapped[str]
-    blocked: Mapped[bool]
-    block_reason: Mapped[str | None]
-
-
-class DiagnosticTest(Base):
-    """db/schema.sql's diagnostic_tests table -- the catalog a patient picks
-    from for Diagnostic Test / Lab Test (category discriminates the two)."""
-    __tablename__ = "diagnostic_tests"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    category: Mapped[str]
-    name: Mapped[str]
-    resource_id: Mapped[str | None] = mapped_column(ForeignKey("diagnostic_resources.id"))
-    is_active: Mapped[bool]
-    sort_order: Mapped[int]
-
-
-class DiagnosticTestVariant(Base):
-    """db/schema.sql's diagnostic_test_variants table -- every test has >=1
-    variant; price/preparation_instructions always live here, never on
-    DiagnosticTest itself."""
-    __tablename__ = "diagnostic_test_variants"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    test_id: Mapped[int] = mapped_column(ForeignKey("diagnostic_tests.id"))
-    label: Mapped[str]
-    price: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    preparation_instructions: Mapped[str | None]
-    is_active: Mapped[bool]
     sort_order: Mapped[int]
 
 
 class LabServiceArea(Base):
     """db/schema.sql's lab_service_areas table -- hospital-configurable list
-    of PIN codes serviceable for Lab Test home sample collection."""
+    of PIN codes serviceable for Lab Test home sample collection. A row is
+    either a single pincode OR a range_start/range_end pair, never both."""
     __tablename__ = "lab_service_areas"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    pincode: Mapped[str]
+    pincode: Mapped[str | None]
+    range_start: Mapped[str | None]
+    range_end: Mapped[str | None]
     is_active: Mapped[bool]
 
 
 class AppointmentLabTest(Base):
     """db/schema.sql's appointment_lab_tests table -- the Lab Test basket: N
-    rows per one `appointments` row, one per selected test+variant. Snapshot
-    columns (test_label/variant_label/price/preparation_instructions) follow
-    the same denormalization convention as appointments.diagnostic_test_label."""
+    rows per one `appointments` row, one per selected test. test_label/price
+    snapshot columns follow the same denormalization convention as
+    appointments.diagnostic_test_label."""
     __tablename__ = "appointment_lab_tests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"))
     diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
-    diagnostic_test_variant_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_test_variants.id"))
     test_label: Mapped[str]
-    variant_label: Mapped[str]
     price: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    preparation_instructions: Mapped[str | None]
 
 
 class FaqTopic(Base):
@@ -331,18 +313,37 @@ class DoctorLeave(Base):
     reason: Mapped[str | None]
 
 
-class DoctorSlot(Base):
-    """db/schema.sql's doctor_slots table -- real, persisted bookable slots
-    (Section 12.1.1). created_at isn't mapped -- nothing ORM-migrated so far
-    (leave.py's DELETE, slots.py's own reads/writes) reads or writes it."""
-    __tablename__ = "doctor_slots"
+class DoctorSlotOverride(Base):
+    """db/schema.sql's doctor_slot_overrides table (migration 0032) --
+    replaces the old doctor_slots table's "one row per every possible slot,
+    pre-generated ahead of time" shape (found to scale badly and be the root
+    cause of a stale-window bug -- confirmed with the user) with "one row
+    only for a slot staff has actually touched." A doctor's normal bookable
+    grid is now computed live from working_days/working_hours/
+    slot_duration_minutes/breaks/doctor_leave (db/repositories/doctors.py's
+    _compute_candidate_slots()) -- this table only ever holds exceptions:
+    - is_custom=True: a one-off extra slot OUTSIDE that normal pattern
+      (portal's "Add slot"), which the live computation would never produce
+      on its own.
+    - blocked=True: this scheduled_at (whether a normal-pattern slot or a
+      custom one) must never be offered (portal's "Block slot"), but still
+      shows up in the admin view so staff can unblock it later.
+    - excluded=True (migration 0034): this scheduled_at is gone outright
+      (portal's "Remove slot") -- dropped from every view, not just hidden
+      from booking, which is what distinguishes it from blocked=True.
+    A row can combine is_custom/blocked/excluded -- a row with none of the
+    three True has no reason to exist and is deleted rather than kept
+    (db/repositories/slots.py's set_slot_blocked())."""
+    __tablename__ = "doctor_slot_overrides"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
     scheduled_at: Mapped[str]
+    is_custom: Mapped[bool]
     blocked: Mapped[bool]
     block_reason: Mapped[str | None]
+    excluded: Mapped[bool]
 
 
 class Department(Base):
@@ -386,6 +387,20 @@ class DoctorRow(Base):
     is_active: Mapped[bool]
     email: Mapped[str | None]
     password_hash: Mapped[str | None]
+    # Migration 0033: a QUEUED future schedule change -- when a schedule
+    # edit's effective_from is still in the future, the submitted pattern
+    # goes here instead of overwriting the columns above immediately, so the
+    # CURRENT pattern keeps being served for near-term dates until
+    # pending_effective_from arrives (db/repositories/doctors.py's
+    # compute_doctor_candidate_slots() picks whichever pattern applies to
+    # each computed date, purely by comparing dates -- no promotion job
+    # needed). NULL pending_effective_from means no change is queued.
+    pending_working_days: Mapped[str | None]
+    pending_working_hours: Mapped[str | None]
+    pending_slot_duration_minutes: Mapped[int | None]
+    pending_breaks: Mapped[str | None]
+    pending_daily_booking_limit: Mapped[int | None]
+    pending_effective_from: Mapped[str | None]
 
 
 class AppointmentRow(Base):
@@ -409,7 +424,10 @@ class AppointmentRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     phone: Mapped[str]
-    department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
+    # Migration 0035: nullable for the same reason doctor_id below is -- a
+    # resource-bound booking's diagnostic_resources/procedure_resources row
+    # can itself have no department configured.
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
     # Diagnostic/Lab Phase 2: nullable -- a resource-bound booking (resource_id
     # set) has no doctor at all. appointments_doctor_or_resource_chk enforces
     # at least one of the two is set.
@@ -432,16 +450,17 @@ class AppointmentRow(Base):
     # Follow-up validity override (migration 0024) -- see db/schema.sql's own
     # column comment. NULL means no override has ever been granted.
     followup_override_until: Mapped[str | None]
-    # Diagnostic/Lab Phase 2: the machine/equipment this booking is bound to
-    # (None for every doctor-bound appointment type, and for a resource-less
-    # diagnostic/lab test). diagnostic_test_label/diagnostic_variant_label/
-    # diagnostic_price are snapshots at booking time, same denormalization
-    # convention as patient_name/patient_phone.
-    resource_id: Mapped[str | None] = mapped_column(ForeignKey("diagnostic_resources.id"))
+    # Diagnostic/Lab Phase 2: the diagnostic_tests row this booking is bound
+    # to for scheduling purposes (None for every doctor-bound appointment
+    # type). Diagnostic tests/resources merge: this now points straight at
+    # diagnostic_tests.id -- for a Lab Test basket booking it's whichever
+    # basket item anchors the slot (see flows/booking/types/lab.py), not
+    # necessarily the same row as diagnostic_test_id below.
+    # diagnostic_test_label/diagnostic_price are snapshots at booking time,
+    # same denormalization convention as patient_name/patient_phone.
+    resource_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
     diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
-    diagnostic_test_variant_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_test_variants.id"))
     diagnostic_test_label: Mapped[str | None]
-    diagnostic_variant_label: Mapped[str | None]
     diagnostic_price: Mapped[float | None] = mapped_column(Numeric(10, 2))
     # Lab Test Phase 2 follow-up: collection details + the post-booking
     # report lifecycle, only ever set for a Lab Test booking -- see
@@ -861,6 +880,14 @@ class HospitalSettings(Base):
     # Test booking's price review, same "unset omits the line" convention as
     # the two fees above.
     home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    # Slot-generation window (migration 0031): how many days ahead a
+    # doctor's grid is computed live (db/repositories/doctors.py's
+    # compute_doctor_candidate_slots(), migration 0032) and a diagnostic/
+    # procedure resource's rolling window is extended
+    # (generate_slots_for_resource()/_procedure_resource()). NULL means "use
+    # the code-level DEFAULT_FUTURE_BOOKING_DAYS default" (db/repositories/
+    # hospital_settings.py), same convention as followup_validity_days above.
+    future_booking_days: Mapped[int | None]
 
 
 class GoogleCalendarConnection(Base):

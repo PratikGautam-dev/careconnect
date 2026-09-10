@@ -90,7 +90,6 @@ async def _send_remove_patient_list(
         await _start_manage_patients(wa, sessions, phone, hospital_id, connector, language)
         return
     rows = [{"id": _unlink_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
-    rows.append({"id": MANAGE_PATIENTS_BACK_ID, "title": t(BACK_OPTION, language)})
     rows = cap_rows(rows, "remove patient list")
     sessions.set(hospital_id, phone, STATE_AWAITING_REMOVE_PATIENT_SELECTION, {}, language=language)
     await wa.send_list(
@@ -99,6 +98,11 @@ async def _send_remove_patient_list(
         button_text=t(MANAGE_PATIENTS_BUTTON, language),
         sections=[{"title": t(MANAGE_PATIENTS_SECTION_TITLE, language), "rows": rows}],
     )
+    # flows/booking/messages.py's _send_back_button pattern: WhatsApp's
+    # `list` type can't carry a second, separate button in the same message,
+    # so Back is a visible follow-up buttons message instead of a row hidden
+    # inside the list's own tap-to-open sheet.
+    await wa.send_buttons(to=phone, body_text="​", buttons=[{"id": MANAGE_PATIENTS_BACK_ID, "title": t(BACK_OPTION, language)}])
 
 
 async def _handle_awaiting_remove_patient_selection(

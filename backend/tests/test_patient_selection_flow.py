@@ -582,6 +582,36 @@ async def test_manage_patients_entry_shows_remove_and_add_buttons(hospital_id):
 
 
 @pytest.mark.asyncio
+async def test_remove_patient_list_is_followed_by_a_visible_back_button(hospital_id):
+    """Same UX fix as flows/booking/messages.py's _send_back_button: a list
+    message can't carry its own separate button, so Back must arrive as its
+    own follow-up buttons message, not a row hidden inside the list's
+    tap-to-open sheet -- and tapping it returns to the Remove/Add choice."""
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap("menu_manage_patients"), connector=connector, enabled_features=["manage_patients"],
+    )
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_REMOVE_ROW_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+
+    assert wa.sent[-2][0] == "list"
+    back_buttons = _last_buttons(wa)
+    assert back_buttons["buttons"] == [{"id": patient_identity.MANAGE_PATIENTS_BACK_ID, "title": "Back"}]
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, tap(patient_identity.MANAGE_PATIENTS_BACK_ID),
+        connector=connector, enabled_features=["manage_patients"],
+    )
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_MANAGE_PATIENTS_ACTION
+
+
+@pytest.mark.asyncio
 async def test_remove_patient_with_nothing_linked_shows_a_message_and_reprompts(hospital_id):
     """Not reachable in real traffic (Manage Patients always has an already-
     resolved active patient) -- exercised directly here as the defensive

@@ -3,11 +3,19 @@
 SPEC Section 12.1.1: the periodic slot top-up job (slots/scheduler.py) and its
 /internal/top-up-slots endpoint (core/main.py) -- same pattern as
 reminders/scheduler.py and /internal/send-reminders, proven the same way.
+
+Migration 0032 moved DOCTOR slots off this pre-generation model entirely (a
+doctor's grid is computed live -- db/repositories/doctors.py's
+compute_doctor_candidate_slots()), so top_up_slots_for_hospital() no longer
+covers doctors at all -- only diagnostic/procedure resources still use it.
+Doctor-facing tests below instead cover connectors/tier1.py's grid cache +
+invalidation, the mechanism that replaced doctor top-up.
 """
 import os
 
 import db.connection as db_connection
 import db.repository as db
+from connectors.tier1 import Tier1Connector
 from slots.scheduler import top_up_slots_for_hospital
 
 # Same defensive env-var setup as tests/test_main.py -- core.main is only
@@ -28,29 +36,38 @@ from fastapi.testclient import TestClient  # noqa: E402
 client = TestClient(app)
 
 
+# --- top_up_slots_for_hospital(): diagnostic/procedure resources only now ---
+
 def test_top_up_slots_for_hospital_is_a_no_op_when_window_already_populated(hospital_id):
-    """db/seed.py already generates the full 14-day window for every seeded
-    doctor -- a top-up run right after seeding must find nothing new to add."""
+    """The seeded default hospital's diagnostic/lab tests have no schedule
+    configured (blank working_days/hours) and there are no procedure
+    resources -- a top-up run finds nothing to do (doctors are no longer
+    part of this job, see module docstring)."""
     generated = top_up_slots_for_hospital(hospital_id)
     assert generated == 0
 
 
-def test_top_up_slots_for_hospital_extends_a_doctor_added_without_slots(hospital_id):
-    """A doctor created directly (not through create_doctor(), which
-    auto-generates) has a working pattern but zero slots until topped up."""
+def test_top_up_slots_for_hospital_extends_a_test_added_without_slots(hospital_id):
+    """A diagnostic test inserted directly (not through create_diagnostic_
+    test(), which auto-generates) has a working pattern but zero slots until
+    topped up -- same "manually inserted, generation is separate" scenario
+    the old doctor-based version of this test covered before migration 0032."""
     conn = db_connection.get_connection()
     conn.execute(
-        "INSERT INTO doctors (id, hospital_id, department_id, name, working_days, working_hours, slot_duration_minutes) "
-        "VALUES ('manual_doc', ?, 'cardiology', 'Dr. Manually Inserted', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
+        "INSERT INTO diagnostic_tests (hospital_id, category, name, working_days, working_hours, slot_duration_minutes) "
+        "VALUES (?, 'diagnostic', 'MRI Machine', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
         (hospital_id,),
     )
     conn.commit()
-    assert db.get_slots(hospital_id, "manual_doc") == []
+    test_id = conn.execute(
+        "SELECT id FROM diagnostic_tests WHERE hospital_id = ? AND name = 'MRI Machine'", (hospital_id,),
+    ).fetchone()["id"]
+    assert db.get_test_slots(hospital_id, test_id) == []
 
     generated = top_up_slots_for_hospital(hospital_id)
 
-    assert generated == 14  # one slot/day across the 14-day window
-    assert len(db.get_slots(hospital_id, "manual_doc")) == 14
+    assert generated == 14  # one slot/day across the default 14-day window
+    assert len(db.get_test_slots(hospital_id, test_id)) == 14
 
 
 def test_top_up_slots_endpoint_requires_internal_secret(hospital_id):
@@ -69,7 +86,7 @@ def test_top_up_slots_endpoint_reports_zero_when_already_topped_up(hospital_id, 
 
 def test_top_up_slots_endpoint_only_covers_active_hospitals(hospital_id):
     """Mirrors reminders' own active-hospitals scoping (SPEC Section 12.2):
-    a deactivated hospital's doctors are never topped up."""
+    a deactivated hospital is never topped up."""
     conn = db_connection.get_connection()
     conn.execute("UPDATE hospitals SET is_active = 0 WHERE id = ?", (hospital_id,))
     conn.commit()
@@ -78,3 +95,102 @@ def test_top_up_slots_endpoint_only_covers_active_hospitals(hospital_id):
 
     assert resp.status_code == 200
     assert "Default Hospital" not in resp.json()["by_hospital"]
+
+
+def test_top_up_slots_for_hospital_respects_configured_future_booking_days(hospital_id):
+    """future_booking_days (hospital_settings) replaces the old hardcoded
+    14-day default -- a hospital that configures a longer window gets it
+    applied here without needing to pass days_ahead explicitly."""
+    db.update_hospital_settings(
+        hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=None,
+        future_booking_days=20,
+    )
+    conn = db_connection.get_connection()
+    conn.execute(
+        "INSERT INTO diagnostic_tests (hospital_id, category, name, working_days, working_hours, slot_duration_minutes) "
+        "VALUES (?, 'diagnostic', 'CT Scanner', 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', '10:00-11:00', 60)",
+        (hospital_id,),
+    )
+    conn.commit()
+    test_id = conn.execute(
+        "SELECT id FROM diagnostic_tests WHERE hospital_id = ? AND name = 'CT Scanner'", (hospital_id,),
+    ).fetchone()["id"]
+
+    top_up_slots_for_hospital(hospital_id)
+
+    assert len(db.get_test_slots(hospital_id, test_id)) == 20  # one slot/day, 20-day window
+
+
+def test_self_healing_top_up_recovers_a_test_whose_window_ran_dry(hospital_id):
+    """Diagnostic tests/procedure resources still depend on connectors/
+    tier1.py's self-healing top-up (doctors no longer do -- migration 0032
+    replaced their whole pre-generation model). The live bug this covers: a
+    test's rolling window can run out entirely if nothing ever tops it up
+    (the external cron this depends on isn't guaranteed to exist) -- the
+    very next bot-facing read must regenerate the window automatically, with
+    no manual intervention."""
+    test = db.create_diagnostic_test(
+        hospital_id, "diagnostic", "Ultrasound Machine",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-17:00"], slot_duration_minutes=60,
+    )
+    assert db.get_test_slots(hospital_id, test["id"]) != []  # sanity: freshly created, has slots
+
+    conn = db_connection.get_connection()
+    conn.execute(
+        "DELETE FROM diagnostic_test_slots WHERE hospital_id = ? AND test_id = ?",
+        (hospital_id, test["id"]),
+    )
+    conn.commit()
+    assert db.get_test_slots(hospital_id, test["id"]) == []
+
+    connector = Tier1Connector()
+    slots = connector.get_available_resource_slots(hospital_id, test["id"])
+
+    assert slots != []
+
+
+# --- Doctors: grid cache (connectors/tier1.py) + invalidation, the
+# mechanism that replaced pre-generation + top-up for doctors entirely ---
+
+def test_doctor_grid_cache_reflects_schedule_change_immediately(hospital_id):
+    """The grid cache (up to an hour TTL) must never show a stale schedule --
+    db/repositories/doctors.py's invalidate_doctor_slots_cache(), called from
+    update_doctor(), is what keeps it correct despite the long TTL."""
+    department = db.get_departments(hospital_id)[0]
+    doctor = db.create_doctor(
+        hospital_id, department["id"], "Dr. Cache Freshness",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-10:00"], slot_duration_minutes=60,
+    )
+    connector = Tier1Connector()
+    first_read = connector.get_available_slots(hospital_id, doctor["id"])
+    assert first_read
+    assert all(s["time"] == "09:00" for s in first_read)
+
+    db.update_doctor(
+        hospital_id, doctor["id"], "Dr. Cache Freshness",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["14:00-15:00"], slot_duration_minutes=60,
+    )
+
+    second_read = connector.get_available_slots(hospital_id, doctor["id"])
+    assert second_read
+    assert all(s["time"] == "14:00" for s in second_read)
+
+
+def test_doctor_grid_cache_reflects_leave_immediately(hospital_id):
+    department = db.get_departments(hospital_id)[0]
+    doctor = db.create_doctor(
+        hospital_id, department["id"], "Dr. Cache Leave",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-10:00"], slot_duration_minutes=60,
+    )
+    connector = Tier1Connector()
+    first_read = connector.get_available_slots(hospital_id, doctor["id"])
+    leave_date = first_read[0]["date"]
+
+    db.create_doctor_leave(hospital_id, doctor["id"], leave_date, reason="Conference")
+
+    second_read = connector.get_available_slots(hospital_id, doctor["id"])
+    assert all(s["date"] != leave_date for s in second_read)

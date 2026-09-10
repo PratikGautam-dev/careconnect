@@ -1295,6 +1295,62 @@ def test_reschedule_nonexistent_appointment_404s(two_hospitals):
     assert resp.status_code == 404
 
 
+def test_reschedule_resource_bound_appointment_needs_no_department_or_doctor(two_hospitals):
+    """Diagnostic/Lab reschedule follow-up: a resource-bound appointment
+    (no doctor at all) reschedules with just slot_id -- department_id/
+    doctor_id are derived server-side from the ORIGINAL appointment
+    (portal_reschedule_booking's own resource_id branch), never taken from
+    the payload, matching the read-only Department/Doctor fields the
+    frontend already shows for a doctor consultation."""
+    a = two_hospitals["a"]
+    test = db.create_diagnostic_test(
+        a["id"], "diagnostic", "MRI Machine",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], working_hours=["09:00-17:00"], slot_duration_minutes=60,
+    )
+    slots = db.get_test_slots(a["id"], test["id"])
+    appt = db.create_appointment(
+        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=test["id"],
+    )
+    new_slot = slots[1]
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={"slot_id": new_slot["id"]},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+    old = db.get_appointment(a["id"], appt.id)
+    assert old.status == db.STATUS_RESCHEDULED
+    new_appts = [
+        x for x in db.get_all_appointments_for_hospital(a["id"])
+        if x.phone == "5490001111" and x.status == db.STATUS_BOOKED
+    ]
+    assert len(new_appts) == 1
+    assert new_appts[0].resource_id == test["id"]
+    assert new_appts[0].scheduled_at.isoformat() == new_slot["id"]
+
+
+def test_reschedule_resource_bound_appointment_rejects_missing_slot(two_hospitals):
+    a = two_hospitals["a"]
+    test = db.create_diagnostic_test(
+        a["id"], "diagnostic", "CT Scanner",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], working_hours=["09:00-17:00"], slot_duration_minutes=60,
+    )
+    slots = db.get_test_slots(a["id"], test["id"])
+    appt = db.create_appointment(
+        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=test["id"],
+    )
+
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/reschedule",
+        json={"slot_id": ""},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    assert "slot" in resp.json()["errors"][0].lower()
+
+
 # --- Doctor active/inactive toggle ---
 
 
@@ -1457,6 +1513,9 @@ def test_settings_get_includes_new_customization_fields_with_safe_defaults(two_h
     assert data["followup_validity_days"] == 30
     assert data["followup_fee"] is None
     assert data["new_consultation_fee"] is None
+    # Live-found bug follow-up: 14-day code default, matching the old
+    # hardcoded _SLOT_DAYS_AHEAD every generate_slots_for_*() used to have.
+    assert data["future_booking_days"] == 14
 
 
 def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
@@ -1500,6 +1559,22 @@ def test_settings_post_rejects_followup_validity_days_out_of_bounds(two_hospital
     resp = client.post(
         "/api/portal/settings",
         json={"reminder_offsets_hours": "24", "followup_validity_days": 400},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_settings_post_rejects_future_booking_days_out_of_bounds(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "future_booking_days": 0},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "future_booking_days": 91},
         headers=_auth(a["token"]),
     )
     assert resp.status_code == 400

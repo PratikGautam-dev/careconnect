@@ -54,9 +54,15 @@ async def send_reminders(
             # Meta will reject the send. Swap this for a template send (SPEC Section
             # 3.2/3.5) before this goes anywhere near production — we don't have an
             # approved template yet.
+            # Migration 0035: department_id (and doctor_id, since Diagnostic/
+            # Lab Phase 2) can both be None for a resource-bound booking --
+            # fall back to the resource's own name/omit the department
+            # parenthetical rather than literally interpolating "None".
+            who = appt.doctor_name or appt.resource_name
+            department_part = f" ({appt.department_name})" if appt.department_name else ""
             message = (
-                f"Reminder: you have an appointment with {appt.doctor_name} "
-                f"({appt.department_name}) on {appt.scheduled_at.strftime('%A, %d %B at %H:%M')}. "
+                f"Reminder: you have an appointment with {who}"
+                f"{department_part} on {appt.scheduled_at.strftime('%A, %d %B at %H:%M')}. "
                 f"Message us here if you need to reschedule or cancel."
             )
             # Tele-consultation Phase 2 (confirmed with the user directly):

@@ -32,7 +32,7 @@ PAGE_STAFF = "staff"  # staff management page (create/deactivate staff_users)
 PAGE_ROLES = "roles"  # roles & permissions editor (this module's own admin UI)
 PAGE_SCHEDULE = "schedule"  # a doctor's own working hours/breaks/leave editor
 # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): the
-# Diagnostic Tests management page (tests/variants + resources/machines) --
+# Diagnostic Tests management page (each test carries its own schedule) --
 # same weight as PAGE_DOCTORS, off by default for receptionist/doctor.
 PAGE_DIAGNOSTIC_TESTS = "diagnostic_tests"
 

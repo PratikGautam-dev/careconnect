@@ -89,6 +89,8 @@ export default function PortalPatientsPage() {
               data={patients}
               getRowId={(p) => String(p.id)}
               onRowClick={(p) => router.push(`/portal/patients/${p.id}`)}
+              enableColumnVisibility
+              tableId="patients"
             />
           )}
         </Card>

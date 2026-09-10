@@ -30,6 +30,10 @@ export type Settings = {
   // Lab Test Phase 2 follow-up: flat fee added to a home-collection Lab Test
   // booking's price review, same "" (unset) convention as the two fees above.
   home_collection_charge: number | "";
+  // Live-found bug follow-up: how many days ahead doctor/resource/procedure
+  // slots are generated -- always has a value (defaults server-side), same
+  // "plain number" convention as followup_validity_days above.
+  future_booking_days: number;
 };
 
 /** Loads + saves the /portal/settings form. */

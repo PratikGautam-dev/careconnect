@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { staffFetch, type StaffRole } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
+import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 
 export type StaffMember = { id: number; name: string; email: string; role: StaffRole; is_active: boolean };
 export type Doctor = { id: string; name: string };
@@ -25,6 +26,12 @@ export function useStaffManagement(canView: boolean) {
   const [doctorId, setDoctorId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<StaffMember | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetErrors, setResetErrors] = useState<string[]>([]);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
     const result = await staffFetch("/api/portal/staff");
@@ -113,11 +120,55 @@ export function useStaffManagement(canView: boolean) {
     }
   }
 
+  function openResetPassword(member: StaffMember) {
+    setResetPasswordTarget(member);
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetErrors([]);
+  }
+
+  function closeResetPassword() {
+    setResetPasswordTarget(null);
+  }
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetPasswordTarget) return;
+
+    const parsed = setStaffPasswordSchema.safeParse({ new_password: newPassword, confirm_password: confirmPassword });
+    if (!parsed.success) {
+      setResetErrors(parsed.error.issues.map((issue) => issue.message));
+      return;
+    }
+
+    setResetting(true);
+    setResetErrors([]);
+    const result = await staffFetch(`/api/portal/staff/${resetPasswordTarget.id}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_password: parsed.data.new_password }),
+    });
+    setResetting(false);
+
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else {
+        setResetErrors([result.error]);
+        toast.error("Couldn't reset password", result.error);
+      }
+      return;
+    }
+    toast.success(`Password reset for ${resetPasswordTarget.name}`);
+    setResetPasswordTarget(null);
+  }
+
   return {
     staff, doctors, error, togglingId,
     showForm, toggleForm,
     name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
     formError, saving,
     handleCreate, handleToggleActive,
+    resetPasswordTarget, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
+    resetErrors, resetting, openResetPassword, closeResetPassword, handleResetPassword,
   };
 }

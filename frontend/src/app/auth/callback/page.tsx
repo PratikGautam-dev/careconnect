@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { Card } from "@/components/ui/Card";
-import { saveStaffSession } from "@/lib/staffAuth";
+import { saveStaffTokens } from "@/lib/staffAuth";
 import { fetchAuthMe, saveUserSession } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -48,13 +48,7 @@ function CallbackContent() {
             return;
           }
           const data = await res.json();
-          saveStaffSession(data.access_token, data.refresh_token, {
-            id: data.staff.id,
-            name: data.staff.name,
-            role: data.staff.role,
-            hospital: data.staff.hospital,
-            permissions: data.permissions,
-          });
+          saveStaffTokens(data.access_token, data.refresh_token);
           router.push("/portal/dashboard");
         } catch {
           router.replace("/auth?error=google_sign_in_failed");

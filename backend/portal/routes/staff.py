@@ -134,3 +134,39 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
     )
     updated = [s for s in db.list_staff_users_for_hospital(principal.hospital.id) if s["id"] == staff_id][0]
     return JSONResponse(_staff_row(updated))
+
+
+class SetStaffPasswordPayload(BaseModel):
+    new_password: str = ""
+
+
+@router.post("/api/portal/staff/{staff_id}/password")
+async def set_staff_password(staff_id: int, payload: SetStaffPasswordPayload, authorization: str | None = Header(default=None)):
+    """Admin-initiated reset -- unlike staff_auth.py's self-service
+    change-password, there's no current-password check and no token re-issue
+    (that route re-issues because it's changing the CALLER's own password;
+    here the caller and the target are different people, so nothing about
+    the admin's own session needs to change). update_staff_user_password()
+    still bumps the target's token_version, so their other sessions are
+    force-logged-out same as the self-service path."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_permission(principal, "staff", "write")
+    if forbidden:
+        return forbidden
+
+    if len(payload.new_password) < 8:
+        return JSONResponse({"error": "New password must be at least 8 characters."}, status_code=400)
+
+    # Same hospital-scope guard as update_staff() above.
+    staff = [s for s in db.list_staff_users_for_hospital(principal.hospital.id) if s["id"] == staff_id]
+    if not staff:
+        return JSONResponse({"error": "Staff member not found."}, status_code=404)
+
+    db.update_staff_user_password(staff_id, hash_portal_password(payload.new_password))
+    db.record_audit_log(
+        "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>", "staff.reset_password",
+        entity_type="staff_users", entity_id=str(staff_id),
+    )
+    return JSONResponse({"ok": True})

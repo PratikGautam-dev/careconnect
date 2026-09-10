@@ -1,10 +1,10 @@
 # tests/test_lab_test_basket.py
 """Lab Test Phase 2 follow-up (business spec Sections 4.1-4.4): the
 multi-test basket -> collection method (visit vs. serviceability-gated home
-sample collection) -> date/time -> confirm flow, its itemized price/fasting
-review, reschedule carry-forward, and the document-upload-triggered
-report-ready notification. Diagnostic Test's own single-item flow
-(tests/test_diagnostic_resources.py) is untouched by any of this -- see that
+sample collection) -> date/time -> confirm flow, its itemized price review,
+reschedule carry-forward, and the document-upload-triggered report-ready
+notification. Diagnostic Test's own single-item flow
+(tests/test_diagnostic_test_scheduling.py) is untouched by any of this -- see that
 file's own tests, which must stay green alongside these."""
 import os
 from datetime import timedelta
@@ -72,21 +72,35 @@ def _lab_tests(hospital_id):
     return db.get_diagnostic_tests(hospital_id, "lab")
 
 
-def _link_all_lab_tests_to_resource(hospital_id):
-    """Confirmed with the user directly: a test with no resource linked no
-    longer falls back to any-doctor-with-open-slots -- it's simply "not
-    available" until an admin links one (same as an unconfigured doctor).
-    Every test below that drives a basket through to date/time needs a real
-    resource linked first; a hospital would normally link one shared
-    resource (e.g. "Lab Collection") to every lab test, so that's what this
-    mirrors."""
-    resource = db.create_resource(
-        hospital_id, "Lab Collection Desk",
-        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], working_hours=["09:00-17:00"], slot_duration_minutes=30,
-    )
+def _configure_all_lab_tests_schedule(hospital_id):
+    """Confirmed with the user directly: a test with no schedule configured
+    no longer falls back to any-doctor-with-open-slots -- it's simply "not
+    available" until an admin configures one (same as an unconfigured
+    doctor). Every test below that drives a basket through to date/time
+    needs a real schedule first; only the basket's first-added item's own
+    schedule actually anchors the offered slots (flows/booking/types/lab.py's
+    _basket_anchor), but which item goes first varies per test below, so
+    every lab test gets the same schedule here."""
     for test in _lab_tests(hospital_id):
-        db.update_diagnostic_test(hospital_id, test["id"], test["name"], resource["id"])
-    return resource
+        db.update_diagnostic_test(
+            hospital_id, test["id"], test["name"],
+            working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], working_hours=["09:00-17:00"], slot_duration_minutes=30,
+        )
+
+
+def _set_test_price(hospital_id, test: dict, price: float) -> None:
+    """Test/variant merge: price lives directly on the test row now, so
+    setting it means re-passing its already-configured schedule too (a bare
+    price-only update() would otherwise wipe working_days/hours back to
+    blank defaults)."""
+    full = db.get_diagnostic_test_full(hospital_id, test["id"])
+    db.update_diagnostic_test(
+        hospital_id, test["id"], test["name"], price=price,
+        working_days=full["working_days"], working_hours=full["working_hours"],
+        slot_duration_minutes=full["slot_duration_minutes"], breaks=full["breaks"],
+        max_bookings_per_slot=full["max_bookings_per_slot"], daily_booking_limit=full["daily_booking_limit"],
+        effective_from=full["effective_from"],
+    )
 
 
 async def _start_lab_booking(wa, sessions, hospital_id, phone: str = PHONE):
@@ -94,19 +108,14 @@ async def _start_lab_booking(wa, sessions, hospital_id, phone: str = PHONE):
     await handle_incoming(wa, sessions, phone, hospital_id, tap("lab"))
 
 
-async def _add_test_to_basket(wa, sessions, hospital_id, test_name: str, phone: str = PHONE, variant_index: int = 0):
+async def _add_test_to_basket(wa, sessions, hospital_id, test_name: str, phone: str = PHONE):
     """Taps the named test directly from the (already-shown) test list --
     every call after the first one in a basket picks straight from the same
     remaining-tests list re-shown after the previous add (WhatsApp menu
-    restructuring follow-up: no more "Add Another Test" detour screen) --
-    then (if a variant list is shown) the variant at variant_index, landing
-    back at AWAITING_LAB_TEST with the list re-shown."""
+    restructuring follow-up: no more "Add Another Test" detour screen),
+    landing back at AWAITING_LAB_TEST with the list re-shown."""
     test = next(t for t in _lab_tests(hospital_id) if t["name"] == test_name)
     await handle_incoming(wa, sessions, phone, hospital_id, tap(str(test["id"])))
-    session = sessions.get(hospital_id, phone)
-    if session["state"] == "AWAITING_LAB_TEST_VARIANT":
-        variant = test["variants"][variant_index]
-        await handle_incoming(wa, sessions, phone, hospital_id, tap(str(variant["id"])))
     assert sessions.get(hospital_id, phone)["state"] == "AWAITING_LAB_TEST"
 
 
@@ -120,7 +129,7 @@ async def _drive_to_confirmation(wa, sessions, hospital_id, phone: str = PHONE):
     context = sessions.get(hospital_id, phone)["context"]
     resource_id = context.get("resource_id")
     doctor_id = context.get("doctor_id")
-    slots = db.get_resource_slots(hospital_id, resource_id) if resource_id else db.get_slots(hospital_id, doctor_id)
+    slots = db.get_test_slots(hospital_id, resource_id) if resource_id else db.get_slots(hospital_id, doctor_id)
     date_str = slots[0]["date"]
     await handle_incoming(wa, sessions, phone, hospital_id, tap(date_str))
     slot = next(s for s in slots if s["date"] == date_str)
@@ -133,10 +142,10 @@ async def _drive_to_confirmation(wa, sessions, hospital_id, phone: str = PHONE):
 @pytest.mark.asyncio
 async def test_multi_test_basket_books_all_selected_tests(hospital_id, sessions):
     wa = FakeWhatsAppClient()
-    _link_all_lab_tests_to_resource(hospital_id)
+    _configure_all_lab_tests_schedule(hospital_id)
     tests = _lab_tests(hospital_id)
-    db.update_variant(hospital_id, tests[0]["variants"][0]["id"], "Standard", 500, None)
-    db.update_variant(hospital_id, tests[1]["variants"][0]["id"], "Standard", 800, None)
+    _set_test_price(hospital_id, tests[0], 500)
+    _set_test_price(hospital_id, tests[1], 800)
 
     await _start_lab_booking(wa, sessions, hospital_id)
     await _add_test_to_basket(wa, sessions, hospital_id, tests[0]["name"])
@@ -173,32 +182,6 @@ async def test_already_added_test_excluded_from_further_selection(hospital_id, s
     assert str(tests[0]["id"]) not in row_ids
 
 
-# --- Fasting/preparation paragraph: shown only when a selected test has one ---
-
-@pytest.mark.asyncio
-async def test_fasting_paragraph_shown_only_when_a_selected_test_requires_it(hospital_id, sessions):
-    wa = FakeWhatsAppClient()
-    _link_all_lab_tests_to_resource(hospital_id)
-    tests = _lab_tests(hospital_id)
-    db.update_variant(hospital_id, tests[0]["variants"][0]["id"], "Standard", 300, "Fast for 8 hours before the test.")
-
-    await _start_lab_booking(wa, sessions, hospital_id)
-    await _add_test_to_basket(wa, sessions, hospital_id, tests[1]["name"])  # no prep instructions
-    await _finish_basket_and_pick_visit(wa, sessions, hospital_id)
-    await _drive_to_confirmation(wa, sessions, hospital_id)
-    _, kwargs = wa.sent[-1]
-    assert "preparation" not in kwargs["body_text"].lower()
-
-    sessions2 = InMemorySessionStore()
-    wa2 = FakeWhatsAppClient()
-    await _start_lab_booking(wa2, sessions2, hospital_id, phone="+15550009999")
-    await _add_test_to_basket(wa2, sessions2, hospital_id, tests[0]["name"], phone="+15550009999")
-    await _finish_basket_and_pick_visit(wa2, sessions2, hospital_id, phone="+15550009999")
-    await _drive_to_confirmation(wa2, sessions2, hospital_id, phone="+15550009999")
-    _, kwargs2 = wa2.sent[-1]
-    assert "fast for 8 hours" in kwargs2["body_text"].lower()
-
-
 # --- Collection method: home sample collection, serviceability-gated ---
 
 @pytest.mark.asyncio
@@ -206,9 +189,9 @@ async def test_home_collection_serviceable_pincode_asks_address_and_adds_charge(
     wa = FakeWhatsAppClient()
     db.create_service_area(hospital_id, "110001")
     db.update_hospital_settings(hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=None, home_collection_charge=150)
-    _link_all_lab_tests_to_resource(hospital_id)
+    _configure_all_lab_tests_schedule(hospital_id)
     tests = _lab_tests(hospital_id)
-    db.update_variant(hospital_id, tests[0]["variants"][0]["id"], "Standard", 500, None)
+    _set_test_price(hospital_id, tests[0], 500)
 
     await _start_lab_booking(wa, sessions, hospital_id)
     await _add_test_to_basket(wa, sessions, hospital_id, tests[0]["name"])
@@ -239,7 +222,7 @@ async def test_home_collection_serviceable_pincode_asks_address_and_adds_charge(
 @pytest.mark.asyncio
 async def test_non_serviceable_pincode_offers_visit_fallback_instead_of_dead_end(hospital_id, sessions):
     wa = FakeWhatsAppClient()
-    _link_all_lab_tests_to_resource(hospital_id)
+    _configure_all_lab_tests_schedule(hospital_id)
     tests = _lab_tests(hospital_id)
 
     await _start_lab_booking(wa, sessions, hospital_id)
@@ -265,10 +248,10 @@ async def test_non_serviceable_pincode_offers_visit_fallback_instead_of_dead_end
 async def test_reschedule_lab_booking_carries_basket_and_collection_forward(hospital_id, sessions):
     wa = FakeWhatsAppClient()
     db.create_service_area(hospital_id, "110001")
-    _link_all_lab_tests_to_resource(hospital_id)
+    _configure_all_lab_tests_schedule(hospital_id)
     tests = _lab_tests(hospital_id)
-    db.update_variant(hospital_id, tests[0]["variants"][0]["id"], "Standard", 400, None)
-    db.update_variant(hospital_id, tests[1]["variants"][0]["id"], "Standard", 600, None)
+    _set_test_price(hospital_id, tests[0], 400)
+    _set_test_price(hospital_id, tests[1], 600)
 
     await _start_lab_booking(wa, sessions, hospital_id)
     await _add_test_to_basket(wa, sessions, hospital_id, tests[0]["name"])
@@ -311,6 +294,52 @@ def test_lab_service_area_crud_and_serviceability(hospital_id):
     assert db.is_pincode_serviceable(hospital_id, "560001") is False
 
 
+def test_lab_service_area_range_matches_inside_and_rejects_outside(hospital_id):
+    area = db.create_service_area(hospital_id, range_start="400001", range_end="400050")
+    assert area["pincode"] is None
+    assert area["range_start"] == "400001" and area["range_end"] == "400050"
+    assert db.is_pincode_serviceable(hospital_id, "400001") is True
+    assert db.is_pincode_serviceable(hospital_id, "400025") is True
+    assert db.is_pincode_serviceable(hospital_id, "400050") is True
+    assert db.is_pincode_serviceable(hospital_id, "400051") is False
+    assert db.is_pincode_serviceable(hospital_id, "399999") is False
+    db.set_service_area_active(hospital_id, area["id"], False)
+    assert db.is_pincode_serviceable(hospital_id, "400025") is False
+
+
+def test_lab_service_area_range_validation_rejects_bad_input(hospital_id):
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id, range_start="400050", range_end="400001")
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id, range_start="abcdef", range_end="400050")
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id, range_start="4001", range_end="4050")
+    with pytest.raises(db.InvalidPincodeRange):
+        db.create_service_area(hospital_id)
+
+
+def test_portal_lab_service_area_range_create_and_reject(hospital_id):
+    _set_hospital_creds(hospital_id, password="testpass123", phone_number_id="pn1", access_token="tok1")
+    token = _login("testpass123")
+
+    resp = client.post(
+        "/api/portal/lab-service-areas", headers=_auth(token),
+        json={"range_start": "400001", "range_end": "400050"},
+    )
+    assert resp.status_code == 200, resp.text
+    area = resp.json()["lab_service_area"]
+    assert area["range_start"] == "400001" and area["range_end"] == "400050"
+
+    resp = client.post(
+        "/api/portal/lab-service-areas", headers=_auth(token),
+        json={"range_start": "400050", "range_end": "400001"},
+    )
+    assert resp.status_code == 400
+
+    resp = client.post("/api/portal/lab-service-areas", headers=_auth(token), json={})
+    assert resp.status_code == 400
+
+
 # --- Report lifecycle: staff advance + document-upload-triggered report_ready ---
 
 def _set_hospital_creds(hosp_id: int, *, password: str, phone_number_id: str, access_token: str) -> None:
@@ -343,7 +372,7 @@ def _create_lab_appointment(hosp_id: int, phone: str) -> int:
     appt = db.create_appointment(hosp_id, phone, department["id"], doctors[0]["id"], scheduled_at)
     db.set_appointment_lab_order_details(
         hosp_id, appt.id, "visit", None, None, None,
-        [{"diagnostic_test_id": None, "diagnostic_test_variant_id": None, "test_label": "CBC", "variant_label": "Standard", "price": 300, "preparation_instructions": None}],
+        [{"diagnostic_test_id": None, "test_label": "CBC", "price": 300}],
     )
     return appt.id
 

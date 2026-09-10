@@ -1,18 +1,34 @@
 "use client";
 "use no memo";
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import {
   ColumnDef,
+  VisibilityState,
   flexRender,
   getCoreRowModel,
   getPaginationRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { Button } from "@/components/ui/Button";
+import { ColumnVisibilityMenu } from "@/components/ui/ColumnVisibilityMenu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
+import { useStaffSession } from "@/lib/staffAuth";
+
+function columnVisibilityKey(tableId: string, staffId: number | undefined) {
+  return `table-columns:${tableId}:${staffId ?? "anon"}`;
+}
+
+function loadColumnVisibility(tableId: string, staffId: number | undefined): VisibilityState {
+  try {
+    const raw = localStorage.getItem(columnVisibilityKey(tableId, staffId));
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 type DataTableProps<TData> = {
   columns: ColumnDef<TData, unknown>[];
@@ -48,6 +64,12 @@ type DataTableProps<TData> = {
    * container (only useful together with a max-height containerClassName --
    * a page-level table has nothing shorter than the viewport to stick to). */
   stickyHeader?: boolean;
+  /** Shows a "Columns" toggle so the viewer (whatever their role) can
+   * show/hide columns to their own taste. Requires `tableId` -- a stable,
+   * unique-per-table string used as the localStorage key each staff member's
+   * choice is saved under, so it's remembered per person, not shared. */
+  enableColumnVisibility?: boolean;
+  tableId?: string;
 };
 
 /** Shared, reusable table for portal list pages -- headless via
@@ -71,7 +93,29 @@ export function DataTable<TData>({
   emptyMessage = "No results.",
   containerClassName,
   stickyHeader = false,
+  enableColumnVisibility = false,
+  tableId,
 }: DataTableProps<TData>) {
+  const staffId = useStaffSession()?.id;
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+
+  // Loads this staff member's saved choice for THIS table once their session
+  // (and so their id) is known -- useStaffSession() only resolves post-mount
+  // (see its own comment), so the first render always starts from {} (all
+  // columns visible) and swaps in the real saved state a tick later.
+  useEffect(() => {
+    if (enableColumnVisibility && tableId) setColumnVisibility(loadColumnVisibility(tableId, staffId));
+  }, [enableColumnVisibility, tableId, staffId]);
+
+  useEffect(() => {
+    if (!enableColumnVisibility || !tableId) return;
+    try {
+      localStorage.setItem(columnVisibilityKey(tableId, staffId), JSON.stringify(columnVisibility));
+    } catch {
+      // Ignore -- e.g. private-browsing storage block. Toggle still works for the rest of this session.
+    }
+  }, [enableColumnVisibility, tableId, staffId, columnVisibility]);
+
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table can't be safely memoized (file opts out via "use no memo")
   const table = useReactTable({
     data,
@@ -79,6 +123,8 @@ export function DataTable<TData>({
     getRowId: getRowId as ((row: TData, index: number) => string) | undefined,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    state: { columnVisibility },
+    onColumnVisibilityChange: setColumnVisibility,
     initialState: { pagination: { pageSize } },
   });
 
@@ -88,6 +134,11 @@ export function DataTable<TData>({
 
   return (
     <div>
+      {enableColumnVisibility && (
+        <div className="mb-space-3 flex justify-end">
+          <ColumnVisibilityMenu table={table} />
+        </div>
+      )}
       <Table containerClassName={containerClassName}>
         <TableHeader className={cn(stickyHeader && "sticky top-0 z-10 bg-card")}>
           {table.getHeaderGroups().map((headerGroup) => (
@@ -124,7 +175,7 @@ export function DataTable<TData>({
                   </TableRow>
                   {expanded && renderRowDetail && (
                     <TableRow>
-                      <TableCell colSpan={row.getVisibleCells().length} className="pb-space-3">
+                      <TableCell colSpan={row.getVisibleCells().length} className="pb-space-3 whitespace-normal">
                         {renderRowDetail(row.original)}
                       </TableCell>
                     </TableRow>

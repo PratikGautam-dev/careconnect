@@ -61,11 +61,17 @@ def _verify_session(cookie_value: str) -> int | None:
     return hospital_id
 
 
-def _build_new_booking_context(hospital) -> tuple[list[dict], dict, dict]:
+def _build_new_booking_context(hospital) -> tuple[list[dict], dict, dict, list[dict], dict]:
     """Shared by portal/routes/bookings.py's new-booking GET (blank form) and POST
     (re-render on error) endpoints -- departments/doctors/available-slots,
     all hospital-scoped and all read through the SAME connector interface
-    (Section 12.6.2) the WhatsApp flow uses, not a parallel query path."""
+    (Section 12.6.2) the WhatsApp flow uses, not a parallel query path.
+
+    Reschedule dialog follow-up: also reused (RescheduleDialog.tsx) for a
+    diagnostic/lab (resource-bound) appointment, which has no doctor at all
+    -- resources/slots_by_resource give it the equivalent of doctors_by_
+    department/slots_by_doctor above, same shape, so the frontend needs no
+    separate endpoint for this case."""
     connector = connectors.get_connector_for_hospital(hospital)
     departments = connector.get_departments(hospital.id)
     doctors_by_department: dict[str, list[dict]] = {}
@@ -79,4 +85,12 @@ def _build_new_booking_context(hospital) -> tuple[list[dict], dict, dict]:
             for s in slots:
                 by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
             slots_by_doctor[doc["id"]] = by_date
-    return departments, doctors_by_department, slots_by_doctor
+    resources = connector.get_diagnostic_test_summaries(hospital.id)
+    slots_by_resource: dict[str, dict[str, list[dict]]] = {}
+    for res in resources:
+        slots = connector.get_available_resource_slots(hospital.id, res["id"])
+        by_date = {}
+        for s in slots:
+            by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
+        slots_by_resource[res["id"]] = by_date
+    return departments, doctors_by_department, slots_by_doctor, resources, slots_by_resource

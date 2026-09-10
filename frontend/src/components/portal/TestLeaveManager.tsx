@@ -3,10 +3,10 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { useResourceLeave } from "@/hooks/useResourceLeave";
+import { useTestLeave } from "@/hooks/useTestLeave";
 
-export function ResourceLeaveManager({ resourceId }: { resourceId: string }) {
-  const { dates, error, newDate, setNewDate, reason, setReason, adding, handleAdd, handleDelete } = useResourceLeave(resourceId);
+export function TestLeaveManager({ testId }: { testId: number }) {
+  const { dates, error, newDate, setNewDate, reason, setReason, adding, handleAdd, handleDelete } = useTestLeave(testId);
 
   return (
     <div className="rounded-lg border border-line bg-paper p-space-3">

@@ -4,7 +4,7 @@ Phase 1. No DB/connector needed, pure lookup logic."""
 from flows.booking.state import (
     STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_DATE,
     STATE_AWAITING_DEPARTMENT,
-    STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT, STATE_AWAITING_PROCEDURE, STATE_AWAITING_TIME_SLOT,
+    STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_PROCEDURE, STATE_AWAITING_TIME_SLOT,
 )
 from flows.booking.types.base import FULL_FLOW, NO_DOCTOR_FLOW
 from flows.booking.types.registry import get_type_flow
@@ -14,11 +14,11 @@ def test_known_types_resolve_to_their_own_flow():
     assert get_type_flow("new").steps == FULL_FLOW
     assert get_type_flow("tele").steps == FULL_FLOW
     assert get_type_flow("second_opinion").steps == FULL_FLOW
-    # Phase 2 Step 5: Diagnostic Test inserts a test+variant pick BEFORE
-    # date/time (not NO_DOCTOR_FLOW verbatim) -- see flows/booking/types/
+    # Phase 2 Step 5: Diagnostic Test inserts a test pick BEFORE date/time
+    # (not NO_DOCTOR_FLOW verbatim) -- see flows/booking/types/
     # _diagnostic_shared.py.
     diagnostic_steps = (
-        STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT, STATE_AWAITING_DATE,
+        STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DATE,
         STATE_AWAITING_TIME_SLOT, STATE_AWAITING_CONFIRMATION,
     )
     assert get_type_flow("diagnostic").steps == diagnostic_steps
@@ -79,7 +79,7 @@ def test_first_step_and_has_step():
     assert full.has_step(STATE_AWAITING_DEPARTMENT)
 
     # followup.py's own steps are still NO_DOCTOR_FLOW verbatim (unlike
-    # diagnostic/lab, which insert a test+variant pick before it) -- see
+    # diagnostic/lab, which insert a test pick before it) -- see
     # test_known_types_resolve_to_their_own_flow above.
     no_doctor = get_type_flow("followup")
     assert no_doctor.first_step() == STATE_AWAITING_DATE

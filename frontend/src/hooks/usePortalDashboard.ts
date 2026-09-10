@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getPortalHospital, portalFetch, type PortalHospital } from "@/lib/portalAuth";
+import { portalFetch, type PortalHospital } from "@/lib/portalAuth";
+import { useStaffSession } from "@/lib/staffAuth";
 
 export type DashboardData = {
   hospital: PortalHospital;
@@ -39,9 +40,9 @@ const POLL_INTERVAL_MS = 20_000;
 /** Loads + polls the /portal/dashboard stats. */
 export function usePortalDashboard() {
   const router = useRouter();
+  const session = useStaffSession();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hospital, setHospital] = useState<PortalHospital | null>(null);
   const routerRef = useRef(router);
   routerRef.current = router;
 
@@ -56,11 +57,10 @@ export function usePortalDashboard() {
   }, []);
 
   useEffect(() => {
-    setHospital(getPortalHospital());
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [load]);
 
-  return { data, error, hospital };
+  return { data, error, hospital: session?.hospital ?? null };
 }

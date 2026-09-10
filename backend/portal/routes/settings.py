@@ -5,7 +5,7 @@ from admin.validation import _parse_offsets
 import db.repository as db
 from core.translations import SUPPORTED_LANGUAGES
 from db.repositories.handoffs import DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS
-from db.repositories.hospital_settings import DEFAULT_FOLLOWUP_VALIDITY_DAYS
+from db.repositories.hospital_settings import DEFAULT_FOLLOWUP_VALIDITY_DAYS, DEFAULT_FUTURE_BOOKING_DAYS
 from modules.google_calendar import is_calendar_integration_configured
 from portal.deps import _authenticate, get_current_staff, require_capability, require_permission
 
@@ -36,6 +36,14 @@ _MAX_FOLLOWUP_VALIDITY_DAYS = 365
 # product limit -- consultation fees are always non-negative (DB CHECK
 # constraint already enforces that floor).
 _MAX_FEE = 1_000_000
+
+# Slot-generation window (migration 0031): same "validate here for a clean
+# 400" reasoning as the bounds above. 1 day minimum (0 would mean nothing is
+# ever bookable); 90 days is a generous ceiling -- long past what any patient
+# realistically books that far ahead, and keeps generate_slots_for_*()'s
+# per-entity candidate-building bounded.
+_MIN_FUTURE_BOOKING_DAYS = 1
+_MAX_FUTURE_BOOKING_DAYS = 60
 
 
 @router.get("/api/portal/settings")
@@ -73,6 +81,11 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             # Lab Test Phase 2 follow-up: flat fee added to a home-collection
             # Lab Test booking's price review.
             "home_collection_charge": hospital_settings["home_collection_charge"],
+            # Live-found bug follow-up: how many days ahead doctor/resource/
+            # procedure slots are generated -- replaces the old hardcoded
+            # 14-day default that silently ran dry wherever nothing was
+            # actually hitting the external-cron-only top-up endpoint.
+            "future_booking_days": hospital_settings["future_booking_days"] or DEFAULT_FUTURE_BOOKING_DAYS,
         },
         # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
         # -- rules out any browser/CDN-level HTTP caching of this
@@ -132,6 +145,19 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         if not (_MIN_FOLLOWUP_VALIDITY_DAYS <= followup_validity_days <= _MAX_FOLLOWUP_VALIDITY_DAYS):
             return JSONResponse({
                 "error": f"followup_validity_days must be between {_MIN_FOLLOWUP_VALIDITY_DAYS} and {_MAX_FOLLOWUP_VALIDITY_DAYS}.",
+            }, status_code=400)
+
+    future_booking_days_raw = payload.get("future_booking_days")
+    if future_booking_days_raw in (None, ""):
+        future_booking_days = None
+    else:
+        try:
+            future_booking_days = int(future_booking_days_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "future_booking_days must be a whole number of days."}, status_code=400)
+        if not (_MIN_FUTURE_BOOKING_DAYS <= future_booking_days <= _MAX_FUTURE_BOOKING_DAYS):
+            return JSONResponse({
+                "error": f"future_booking_days must be between {_MIN_FUTURE_BOOKING_DAYS} and {_MAX_FUTURE_BOOKING_DAYS}.",
             }, status_code=400)
 
     def _parse_fee(raw, field_name):
@@ -202,7 +228,7 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
     db.update_hospital_settings(
         hospital.id, followup_validity_days=followup_validity_days,
         followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
-        home_collection_charge=home_collection_charge,
+        home_collection_charge=home_collection_charge, future_booking_days=future_booking_days,
     )
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "settings.update",

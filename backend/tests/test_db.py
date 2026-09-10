@@ -74,7 +74,7 @@ def test_appointments_scoped_to_hospital_id_not_leaked_across_hospitals(hospital
     assert db.get_appointment(other_id, appt.id) is None
 
 
-# --- Slots (real, persisted doctor_slots rows — Section 12.1.1 — but still excludes booked ones) ---
+# --- Slots (live-computed grid, migration 0032 — but still excludes booked ones) ---
 
 def test_get_slots_returns_rolling_14_day_window_two_per_day(hospital_id):
     """Seeded doctors work all 7 days with two 60-minute ranges (10:00-11:00,
@@ -121,22 +121,21 @@ def test_doctor_with_no_working_pattern_generates_no_slots(hospital_id):
     assert db.get_slots(hospital_id, doctor["id"]) == []
 
 
-def test_generate_slots_for_doctor_is_idempotent_no_duplicates(hospital_id):
-    """Simulates the periodic top-up job (slots/scheduler.py) re-running
-    against a window that's already populated -- must not create duplicate
-    slot rows, and the second call's "new rows inserted" count must be 0."""
-    first_run = db.generate_slots_for_doctor(hospital_id, "doc_card_1")
-    assert first_run == 0  # already generated at seed time
+def test_compute_doctor_candidate_slots_is_deterministic(hospital_id):
+    """Migration 0032 replaced the old bulk-insert + idempotent-INSERT-OR-
+    IGNORE model with live computation -- there's no persisted state to
+    accumulate or duplicate anymore, so the property worth proving now is
+    that the SAME inputs always produce the SAME output."""
+    first = db.compute_doctor_candidate_slots(hospital_id, "doc_card_1", days_ahead=14, now=date.today())
+    second = db.compute_doctor_candidate_slots(hospital_id, "doc_card_1", days_ahead=14, now=date.today())
+    assert first == second
+    assert len(first) == 28
 
-    second_run = db.generate_slots_for_doctor(hospital_id, "doc_card_1")
-    assert second_run == 0
-    assert len(db.get_slots(hospital_id, "doc_card_1")) == 28  # unchanged, no dupes
 
-
-def test_generate_slots_for_doctor_extends_window_as_days_pass(hospital_id):
-    """The rolling-window top-up job's actual job: as "now" advances, calling
-    generate_slots_for_doctor again must add the newly-in-range future days
-    without touching/duplicating the days generated on the first pass."""
+def test_compute_doctor_candidate_slots_window_tracks_now(hospital_id):
+    """As "now" advances, the computed window shifts forward with it -- no
+    persisted state means nothing is "extended," the whole window is simply
+    recomputed relative to whatever "now" is at read time."""
     doctor_id = "topup_doc"
     conn = db_connection.get_connection()
     conn.execute(
@@ -146,19 +145,19 @@ def test_generate_slots_for_doctor_extends_window_as_days_pass(hospital_id):
     )
     conn.commit()
 
-    first_run = db.generate_slots_for_doctor(hospital_id, doctor_id, days_ahead=5, now=date.today())
-    assert first_run == 5
-    slots_after_first = db.get_slots(hospital_id, doctor_id)
-    assert len(slots_after_first) == 5
+    today = date.today()
+    first_window = db.compute_doctor_candidate_slots(hospital_id, doctor_id, days_ahead=5, now=today)
+    assert len(first_window) == 5
+    assert all(datetime.fromisoformat(s).date() <= today + timedelta(days=5) for s in first_window)
 
-    # A week later, a top-up call for the same 5-day-ahead window must add the
-    # 5 newly-in-range days without duplicating the original ones.
-    later = date.today() + timedelta(days=7)
-    second_run = db.generate_slots_for_doctor(hospital_id, doctor_id, days_ahead=5, now=later)
-    assert second_run == 5
-    slots_after_second = db.get_slots(hospital_id, doctor_id)
-    assert len(slots_after_second) == 10
-    assert {s["id"] for s in slots_after_first}.issubset({s["id"] for s in slots_after_second})
+    # A week later, the SAME 5-day-ahead window has shifted forward with
+    # "now" -- no overlap with the first window, and no leftover state from
+    # the earlier call (there's nothing left to duplicate or accumulate).
+    later = today + timedelta(days=7)
+    second_window = db.compute_doctor_candidate_slots(hospital_id, doctor_id, days_ahead=5, now=later)
+    assert len(second_window) == 5
+    assert all(datetime.fromisoformat(s).date() > today + timedelta(days=5) for s in second_window)
+    assert set(first_window).isdisjoint(second_window)
 
 
 def test_find_slot_found_and_not_found(hospital_id):

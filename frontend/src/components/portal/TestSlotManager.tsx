@@ -5,14 +5,14 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { formatDateHeading } from "@/lib/formatDate";
-import { useResourceSlots, type Slot } from "@/hooks/useResourceSlots";
+import { useTestSlots, type Slot } from "@/hooks/useTestSlots";
 
-export function ResourceSlotManager({ resourceId }: { resourceId: string }) {
+export function TestSlotManager({ testId }: { testId: number }) {
   const {
     date, setDate, viewAll, setViewAll, slots, error, pendingId,
     newDate, setNewDate, newTime, setNewTime, adding,
     groupedByDate, toggleBlock, removeSlot, addSlot,
-  } = useResourceSlots(resourceId);
+  } = useTestSlots(testId);
 
   function renderSlotPill(s: Slot) {
     return (
@@ -70,7 +70,7 @@ export function ResourceSlotManager({ resourceId }: { resourceId: string }) {
         <p className="text-hint">Loading…</p>
       ) : slots.length === 0 ? (
         <p className="mb-space-2 text-hint">
-          {viewAll ? "No upcoming slots generated for this resource." : "No generated slots on this date."}
+          {viewAll ? "No upcoming slots generated for this test." : "No generated slots on this date."}
         </p>
       ) : viewAll ? (
         <div className="mb-space-3 max-h-64 space-y-space-2 overflow-y-auto">

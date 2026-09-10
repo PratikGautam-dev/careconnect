@@ -34,10 +34,17 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
     return {
         "id": a.id,
         "phone": a.phone,
+        "patient_name": a.patient_name,
         "department_id": a.department_id,
         "department_name": a.department_name,
         "doctor_id": a.doctor_id,
         "doctor_name": a.doctor_name,
+        # Diagnostic/Lab reschedule follow-up: None for a doctor consultation,
+        # set (with doctor_id/doctor_name both None) for a resource-bound
+        # diagnostic/lab booking -- the frontend needs this to tell the two
+        # apart and render/reschedule against the right one.
+        "resource_id": a.resource_id,
+        "resource_name": a.resource_name,
         "scheduled_at": a.scheduled_at.isoformat(),
         "status": a.status,
         "source": a.source,
@@ -121,6 +128,47 @@ async def portal_bookings_needing_attendance_review(authorization: str | None = 
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     appointments = db.get_appointments_needing_attendance_review(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
+
+
+@router.get("/api/portal/bookings/{appointment_id}")
+async def portal_booking_detail(appointment_id: int, authorization: str | None = Header(default=None)):
+    """Single-appointment detail for /portal/appointments/[id]. Same
+    existence+ownership folding as patients.py's portal_patient_detail():
+    when role=="doctor", an appointment belonging to another doctor resolves
+    to the same 404 as one that doesn't exist at all, never a 403 that would
+    confirm it exists.
+
+    Registered AFTER every other literal single-segment /api/portal/bookings/*
+    GET route (just needs-attendance-review today) -- FastAPI/Starlette
+    matches by path SHAPE before validating {appointment_id} as an int, so a
+    literal route registered after this one would 422 instead of matching."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    appointment = db.get_appointment(hospital.id, appointment_id)
+    if appointment is None or (role == "doctor" and doctor_id is not None and appointment.doctor_id != doctor_id):
+        return JSONResponse({"error": "No such appointment."}, status_code=404)
+
+    validity_days = db.get_followup_validity_days(hospital.id)
+    patient = db.get_patient(hospital.id, appointment.patient_id) if appointment.patient_id else None
+    if patient is None:
+        notes = []
+    elif role == "doctor" and doctor_id is not None:
+        notes = db.get_patient_visit_notes_by_doctor(hospital.id, patient["id"], doctor_id)
+    else:
+        notes = db.get_patient_visit_notes(hospital.id, patient["id"])
+
+    return JSONResponse({
+        "appointment": _appointment_json(appointment, validity_days),
+        "patient": {
+            "id": patient["id"],
+            "patient_display_id": patient.get("patient_display_id"),
+            "mrn": patient.get("mrn"),
+            "date_of_birth": patient.get("date_of_birth"),
+            "gender": patient.get("gender"),
+        } if patient else None,
+        "notes": notes,
+    })
 
 
 @router.post("/api/portal/bookings/delete")
@@ -483,7 +531,15 @@ async def portal_reschedule_booking(
     untouched, same as the WhatsApp flow's own _handle_slot_taken recovery --
     the portal surfaces it as a plain 400 rather than an alternate-slot
     picker, since staff can just pick a different slot from the same form
-    and resubmit, unlike a WhatsApp conversation mid-flow)."""
+    and resubmit, unlike a WhatsApp conversation mid-flow).
+
+    Diagnostic/Lab reschedule follow-up: a resource-bound appointment
+    (appointment.resource_id set, no doctor at all) has no department/doctor
+    to validate -- resource_id is trusted straight off the ORIGINAL
+    appointment (never taken from the payload), same "fixed, not user-
+    editable" contract the frontend's read-only Department/Doctor fields
+    already enforce for a doctor consultation -- reschedule moves the slot,
+    never re-points the booking at a different doctor OR resource."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -491,17 +547,24 @@ async def portal_reschedule_booking(
     if appointment is None:
         return JSONResponse({"error": "No such appointment."}, status_code=404)
 
-    department_id = (payload or {}).get("department_id") or ""
-    doctor_id = (payload or {}).get("doctor_id") or ""
     slot_id = (payload or {}).get("slot_id") or ""
 
     errors = []
-    department = db.find_department(hospital.id, department_id)
-    if department is None:
-        errors.append("Choose a valid department.")
-    doctor = db.find_doctor(hospital.id, department_id, doctor_id) if department else None
-    if doctor is None:
-        errors.append("Choose a valid doctor.")
+    if appointment.resource_id is not None:
+        department_id = appointment.department_id
+        doctor_id = None
+        resource = db.get_diagnostic_test(hospital.id, appointment.resource_id)
+        if resource is None:
+            errors.append("This test is no longer available.")
+    else:
+        department_id = (payload or {}).get("department_id") or ""
+        doctor_id = (payload or {}).get("doctor_id") or ""
+        department = db.find_department(hospital.id, department_id)
+        if department is None:
+            errors.append("Choose a valid department.")
+        doctor = db.find_doctor(hospital.id, department_id, doctor_id) if department else None
+        if doctor is None:
+            errors.append("Choose a valid doctor.")
     scheduled_at = None
     if not slot_id:
         errors.append("Choose an available slot.")
@@ -523,6 +586,7 @@ async def portal_reschedule_booking(
             department_id=department_id,
             doctor_id=doctor_id,
             scheduled_at=scheduled_at,
+            resource_id=appointment.resource_id,
         )
     except connectors.ConnectorNotImplementedError as e:
         return JSONResponse({"errors": [str(e)]}, status_code=501)
@@ -533,7 +597,7 @@ async def portal_reschedule_booking(
         "portal", hospital.id, "tenant portal", "booking.reschedule",
         entity_type="appointment", entity_id=str(appointment_id),
         before={"scheduled_at": appointment.scheduled_at.isoformat()},
-        after={"scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id},
+        after={"scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id, "resource_id": appointment.resource_id},
     )
 
     message = ((payload or {}).get("message") or "").strip()
@@ -557,11 +621,13 @@ async def portal_new_booking_context(authorization: str | None = Header(default=
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    departments, doctors_by_department, slots_by_doctor = _build_new_booking_context(hospital)
+    departments, doctors_by_department, slots_by_doctor, resources, slots_by_resource = _build_new_booking_context(hospital)
     return JSONResponse({
         "departments": departments,
         "doctors_by_department": doctors_by_department,
         "slots_by_doctor": slots_by_doctor,
+        "resources": resources,
+        "slots_by_resource": slots_by_resource,
     })
 
 

@@ -35,6 +35,7 @@ from core.translations.booking import (
     PROCEDURE_CONFIRMATION_SUMMARY,
     PROCEDURE_ESTIMATE_LINE,
     PROCEDURE_INSTRUCTIONS_LINE,
+    PROCEDURE_LOCATION_LINE,
     PROCEDURE_ORDER_REFERENCE_LINE,
     PROCEDURE_REQUEST_CONFIRM_SUMMARY,
     PROCEDURE_REQUEST_SUBMITTED,
@@ -48,7 +49,7 @@ from core.translations.menu import MAIN_MENU_BUTTON
 from core.whatsapp import WhatsAppClient
 
 from flows.booking.state import (
-    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE,
+    BACK_ID, CONFIRM_NO, CONFIRM_YES, GOTO_MAIN_MENU, NEXT_TIMES_ID, PREV_TIMES_ID, STATE_AWAITING_APPOINTMENT_TYPE,
     STATE_AWAITING_DATE, STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
     STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT,
     _HISTORY_KEY, _date_label, _find_by_id, _push_history,
@@ -130,17 +131,15 @@ async def _on_procedure_type_selected(
 
 
 def _resolve_department(connector, hospital_id: int, procedure: dict) -> tuple[str | None, str]:
-    """Same "resource has no department configured -> fall back to the
-    hospital's first one" precedent _diagnostic_shared.py's
-    resolve_resource_and_advance_to_date() already establishes."""
+    """Migration 0035: appointments.department_id is nullable -- a procedure
+    with no department configured (or one that no longer exists) genuinely
+    books with none, matching _diagnostic_shared.py's
+    resolve_resource_and_advance_to_date()."""
     department_id = procedure.get("department_id")
     if department_id:
         dept = next((d for d in connector.get_departments(hospital_id) if d["id"] == department_id), None)
         if dept:
             return department_id, dept["name"]
-    departments = connector.get_departments(hospital_id)
-    if departments:
-        return departments[0]["id"], departments[0]["name"]
     return None, ""
 
 
@@ -280,7 +279,10 @@ def _build_procedure_confirmation_summary(context: dict, hospital_id: int) -> st
         patient_code=(patient.get("patient_display_id") if patient else None) or "—",
         procedure_name=context.get("procedure_name"),
         order_reference_line=(t(PROCEDURE_ORDER_REFERENCE_LINE, language, order_reference=order_reference) if order_reference else ""),
-        department_name=context.get("department_name"),
+        location_line=(
+            t(PROCEDURE_LOCATION_LINE, language, department_name=context["department_name"])
+            if context.get("department_name") else ""
+        ),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         estimate_line=_estimate_line(
             context.get("procedure_estimated_price_min"), context.get("procedure_estimated_price_max"), language,
@@ -303,7 +305,10 @@ def _build_procedure_success_summary(appointment, context: dict, hospital_id: in
         reference_id=appointment.reference_id,
         patient_name=context.get("patient_name"),
         procedure_name=appointment.procedure_name or context.get("procedure_name"),
-        department_name=appointment.department_name,
+        location_line=(
+            t(PROCEDURE_LOCATION_LINE, language, department_name=appointment.department_name)
+            if appointment.department_name else ""
+        ),
         date_label=appointment.scheduled_at.strftime("%d %b %Y"),
         time_label=appointment.scheduled_at.strftime("%I:%M %p"),
     )
@@ -360,7 +365,9 @@ async def _handle_awaiting_procedure_reschedule_date(
     if reply["type"] == "interactive_reply":
         available_dates = {s["date"] for s in connector.get_procedure_available_slots(hospital_id, procedure_id)}
         if reply["id"] in available_dates:
-            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"])}
+            new_context = {
+                **context, "date": reply["id"], "date_label": _date_label(reply["id"]), "time_slot_page": 0,
+            }
             sessions.set(hospital_id, phone, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT, new_context)
             await _send_time_menu(
                 wa, phone, hospital_id, None, reply["id"], connector, language=language, procedure_id=procedure_id,
@@ -389,6 +396,18 @@ async def _handle_awaiting_procedure_reschedule_slot(
         await _send_main_menu(wa, phone, "the hospital", language=language)
         return
     if reply["type"] == "interactive_reply":
+        if reply["id"] in (NEXT_TIMES_ID, PREV_TIMES_ID):
+            current_page = context.get("time_slot_page", 0)
+            requested_page = current_page + 1 if reply["id"] == NEXT_TIMES_ID else max(0, current_page - 1)
+            actual_page = await _send_time_menu(
+                wa, phone, hospital_id, None, date_str, connector, language=language,
+                procedure_id=procedure_id, page=requested_page,
+            )
+            sessions.set(
+                hospital_id, phone, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT,
+                {**context, "time_slot_page": actual_page},
+            )
+            return
         slot = _find_by_id(connector.get_procedure_available_slots(hospital_id, procedure_id), reply["id"])
         if slot and slot["date"] == date_str:
             connector.request_procedure_reschedule(hospital_id, appointment_id, _datetime.fromisoformat(slot["id"]))
@@ -408,4 +427,5 @@ async def _handle_awaiting_procedure_reschedule_slot(
     sessions.set(hospital_id, phone, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT, context)
     await _send_time_menu(
         wa, phone, hospital_id, None, date_str, connector, language=language, procedure_id=procedure_id,
+        page=context.get("time_slot_page", 0),
     )

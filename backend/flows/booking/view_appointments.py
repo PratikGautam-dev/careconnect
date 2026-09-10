@@ -133,10 +133,16 @@ async def _send_view_appointments(
         return
     rows = []
     for a in appointments:
-        title = a.doctor_name
+        # Migration 0035: department_id (and doctor_id, since Diagnostic/Lab
+        # Phase 2) can both be None for a resource-bound booking -- fall
+        # back to the resource's own name/omit the department prefix rather
+        # than literally showing "None".
+        who = a.doctor_name or a.resource_name
+        title = who
         if patient_names and a.patient_id in patient_names:
-            title = f"{patient_names[a.patient_id]} — {a.doctor_name}"
-        description = f"{a.department_name} — {a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}"
+            title = f"{patient_names[a.patient_id]} — {who}"
+        department_prefix = f"{a.department_name} — " if a.department_name else ""
+        description = f"{department_prefix}{a.scheduled_at.strftime('%a %d %b %Y, %H:%M')}"
         if range_ == "previous":
             # Mixed statuses in this view (unlike upcoming, which is always
             # booked) -- call out cancelled/rescheduled rows so a patient

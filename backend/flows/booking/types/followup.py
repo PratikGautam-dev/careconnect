@@ -22,6 +22,7 @@ from flows.booking.types.base import NO_DOCTOR_FLOW, TypeFlow
 from core.translations import t
 from core.translations.booking import (
     CONSULTATION_FEE_LINE,
+    DEPARTMENT_LINE,
     FOLLOWUP_APPOINTMENT_CONFIRMED,
     FOLLOWUP_CONFIRMATION_SUMMARY,
     FOLLOWUP_ELIGIBLE_LIST_PROMPT,
@@ -155,12 +156,16 @@ def _build_followup_confirmation_summary(context: dict, hospital_id: int) -> str
     CONFIRM_BOOKING_SUMMARY card for a Follow-up booking."""
     language = context.get("language", "en")
     patient = db.get_patient(hospital_id, context.get("active_patient_id"))
+    department_line = (
+        t(DEPARTMENT_LINE, language, department_name=context["department_name"])
+        if context.get("department_name") else ""
+    )
     return t(
         FOLLOWUP_CONFIRMATION_SUMMARY, language,
         patient_name=context.get("patient_name"),
         patient_code=(patient.get("patient_display_id") if patient else None) or "—",
         appointment_type_label=context.get("appointment_type_label"),
-        department_name=context.get("department_name"), doctor_name=context.get("doctor_name"),
+        department_line=department_line, doctor_name=context.get("doctor_name"),
         previous_visit_label=context.get("followup_previous_visit_label"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         fee_line=_fee_line(hospital_id, language),

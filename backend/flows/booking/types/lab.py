@@ -24,11 +24,9 @@ from core.translations.booking import (
     COLLECTION_HOME_BUTTON,
     COLLECTION_VISIT_BUTTON,
     DIAGNOSTIC_TESTS_SECTION_TITLE,
-    DIAGNOSTIC_VARIANTS_SECTION_TITLE,
     LAB_BOOKING_CONFIRMED,
     LAB_CONFIRMATION_SUMMARY,
     LAB_DONE_BUTTON,
-    LAB_FASTING_LINE,
     LAB_HOME_COLLECTION_LINE,
     LAB_TEST_ADDED_PROMPT,
     LAB_TEST_CHARGES_LINE,
@@ -36,11 +34,9 @@ from core.translations.booking import (
     NOT_SERVICEABLE_PINCODE,
     NO_DIAGNOSTIC_TESTS_CONFIGURED,
     SELECT_COLLECTION_METHOD,
-    SELECT_DIAGNOSTIC_VARIANT,
     SELECT_LAB_TEST,
     TRY_ANOTHER_PINCODE_BUTTON,
     VIEW_TESTS_BUTTON,
-    VIEW_VARIANTS_BUTTON,
 )
 from core.translations.common import BACK_OPTION
 from core.translations.menu import MAIN_MENU_BUTTON
@@ -49,7 +45,7 @@ from core.whatsapp import WhatsAppClient
 from flows.booking.state import (
     BACK_ID, GOTO_MAIN_MENU, STATE_AWAITING_APPOINTMENT_TYPE, STATE_AWAITING_COLLECTION_ADDRESS,
     STATE_AWAITING_COLLECTION_METHOD, STATE_AWAITING_COLLECTION_PINCODE, STATE_AWAITING_CONFIRMATION,
-    STATE_AWAITING_DATE, STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_VARIANT,
+    STATE_AWAITING_DATE, STATE_AWAITING_LAB_TEST,
     STATE_AWAITING_TIME_SLOT, _HISTORY_KEY, _push_history,
 )
 from flows.booking.types.base import TypeFlow
@@ -72,8 +68,18 @@ def _basket(context: dict) -> list[dict]:
     return context.get("lab_basket") or []
 
 
-def _basket_resource_id(context: dict) -> "str | None":
-    return next((item["resource_id"] for item in _basket(context) if item.get("resource_id")), None)
+def _basket_anchor(context: dict) -> "tuple[int, str] | tuple[None, None]":
+    """Diagnostic tests/resources merge: every basket item's own
+    diagnostic_test_id IS a schedulable resource now (no separate resource
+    link to look for) -- the first item added anchors which slot/capacity
+    the whole basket's single appointment consumes, same precedent as
+    before the merge (which picked the first item with a resource linked --
+    in practice always the first item, since hospitals link one 1:1)."""
+    basket = _basket(context)
+    if not basket:
+        return None, None
+    item = basket[0]
+    return item["diagnostic_test_id"], item["test_label"]
 
 
 async def _send_no_tests_screen(wa, phone: str, hospital_id: int, sessions, context: dict, connector, language: str) -> None:
@@ -133,19 +139,6 @@ async def _send_lab_test_menu(
     await wa.send_buttons(to=phone, body_text="​", buttons=buttons)
 
 
-async def _send_lab_variant_menu(wa: WhatsAppClient, phone: str, test: dict, language: str = "en") -> None:
-    from flows.booking.messages import _send_back_button
-
-    rows = [{"id": str(v["id"]), "title": v["label"]} for v in test["variants"]]
-    await wa.send_list(
-        to=phone,
-        body_text=t(SELECT_DIAGNOSTIC_VARIANT, language, test_name=test["name"]),
-        button_text=t(VIEW_VARIANTS_BUTTON, language),
-        sections=[{"title": t(DIAGNOSTIC_VARIANTS_SECTION_TITLE, language), "rows": rows}],
-    )
-    await _send_back_button(wa, phone, language=language)
-
-
 async def _on_lab_type_selected(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector, context: dict, language: str = "en",
 ) -> None:
@@ -162,21 +155,16 @@ async def _on_lab_type_selected(
 
 
 async def _add_to_basket_and_prompt(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, test: dict, variant: dict,
+    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, context: dict, test: dict,
     connector, language: str = "en",
 ) -> None:
-    item = {
-        "diagnostic_test_id": test["id"], "diagnostic_test_variant_id": variant["id"],
-        "test_label": test["name"], "variant_label": variant["label"], "price": variant.get("price"),
-        "resource_id": test.get("resource_id"), "preparation_instructions": variant.get("preparation_instructions"),
-    }
+    item = {"diagnostic_test_id": test["id"], "test_label": test["name"], "price": test.get("price")}
     basket = [*_basket(context), item]
     new_context = {**context, "lab_basket": basket}
     sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST, new_context)
-    item_label = test["name"] if variant["label"].lower() == "standard" else f"{test['name']} - {variant['label']}"
     await _send_lab_test_menu(
         wa, phone, hospital_id, connector, basket, language=language,
-        body_text_override=t(LAB_TEST_ADDED_PROMPT, language, item_label=item_label),
+        body_text_override=t(LAB_TEST_ADDED_PROMPT, language, item_label=test["name"]),
     )
 
 
@@ -200,48 +188,11 @@ async def _handle_awaiting_lab_test(
         tests = [t_ for t_ in connector.get_diagnostic_tests(hospital_id, "lab") if t_["id"] not in already_added]
         test = next((t_ for t_ in tests if str(t_["id"]) == reply["id"]), None)
         if test is not None:
-            base_context = {
-                **context, "_lab_pending_test_id": test["id"],
-                _HISTORY_KEY: _push_history(context, STATE_AWAITING_LAB_TEST),
-            }
-            variants = test["variants"]
-            if len(variants) == 1:
-                await _add_to_basket_and_prompt(wa, sessions, phone, hospital_id, base_context, test, variants[0], connector, language=language)
-                return
-            sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST_VARIANT, base_context)
-            await _send_lab_variant_menu(wa, phone, test, language=language)
+            new_context = {**context, _HISTORY_KEY: _push_history(context, STATE_AWAITING_LAB_TEST)}
+            await _add_to_basket_and_prompt(wa, sessions, phone, hospital_id, new_context, test, connector, language=language)
             return
     sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST, context)
     await _send_lab_test_menu(wa, phone, hospital_id, connector, _basket(context), language=language)
-
-
-async def _handle_awaiting_lab_test_variant(
-    wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector,
-    language: str = "en", closing_message_text: str | None = None,
-) -> None:
-    from flows.booking.messages import _handle_back_navigation
-
-    test_id = context.get("_lab_pending_test_id")
-    # Never trust a stashed list -- re-fetch fresh, same discipline every
-    # other list step in this codebase follows.
-    tests = connector.get_diagnostic_tests(hospital_id, "lab")
-    test = next((t_ for t_ in tests if t_["id"] == test_id), None)
-    if reply["type"] == "interactive_reply":
-        if reply["id"] == BACK_ID:
-            await _handle_back_navigation(wa, sessions, phone, hospital_id, context, connector, language=language)
-            return
-        if test is not None:
-            variant = next((v for v in test["variants"] if str(v["id"]) == reply["id"]), None)
-            if variant is not None:
-                await _add_to_basket_and_prompt(wa, sessions, phone, hospital_id, context, test, variant, connector, language=language)
-                return
-    if test is None:
-        # The test itself was deactivated/removed mid-flow.
-        sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST, context)
-        await _send_lab_test_menu(wa, phone, hospital_id, connector, _basket(context), language=language)
-        return
-    sessions.set(hospital_id, phone, STATE_AWAITING_LAB_TEST_VARIANT, context)
-    await _send_lab_variant_menu(wa, phone, test, language=language)
 
 
 async def _send_collection_method_menu(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
@@ -274,7 +225,7 @@ async def _handle_awaiting_collection_method(
                 _HISTORY_KEY: _push_history(context, STATE_AWAITING_COLLECTION_METHOD),
             }
             await resolve_resource_and_advance_to_date(
-                wa, sessions, phone, hospital_id, new_context, _basket_resource_id(new_context), connector, language=language,
+                wa, sessions, phone, hospital_id, new_context, *_basket_anchor(new_context), connector, language=language,
             )
             return
         if reply["id"] == COLLECTION_HOME_ID:
@@ -306,7 +257,7 @@ async def _handle_awaiting_collection_pincode(
             "collection_pincode": None, "collection_address": None, "home_collection_charge": None,
         }
         await resolve_resource_and_advance_to_date(
-            wa, sessions, phone, hospital_id, new_context, _basket_resource_id(new_context), connector, language=language,
+            wa, sessions, phone, hospital_id, new_context, *_basket_anchor(new_context), connector, language=language,
         )
         return
     if reply["type"] == "text" and reply["text"].strip():
@@ -355,26 +306,11 @@ async def _handle_awaiting_collection_address(
             address = text
         new_context = {**context, "collection_address": address}
         await resolve_resource_and_advance_to_date(
-            wa, sessions, phone, hospital_id, new_context, _basket_resource_id(new_context), connector, language=language,
+            wa, sessions, phone, hospital_id, new_context, *_basket_anchor(new_context), connector, language=language,
         )
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_COLLECTION_ADDRESS, context)
     await _send_collection_address_prompt(wa, phone, hospital_id, context, language=language)
-
-
-def _fasting_block(basket: list[dict], language: str) -> str:
-    """Union of non-blank preparation_instructions across the basket,
-    de-duplicated -- omitted entirely if none of the selected tests need any
-    (per the spec's own "don't show generic fasting instructions if the
-    selected tests don't require fasting" rule)."""
-    seen: list[str] = []
-    for item in basket:
-        instructions = (item.get("preparation_instructions") or "").strip()
-        if instructions and instructions not in seen:
-            seen.append(instructions)
-    if not seen:
-        return ""
-    return t(LAB_FASTING_LINE, language, instructions="; ".join(seen))
 
 
 def _amount_block(basket: list[dict], home_collection_charge, language: str) -> str:
@@ -396,10 +332,7 @@ def _amount_block(basket: list[dict], home_collection_charge, language: str) -> 
 
 
 def _tests_block(basket: list[dict]) -> str:
-    lines = []
-    for item in basket:
-        label = item["test_label"] if item["variant_label"].lower() == "standard" else f"{item['test_label']} - {item['variant_label']}"
-        lines.append(f"🧪 {label}")
+    lines = [f"🧪 {item['test_label']}" for item in basket]
     return "\n".join(lines) + "\n" if lines else ""
 
 
@@ -426,7 +359,6 @@ def _build_lab_confirmation_summary(context: dict, hospital_id: int) -> str:
         collection_line=_collection_line(context, language),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
         amount_block=_amount_block(basket, context.get("home_collection_charge"), language),
-        fasting_block=_fasting_block(basket, language),
     )
 
 
@@ -458,11 +390,7 @@ async def _on_lab_booking_confirmed(appointment, connector, context: dict) -> No
     if not basket:
         return
     basket_items = [
-        {
-            "diagnostic_test_id": item.get("diagnostic_test_id"), "diagnostic_test_variant_id": item.get("diagnostic_test_variant_id"),
-            "test_label": item["test_label"], "variant_label": item["variant_label"],
-            "price": item.get("price"), "preparation_instructions": item.get("preparation_instructions"),
-        }
+        {"diagnostic_test_id": item.get("diagnostic_test_id"), "test_label": item["test_label"], "price": item.get("price")}
         for item in basket
     ]
     connector.set_appointment_lab_order_details(

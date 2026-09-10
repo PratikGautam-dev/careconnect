@@ -1,18 +1,23 @@
 # portal/routes/doctor_portal.py
-"""Doctor-scoped routes for the new dedicated doctor login (Spec.md Section
-0's doctor-portal build) -- a SEPARATE surface from the shared staff portal
-(portal/routes/*.py's existing /api/portal/* routes), gated by
-`_authenticate_doctor` (portal/deps.py) instead of `_authenticate`.
+"""Doctor self-service routes: this doctor's own dashboard/calendar and
+this doctor's own schedule/leave/running-late-delay -- the ones with no
+"whose" concept for any other role, so they can't live on the shared
+/api/portal/* surface the way a hospital-wide resource can. Gated by
+`_require_doctor()` below, not `_authenticate`.
 
-The one rule every route here follows, without exception: doctor_id is
-read ONLY from `_authenticate_doctor`'s verified token, never from a path,
-query, or body parameter. This is deliberate, not an oversight -- it's the
-actual fix for the cross-doctor isolation gap the doctor-login audit found
-(the shared staff portal has no doctor-scoped concept at all today, so any
-staff member can view any doctor's appointments/notes/video links by
-passing a different doctor_id). A route here structurally cannot be asked
-for "some other doctor's" data, because there is no parameter through
-which a caller could ever supply one."""
+Every other /api/doctor/* route that USED to live here (a full appointment
+list/detail, a patients list/detail, attendance, visit notes -- anything
+that's really just "the shared hospital-wide resource, filtered to one
+doctor") has been deleted: /api/portal/bookings, /api/portal/bookings/
+{id}, and /api/portal/patients(+{id}) now do that same doctor_id-scoping
+inline (see their own docstrings in bookings.py/patients.py), so keeping a
+second, structurally-separate copy here was pure duplication. See
+docs/rbac-redis-plan.md for the consolidation history.
+
+The one rule every route below still follows, without exception: doctor_id
+is read ONLY from `_require_doctor()`'s verified token, never from a path,
+query, or body parameter -- there is no parameter through which a caller
+could ever ask for "some other doctor's" schedule/leave/delay."""
 import logging
 from datetime import datetime
 
@@ -22,7 +27,6 @@ from fastapi.responses import JSONResponse
 import db.repository as db
 from portal.deps import _authenticate_doctor, get_current_staff
 from portal.routes.bookings import _appointment_json
-from portal.routes.patients import _patient_json
 from webhook.dispatch import _get_whatsapp_client
 
 logger = logging.getLogger(__name__)
@@ -55,28 +59,6 @@ def _require_doctor(authorization: str | None):
         return None, JSONResponse({"error": "Not authenticated."}, status_code=401)
     hospital, doctor_id = auth
     return (hospital, doctor_id), None
-
-
-@router.get("/api/doctor/me")
-async def doctor_me(authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    doctor = db.get_doctor_full(hospital.id, doctor_id)
-    if doctor is None:
-        return JSONResponse({"error": "No such doctor."}, status_code=404)
-    return JSONResponse({"doctor": doctor, "hospital": {"id": hospital.id, "name": hospital.name}})
-
-
-@router.get("/api/doctor/appointments/today")
-async def doctor_appointments_today(authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    appointments = db.get_doctor_appointments_today(hospital.id, doctor_id)
-    return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
 
 
 @router.get("/api/doctor/dashboard")
@@ -129,59 +111,6 @@ async def doctor_appointments_calendar(
         "year": year,
         "month": month,
         "appointments": [_appointment_json(a) for a in appointments],
-    })
-
-
-@router.get("/api/doctor/appointments")
-async def doctor_appointments_list(authorization: str | None = Header(default=None)):
-    """Doctor-portal follow-up: this doctor's full appointment history (any
-    status, any date), not just today -- the /doctor/appointments page's
-    list, mirroring the shared /portal/appointments page's shape but
-    doctor_id-scoped instead of hospital-wide."""
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    appointments = db.get_doctor_appointments(hospital.id, doctor_id)
-    return JSONResponse({"appointments": [_appointment_json(a) for a in appointments]})
-
-
-@router.get("/api/doctor/patients")
-async def doctor_patients_list(authorization: str | None = Header(default=None)):
-    """Doctor-portal follow-up: only patients this doctor has actually seen
-    -- see db.get_patients_for_doctor()'s own docstring for why this is a
-    dedicated, doctor_id-scoped query rather than the shared patients
-    directory with a filter bolted on."""
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    patients = db.get_patients_for_doctor(hospital.id, doctor_id)
-    return JSONResponse({"patients": patients})
-
-
-@router.get("/api/doctor/patients/{patient_id}")
-async def doctor_patient_detail(patient_id: int, authorization: str | None = Header(default=None)):
-    """Doctor-portal follow-up: a patient's demographics, their appointment
-    history WITH THIS DOCTOR, and every visit note THIS DOCTOR wrote for
-    them -- the /doctor/patients/[id] detail page. A patient this doctor has
-    never actually treated resolves to 404, never an empty-but-200 record --
-    get_doctor_appointments_for_patient() returning nothing IS the ownership
-    check here, the same way _owned_appointment_or_error() is for a single
-    appointment elsewhere in this file."""
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    appointments = db.get_doctor_appointments_for_patient(hospital.id, doctor_id, patient_id)
-    if not appointments:
-        return JSONResponse({"error": "No such patient."}, status_code=404)
-    patient = db.get_patient(hospital.id, patient_id)
-    notes = db.get_patient_visit_notes_by_doctor(hospital.id, patient_id, doctor_id)
-    return JSONResponse({
-        "patient": _patient_json(patient) if patient else None,
-        "appointments": [_appointment_json(a) for a in appointments],
-        "notes": notes,
     })
 
 
@@ -240,92 +169,6 @@ async def doctor_delay_remaining_appointments(payload: dict, authorization: str 
         "notified": len(shifted),
         "appointments": [_appointment_json(a) for a, _new_time in shifted],
     })
-
-
-def _owned_appointment_or_error(hospital_id: int, doctor_id: str, appointment_id: int):
-    """Every route below that touches ONE specific appointment (attendance,
-    video link, visit notes) must check the appointment actually belongs to
-    THIS doctor, not just that it exists at this hospital -- get_appointment()
-    alone only proves hospital-level scoping, which is exactly the isolation
-    gap this whole build exists to close. Returns (appointment, None) or
-    (None, JSONResponse) for the caller to return directly."""
-    appointment = db.get_appointment(hospital_id, appointment_id)
-    if appointment is None or appointment.doctor_id != doctor_id:
-        return None, JSONResponse({"error": "No such appointment."}, status_code=404)
-    return appointment, None
-
-
-@router.get("/api/doctor/appointments/{appointment_id}")
-async def doctor_appointment_detail(appointment_id: int, authorization: str | None = Header(default=None)):
-    """Beyond the bare appointment row, also resolves the owning patient's
-    record (name/DOB/etc, same shape /api/portal/patients/{id} returns) and
-    this patient's visit-note history -- a doctor actually needs to SEE who
-    they're seeing, not just an id; neither is part of _appointment_json()'s
-    shared shape with the staff portal's own appointments list. (Restored
-    here after being lost from a concurrent branch merge -- see this
-    module's own doctor-frontend-restoration note in Spec.md Section 0; the
-    frontend at /doctor/appointments/[id] has always expected this shape.)"""
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    appointment, err = _owned_appointment_or_error(hospital.id, doctor_id, appointment_id)
-    if err:
-        return err
-    patient = db.get_patient(hospital.id, appointment.patient_id) if appointment.patient_id else None
-    notes = db.get_patient_visit_notes(hospital.id, appointment.patient_id) if appointment.patient_id else []
-    return JSONResponse({
-        "appointment": _appointment_json(appointment),
-        "patient": _patient_json(patient) if patient else None,
-        "notes": notes,
-    })
-
-
-@router.post("/api/doctor/appointments/{appointment_id}/attendance")
-async def doctor_mark_attendance(appointment_id: int, payload: dict, authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    _, err = _owned_appointment_or_error(hospital.id, doctor_id, appointment_id)
-    if err:
-        return err
-    if "attended" not in (payload or {}):
-        return JSONResponse({"error": "attended (true/false) is required."}, status_code=400)
-    attended = bool(payload["attended"])
-    ok = db.mark_attendance(hospital.id, appointment_id, attended)
-    if not ok:
-        return JSONResponse({"error": "No such booked appointment to update."}, status_code=404)
-    # actor_level is DB-CHECK-constrained to 'platform_admin'/'portal' (see
-    # record_audit_log()'s own docstring) -- 'portal' is correct here too,
-    # the doctor-vs-staff distinction is carried in actor_label instead.
-    db.record_audit_log(
-        "portal", hospital.id, f"doctor:{doctor_id}", "booking.attendance",
-        entity_type="appointment", entity_id=str(appointment_id),
-        after={"status": "attended" if attended else "no_show"},
-    )
-    return JSONResponse({"ok": True, "status": "attended" if attended else "no_show"})
-
-
-@router.post("/api/doctor/appointments/{appointment_id}/notes")
-async def doctor_add_visit_note(appointment_id: int, payload: dict, authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    appointment, err = _owned_appointment_or_error(hospital.id, doctor_id, appointment_id)
-    if err:
-        return err
-    note_text = ((payload or {}).get("note_text") or "").strip()
-    if not note_text:
-        return JSONResponse({"error": "Note text is required."}, status_code=400)
-    if appointment.patient_id is None:
-        return JSONResponse({"error": "This appointment has no linked patient record."}, status_code=400)
-    note = db.create_patient_visit_note(
-        hospital.id, appointment.patient_id, note_text,
-        appointment_id=appointment_id, doctor_id=doctor_id,
-    )
-    return JSONResponse({"note": note})
 
 
 @router.get("/api/doctor/schedule")

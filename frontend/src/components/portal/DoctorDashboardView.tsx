@@ -1,15 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Video } from "lucide-react";
+import { ChevronRight, Clock, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { AppointmentCalendar } from "@/components/doctor/AppointmentCalendar";
 import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { staffFetch } from "@/lib/staffAuth";
+
+const DELAY_PRESETS = [10, 15, 30, 45, 60];
 
 type Appointment = {
   id: number;
@@ -63,6 +67,17 @@ export function DoctorDashboardView() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // "Running late" -- shifts every remaining still-booked appointment today
+  // forward by the chosen number of minutes, with an automated WhatsApp
+  // message sent to each affected patient (backend: POST /api/doctor/
+  // appointments/delay -- already doctor_id-scoped via the caller's own
+  // token, unchanged from the legacy /doctor/appointments page).
+  const [delayPanelOpen, setDelayPanelOpen] = useState(false);
+  const [delayMinutes, setDelayMinutes] = useState("15");
+  const [delaying, setDelaying] = useState(false);
+  const [delayResult, setDelayResult] = useState<string | null>(null);
+  const [delayError, setDelayError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     const result = await staffFetch("/api/doctor/dashboard");
     if (!result.ok) {
@@ -79,16 +94,88 @@ export function DoctorDashboardView() {
     return () => clearInterval(interval);
   }, [load]);
 
+  async function handleDelay() {
+    const minutes = Number(delayMinutes);
+    if (!minutes || minutes < 1) return;
+    setDelaying(true);
+    setDelayError(null);
+    setDelayResult(null);
+    const result = await staffFetch("/api/doctor/appointments/delay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes }),
+    });
+    setDelaying(false);
+    if (!result.ok) {
+      setDelayError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      return;
+    }
+    const delayed = result.data as { notified: number };
+    setDelayResult(
+      delayed.notified === 0
+        ? "No remaining appointments today to shift."
+        : `Shifted ${delayed.notified} appointment${delayed.notified === 1 ? "" : "s"} and notified ${
+            delayed.notified === 1 ? "the patient" : "each patient"
+          } on WhatsApp.`,
+    );
+    load();
+  }
+
   return (
     <>
-      <div className="mb-space-5">
-        <h1 className="text-display">Dashboard</h1>
-        <p className="text-body">
-          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-        </p>
+      <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
+        <div>
+          <h1 className="text-display">Dashboard</h1>
+          <p className="text-body">
+            {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+          </p>
+        </div>
+        <Button variant="secondary" size="md" onClick={() => setDelayPanelOpen((v) => !v)}>
+          <Clock size={15} /> Running late?
+        </Button>
       </div>
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+
+      {delayPanelOpen && (
+        <Card className="mb-space-5 p-space-4">
+          <p className="mb-space-1 text-[13.5px] font-semibold text-ink-900">Push back today&apos;s remaining appointments</p>
+          <p className="mb-space-3 text-[12.5px] text-ink-600">
+            Every still-confirmed appointment later today shifts forward by this many minutes, and each patient gets a
+            WhatsApp message with their new time automatically.
+          </p>
+          <div className="flex flex-wrap items-center gap-space-2">
+            {DELAY_PRESETS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setDelayMinutes(String(m))}
+                className={cn(
+                  "h-9 rounded-md border px-space-3 text-[12.5px] font-semibold transition-colors duration-150",
+                  delayMinutes === String(m)
+                    ? "border-brand-600 bg-brand-600 text-white"
+                    : "border-line bg-card text-ink-600 hover:border-brand-300",
+                )}
+              >
+                {m} min
+              </button>
+            ))}
+            <Input
+              type="number"
+              min={1}
+              max={240}
+              value={delayMinutes}
+              onChange={(e) => setDelayMinutes(e.target.value)}
+              className="w-24"
+            />
+            <Button size="md" onClick={handleDelay} disabled={delaying}>
+              {delaying ? "Shifting…" : "Confirm delay"}
+            </Button>
+          </div>
+          {delayError && <p className="mt-space-2 text-[12.5px] text-error">{delayError}</p>}
+          {delayResult && <p className="mt-space-2 text-[12.5px] font-semibold text-success">{delayResult}</p>}
+        </Card>
+      )}
 
       {!data ? (
         <p className="text-[13px] text-ink-400">Loading…</p>

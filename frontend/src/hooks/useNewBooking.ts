@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
+import { newBookingSchema } from "@/lib/validation/newBooking";
 
 export type Department = { id: string; name: string };
 export type Doctor = { id: string; name: string };
@@ -12,9 +13,11 @@ export type NewBookingContext = {
   slots_by_doctor: Record<string, Record<string, Slot[]>>;
 };
 
-/** Loads department/doctor/slot context + submits the /portal/new-booking
- * staff-created booking form. */
-export function useNewBooking(ready: boolean) {
+/** Loads department/doctor/slot context + submits the New Booking dialog's
+ * form -- context is only fetched while the dialog is open, and every field
+ * resets the moment it closes, so reopening always starts from a clean
+ * form rather than showing the last attempt's leftover values/errors. */
+export function useNewBooking(open: boolean, onBooked?: () => void) {
   const router = useRouter();
   const [ctx, setCtx] = useState<NewBookingContext | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +43,23 @@ export function useNewBooking(ready: boolean) {
   }, [router]);
 
   useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
+    if (open) {
+      load();
+      return;
+    }
+    // Closed -- drop everything so the next open starts fresh.
+    setCtx(null);
+    setError(null);
+    setErrors([]);
+    setSubmitting(false);
+    setSuccess(false);
+    setPatientName("");
+    setPatientPhone("");
+    setDepartmentIdRaw("");
+    setDoctorIdRaw("");
+    setDateRaw("");
+    setSlotId("");
+  }, [open, load]);
 
   function setDepartmentId(id: string) {
     setDepartmentIdRaw(id);
@@ -67,15 +85,29 @@ export function useNewBooking(ready: boolean) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitting(true);
     setErrors([]);
+
+    // Client-side validation before ever hitting the API -- the backend
+    // still re-validates everything itself (payload.errors below), this
+    // just catches the obvious cases (empty phone, nothing picked yet)
+    // without a round-trip.
+    const parsed = newBookingSchema.safeParse({
+      patient_name: patientName,
+      patient_phone: patientPhone,
+      department_id: departmentId,
+      doctor_id: doctorId,
+      slot_id: slotId,
+    });
+    if (!parsed.success) {
+      setErrors(parsed.error.issues.map((issue) => issue.message));
+      return;
+    }
+
+    setSubmitting(true);
     const result = await portalFetch("/api/portal/new-booking", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        patient_name: patientName, patient_phone: patientPhone,
-        department_id: departmentId, doctor_id: doctorId, slot_id: slotId,
-      }),
+      body: JSON.stringify(parsed.data),
     });
     setSubmitting(false);
     if (!result.ok) {
@@ -94,6 +126,7 @@ export function useNewBooking(ready: boolean) {
     }
     toast.success("Booking created");
     setSuccess(true);
+    onBooked?.();
   }
 
   return {

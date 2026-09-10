@@ -17,6 +17,12 @@ from db.orm_models import HospitalSettings
 # followup_validity_days is NULL (never configured).
 DEFAULT_FOLLOWUP_VALIDITY_DAYS = 30
 
+# Slot-generation window (migration 0031): the code-level default when a
+# hospital's own future_booking_days is NULL (never configured) -- matches
+# every generate_slots_for_*() function's old hardcoded _SLOT_DAYS_AHEAD, so
+# a hospital that never touches this setting sees no behavior change.
+DEFAULT_FUTURE_BOOKING_DAYS = 14
+
 
 def get_hospital_settings(hospital_id: int) -> dict:
     """Always returns a row (upserting a blank one first if this hospital has
@@ -40,6 +46,7 @@ def get_hospital_settings(hospital_id: int) -> dict:
         "home_collection_charge": (
             float(row.home_collection_charge) if row.home_collection_charge is not None else None
         ),
+        "future_booking_days": row.future_booking_days,
     }
 
 
@@ -51,9 +58,18 @@ def get_followup_validity_days(hospital_id: int) -> int:
     return get_hospital_settings(hospital_id)["followup_validity_days"] or DEFAULT_FOLLOWUP_VALIDITY_DAYS
 
 
+def get_future_booking_days(hospital_id: int) -> int:
+    """The one value connectors/tier1.py's self-healing slot top-up and every
+    generate_slots_for_*() call site actually read -- falls back to
+    DEFAULT_FUTURE_BOOKING_DAYS on a NULL (never configured) setting, same
+    convention get_followup_validity_days() above uses."""
+    return get_hospital_settings(hospital_id)["future_booking_days"] or DEFAULT_FUTURE_BOOKING_DAYS
+
+
 def update_hospital_settings(
     hospital_id: int, followup_validity_days: int | None, followup_fee: float | None,
     new_consultation_fee: float | None, home_collection_charge: float | None = None,
+    future_booking_days: int | None = None,
 ) -> dict:
     """portal/routes/settings.py's own write path -- always a full-object
     save (like every other settings form in this codebase), not a partial
@@ -67,13 +83,14 @@ def update_hospital_settings(
         .values(
             hospital_id=hospital_id, followup_validity_days=followup_validity_days,
             followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
-            home_collection_charge=home_collection_charge,
+            home_collection_charge=home_collection_charge, future_booking_days=future_booking_days,
         )
         .on_conflict_do_update(
             index_elements=["hospital_id"],
             set_={
                 "followup_validity_days": followup_validity_days, "followup_fee": followup_fee,
                 "new_consultation_fee": new_consultation_fee, "home_collection_charge": home_collection_charge,
+                "future_booking_days": future_booking_days,
             },
         )
     )

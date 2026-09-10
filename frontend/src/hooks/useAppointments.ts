@@ -9,8 +9,17 @@ const DEFAULT_RESCHEDULE_MESSAGE = "Your appointment has been rescheduled.";
 export type Appointment = {
   id: number;
   phone: string;
-  department_name: string;
-  doctor_name: string;
+  patient_name: string | null;
+  department_id: string | null;
+  department_name: string | null;
+  doctor_id: string | null;
+  doctor_name: string | null;
+  // Diagnostic/Lab reschedule follow-up: set (doctor_id/doctor_name both
+  // null) for a resource-bound booking -- an MRI machine or lab collection
+  // point, not a doctor. Diagnostic tests/resources merge: this is a
+  // diagnostic_tests.id now -- a test IS the schedulable resource.
+  resource_id: number | null;
+  resource_name: string | null;
   scheduled_at: string;
   status: string;
   source: string;
@@ -36,11 +45,17 @@ export type Appointment = {
 
 export type Department = { id: string; name: string };
 export type Doctor = { id: string; name: string };
+export type Resource = { id: number; name: string };
 export type Slot = { id: string; label: string };
 export type NewBookingContext = {
   departments: Department[];
   doctors_by_department: Record<string, Doctor[]>;
   slots_by_doctor: Record<string, Record<string, Slot[]>>;
+  // Diagnostic/Lab reschedule follow-up: the resource-bound equivalent of
+  // doctors_by_department/slots_by_doctor above -- a resource has no
+  // department picker of its own in this dialog, so just a flat list.
+  resources: Resource[];
+  slots_by_resource: Record<string, Record<string, Slot[]>>;
 };
 
 // docs/per-appointment-type-flow-plan.md's fixed catalog (db/repositories/
@@ -77,8 +92,15 @@ export function useAppointments(ready: boolean) {
   const [rescheduleCtx, setRescheduleCtx] = useState<NewBookingContext | null>(null);
   const [rescheduleErrors, setRescheduleErrors] = useState<string[]>([]);
   const [rescheduleMessage, setRescheduleMessage] = useState(DEFAULT_RESCHEDULE_MESSAGE);
-  const [rDepartmentId, setRDepartmentId] = useState("");
+  // Department/doctor (or resource) are fixed to whichever the appointment
+  // already has -- rescheduling only moves the date/slot, so this is set
+  // once (from the appointment being rescheduled) when the dialog opens,
+  // never from a user pick. Kept internal (not returned below) since
+  // RescheduleDialog reads department_name/doctor_name/resource_name
+  // straight off the Appointment it's given for display -- these are only
+  // here to index into rescheduleCtx.slots_by_doctor/slots_by_resource.
   const [rDoctorId, setRDoctorId] = useState("");
+  const [rResourceId, setRResourceId] = useState("");
   const [rDate, setRDate] = useState("");
   const [rSlotId, setRSlotId] = useState("");
   const [markingAttendanceId, setMarkingAttendanceId] = useState<number | null>(null);
@@ -148,8 +170,10 @@ export function useAppointments(ready: boolean) {
       if (!q) return true;
       return (
         a.phone.toLowerCase().includes(q) ||
-        a.doctor_name.toLowerCase().includes(q) ||
-        a.department_name.toLowerCase().includes(q) ||
+        (a.patient_name || "").toLowerCase().includes(q) ||
+        (a.doctor_name || "").toLowerCase().includes(q) ||
+        (a.resource_name || "").toLowerCase().includes(q) ||
+        (a.department_name || "").toLowerCase().includes(q) ||
         (a.reference_id || "").toLowerCase().includes(q) ||
         (a.patient_display_id || "").toLowerCase().includes(q)
       );
@@ -309,15 +333,17 @@ export function useAppointments(ready: boolean) {
     setReschedulePanelId(id);
     setRescheduleMessage(DEFAULT_RESCHEDULE_MESSAGE);
     setRescheduleErrors([]);
-    setRDepartmentId("");
-    setRDoctorId("");
+    const appointment = appointments?.find((a) => a.id === id);
+    setRDoctorId(appointment?.doctor_id || "");
+    setRResourceId(appointment?.resource_id != null ? String(appointment.resource_id) : "");
     setRDate("");
     setRSlotId("");
     if (!rescheduleCtx) {
       // Reuses the exact same context endpoint /portal/new-booking already
-      // reads department/doctor/slot options from -- no separate endpoint,
-      // and staff can pick a different doctor for the reschedule, not just
-      // a different slot with the same one.
+      // reads doctor/resource slot options from -- no separate endpoint.
+      // Department/doctor/resource are fixed to the appointment's own (see
+      // rDoctorId/rResourceId above), so only slots_by_doctor[rDoctorId] or
+      // slots_by_resource[rResourceId] is actually read out of this.
       const result = await portalFetch("/api/portal/new-booking/context");
       if (result.ok) setRescheduleCtx(result.data as NewBookingContext);
     }
@@ -330,12 +356,14 @@ export function useAppointments(ready: boolean) {
   async function handleReschedule(id: number) {
     setReschedulingId(id);
     setRescheduleErrors([]);
+    const appointment = appointments?.find((a) => a.id === id);
     const result = await portalFetch(`/api/portal/bookings/${id}/reschedule`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        department_id: rDepartmentId, doctor_id: rDoctorId, slot_id: rSlotId,
-        message: rescheduleMessage.trim(),
+        department_id: appointment?.department_id || "", doctor_id: appointment?.doctor_id || rDoctorId,
+        resource_id: appointment?.resource_id ?? (rResourceId ? Number(rResourceId) : null),
+        slot_id: rSlotId, message: rescheduleMessage.trim(),
       }),
     });
     setReschedulingId(null);
@@ -353,20 +381,27 @@ export function useAppointments(ready: boolean) {
     load();
   }
 
-  const rDoctors = rDepartmentId && rescheduleCtx ? rescheduleCtx.doctors_by_department[rDepartmentId] || [] : [];
-  const rDatesForDoctor = rDoctorId && rescheduleCtx ? Object.keys(rescheduleCtx.slots_by_doctor[rDoctorId] || {}).sort() : [];
-  const rSlotsForDate = rDoctorId && rDate && rescheduleCtx ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] || [] : [];
+  // Diagnostic/Lab reschedule follow-up: a resource-bound appointment has no
+  // doctor at all -- rResourceId is set instead of rDoctorId when the panel
+  // opens (see openReschedulePanel), so exactly one of these two ever has
+  // slots to offer.
+  const rDatesForDoctor = rescheduleCtx
+    ? Object.keys((rDoctorId ? rescheduleCtx.slots_by_doctor[rDoctorId] : rescheduleCtx.slots_by_resource[rResourceId]) || {}).sort()
+    : [];
+  const rSlotsForDate = rDate && rescheduleCtx
+    ? (rDoctorId ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] : rescheduleCtx.slots_by_resource[rResourceId]?.[rDate]) || []
+    : [];
 
   const selectedAppointments = deletableAppointments.filter((a) => selected.has(a.id));
   const allSelected = deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
 
   return {
-    appointments, error, filteredAppointments, typeCounts,
+    appointments, error, load, filteredAppointments, typeCounts,
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
     reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
-    rDepartmentId, setRDepartmentId, rDoctorId, setRDoctorId, rDate, setRDate, rSlotId, setRSlotId,
-    rDoctors, rDatesForDoctor, rSlotsForDate,
+    rDate, setRDate, rSlotId, setRSlotId,
+    rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,
     markingAttendanceId, handleAttendance,
     advancingLabStatusId, handleAdvanceLabStatus,

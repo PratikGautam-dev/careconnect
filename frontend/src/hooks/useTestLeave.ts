@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
-/** Diagnostic/Lab Phase 2: whole-day resource unavailability (maintenance,
- * downtime) -- simpler than useDoctorLeave's id-based CRUD since the backend
- * here keys leave by date directly, one date at a time. */
-export function useResourceLeave(resourceId: string) {
+/** Whole-day test unavailability (maintenance, downtime) -- simpler than
+ * useDoctorLeave's id-based CRUD since the backend here keys leave by date
+ * directly, one date at a time. Renamed from useResourceLeave when
+ * diagnostic tests/resources merged into one entity. */
+export function useTestLeave(testId: number) {
   const [dates, setDates] = useState<string[] | null>(null);
   const [newDate, setNewDate] = useState("");
   const [reason, setReason] = useState("");
@@ -13,9 +14,9 @@ export function useResourceLeave(resourceId: string) {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/leave`);
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/leave`);
     if (result.ok) setDates((result.data as { leave_dates: string[] }).leave_dates);
-  }, [resourceId]);
+  }, [testId]);
 
   useEffect(() => {
     load();
@@ -25,7 +26,7 @@ export function useResourceLeave(resourceId: string) {
     if (!newDate) return;
     setAdding(true);
     setError(null);
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/leave`, {
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/leave`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date: newDate, reason }),
@@ -43,7 +44,7 @@ export function useResourceLeave(resourceId: string) {
   }
 
   async function handleDelete(date: string) {
-    const result = await portalFetch(`/api/portal/diagnostic-resources/${resourceId}/leave/remove`, {
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/leave/remove`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date }),

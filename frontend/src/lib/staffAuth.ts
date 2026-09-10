@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 import axios, { isAxiosError } from "axios";
 import { requestInitToAxiosConfig } from "@/lib/apiClient";
 import type { PortalHospital } from "@/lib/portalAuth";
 
 const ACCESS_KEY = "staff_access_token";
 const REFRESH_KEY = "staff_refresh_token";
+// Legacy, (unused-doctor)-only key -- see getStaffSession()'s own docstring.
 const SESSION_KEY = "staff_session";
 
 export type StaffRole = "admin" | "receptionist" | "doctor";
@@ -18,6 +19,20 @@ export type StaffSession = {
   permissions: StaffPermissions;
 };
 
+/** Tokens only -- the live app's session data (name/role/permissions/
+ * hospital) is never persisted to localStorage; it's fetched fresh into
+ * StaffSessionContext (see StaffSessionProvider) on every /portal/* mount
+ * instead. Use this for login/refresh/change-password. */
+export function saveStaffTokens(accessToken: string, refreshToken: string) {
+  localStorage.setItem(ACCESS_KEY, accessToken);
+  localStorage.setItem(REFRESH_KEY, refreshToken);
+}
+
+/** Tokens AND session, both to localStorage -- kept only because
+ * (unused-doctor)/login/page.tsx and useDoctorGuard.ts (reference-only code
+ * for a route nobody uses, per the user's own "just for reference" call)
+ * still call this exact signature. Nothing in the live app writes
+ * SESSION_KEY anymore -- use saveStaffTokens() above instead. */
 export function saveStaffSession(accessToken: string, refreshToken: string, session: StaffSession) {
   localStorage.setItem(ACCESS_KEY, accessToken);
   localStorage.setItem(REFRESH_KEY, refreshToken);
@@ -34,6 +49,9 @@ export function getStaffRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 
+/** Reads the legacy localStorage-cached session -- only useDoctorGuard.ts
+ * (unused-doctor-exclusive) still calls this. The live app reads
+ * useStaffSession() below instead, which is never backed by this key. */
 export function getStaffSession(): StaffSession | null {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem(SESSION_KEY);
@@ -60,23 +78,16 @@ type FetchResult =
 
 /** Attempts one silent refresh via /api/portal/staff/refresh, storing the
  * rotated tokens on success. Returns the new access token, or null if the
- * refresh itself failed (refresh token missing/expired/revoked). */
+ * refresh itself failed (refresh token missing/expired/revoked). Only
+ * touches tokens -- StaffSessionContext owns re-fetching session data (name/
+ * role/permissions/hospital) on its own schedule, not tied to token refresh. */
 async function tryRefresh(): Promise<string | null> {
   const refreshToken = getStaffRefreshToken();
   if (!refreshToken) return null;
   try {
     const res = await axios.post(`${API_BASE_URL}/api/portal/staff/refresh`, { refresh_token: refreshToken });
-    const data = res.data;
-    const existing = getStaffSession();
-    const session: StaffSession = {
-      id: data.staff.id,
-      name: data.staff.name,
-      role: data.staff.role,
-      hospital: data.staff.hospital || existing?.hospital,
-      permissions: data.permissions,
-    };
-    saveStaffSession(data.access_token, data.refresh_token, session);
-    return data.access_token as string;
+    saveStaffTokens(res.data.access_token, res.data.refresh_token);
+    return res.data.access_token as string;
   } catch {
     return null;
   }
@@ -132,23 +143,29 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
   return { ok: true, data: res.data };
 }
 
-/** SSR-hydration-safe read of the cached staff session: `null` on the
- * server AND on the client's own first (pre-hydration) render pass --
- * getStaffSession() itself returns the REAL session immediately on the
- * client (localStorage is synchronous, no need to wait for an effect),
- * which used to make the very first client render disagree with what the
- * server rendered (server always sees no session -> e.g. a generic
- * "Hospital" sidebar label) and throw a hydration-mismatch error the
- * instant real session data (a hospital name, a permission-gated nav item)
- * reached the DOM. Deferring the real read into an effect, exactly like
- * usePortalGuard's own hospital/ready state, guarantees both passes agree;
- * the real value then arrives a moment later as a normal client-only update. */
+export type StaffSessionContextValue = { session: StaffSession | null; error: string | null; reload: () => void };
+
+/** Populated by StaffSessionProvider (wraps every /portal/* page via
+ * app/portal/layout.tsx), which fetches GET /api/portal/staff/me into this
+ * on mount and holds it in memory only -- nothing about who's logged in
+ * (name/role/permissions/hospital) is ever written to localStorage for the
+ * live app anymore. Defaults to `session: null` so a component rendered
+ * outside the provider (there shouldn't be one under /portal/*) degrades to
+ * the same "no session yet" state every consumer already handles. */
+export const StaffSessionContext = createContext<StaffSessionContextValue>({
+  session: null,
+  error: null,
+  reload: () => {},
+});
+
+/** SSR-hydration-safe read of the current staff session: `null` on the
+ * server and on the client's first render (StaffSessionProvider's fetch
+ * hasn't resolved yet), then the real session an instant later -- same
+ * nullable contract the old localStorage-backed version had, so every
+ * existing consumer (PortalSidebar, usePermission, PermissionGate, page-
+ * level `session?.hospital` reads) needed no changes. */
 export function useStaffSession(): StaffSession | null {
-  const [session, setSession] = useState<StaffSession | null>(null);
-  useEffect(() => {
-    setSession(getStaffSession());
-  }, []);
-  return session;
+  return useContext(StaffSessionContext).session;
 }
 
 /** Reads permissions off the cached session (refreshed on every staff

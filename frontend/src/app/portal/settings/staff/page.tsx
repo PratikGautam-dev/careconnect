@@ -3,9 +3,11 @@
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Switch } from "@/components/ui/Switch";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
@@ -30,6 +32,8 @@ export default function StaffManagementPage() {
     name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
     formError, saving,
     handleCreate, handleToggleActive,
+    resetPasswordTarget, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
+    resetErrors, resetting, openResetPassword, closeResetPassword, handleResetPassword,
   } = useStaffManagement(canView);
 
   if (!canView) {
@@ -139,6 +143,9 @@ export default function StaffManagementPage() {
                     {member.is_active ? "Active" : "Deactivated"}
                   </Badge>
                   <PermissionGate page="staff" action="write">
+                    <Button variant="secondary" onClick={() => openResetPassword(member)}>
+                      Reset password
+                    </Button>
                     <Switch
                       checked={member.is_active}
                       onChange={() => handleToggleActive(member)}
@@ -152,6 +159,45 @@ export default function StaffManagementPage() {
           </ul>
         )}
       </Card>
+
+      <Dialog open={resetPasswordTarget !== null} onOpenChange={(open) => { if (!open) closeResetPassword(); }}>
+        <DialogContent>
+          <DialogTitle>Reset password{resetPasswordTarget ? ` for ${resetPasswordTarget.name}` : ""}</DialogTitle>
+          <form onSubmit={handleResetPassword} className="flex flex-col gap-space-3">
+            <Field label="New password" htmlFor="reset_new_password" required hint="At least 8 characters.">
+              <PasswordInput
+                id="reset_new_password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Confirm new password" htmlFor="reset_confirm_password" required>
+              <PasswordInput
+                id="reset_confirm_password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </Field>
+            {resetErrors.length > 0 && (
+              <ul className="list-disc pl-space-4 text-[12.5px] font-medium text-error">
+                {resetErrors.map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-space-2">
+              <Button type="submit" disabled={resetting} size="md">
+                {resetting ? "Resetting…" : "Reset password"}
+              </Button>
+              <Button type="button" variant="secondary" size="md" onClick={closeResetPassword} disabled={resetting}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </PortalShell>
   );
 }

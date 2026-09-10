@@ -22,12 +22,12 @@ from flows.booking.book import (
 from flows.booking.cancel import _handle_awaiting_cancel_confirm, _handle_awaiting_cancel_selection, _start_cancel_flow
 from flows.booking.manage_patients import _handle_awaiting_manage_patients_action, _handle_awaiting_unlink_confirm
 from flows.booking.messages import _handle_awaiting_patient_selection, _send_main_menu
-from flows.booking.types._diagnostic_shared import _handle_awaiting_diagnostic_test, _handle_awaiting_diagnostic_variant
+from flows.booking.types._diagnostic_shared import _handle_awaiting_diagnostic_test
 from flows.booking.types.followup import _handle_awaiting_followup_selection
 from flows.booking.types.tele_consultation import _handle_awaiting_tele_sub_type
 from flows.booking.types.lab import (
     _handle_awaiting_collection_address, _handle_awaiting_collection_method, _handle_awaiting_collection_pincode,
-    _handle_awaiting_lab_test, _handle_awaiting_lab_test_variant,
+    _handle_awaiting_lab_test,
 )
 from flows.booking.types.procedure import (
     _handle_awaiting_procedure, _handle_awaiting_procedure_request_confirm,
@@ -44,9 +44,9 @@ from flows.booking.state import (
     STATE_AWAITING_COLLECTION_PINCODE, STATE_AWAITING_CONFIRMATION, STATE_AWAITING_CONSENT, STATE_AWAITING_DATE,
     STATE_AWAITING_PROCEDURE, STATE_AWAITING_PROCEDURE_REQUEST_CONFIRM,
     STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE, STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT,
-    STATE_AWAITING_DIAGNOSTIC_TEST, STATE_AWAITING_DIAGNOSTIC_VARIANT,
+    STATE_AWAITING_DIAGNOSTIC_TEST,
     STATE_AWAITING_DEPARTMENT, STATE_AWAITING_DOCTOR, STATE_AWAITING_FOLLOWUP_SELECTION,
-    STATE_AWAITING_LAB_TEST, STATE_AWAITING_LAB_TEST_VARIANT, STATE_AWAITING_TELE_SUB_TYPE,
+    STATE_AWAITING_LAB_TEST, STATE_AWAITING_TELE_SUB_TYPE,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION, STATE_AWAITING_PATIENT_AGE, STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_PATIENT_SELECTION, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, STATE_AWAITING_TIME_SLOT,
@@ -100,9 +100,7 @@ _HANDLERS = {
     STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE: _handle_awaiting_procedure_reschedule_date,
     STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT: _handle_awaiting_procedure_reschedule_slot,
     STATE_AWAITING_DIAGNOSTIC_TEST: _handle_awaiting_diagnostic_test,
-    STATE_AWAITING_DIAGNOSTIC_VARIANT: _handle_awaiting_diagnostic_variant,
     STATE_AWAITING_LAB_TEST: _handle_awaiting_lab_test,
-    STATE_AWAITING_LAB_TEST_VARIANT: _handle_awaiting_lab_test_variant,
     STATE_AWAITING_COLLECTION_METHOD: _handle_awaiting_collection_method,
     STATE_AWAITING_COLLECTION_PINCODE: _handle_awaiting_collection_pincode,
     STATE_AWAITING_COLLECTION_ADDRESS: _handle_awaiting_collection_address,

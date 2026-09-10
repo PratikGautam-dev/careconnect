@@ -1,34 +1,89 @@
 # db/repositories/slots.py
-"""Real, persisted doctor_slots rows (see db/repository.py's former module
-docstring). Split out of db/repository.py -- see ARCHITECTURE_PLAN.md
-Phase 1."""
+"""A doctor's bookable slots, computed live (migration 0032) -- split out of
+db/repository.py, see ARCHITECTURE_PLAN.md Phase 1.
+
+get_doctor_grid() is the one place that merges doctors.py's live-computed
+candidates with doctor_slot_overrides' exceptions (blocked/custom-added) --
+every other function here either filters that grid down (get_slots(),
+get_doctor_slots_for_admin()) or writes an override row (set_slot_blocked(),
+add_custom_slot(), remove_slot()). Deliberately NOT cached here -- this repo
+layer is storage-agnostic and stays correct even when Redis is unset;
+connectors/tier1.py is where the (optional, purely a perf win) grid cache
+lives, wrapping get_doctor_grid() for the bot-facing read path only."""
 from datetime import datetime
-from typing import cast
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import CursorResult
 
 from db.connection import get_session
 from db.models import STATUS_BOOKED
-from db.orm_models import AppointmentRow, DoctorRow, DoctorSlot
+from db.orm_models import AppointmentRow, DoctorRow, DoctorSlotOverride
+from db.repositories.doctors import compute_doctor_candidate_slots, invalidate_doctor_slots_cache
+from db.repositories.hospital_settings import get_future_booking_days
 
-# --- Slots (real, persisted rows — see module docstring) ---
+# --- The grid: live candidates + overrides, not yet filtered by booked state ---
 
-def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[dict]:
-    """This doctor's generated doctor_slots rows, minus any that have already
-    reached this doctor's max_bookings_per_slot worth of *booked* appointments
-    at that exact time (Phase 8, extended by Section 14.7: the default
-    max_bookings_per_slot=1 means "any booked appointment at all," exactly
-    Phase 8's original behavior; >1 keeps offering the slot until that many
-    patients have booked it), AND already in the past relative to `now`
-    (defaults to the real current time) -- generate_slots_for_doctor() never
-    deletes old rows once their date has passed, so without this filter a
-    doctor's date/time menus would keep offering yesterday's (or last week's)
-    now-unbookable slots forever. Same `scheduled_at >= now` filter
-    get_doctor_slots_for_admin() already applies for its own "from now
-    onward" mode -- this is the bot/staff-booking-facing equivalent that was
-    missing it."""
+def get_doctor_grid(hospital_id: int, doctor_id: str, days_ahead: int, now: datetime | None = None) -> list[dict]:
+    """Every slot this doctor could conceivably offer -- the union of
+    compute_doctor_candidate_slots()'s live-computed normal-pattern
+    candidates and any is_custom override, each annotated with its current
+    blocked/block_reason (defaulting to not-blocked for a plain candidate
+    with no override row at all). NOT filtered by booked state or by `now`
+    beyond what compute_doctor_candidate_slots() itself already excludes
+    (today and the past) -- callers filter further for their own purpose
+    (get_slots() removes blocked/past/booked-out; get_doctor_slots_for_admin()
+    keeps blocked ones visible so staff can unblock them)."""
+    today = (now or datetime.now()).date()
+    candidates = compute_doctor_candidate_slots(hospital_id, doctor_id, days_ahead, now=today)
+
+    session = get_session()
+    override_rows = session.execute(
+        select(
+            DoctorSlotOverride.scheduled_at, DoctorSlotOverride.is_custom,
+            DoctorSlotOverride.blocked, DoctorSlotOverride.block_reason, DoctorSlotOverride.excluded,
+        )
+        .where(DoctorSlotOverride.hospital_id == hospital_id, DoctorSlotOverride.doctor_id == doctor_id)
+    ).all()
+    overrides = {row.scheduled_at: row for row in override_rows}
+
+    grid: dict[str, dict] = {}
+    for scheduled_at in candidates:
+        override = overrides.get(scheduled_at)
+        if override and override.excluded:
+            continue
+        grid[scheduled_at] = {
+            "scheduled_at": scheduled_at,
+            "blocked": override.blocked if override else False,
+            "block_reason": override.block_reason if override else None,
+        }
+    for scheduled_at, override in overrides.items():
+        if override.excluded:
+            continue
+        if override.is_custom and scheduled_at not in grid:
+            grid[scheduled_at] = {
+                "scheduled_at": scheduled_at, "blocked": override.blocked, "block_reason": override.block_reason,
+            }
+    return sorted(grid.values(), key=lambda entry: entry["scheduled_at"])
+
+
+def _is_valid_grid_entry(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
+    grid = get_doctor_grid(hospital_id, doctor_id, get_future_booking_days(hospital_id))
+    return any(entry["scheduled_at"] == scheduled_at for entry in grid)
+
+
+# --- Bot/staff-booking-facing: grid filtered to what's actually offerable ---
+
+def filter_grid_to_available(hospital_id: int, doctor_id: str, grid: list[dict], now: datetime | None = None) -> list[dict]:
+    """The live, never-cached half of availability -- booked state changes on
+    every booking, so connectors/tier1.py caches get_doctor_grid()'s output
+    (the slow-changing part) but always calls this fresh on top of it.
+    max_bookings_per_slot (Phase 8, extended by Section 14.7: default 1
+    means "any booked appointment at all"; >1 keeps offering the slot until
+    that many patients have booked it) and the `scheduled_at >= now` filter
+    (compute_doctor_candidate_slots() already excludes today/the past for
+    normal-pattern candidates, but a custom-added override could be for any
+    date) both matter here, same as this function's pre-migration-0032
+    equivalent."""
     session = get_session()
     doctor_row = session.execute(
         select(DoctorRow.max_bookings_per_slot).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
@@ -45,23 +100,16 @@ def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> 
     for row in booked_rows:
         booked_counts[row.scheduled_at] = booked_counts.get(row.scheduled_at, 0) + 1
 
-    slot_rows = session.execute(
-        select(DoctorSlot.scheduled_at)
-        .where(
-            DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id, DoctorSlot.blocked.is_(False),
-            DoctorSlot.scheduled_at >= (now or datetime.now()).isoformat(),
-        )
-        .order_by(DoctorSlot.scheduled_at)
-    ).all()
-
+    now_iso = (now or datetime.now()).isoformat()
     slots = []
-    for row in slot_rows:
-        scheduled_at_iso = row.scheduled_at
-        if booked_counts.get(scheduled_at_iso, 0) >= max_bookings_per_slot:
+    for entry in grid:
+        if entry["blocked"] or entry["scheduled_at"] < now_iso:
             continue
-        dt = datetime.fromisoformat(scheduled_at_iso)
+        if booked_counts.get(entry["scheduled_at"], 0) >= max_bookings_per_slot:
+            continue
+        dt = datetime.fromisoformat(entry["scheduled_at"])
         slots.append({
-            "id": scheduled_at_iso,
+            "id": entry["scheduled_at"],
             "date": dt.date().isoformat(),
             "time": dt.strftime("%H:%M"),
             "label": f"{dt.strftime('%a %d %b')} {dt.strftime('%H:%M')}",
@@ -69,51 +117,57 @@ def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> 
     return slots
 
 
+def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[dict]:
+    """Convenience wrapper for callers that don't need the grid/booked-state
+    split connectors/tier1.py's caching relies on (tests, portal code, etc.)
+    -- same signature and output shape as before migration 0032."""
+    grid = get_doctor_grid(hospital_id, doctor_id, get_future_booking_days(hospital_id), now=now)
+    return filter_grid_to_available(hospital_id, doctor_id, grid, now=now)
+
+
 def get_doctor_slots_for_admin(
     hospital_id: int, doctor_id: str, date_str: str | None = None, now: datetime | None = None,
 ) -> list[dict]:
-    """Item 1 (Spec.md Section 0) + "view all slots" follow-up: every
-    generated slot for this doctor, blocked or not and booked or not -- the
-    admin/portal view for manually blocking/removing individual slots needs
-    to see all of them, unlike get_slots() above (the bot/staff-booking-
-    facing list, which only ever shows what's actually still offerable).
+    """Item 1 (Spec.md Section 0) + "view all slots" follow-up: every slot in
+    this doctor's grid, blocked or not and booked or not -- the admin/portal
+    view for manually blocking/removing individual slots needs to see all of
+    them, unlike get_slots() above (the bot/staff-booking-facing list, which
+    only ever shows what's actually still offerable).
 
-    date_str scopes to one calendar day (the original behavior); omitting
-    it returns every slot from now onward across the doctor's whole
-    generated window, each row carrying its own "date" so the portal can
-    group them by day in one list rather than paging through dates one at a
-    time to find (and remove) a specific slot."""
-    session = get_session()
-    slot_stmt = select(DoctorSlot.scheduled_at, DoctorSlot.blocked, DoctorSlot.block_reason).where(
-        DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id,
-    )
-    booked_stmt = select(AppointmentRow.scheduled_at).where(
-        AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
-        AppointmentRow.status == STATUS_BOOKED,
-    )
+    date_str scopes to one calendar day (the original behavior); omitting it
+    returns every slot from now onward across the doctor's whole computed
+    window, each row carrying its own "date" so the portal can group them by
+    day in one list rather than paging through dates one at a time."""
+    grid = get_doctor_grid(hospital_id, doctor_id, get_future_booking_days(hospital_id), now=now)
     if date_str:
         start, end = f"{date_str}T00:00:00", f"{date_str}T23:59:59"
-        slot_stmt = slot_stmt.where(DoctorSlot.scheduled_at >= start, DoctorSlot.scheduled_at <= end)
-        booked_stmt = booked_stmt.where(AppointmentRow.scheduled_at >= start, AppointmentRow.scheduled_at <= end)
+        grid = [e for e in grid if start <= e["scheduled_at"] <= end]
     else:
         start = (now or datetime.now()).isoformat()
-        slot_stmt = slot_stmt.where(DoctorSlot.scheduled_at >= start)
-        booked_stmt = booked_stmt.where(AppointmentRow.scheduled_at >= start)
-    slot_rows = session.execute(slot_stmt.order_by(DoctorSlot.scheduled_at)).all()
-    booked_rows = session.execute(booked_stmt).all()
+        grid = [e for e in grid if e["scheduled_at"] >= start]
+
+    session = get_session()
+    booked_rows = session.execute(
+        select(AppointmentRow.scheduled_at).where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.status == STATUS_BOOKED,
+        )
+    ).all()
     booked_at = {row.scheduled_at for row in booked_rows}
     return [
         {
-            "scheduled_at": row.scheduled_at,
-            "date": datetime.fromisoformat(row.scheduled_at).date().isoformat(),
-            "time": datetime.fromisoformat(row.scheduled_at).strftime("%H:%M"),
-            "blocked": row.blocked,
-            "block_reason": row.block_reason,
-            "booked": row.scheduled_at in booked_at,
+            "scheduled_at": e["scheduled_at"],
+            "date": datetime.fromisoformat(e["scheduled_at"]).date().isoformat(),
+            "time": datetime.fromisoformat(e["scheduled_at"]).strftime("%H:%M"),
+            "blocked": e["blocked"],
+            "block_reason": e["block_reason"],
+            "booked": e["scheduled_at"] in booked_at,
         }
-        for row in slot_rows
+        for e in grid
     ]
 
+
+# --- Admin overrides: doctor_slot_overrides is the only thing written here ---
 
 def set_slot_blocked(
     hospital_id: int, doctor_id: str, scheduled_at: str, blocked: bool, reason: str | None = None,
@@ -123,10 +177,16 @@ def set_slot_blocked(
     reschedule that appointment first, same as this project's existing
     "never silently override an active booking" discipline elsewhere) --
     returns False rather than raising, since this is a normal/expected
-    rejection a caller should show as a clear message, not a 500. Unblocking
-    has no such restriction (a blocked slot can never have a real booking on
-    it in the first place, since get_slots() never offers a blocked slot to
-    book)."""
+    rejection a caller should show as a clear message, not a 500. Also
+    refuses (either direction) if scheduled_at isn't actually a slot this
+    doctor's grid ever offers -- there being no persisted row to look up
+    anymore (migration 0032) means "does this slot exist" has to be checked
+    against the live grid instead of a simple row lookup.
+
+    Unblocking an already-not-blocked slot still succeeds (matches this
+    function's pre-migration-0032 contract) -- and if the resulting override
+    row represents nothing anymore (not custom, not blocked), it's deleted
+    rather than kept, so this table only ever holds real exceptions."""
     session = get_session()
     if blocked:
         existing = session.execute(
@@ -137,51 +197,74 @@ def set_slot_blocked(
         ).first()
         if existing:
             return False
-    result = cast(CursorResult, session.execute(
-        update(DoctorSlot)
-        .where(DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id, DoctorSlot.scheduled_at == scheduled_at)
-        .values(blocked=blocked, block_reason=reason if blocked else None)
-    ))
+    if not _is_valid_grid_entry(hospital_id, doctor_id, scheduled_at):
+        return False
+
+    if blocked:
+        session.execute(
+            pg_insert(DoctorSlotOverride)
+            .values(
+                hospital_id=hospital_id, doctor_id=doctor_id, scheduled_at=scheduled_at,
+                is_custom=False, blocked=True, block_reason=reason,
+            )
+            .on_conflict_do_update(
+                index_elements=["doctor_id", "scheduled_at"], set_={"blocked": True, "block_reason": reason},
+            )
+        )
+    else:
+        session.execute(
+            update(DoctorSlotOverride)
+            .where(
+                DoctorSlotOverride.hospital_id == hospital_id, DoctorSlotOverride.doctor_id == doctor_id,
+                DoctorSlotOverride.scheduled_at == scheduled_at,
+            )
+            .values(blocked=False, block_reason=None)
+        )
+        session.execute(
+            delete(DoctorSlotOverride).where(
+                DoctorSlotOverride.hospital_id == hospital_id, DoctorSlotOverride.doctor_id == doctor_id,
+                DoctorSlotOverride.scheduled_at == scheduled_at, DoctorSlotOverride.is_custom.is_(False),
+                DoctorSlotOverride.blocked.is_(False), DoctorSlotOverride.excluded.is_(False),
+            )
+        )
     session.commit()
-    return result.rowcount > 0
+    invalidate_doctor_slots_cache(hospital_id, doctor_id)
+    return True
 
 
 def add_custom_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
     """Add/remove-slot follow-up (Spec.md Section 0): a genuinely one-off
-    extra slot outside the doctor's normal generated working-hours pattern
-    (e.g. a special Saturday clinic, or filling in a date that generated
-    none at all) -- distinct from set_slot_blocked() above, which only
-    ever toggles an already-generated row. Same UNIQUE(doctor_id,
-    scheduled_at) constraint doctor_slots already has (Section 12.1.1)
-    makes this ON CONFLICT DO NOTHING, so adding a time that already exists
-    is a harmless no-op, not an error.
-
-    Caveat, not fully solved here (flagged rather than silently assumed
-    away): a later doctor-schedule edit with no effective_from
-    (db.update_doctor()) wipes and regenerates EVERY future doctor_slots
-    row purely from the working-hours pattern -- a custom slot added here
-    would be wiped out by that regeneration too, same as any other slot.
-    Acceptable for now (matches how every other slot already behaves under
-    a schedule edit); worth a dedicated "protect custom slots" fix only if
-    that turns out to matter in practice."""
+    extra slot outside the doctor's normal computed working-hours pattern
+    (e.g. a special Saturday clinic, or filling in a date that computes
+    none at all) -- distinct from set_slot_blocked() above, which only ever
+    toggles an already-offerable slot. ON CONFLICT DO UPDATE (rather than DO
+    NOTHING) so re-adding a slot that already has a blocked override just
+    flips is_custom on without disturbing that existing block -- and clears
+    excluded, so explicitly re-adding a previously-removed slot brings it
+    back rather than leaving it silently suppressed."""
     session = get_session()
     session.execute(
-        pg_insert(DoctorSlot)
-        .values(hospital_id=hospital_id, doctor_id=doctor_id, scheduled_at=scheduled_at)
-        .on_conflict_do_nothing(index_elements=["doctor_id", "scheduled_at"])
+        pg_insert(DoctorSlotOverride)
+        .values(hospital_id=hospital_id, doctor_id=doctor_id, scheduled_at=scheduled_at, is_custom=True, blocked=False, excluded=False)
+        .on_conflict_do_update(index_elements=["doctor_id", "scheduled_at"], set_={"is_custom": True, "excluded": False})
     )
     session.commit()
+    invalidate_doctor_slots_cache(hospital_id, doctor_id)
     return True
 
 
 def remove_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
-    """The other half of add/remove: a real hard DELETE of the doctor_slots
-    row (not a soft-hide like set_slot_blocked(blocked=True), which keeps
-    the row so it can be unblocked later) -- for permanently taking a slot
-    out of the generated set rather than just toggling its availability.
-    Refuses to remove a slot with a real BOOKED appointment on it, same
-    guard set_slot_blocked() already uses -- cancel/reschedule that
-    appointment first."""
+    """The other half of add/remove: takes a slot out of the offered set
+    outright -- gone from get_slots() AND the admin view, unlike
+    set_slot_blocked() above which keeps it visible for later unblocking.
+    A normal-pattern slot has no persisted row to delete (migration 0032),
+    so this is recorded as its own exclusion (migration 0034's `excluded`
+    column) rather than a DELETE -- otherwise the live computation would
+    just regenerate the slot on the very next read. Refuses to remove a
+    slot with a real BOOKED appointment on it, same guard set_slot_blocked()
+    already uses, and refuses a scheduled_at that isn't currently a valid
+    grid entry at all (matches this function's pre-migration-0032 contract
+    of only ever affecting a real, existing slot)."""
     session = get_session()
     existing = session.execute(
         select(AppointmentRow.id).where(
@@ -191,14 +274,19 @@ def remove_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
     ).first()
     if existing:
         return False
-    result = cast(CursorResult, session.execute(
-        delete(DoctorSlot).where(
-            DoctorSlot.hospital_id == hospital_id, DoctorSlot.doctor_id == doctor_id,
-            DoctorSlot.scheduled_at == scheduled_at,
+    if not _is_valid_grid_entry(hospital_id, doctor_id, scheduled_at):
+        return False
+    session.execute(
+        pg_insert(DoctorSlotOverride)
+        .values(
+            hospital_id=hospital_id, doctor_id=doctor_id, scheduled_at=scheduled_at,
+            is_custom=False, blocked=False, excluded=True,
         )
-    ))
+        .on_conflict_do_update(index_elements=["doctor_id", "scheduled_at"], set_={"excluded": True})
+    )
     session.commit()
-    return result.rowcount > 0
+    invalidate_doctor_slots_cache(hospital_id, doctor_id)
+    return True
 
 
 def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
@@ -206,5 +294,3 @@ def find_slot(hospital_id: int, doctor_id: str, slot_id: str) -> dict | None:
         if s["id"] == slot_id:
             return s
     return None
-
-

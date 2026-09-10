@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
-import { saveStaffSession } from "@/lib/staffAuth";
+import { saveStaffTokens } from "@/lib/staffAuth";
 import { googleLoginUrl } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -19,6 +20,7 @@ export default function PortalLoginPage() {
   const [staffPassword, setStaffPassword] = useState("");
   const [staffError, setStaffError] = useState<string | null>(null);
   const [staffSubmitting, setStaffSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,16 +34,10 @@ export default function PortalLoginPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setStaffError(data.error || "Incorrect email or password.");
+        setStaffError(data.error || "Couldn't sign in. Please try again.");
         return;
       }
-      saveStaffSession(data.access_token, data.refresh_token, {
-        id: data.staff.id,
-        name: data.staff.name,
-        role: data.staff.role,
-        hospital: data.staff.hospital,
-        permissions: data.permissions,
-      });
+      saveStaffTokens(data.access_token, data.refresh_token);
       // Every role (including doctor) lands in the same shared portal now --
       // what they see there is driven by the RBAC permission matrix, not by
       // which door they logged in through.
@@ -93,15 +89,32 @@ export default function PortalLoginPage() {
               onChange={(e) => setStaffEmail(e.target.value)}
             />
           </Field>
-          <Field label="Password" htmlFor="staff_password" error={staffError || undefined}>
-            <Input
-              id="staff_password"
-              type="password"
-              value={staffPassword}
-              invalid={!!staffError}
-              onChange={(e) => setStaffPassword(e.target.value)}
-            />
+          <Field label="Password" htmlFor="staff_password">
+            <div className="relative">
+              <Input
+                id="staff_password"
+                type={showPassword ? "text" : "password"}
+                value={staffPassword}
+                invalid={!!staffError}
+                onChange={(e) => setStaffPassword(e.target.value)}
+                className="pr-space-9"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                className="absolute right-space-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </Field>
+          {staffError && (
+            <p className="-mt-space-2 mb-space-4 rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] font-medium text-error">
+              {staffError}
+            </p>
+          )}
           <Button
             type="submit"
             disabled={staffSubmitting || !staffEmail || !staffPassword}

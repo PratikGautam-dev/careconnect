@@ -6,6 +6,78 @@ module."""
 import db.repository as repo
 
 from connectors.base import Connector
+from core.redis_client import cache_get_json, cache_set_json
+
+# The bot-facing resource/procedure slot-list reads below are re-run from
+# scratch (a few DB queries each) on nearly every WhatsApp turn during date/
+# time selection -- short-TTL cached here, not in db/repositories/*.py,
+# because those repo functions are also called directly by portal/admin
+# routes that must always see live data. TTL-only, no active invalidation on
+# booking/cancel/reschedule -- kept short enough that staleness is smaller
+# than the natural gap between WhatsApp messages, and never load-bearing for
+# correctness anyway: the real double-booking guard is the DB's own
+# unique-slot constraint at booking-creation time, which this cache never
+# sits in front of -- a stale slot shown here just hits the existing
+# "slot taken, pick another" retry path if someone else took it meanwhile.
+# No-ops to a live DB read whenever Redis is unset/unreachable
+# (core/redis_client.py's own contract), so this is a pure win with no new
+# failure mode. Doctors use a different, longer-lived cache below (grid
+# cache) now that migration 0032 replaced their pre-generated window with a
+# live computation -- see get_available_slots().
+_SLOTS_CACHE_TTL_SECONDS = 10
+
+# Doctor grid cache (migration 0032/0033): candidates + overrides, NOT
+# filtered by who's currently booked -- the slow-changing half of
+# availability, safe to cache far longer than _SLOTS_CACHE_TTL_SECONDS
+# because it's actively invalidated the moment it could actually change
+# (doctors.py's invalidate_doctor_slots_cache(), called from every write
+# that touches schedule/leave/overrides) rather than relying on the TTL
+# alone. Booked state is always read live on top of it in
+# filter_grid_to_available() -- that's the part that changes on every
+# booking, so it must never be cached. Net effect: one patient's request
+# computes and caches the grid; every other patient asking about the same
+# doctor for up to an hour (or until something real changes) reuses it.
+_DOCTOR_GRID_CACHE_TTL_SECONDS = 60 * 60
+
+# Self-healing slot top-up (replaces a hard dependency on the external cron
+# that's supposed to hit /internal/top-up-slots -- found live: nothing was
+# actually hitting it, so a doctor's rolling window silently ran dry with no
+# warning at all). Gated by a once-per-entity-per-day flag so a busy
+# doctor/resource/procedure isn't regenerated on every single WhatsApp turn.
+# When Redis is unreachable this just runs generation on every call instead
+# -- correct (every generate_slots_for_*() is idempotent, ON CONFLICT DO
+# NOTHING), just more DB work, same safe-degradation the cache above accepts.
+_TOPUP_CHECK_TTL_SECONDS = 24 * 60 * 60
+
+
+def _ensure_topped_up(cache_namespace: str, generate) -> None:
+    flag_key = f"topped_up:{cache_namespace}"
+    if cache_get_json(flag_key) is not None:
+        return
+    generate()
+    cache_set_json(flag_key, True, ttl_seconds=_TOPUP_CHECK_TTL_SECONDS)
+
+
+def reset_slots_cache_for_tests() -> None:
+    """Test-only: tests/conftest.py's _fresh_test_db fixture recreates the
+    Postgres schema per test, so hospital/doctor/resource ids get REUSED
+    across tests -- without this, a slot list OR a "this entity is topped up
+    for today" flag cached by one test could leak into the very next one
+    within its TTL, the same class of cross-test bleed core/rate_limit.py's
+    reset_all_for_tests() and portal/permission_cache.py's reset_for_tests()
+    already guard against for their own caches. Not called anywhere in
+    application code."""
+    from core.redis_client import get_redis
+
+    client = get_redis()
+    if client is None:
+        return
+    try:
+        for pattern in ("slots:*", "slots_grid:*", "topped_up:*"):
+            for key in client.scan_iter(pattern):
+                client.delete(key)
+    except Exception:
+        pass
 
 
 class Tier1Connector(Connector):
@@ -28,16 +100,33 @@ class Tier1Connector(Connector):
         return repo.get_doctors(hospital_id, department_id)
 
     def get_available_slots(self, hospital_id, doctor_id):
-        return repo.get_slots(hospital_id, doctor_id)
+        cache_key = f"slots_grid:doctor:{hospital_id}:{doctor_id}"
+        grid = cache_get_json(cache_key)
+        if grid is None:
+            grid = repo.get_doctor_grid(hospital_id, doctor_id, repo.get_future_booking_days(hospital_id))
+            cache_set_json(cache_key, grid, ttl_seconds=_DOCTOR_GRID_CACHE_TTL_SECONDS)
+        return repo.filter_grid_to_available(hospital_id, doctor_id, grid)
 
     def get_available_resource_slots(self, hospital_id, resource_id):
-        return repo.get_resource_slots(hospital_id, resource_id)
+        _ensure_topped_up(
+            f"test:{hospital_id}:{resource_id}",
+            lambda: repo.generate_slots_for_test(
+                hospital_id, resource_id, days_ahead=repo.get_future_booking_days(hospital_id),
+            ),
+        )
+        cache_key = f"slots:test:{hospital_id}:{resource_id}"
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return cached
+        slots = repo.get_test_slots(hospital_id, resource_id)
+        cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
+        return slots
 
     def get_diagnostic_tests(self, hospital_id, category):
         return repo.get_diagnostic_tests(hospital_id, category)
 
-    def get_diagnostic_resources(self, hospital_id):
-        return repo.get_diagnostic_resources(hospital_id)
+    def get_diagnostic_test_summaries(self, hospital_id):
+        return repo.get_diagnostic_test_summaries(hospital_id)
 
     def get_service_areas(self, hospital_id):
         return repo.get_service_areas(hospital_id)
@@ -45,13 +134,13 @@ class Tier1Connector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         return repo.is_pincode_serviceable(hospital_id, pincode)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_variant_id=None, diagnostic_test_label=None, diagnostic_variant_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
             source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
             appointment_type_id=appointment_type_id, consent_given_at=consent_given_at, resource_id=resource_id,
-            diagnostic_test_id=diagnostic_test_id, diagnostic_test_variant_id=diagnostic_test_variant_id,
-            diagnostic_test_label=diagnostic_test_label, diagnostic_variant_label=diagnostic_variant_label,
+            diagnostic_test_id=diagnostic_test_id,
+            diagnostic_test_label=diagnostic_test_label,
             diagnostic_price=diagnostic_price,
         )
 
@@ -103,10 +192,9 @@ class Tier1Connector(Connector):
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         repo.set_appointment_video_link(hospital_id, appointment_id, video_link)
 
-    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id, diagnostic_test_label, diagnostic_variant_label, diagnostic_price):
+    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price):
         repo.set_appointment_diagnostic_details(
-            hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_variant_id,
-            diagnostic_test_label, diagnostic_variant_label, diagnostic_price,
+            hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price,
         )
 
     def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
@@ -128,7 +216,27 @@ class Tier1Connector(Connector):
         return repo.get_procedure(hospital_id, procedure_id)
 
     def get_procedure_available_slots(self, hospital_id, procedure_id):
-        return repo.get_procedure_available_slots(hospital_id, procedure_id)
+        def _top_up_every_pooled_resource() -> None:
+            # A procedure has no single resource of its own -- it draws from
+            # EVERY resource across EVERY one of its required pools (see
+            # db/repositories/procedure_slots.py's get_procedure_available_
+            # slots()), so self-healing means topping up all of them, not one.
+            procedure = repo.get_procedure(hospital_id, procedure_id)
+            if procedure is None:
+                return
+            days_ahead = repo.get_future_booking_days(hospital_id)
+            for resource_type in procedure["required_resource_types"]:
+                for resource in repo.get_active_procedure_resources_for_hospital(hospital_id, resource_type):
+                    repo.generate_slots_for_procedure_resource(hospital_id, resource["id"], days_ahead=days_ahead)
+
+        _ensure_topped_up(f"procedure:{hospital_id}:{procedure_id}", _top_up_every_pooled_resource)
+        cache_key = f"slots:procedure:{hospital_id}:{procedure_id}"
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return cached
+        slots = repo.get_procedure_available_slots(hospital_id, procedure_id)
+        cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
+        return slots
 
     def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
         return repo.create_procedure_appointment(
@@ -185,9 +293,9 @@ class Tier1Connector(Connector):
         the same way create_procedure_booking() does. See
         connector.request_procedure_reschedule()/confirm_procedure_appointment().
 
-        Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/variant/label/
-        price all carry forward the same way -- rescheduling moves the slot,
-        never re-asks which test/variant was chosen.
+        Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/label/price all
+        carry forward the same way -- rescheduling moves the slot, never
+        re-asks which test was chosen.
 
         Lab Test Phase 2 follow-up: collection_method/address/pincode/
         home_collection_charge carry forward the same way -- rescheduling
@@ -204,9 +312,7 @@ class Tier1Connector(Connector):
             appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
             resource_id=resource_id if resource_id is not None else (old_appointment.resource_id if old_appointment else None),
             diagnostic_test_id=old_appointment.diagnostic_test_id if old_appointment else None,
-            diagnostic_test_variant_id=old_appointment.diagnostic_test_variant_id if old_appointment else None,
             diagnostic_test_label=old_appointment.diagnostic_test_label if old_appointment else None,
-            diagnostic_variant_label=old_appointment.diagnostic_variant_label if old_appointment else None,
             diagnostic_price=old_appointment.diagnostic_price if old_appointment else None,
             collection_method=old_appointment.collection_method if old_appointment else None,
             collection_address=old_appointment.collection_address if old_appointment else None,

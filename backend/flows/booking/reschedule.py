@@ -21,7 +21,8 @@ from flows.booking.messages import (
     _send_reschedule_confirm, _send_time_menu,
 )
 from flows.booking.state import (
-    BACK_ID, CONFIRM_NO, CONFIRM_YES, STATE_AWAITING_RESCHEDULE_CONFIRM, STATE_AWAITING_RESCHEDULE_DATE,
+    BACK_ID, CONFIRM_NO, CONFIRM_YES, NEXT_TIMES_ID, PREV_TIMES_ID, STATE_AWAITING_RESCHEDULE_CONFIRM,
+    STATE_AWAITING_RESCHEDULE_DATE,
     STATE_AWAITING_RESCHEDULE_SELECTION, STATE_AWAITING_RESCHEDULE_SLOT, _append_closing_message, _date_label,
     _find_by_id,
 )
@@ -175,7 +176,7 @@ async def _handle_awaiting_reschedule_date(
             return
         available_dates = {s["date"] for s in _slots()}
         if reply["id"] in available_dates:
-            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"])}
+            new_context = {**context, "date": reply["id"], "date_label": _date_label(reply["id"]), "time_slot_page": 0}
             sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, new_context)
             await _send_time_menu(wa, phone, hospital_id, doctor_id, reply["id"], connector, language=language, resource_id=resource_id)
             return
@@ -217,6 +218,17 @@ async def _handle_awaiting_reschedule_slot(
             sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, context)
             await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language, resource_id=resource_id)
             return
+        if reply["id"] in (NEXT_TIMES_ID, PREV_TIMES_ID):
+            current_page = context.get("time_slot_page", 0)
+            requested_page = current_page + 1 if reply["id"] == NEXT_TIMES_ID else max(0, current_page - 1)
+            actual_page = await _send_time_menu(
+                wa, phone, hospital_id, doctor_id, date_str, connector, language=language,
+                resource_id=resource_id, page=requested_page,
+            )
+            sessions.set(
+                hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, {**context, "time_slot_page": actual_page},
+            )
+            return
         slot = _find_by_id(_slots(), reply["id"])
         if slot and slot["date"] == date_str:
             new_context = {
@@ -237,7 +249,10 @@ async def _handle_awaiting_reschedule_slot(
         await _send_date_menu(wa, phone, hospital_id, doctor_id, doctor_name, connector, language=language, resource_id=resource_id)
         return
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_SLOT, context)
-    await _send_time_menu(wa, phone, hospital_id, doctor_id, date_str, connector, language=language, resource_id=resource_id)
+    await _send_time_menu(
+        wa, phone, hospital_id, doctor_id, date_str, connector, language=language, resource_id=resource_id,
+        page=context.get("time_slot_page", 0),
+    )
 
 
 async def _handle_awaiting_reschedule_confirm(
