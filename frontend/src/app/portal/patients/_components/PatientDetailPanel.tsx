@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
@@ -98,6 +99,12 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
 
   const address = summary?.patient.address ?? null;
   const latestVisit = summary?.visit_history[0] ?? null;
+
+  const quickActions: QuickAction[] = [
+    { label: "Book Appointment", icon: CalendarPlus, onClick: onBookAppointment },
+    { label: "View Reports", icon: FileText, onClick: () => setTab("Reports") },
+    { label: "Send Message", icon: MessageCircle, disabled: true, title: "Coming soon — no patient-facing internal messaging exists yet" },
+  ];
 
   return (
     <Card className="p-space-4">
@@ -187,31 +194,9 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
 
           <div className="border-t border-line pt-space-3">
             <p className="text-label mb-space-2 font-bold text-ink-900">Quick Actions</p>
-            <div className="grid grid-cols-2 gap-space-2">
-              <button
-                type="button"
-                onClick={onBookAppointment}
-                className="flex items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:border-brand-300 hover:bg-brand-50"
-              >
-                <CalendarPlus size={14} /> Book Appointment
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("Reports")}
-                className="flex items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:border-brand-300 hover:bg-brand-50"
-              >
-                <FileText size={14} /> View Reports
-              </button>
-              <button
-                type="button"
-                disabled
-                title="Coming soon — no patient-facing internal messaging exists yet"
-                className="flex cursor-not-allowed items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-400"
-              >
-                <MessageCircle size={14} /> Send Message
-              </button>
+            <QuickActionList actions={quickActions} columns={2} size="sm">
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center justify-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:border-brand-300 hover:bg-brand-50">
+                <DropdownMenuTrigger className="flex w-full items-center justify-center gap-space-2 rounded-md px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:bg-brand-50 hover:text-brand-700">
                   <MoreHorizontal size={14} /> More
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
@@ -222,7 +207,7 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
+            </QuickActionList>
           </div>
         </div>
       )}

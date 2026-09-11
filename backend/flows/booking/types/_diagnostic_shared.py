@@ -169,9 +169,9 @@ async def _on_diagnostic_booking_confirmed(appointment, connector, context: dict
     so this is correctly a no-op for that call site."""
     test_id = context.get("diagnostic_test_id")
     if test_id is not None:
-        connector.set_appointment_diagnostic_details(
+        connector.set_appointment_diagnostic_label_and_price(
             appointment.hospital_id, appointment.id,
-            test_id, context.get("diagnostic_test_name"), context.get("diagnostic_price"),
+            context.get("diagnostic_test_name"), context.get("diagnostic_price"),
         )
 
 

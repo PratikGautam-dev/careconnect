@@ -10,7 +10,6 @@ import {
   FileText,
   Search,
   Send,
-  SlidersHorizontal,
   Trash2,
   UploadCloud,
   X,
@@ -21,10 +20,13 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { FilterActions } from "@/components/portal/FilterActions";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
+import { NewTestBookingDialog } from "@/components/portal/NewTestBookingDialog";
+import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
@@ -79,14 +81,15 @@ function pctDelta(current: number, previous: number): number | null {
 export default function PortalDiagnosticAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
   const [tab, setTab] = useState<Tab>("all");
+  const [newTestBookingOpen, setNewTestBookingOpen] = useState(false);
   const {
-    appointments, allAppointments, error,
+    appointments, allAppointments, error, load,
     page, setPage, total, pageSize,
     searchQuery, setSearchQuery,
     statusFilter, setStatusFilter, typeFilter, setTypeFilter,
     applyFilters, resetFilters, filtersDirty,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
-    reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
+    reschedulePanelId, reschedulingId, rescheduleSlotsByDate, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
     rDate, setRDate, rSlotId, setRSlotId,
     rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,
@@ -118,9 +121,12 @@ export default function PortalDiagnosticAppointmentsPage() {
     return counts;
   }, [allAppointments]);
 
-  // Real stats -- Pending report uploads is Lab Test-only (see its hint):
-  // Diagnostics-type bookings have no equivalent report-status tracking at
-  // all, so there's nothing honest to count for them here.
+  // Real stats -- Pending report uploads now covers BOTH Lab Test and
+  // Diagnostics bookings: both categories share the same lab_status
+  // lifecycle (Diagnostics just skips the "Sample Collected" stage --
+  // there's no physical sample for an MRI/CT/X-Ray -- going straight
+  // booked -> processing, same backend forward-map the Status column and
+  // its row action already branch on).
   const stats = useMemo(() => {
     if (!allAppointments) return null;
     const now = new Date();
@@ -133,7 +139,9 @@ export default function PortalDiagnosticAppointmentsPage() {
     const labToday = allAppointments.filter((a) => a.appointment_type_id === "lab" && isSameDate(a.scheduled_at, now)).length;
     const labYesterday = allAppointments.filter((a) => a.appointment_type_id === "lab" && isSameDate(a.scheduled_at, yesterday)).length;
     const pendingReports = allAppointments.filter(
-      (a) => a.appointment_type_id === "lab" && a.status === "booked" && a.lab_status !== "report_ready",
+      (a) =>
+        (a.appointment_type_id === "lab" || a.appointment_type_id === "diagnostic") &&
+        a.status === "booked" && a.lab_status !== "report_ready",
     ).length;
     return {
       total: allAppointments.length,
@@ -144,9 +152,13 @@ export default function PortalDiagnosticAppointmentsPage() {
   }, [allAppointments]);
 
   // Real lab-queue breakdown, by lab_status, among today's Lab Test
-  // bookings -- there's no equivalent stage tracking for Diagnostics-type
-  // bookings (see the Status column's own note), so this card is Lab
-  // Test-only, same scope as the Pending report uploads tile above.
+  // bookings -- deliberately Lab Test-only (unlike the Pending report
+  // uploads tile above, which now covers both categories): its stage
+  // labels ("Waiting for sample collection", "Sample collected") describe
+  // a physical specimen workflow that doesn't apply to Diagnostics/imaging
+  // bookings at all (they skip straight from booked to processing), so
+  // folding them into this same breakdown would misrepresent them rather
+  // than just being an incomplete count.
   const labQueue = useMemo(() => {
     if (!allAppointments) return { waiting: 0, collected: 0, processing: 0, ready: 0, total: 0 };
     const rows = allAppointments.filter((a) => a.appointment_type_id === "lab" && isSameDate(a.scheduled_at, today));
@@ -212,6 +224,18 @@ export default function PortalDiagnosticAppointmentsPage() {
     return null;
   }
 
+  const quickActions: QuickAction[] = [
+    { label: "New test booking", icon: CalendarPlus, onClick: () => setNewTestBookingOpen(true) },
+    {
+      label: "Upload lab report",
+      icon: UploadCloud,
+      disabled: true,
+      title: "Coming soon — report upload exists on a patient's own page, not scoped to a booking yet",
+    },
+    { label: "View pending reports", icon: FilePlus2, onClick: () => setTab("pending") },
+    { label: "Generate test report", icon: FileText, disabled: true, title: "Coming soon" },
+  ];
+
   return (
     <PortalShell hospital={hospital} active="diagnostic">
         <PageHeader
@@ -242,7 +266,7 @@ export default function PortalDiagnosticAppointmentsPage() {
             label="Pending report uploads"
             value={stats?.pendingReports ?? null}
             deltaPct={null}
-            hint="Lab tests only — Diagnostics bookings have no report-status tracking"
+            hint="Lab tests and Diagnostics — anything still booked without a report"
             icon={FileClock}
             tint="clay"
           />
@@ -302,18 +326,11 @@ export default function PortalDiagnosticAppointmentsPage() {
                 allLabel="All Status"
                 options={APPOINTMENT_STATUS_OPTIONS}
               />
-              {/* Filter/Reset -- search + the two dropdowns above are all
-                  staged (draft) until Filter is clicked, since each one now
-                  triggers a real /api/portal/bookings request instead of an
-                  instant client-side filter. */}
-              <Button type="button" size="md" onClick={applyFilters}>
-                <SlidersHorizontal size={14} /> Filter
-              </Button>
-              {(filtersDirty || searchQuery || statusFilter !== "all" || typeFilter !== "all") && (
-                <Button type="button" variant="secondary" size="md" onClick={resetFilters}>
-                  Reset
-                </Button>
-              )}
+              <FilterActions
+                onApply={applyFilters}
+                onReset={resetFilters}
+                showReset={filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all"}
+              />
             </div>
 
             <Card className="p-space-4">
@@ -370,37 +387,9 @@ export default function PortalDiagnosticAppointmentsPage() {
               </div>
             </Card>
 
-            <Card className="p-space-4">
-              <h3 className="text-label mb-space-3 font-bold text-ink-900">Quick actions</h3>
-              <div className="space-y-space-2">
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="w-full justify-start"
-                  disabled
-                  title="Coming soon — new bookings here need a doctor/date/slot picker; test bookings need their own resource/slot picker, which doesn't exist yet"
-                >
-                  <CalendarPlus size={15} className="shrink-0" /> New test booking
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-full justify-start"
-                  disabled
-                  title="Coming soon — report upload exists on a patient's own page, not scoped to a booking yet"
-                >
-                  <UploadCloud size={15} className="shrink-0" /> Upload lab report
-                </Button>
-                <Button type="button" variant="secondary" className="w-full justify-start" onClick={() => setTab("pending")}>
-                  <FilePlus2 size={15} className="shrink-0" /> View pending reports
-                </Button>
-                <Button type="button" variant="secondary" className="w-full justify-start" disabled title="Coming soon">
-                  <FileText size={15} className="shrink-0" /> Generate test report
-                </Button>
-              </div>
-            </Card>
+            <QuickActions actions={quickActions} />
 
-            <PortalMiniCalendar />
+            <PortalMiniCalendar category="diagnostic" />
           </div>
         </div>
 
@@ -421,10 +410,16 @@ export default function PortalDiagnosticAppointmentsPage() {
           onCancel={() => setPendingDelete(null)}
         />
 
+        <NewTestBookingDialog
+          open={newTestBookingOpen}
+          onOpenChange={setNewTestBookingOpen}
+          onBooked={load}
+        />
+
         <RescheduleDialog
           appointment={(appointments || []).find((a) => a.id === reschedulePanelId) ?? null}
           onOpenChange={(open) => { if (!open) closeReschedulePanel(); }}
-          ctx={rescheduleCtx}
+          slotsByDate={rescheduleSlotsByDate}
           message={rescheduleMessage}
           setMessage={setRescheduleMessage}
           errors={rescheduleErrors}

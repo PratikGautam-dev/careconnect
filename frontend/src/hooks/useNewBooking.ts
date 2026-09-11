@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { fetchSlotsByDate, type SlotsByDate } from "@/hooks/useAppointments";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 import { newBookingSchema } from "@/lib/validation/newBooking";
@@ -10,13 +11,16 @@ export type Slot = { id: string; label: string };
 export type NewBookingContext = {
   departments: Department[];
   doctors_by_department: Record<string, Doctor[]>;
-  slots_by_doctor: Record<string, Record<string, Slot[]>>;
 };
 
-/** Loads department/doctor/slot context + submits the New Booking dialog's
- * form -- context is only fetched while the dialog is open, and every field
+/** Loads department/doctor context + submits the New Booking dialog's form
+ * -- context is only fetched while the dialog is open, and every field
  * resets the moment it closes, so reopening always starts from a clean
- * form rather than showing the last attempt's leftover values/errors. */
+ * form rather than showing the last attempt's leftover values/errors.
+ * Slots for the picked doctor are fetched separately, lazily, the moment
+ * doctorId changes -- not eager-loaded for every doctor up front (that's
+ * what /new-booking/context used to do, and why this dialog used to be
+ * slow to open). */
 export function useNewBooking(
   open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
 ) {
@@ -33,6 +37,7 @@ export function useNewBooking(
   const [doctorId, setDoctorIdRaw] = useState("");
   const [date, setDateRaw] = useState("");
   const [slotId, setSlotId] = useState("");
+  const [slotsByDate, setSlotsByDate] = useState<SlotsByDate | null>(null);
 
   const load = useCallback(async () => {
     const result = await portalFetch("/api/portal/new-booking/context");
@@ -63,7 +68,23 @@ export function useNewBooking(
     setDoctorIdRaw("");
     setDateRaw("");
     setSlotId("");
+    setSlotsByDate(null);
   }, [open, load, initialPatientName, initialPatientPhone]);
+
+  useEffect(() => {
+    if (!doctorId) {
+      setSlotsByDate(null);
+      return;
+    }
+    let cancelled = false;
+    setSlotsByDate(null);
+    fetchSlotsByDate(router, { doctorId }).then((slots) => {
+      if (!cancelled) setSlotsByDate(slots ?? {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [doctorId, router]);
 
   function setDepartmentId(id: string) {
     setDepartmentIdRaw(id);
@@ -84,8 +105,8 @@ export function useNewBooking(
   }
 
   const doctors = departmentId && ctx ? ctx.doctors_by_department[departmentId] || [] : [];
-  const datesForDoctor = doctorId && ctx ? Object.keys(ctx.slots_by_doctor[doctorId] || {}).sort() : [];
-  const slotsForDate = doctorId && date && ctx ? ctx.slots_by_doctor[doctorId]?.[date] || [] : [];
+  const datesForDoctor = slotsByDate ? Object.keys(slotsByDate).sort() : [];
+  const slotsForDate = date && slotsByDate ? slotsByDate[date] || [] : [];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -138,6 +159,10 @@ export function useNewBooking(
     patientName, setPatientName, patientPhone, setPatientPhone,
     departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
     doctors, datesForDoctor, slotsForDate,
+    // true while a doctor is picked but its slots haven't come back yet --
+    // lets the dialog show "Loading…" instead of a misleading "No available
+    // dates" during that gap.
+    slotsLoading: !!doctorId && slotsByDate === null,
     handleSubmit,
   };
 }

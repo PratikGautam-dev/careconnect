@@ -234,6 +234,58 @@ def test_new_booking_context_returns_departments_and_doctors(hospital_id):
     data = resp.json()
     assert any(d["name"] == "Cardiology" for d in data["departments"])
     assert any(d["id"] == "doc_card_1" for d in data["doctors_by_department"]["cardiology"])
+    # Perf follow-up: slots are no longer eager-loaded into this response --
+    # a form only ever needs one doctor's/resource's slots at a time, fetched
+    # lazily via /api/portal/new-booking/slots (see tests below) instead of
+    # this endpoint computing every doctor's AND every resource's slots on
+    # every single open.
+    assert "slots_by_doctor" not in data
+    assert "slots_by_resource" not in data
+
+
+# --- JSON API layer: /api/portal/new-booking/slots (lazy, single-entity
+# sibling of /context above) ---
+
+
+def test_new_booking_slots_requires_login(hospital_id):
+    resp = client.get("/api/portal/new-booking/slots?doctor_id=doc_card_1")
+    assert resp.status_code == 401
+
+
+def test_new_booking_slots_requires_doctor_or_resource_id(hospital_id):
+    headers = _login(hospital_id, "newbook-slots-missing-pw")
+    resp = client.get("/api/portal/new-booking/slots", headers=headers)
+    assert resp.status_code == 400
+
+
+def test_new_booking_slots_returns_slots_for_one_doctor(hospital_id):
+    headers = _login(hospital_id, "newbook-slots-doctor-pw")
+    resp = client.get("/api/portal/new-booking/slots?doctor_id=doc_card_1", headers=headers)
+    assert resp.status_code == 200
+    slots_by_date = resp.json()["slots_by_date"]
+    assert len(slots_by_date) > 0
+    first_date = next(iter(slots_by_date))
+    assert all({"id", "label"} <= s.keys() for s in slots_by_date[first_date])
+
+
+def test_new_booking_slots_returns_slots_for_one_resource(hospital_id):
+    test = _create_bookable_test(hospital_id, "Slots Endpoint Test")
+    headers = _login(hospital_id, "newbook-slots-resource-pw")
+    resp = client.get(f"/api/portal/new-booking/slots?diagnostic_test_id={test['id']}", headers=headers)
+    assert resp.status_code == 200
+    slots_by_date = resp.json()["slots_by_date"]
+    assert len(slots_by_date) > 0
+
+
+def test_new_booking_slots_for_unknown_doctor_is_empty_not_error(hospital_id, second_hospital_id):
+    """Cross-tenant/garbage doctor_id must never 500 or leak another
+    hospital's slots -- the connector call is scoped by (hospital_id,
+    doctor_id) together, so a doctor belonging to a DIFFERENT hospital (or
+    one that doesn't exist at all) just yields no slots."""
+    headers = _login(hospital_id, "newbook-slots-foreign-pw")
+    resp = client.get("/api/portal/new-booking/slots?doctor_id=t2_doc_neuro_1", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["slots_by_date"] == {}
 
 
 def test_staff_booking_via_api_succeeds_and_appears_in_bookings_and_dashboard(hospital_id):
@@ -333,3 +385,116 @@ def test_new_patient_created_inline_via_booking_api(hospital_id):
     matches = db.search_patients(hospital_id, "Brand New Patient")
     assert len(matches) == 1
     assert matches[0]["phone"] == "5495559999"
+
+
+# --- JSON API layer: /api/portal/new-test-booking (diagnostic/lab/daycare
+# sibling of /api/portal/new-booking above -- resource-bound instead of
+# doctor-bound) ---
+
+
+def _create_bookable_test(hospital_id: int, name: str = "MRI Scan", category: str = "diagnostic") -> dict:
+    return db.create_diagnostic_test(
+        hospital_id, category, name,
+        price=1500.0, working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-13:00"], slot_duration_minutes=30,
+    )
+
+
+def test_staff_test_booking_via_api_succeeds_and_appears_in_bookings(hospital_id):
+    test = _create_bookable_test(hospital_id)
+    slot = db.get_test_slots(hospital_id, test["id"])[0]
+    headers = _login(hospital_id, "newtestbook-success-pw")
+
+    resp = client.post("/api/portal/new-test-booking", json={
+        "patient_name": "Test Patient", "patient_phone": "5497773456",
+        "test_ids": [test["id"]], "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    bookings = client.get("/api/portal/bookings", headers=headers).json()["appointments"]
+    assert any(a["phone"] == "5497773456" and a["source"] == "staff" for a in bookings)
+
+    appt = next(a for a in db.get_all_appointments_for_hospital(hospital_id) if a.phone == "5497773456")
+    assert appt.source == "staff"
+    assert appt.diagnostic_test_id == test["id"]
+    assert appt.doctor_id is None
+    assert appt.diagnostic_test_label == "MRI Scan"
+    # lab_status starts the report-lifecycle tracking (the Status column's
+    # stage pill, the "Mark in progress"/"Mark sample collected" row action,
+    # the "Pending report uploads" tile) -- left unset, a staff-created test
+    # booking had NO status tracking at all, unlike its WhatsApp-created
+    # siblings.
+    assert appt.lab_status == "booked"
+    # appointment_type_id must be set to the test's own category ("diagnostic")
+    # -- left NULL, it would fold into the "doctor" category's scoping
+    # (_apply_category_filter's legacy-row convention) and show up on the
+    # Doctor appointments page instead of Diagnostic & lab.
+    assert appt.appointment_type_id == "diagnostic"
+
+    doctor_scoped = client.get("/api/portal/bookings?category=doctor", headers=headers).json()["appointments"]
+    assert not any(a["phone"] == "5497773456" for a in doctor_scoped)
+    diagnostic_scoped = client.get("/api/portal/bookings?category=diagnostic", headers=headers).json()["appointments"]
+    assert any(a["phone"] == "5497773456" for a in diagnostic_scoped)
+
+
+def test_staff_lab_booking_via_api_also_gets_lab_status_started(hospital_id):
+    """Same lab_status="booked" fix as the diagnostic-category test above,
+    for a "lab"-category test -- both categories share the same report-
+    lifecycle column/endpoint (portal_advance_lab_status)."""
+    test = _create_bookable_test(hospital_id, "CBC", category="lab")
+    slot = db.get_test_slots(hospital_id, test["id"])[0]
+    headers = _login(hospital_id, "newtestbook-lab-status-pw")
+
+    resp = client.post("/api/portal/new-test-booking", json={
+        "patient_name": "Lab Patient", "patient_phone": "5497774567",
+        "test_ids": [test["id"]], "slot_id": slot["id"], "collection_method": "visit",
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    appt = next(a for a in db.get_all_appointments_for_hospital(hospital_id) if a.phone == "5497774567")
+    assert appt.appointment_type_id == "lab"
+    assert appt.lab_status == "booked"
+
+
+def test_staff_test_booking_via_api_rejected_when_slot_already_taken(hospital_id):
+    test = _create_bookable_test(hospital_id, "CT Scan")
+    slot = db.get_test_slots(hospital_id, test["id"])[0]
+    scheduled_at = datetime.fromisoformat(slot["id"])
+    db.create_appointment(
+        hospital_id, "5498883456", None, None, scheduled_at,
+        diagnostic_test_id=test["id"], diagnostic_test_label="CT Scan",
+    )
+
+    headers = _login(hospital_id, "newtestbook-taken-pw")
+    resp = client.post("/api/portal/new-test-booking", json={
+        "patient_name": "Too Late", "patient_phone": "5498884567",
+        "test_ids": [test["id"]], "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert "just taken" in resp.json()["errors"][0].lower()
+
+
+@pytest.mark.parametrize("bad_phone", ["", "   ", "not-a-phone-number!!"])
+def test_staff_test_booking_via_api_rejects_garbage_phone_before_creating_anything(hospital_id, bad_phone):
+    test = _create_bookable_test(hospital_id)
+    slot = db.get_test_slots(hospital_id, test["id"])[0]
+    headers = _login(hospital_id, "newtestbook-badphone-pw")
+    resp = client.post("/api/portal/new-test-booking", json={
+        "patient_name": "Bad Phone Patient", "patient_phone": bad_phone,
+        "test_ids": [test["id"]], "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert any("phone" in e.lower() for e in resp.json()["errors"])
+    assert db.search_patients(hospital_id, "Bad Phone Patient") == []
+
+
+def test_new_test_booking_via_api_cannot_target_another_hospitals_test(hospital_id, second_hospital_id):
+    other_test = _create_bookable_test(second_hospital_id, "Other Hospital MRI")
+    headers = _login(hospital_id, "newtestbook-crosstenant-pw")
+    resp = client.post("/api/portal/new-test-booking", json={
+        "patient_name": "Cross Tenant Attempt", "patient_phone": "5490002222",
+        "test_ids": [other_test["id"]], "slot_id": datetime(2099, 1, 1, 9, 0).isoformat(),
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert any("valid test" in e.lower() for e in resp.json()["errors"])
+    assert not any(a.phone == "5490002222" for a in db.get_all_appointments_for_hospital(hospital_id))

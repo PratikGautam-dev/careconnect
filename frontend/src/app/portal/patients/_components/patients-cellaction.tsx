@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Eye, MoreHorizontal, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
@@ -15,18 +16,19 @@ import type { Patient } from "@/hooks/usePatients";
 type PatientCellActionProps = {
   patient: Patient;
   onDelete: (patient: Patient) => void;
-  /** Selects this row in the page's own detail rail -- "View Details" no
-   * longer navigates away (the mockup's row-click behavior), it opens the
-   * same panel a row click does. The full /portal/patients/[id] record is
-   * still one click further, from that panel's own "Open full record" link. */
-  onSelect: (patient: Patient) => void;
 };
 
 /** Single combined actions menu (View Details / Delete) -- replaces the two
  * separate trailing columns the hand-rolled table used to render. Stops
  * propagation on its own wrapper so opening the menu (or picking an item in
- * it) doesn't also trigger the row's own onRowClick selection. */
-export function PatientCellAction({ patient, onDelete, onSelect }: PatientCellActionProps) {
+ * it) doesn't also trigger the row's own onRowClick selection.
+ *
+ * "View Details" navigates straight to the full /portal/patients/[id]
+ * record -- row-click/the name link still open the page's own side panel
+ * (a quicker glance without leaving the list), but this menu item is the
+ * explicit "take me to the record" action. */
+export function PatientCellAction({ patient, onDelete }: PatientCellActionProps) {
+  const router = useRouter();
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
@@ -39,7 +41,7 @@ export function PatientCellAction({ patient, onDelete, onSelect }: PatientCellAc
         <DropdownMenuContent>
           <DropdownMenuGroup>
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => onSelect(patient)}>
+            <DropdownMenuItem onClick={() => router.push(`/portal/patients/${patient.id}`)}>
               <Eye size={14} /> View Details
             </DropdownMenuItem>
             <PermissionGate page="patients" action="delete">

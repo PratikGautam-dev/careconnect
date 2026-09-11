@@ -101,18 +101,18 @@ def test_test_max_bookings_per_slot(hospital_id):
     scheduled_at = datetime.fromisoformat(db.get_test_slots(hospital_id, test["id"])[0]["id"])
     db.create_appointment(
         hospital_id, PHONE, db.get_departments(hospital_id)[0]["id"], None, scheduled_at,
-        resource_id=test["id"],
+        diagnostic_test_id=test["id"],
     )
     # Second booking at the exact same slot succeeds (capacity 2)...
     db.create_appointment(
         hospital_id, "+15550002222", db.get_departments(hospital_id)[0]["id"], None, scheduled_at,
-        resource_id=test["id"],
+        diagnostic_test_id=test["id"],
     )
     # ...a third does not.
     with pytest.raises(IntegrityError):
         db.create_appointment(
             hospital_id, "+15550003333", db.get_departments(hospital_id)[0]["id"], None, scheduled_at,
-            resource_id=test["id"],
+            diagnostic_test_id=test["id"],
         )
 
 
@@ -165,7 +165,7 @@ async def test_diagnostic_confirmation_shows_amount(hospital_id, sessions):
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("confirm"))
     due = db.get_upcoming_appointments(hospital_id, offset_hours=999999)
     appt = next(a for a in due if a.phone == PHONE)
-    assert appt.resource_id == test["id"]
+    assert appt.diagnostic_test_id == test["id"]
     assert appt.diagnostic_price == 4500
     assert appt.doctor_id is None
 
@@ -193,7 +193,7 @@ async def test_two_patients_cannot_book_the_same_test_slot(hospital_id, sessions
     with pytest.raises(IntegrityError):
         db.create_appointment(
             hospital_id, "+15559998888", booked.department_id, None, booked.scheduled_at,
-            resource_id=test["id"],
+            diagnostic_test_id=test["id"],
         )
 
 
@@ -213,9 +213,9 @@ async def test_rescheduling_a_test_bound_appointment_carries_test_forward(hospit
     connector = Tier1Connector()
     new_appointment = connector.reschedule_booking(
         hospital_id, original.id, PHONE, original.department_id, None,
-        original.scheduled_at + timedelta(minutes=30), resource_id=test["id"],
+        original.scheduled_at + timedelta(minutes=30), diagnostic_test_id=test["id"],
     )
-    assert new_appointment.resource_id == test["id"]
+    assert new_appointment.diagnostic_test_id == test["id"]
     assert new_appointment.diagnostic_test_id == original.diagnostic_test_id
     assert new_appointment.diagnostic_price == original.diagnostic_price
 

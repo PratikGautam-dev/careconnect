@@ -239,7 +239,7 @@ export default function PortalDoctorsPage() {
           </>
         )}
 
-        <NewBookingDialog open={bookingOpen} onOpenChange={setBookingOpen} hospital={hospital} onBooked={load} />
+        <NewBookingDialog open={bookingOpen} onOpenChange={setBookingOpen} onBooked={load} />
     </PortalShell>
   );
 }

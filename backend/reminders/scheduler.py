@@ -58,7 +58,7 @@ async def send_reminders(
             # Lab Phase 2) can both be None for a resource-bound booking --
             # fall back to the resource's own name/omit the department
             # parenthetical rather than literally interpolating "None".
-            who = appt.doctor_name or appt.resource_name
+            who = appt.doctor_name or appt.diagnostic_test_name
             department_part = f" ({appt.department_name})" if appt.department_name else ""
             message = (
                 f"Reminder: you have an appointment with {who}"

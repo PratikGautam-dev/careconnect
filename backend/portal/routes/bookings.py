@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Header, Query
@@ -7,12 +8,66 @@ from fastapi.responses import JSONResponse
 import connectors
 import db.repository as db
 from auth.session import _build_new_booking_context
+from core.redis_client import cache_get_json, cache_set_json
 from core.whatsapp import WhatsAppClient
 from db.connection import IntegrityError
 from portal.deps import _authenticate, _authenticate_with_role, get_current_staff, require_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Calendar-widget cache (PortalMiniCalendar, shared by the Dashboard/Doctor
+# appointments/Diagnostic & lab pages) -- short TTL, no invalidation. Wiring
+# invalidation into every booking create/cancel/reschedule call site (spread
+# across the WhatsApp flow, the staff new-booking form, reschedule, cancel)
+# isn't worth it for a glanceable "which dates have bookings" widget; a
+# 60s-stale dot is an acceptable tradeoff. Two-tier like
+# portal/permission_cache.py (local dict in front of Redis), but unlike that
+# module the local dict entries carry their OWN expiry (`(value, expires_at)`)
+# rather than relying on a pub/sub signal to ever clear them -- there's no
+# invalidation channel here to guarantee that.
+_CALENDAR_CACHE_TTL_SECONDS = 60
+_calendar_local_cache: dict[str, tuple[dict, float]] = {}
+
+
+def _calendar_cache_key(hospital_id: int, category: str | None, year: int, month: int, doctor_id: str | None) -> str:
+    return f"appt_calendar:{hospital_id}:{doctor_id or 'all-doctors'}:{category or 'all'}:{year}-{month:02d}"
+
+
+def _calendar_cache_get(key: str) -> dict | None:
+    hit = _calendar_local_cache.get(key)
+    if hit is not None:
+        value, expires_at = hit
+        if expires_at > time.monotonic():
+            return value
+        del _calendar_local_cache[key]
+    return cache_get_json(key)
+
+
+def _calendar_cache_set(key: str, value: dict) -> None:
+    _calendar_local_cache[key] = (value, time.monotonic() + _CALENDAR_CACHE_TTL_SECONDS)
+    cache_set_json(key, value, ttl_seconds=_CALENDAR_CACHE_TTL_SECONDS)
+
+
+def reset_calendar_cache_for_tests() -> None:
+    """Test-only -- same cross-test-bleed reasoning as dashboard.py's
+    reset_dashboard_cache_for_tests(): hospital ids are REUSED across tests
+    by _fresh_test_db's schema recreation, so a calendar payload cached by
+    one test could otherwise leak into the very next one within its TTL.
+    Also clears Redis (see that function's own docstring for why the local
+    dict alone isn't enough in an environment with a real REDIS_URL
+    configured). Not called anywhere in application code."""
+    from core.redis_client import get_redis
+
+    _calendar_local_cache.clear()
+    client = get_redis()
+    if client is None:
+        return
+    try:
+        for key in client.scan_iter("appt_calendar:*"):
+            client.delete(key)
+    except Exception:
+        pass
 
 
 def _followup_valid_until(a, followup_validity_days: int | None) -> str | None:
@@ -43,8 +98,8 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         # set (with doctor_id/doctor_name both None) for a resource-bound
         # diagnostic/lab booking -- the frontend needs this to tell the two
         # apart and render/reschedule against the right one.
-        "resource_id": a.resource_id,
-        "resource_name": a.resource_name,
+        "diagnostic_test_id": a.diagnostic_test_id,
+        "diagnostic_test_name": a.diagnostic_test_name,
         "scheduled_at": a.scheduled_at.isoformat(),
         "status": a.status,
         "source": a.source,
@@ -156,6 +211,42 @@ async def portal_bookings_summary(
     appointments, _total = db.get_appointments_page(hospital.id, doctor_id=scoped_doctor_id, category=category, limit=500, page=1)
     validity_days = db.get_followup_validity_days(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a, validity_days) for a in appointments]})
+
+
+@router.get("/api/portal/bookings/calendar")
+async def portal_bookings_calendar(
+    authorization: str | None = Header(default=None),
+    year: int | None = None,
+    month: int | None = None,
+    category: str | None = Query(default=None),
+):
+    """Powers the shared PortalMiniCalendar (Dashboard/Doctor appointments/
+    Diagnostic & lab pages) -- one month's worth of appointments at a time,
+    the doctor-portal's existing /api/doctor/appointments/calendar pattern
+    (doctor_appointments_calendar()) generalized to hospital-wide +
+    category-scoped instead of single-doctor-scoped. Defaults to the current
+    year/month, same as that route. Cached briefly (see module-level
+    comment) -- a hospital-wide month can be hit from 3 pages by multiple
+    staff at once, unlike the doctor route's small per-doctor query."""
+    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+    if not 1 <= month <= 12:
+        return JSONResponse({"error": "month must be between 1 and 12."}, status_code=400)
+    scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
+
+    cache_key = _calendar_cache_key(hospital.id, category, year, month, scoped_doctor_id)
+    cached = _calendar_cache_get(cache_key)
+    if cached is not None:
+        return JSONResponse(cached)
+
+    appointments = db.get_appointments_for_month(hospital.id, year, month, category=category, doctor_id=scoped_doctor_id)
+    payload = {"year": year, "month": month, "appointments": [_appointment_json(a) for a in appointments]}
+    _calendar_cache_set(cache_key, payload)
+    return JSONResponse(payload)
 
 
 @router.get("/api/portal/bookings/needs-attendance-review")
@@ -290,23 +381,36 @@ async def portal_delete_booking(appointment_id: int, authorization: str | None =
 
 
 _LAB_STATUS_FORWARD = {"booked": "sample_collected", "sample_collected": "processing"}
+# Diagnostics/imaging (MRI, CT Scan, X-Ray, Ultrasound, ...) have no physical
+# sample-collection step -- skip straight from booked to processing (the
+# scan/analysis itself under way). report_ready is reached the same way for
+# both categories either way: automatically, the moment a lab_report document
+# is uploaded (portal/routes/documents.py), never a manual staff click.
+_DIAGNOSTIC_STATUS_FORWARD = {"booked": "processing"}
 
 
 @router.post("/api/portal/bookings/{appointment_id}/lab-status")
 async def portal_advance_lab_status(appointment_id: int, authorization: str | None = Header(default=None)):
-    """Lab Test Phase 2 follow-up's report lifecycle: staff can only advance
-    one step at a time through booked -> sample_collected -> processing --
-    never directly to report_ready, which is set automatically instead, the
-    moment a lab_report document is uploaded against this appointment
+    """Report lifecycle for a resource-bound (Lab Test or Diagnostics) test
+    appointment: staff can only advance one step at a time -- Lab Test goes
+    booked -> sample_collected -> processing, Diagnostics goes straight
+    booked -> processing (see _DIAGNOSTIC_STATUS_FORWARD above) -- never
+    directly to report_ready, which is set automatically instead, the moment
+    a lab_report document is uploaded against this appointment
     (portal/routes/documents.py) -- so "report ready" always means an actual
-    report exists, not a staff click that got ahead of reality."""
+    report exists, not a staff click that got ahead of reality. This whole
+    mechanism (the lab_status column, this route, set_lab_status()) isn't
+    actually Lab-Test-specific at all -- gated purely on lab_status being
+    non-null, not on appointment_type_id -- so extending it to Diagnostics
+    here is just a second forward-map, no new plumbing."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     appointment = db.get_appointment(hospital.id, appointment_id)
     if appointment is None or appointment.lab_status is None:
-        return JSONResponse({"error": "No such Lab Test appointment."}, status_code=404)
-    next_status = _LAB_STATUS_FORWARD.get(appointment.lab_status)
+        return JSONResponse({"error": "No such test appointment."}, status_code=404)
+    forward_map = _DIAGNOSTIC_STATUS_FORWARD if appointment.appointment_type_id == "diagnostic" else _LAB_STATUS_FORWARD
+    next_status = forward_map.get(appointment.lab_status)
     if next_status is None:
         return JSONResponse({"error": f"Cannot advance further from \"{appointment.lab_status}\"."}, status_code=400)
     updated = db.set_lab_status(hospital.id, appointment_id, next_status)
@@ -575,12 +679,12 @@ async def portal_reschedule_booking(
     and resubmit, unlike a WhatsApp conversation mid-flow).
 
     Diagnostic/Lab reschedule follow-up: a resource-bound appointment
-    (appointment.resource_id set, no doctor at all) has no department/doctor
-    to validate -- resource_id is trusted straight off the ORIGINAL
-    appointment (never taken from the payload), same "fixed, not user-
-    editable" contract the frontend's read-only Department/Doctor fields
-    already enforce for a doctor consultation -- reschedule moves the slot,
-    never re-points the booking at a different doctor OR resource."""
+    (appointment.diagnostic_test_id set, no doctor at all) has no department/
+    doctor to validate -- diagnostic_test_id is trusted straight off the
+    ORIGINAL appointment (never taken from the payload), same "fixed, not
+    user-editable" contract the frontend's read-only Department/Doctor
+    fields already enforce for a doctor consultation -- reschedule moves the
+    slot, never re-points the booking at a different doctor OR resource."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -591,10 +695,10 @@ async def portal_reschedule_booking(
     slot_id = (payload or {}).get("slot_id") or ""
 
     errors = []
-    if appointment.resource_id is not None:
+    if appointment.diagnostic_test_id is not None:
         department_id = appointment.department_id
         doctor_id = None
-        resource = db.get_diagnostic_test(hospital.id, appointment.resource_id)
+        resource = db.get_diagnostic_test(hospital.id, appointment.diagnostic_test_id)
         if resource is None:
             errors.append("This test is no longer available.")
     else:
@@ -627,7 +731,7 @@ async def portal_reschedule_booking(
             department_id=department_id,
             doctor_id=doctor_id,
             scheduled_at=scheduled_at,
-            resource_id=appointment.resource_id,
+            diagnostic_test_id=appointment.diagnostic_test_id,
         )
     except connectors.ConnectorNotImplementedError as e:
         return JSONResponse({"errors": [str(e)]}, status_code=501)
@@ -638,7 +742,10 @@ async def portal_reschedule_booking(
         "portal", hospital.id, "tenant portal", "booking.reschedule",
         entity_type="appointment", entity_id=str(appointment_id),
         before={"scheduled_at": appointment.scheduled_at.isoformat()},
-        after={"scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id, "resource_id": appointment.resource_id},
+        after={
+            "scheduled_at": scheduled_at.isoformat(), "doctor_id": doctor_id,
+            "diagnostic_test_id": appointment.diagnostic_test_id,
+        },
     )
 
     message = ((payload or {}).get("message") or "").strip()
@@ -662,14 +769,50 @@ async def portal_new_booking_context(authorization: str | None = Header(default=
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    departments, doctors_by_department, slots_by_doctor, resources, slots_by_resource = _build_new_booking_context(hospital)
+    departments, doctors_by_department, resources = _build_new_booking_context(hospital)
     return JSONResponse({
         "departments": departments,
         "doctors_by_department": doctors_by_department,
-        "slots_by_doctor": slots_by_doctor,
         "resources": resources,
-        "slots_by_resource": slots_by_resource,
     })
+
+
+@router.get("/api/portal/new-booking/slots")
+async def portal_new_booking_slots(
+    doctor_id: str | None = Query(default=None),
+    diagnostic_test_id: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+):
+    """Lazy, single-entity sibling of /new-booking/context above -- returns
+    available slots for exactly ONE doctor or ONE diagnostic test, fetched on
+    demand (when the user picks one in NewBookingDialog/NewTestBookingDialog,
+    or when RescheduleDialog/the patient page's follow-up "Book now" panel
+    opens for an appointment/visit that already has a fixed doctor or test)
+    instead of _build_new_booking_context() eager-loading slots for every
+    doctor/test up front (see that function's own docstring for the cost
+    that turned out to have). Wraps the exact same connector.
+    get_available_slots()/get_available_resource_slots() calls that eager
+    loop used to run per item."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if not doctor_id and not diagnostic_test_id:
+        return JSONResponse({"error": "doctor_id or diagnostic_test_id is required."}, status_code=400)
+
+    connector = connectors.get_connector_for_hospital(hospital)
+    if doctor_id:
+        slots = connector.get_available_slots(hospital.id, doctor_id)
+    else:
+        try:
+            resource_id_int = int(diagnostic_test_id)
+        except ValueError:
+            return JSONResponse({"error": "Invalid diagnostic_test_id."}, status_code=400)
+        slots = connector.get_available_resource_slots(hospital.id, resource_id_int)
+
+    by_date: dict[str, list[dict]] = {}
+    for s in slots:
+        by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
+    return JSONResponse({"slots_by_date": by_date})
 
 
 @router.post("/api/portal/new-booking")
@@ -721,6 +864,163 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
         "portal", hospital.id, "tenant portal", "booking.create",
         entity_type="appointment", entity_id=str(created.id),
         after={"department_id": department_id, "doctor_id": doctor_id, "scheduled_at": scheduled_at.isoformat()},
+    )
+
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/portal/new-test-booking")
+async def portal_create_new_test_booking(payload: dict, authorization: str | None = Header(default=None)):
+    """Diagnostic/Lab sibling of portal_create_new_booking() above -- same
+    dialog-on-a-page shape, same /api/portal/new-booking/context data source
+    (departments/doctors/resources) plus the lazy /new-booking/slots?
+    diagnostic_test_id= endpoint for the slot picker, just resource-bound
+    instead of doctor-bound. Mirrors portal_reschedule_booking()'s existing
+    diagnostic_test_id-is-not-None branch: department_id/doctor_id are
+    passed as None, and create_appointment()'s doctor-only quota/duplicate
+    checks are already skipped for resource bookings at the DB layer.
+
+    Multi-test basket (parity with the WhatsApp Lab Test flow, flows/
+    booking/types/lab.py): `test_ids` is a list, not a scalar. A lab-category
+    booking can bind several tests to the one appointment -- one collection
+    method/address/pincode and one slot for the whole basket, anchored on
+    the FIRST test in the list (same _basket_anchor() rule that module
+    uses), the rest persisted as appointment_lab_tests rows via
+    set_appointment_lab_order_details(). A diagnostic-category booking has
+    no basket concept there either (an MRI/X-ray is inherently one test, one
+    visit), so `test_ids` must be length 1 for that category, and a mixed
+    diagnostic+lab basket is rejected outright -- both are the same hard
+    split the WhatsApp flow enforces by routing each category to an entirely
+    separate flow module."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    patient_name = (payload.get("patient_name") or "").strip()
+    patient_phone = (payload.get("patient_phone") or "").strip()
+    test_ids_raw = payload.get("test_ids") or []
+    slot_id = payload.get("slot_id") or ""
+    collection_method = payload.get("collection_method") or None
+    collection_address = (payload.get("collection_address") or "").strip() or None
+    collection_pincode = (payload.get("collection_pincode") or "").strip() or None
+
+    errors = []
+    if not db.is_valid_phone(patient_phone):
+        errors.append("Patient phone is required and must contain at least one digit.")
+
+    try:
+        test_ids = [int(t) for t in test_ids_raw]
+    except (TypeError, ValueError):
+        test_ids = []
+    tests: list[dict] = []
+    if not test_ids:
+        errors.append("Choose at least one test.")
+    else:
+        for test_id in test_ids:
+            test = db.get_diagnostic_test(hospital.id, test_id)
+            if test is None:
+                errors.append("Choose a valid test.")
+                tests = []
+                break
+            tests.append(test)
+        if tests:
+            categories = {t["category"] for t in tests}
+            if len(categories) > 1:
+                errors.append("A booking can't mix diagnostic tests and lab tests -- book them separately.")
+            elif db.CATEGORY_DIAGNOSTIC in categories and len(tests) > 1:
+                errors.append("Diagnostic tests can only be booked one at a time.")
+
+    scheduled_at = None
+    if not slot_id:
+        errors.append("Choose an available slot.")
+    else:
+        try:
+            scheduled_at = datetime.fromisoformat(slot_id)
+        except ValueError:
+            errors.append("That slot is no longer valid — pick another.")
+
+    # Collection method/address/pincode only apply to a lab-category basket
+    # (home sample collection has no equivalent for an in-person-only
+    # diagnostic test) -- same category gate as the WhatsApp Lab Test flow's
+    # own collection-method step.
+    is_lab = bool(tests) and tests[0]["category"] == db.CATEGORY_LAB
+    connector = connectors.get_connector_for_hospital(hospital)
+    if is_lab:
+        if collection_method not in ("visit", "home"):
+            errors.append("Choose a collection method.")
+        elif collection_method == "home":
+            if not collection_pincode:
+                errors.append("Enter a pincode for home collection.")
+            elif not connector.is_pincode_serviceable(hospital.id, collection_pincode):
+                errors.append("Home collection isn't available at this pincode.")
+            if not collection_address:
+                errors.append("Enter an address for home collection.")
+
+    if errors:
+        return JSONResponse({"errors": errors}, status_code=400)
+    assert scheduled_at is not None  # only left None when "Choose an available slot." was added above
+    assert tests  # only empty when "Choose at least one test."/"Choose a valid test." was added above
+
+    anchor = tests[0]
+    home_collection_charge = None
+    if is_lab and collection_method == "home":
+        home_collection_charge = db.get_hospital_settings(hospital.id).get("home_collection_charge")
+
+    try:
+        created = connector.create_booking(
+            hospital.id, patient_phone, None, None, scheduled_at,
+            source=db.SOURCE_STAFF, patient_name=patient_name or None,
+            # appointment_type_id -- anchor["category"] is "diagnostic" or
+            # "lab" (diagnostic_tests.category's own CHECK constraint),
+            # which is exactly what _apply_category_filter()'s "diagnostic"
+            # category scoping matches on. Left unset (NULL), this
+            # appointment would have folded into the "doctor" category
+            # instead -- NULL appointment_type_id is the legacy-row
+            # convention, and a resource-bound booking is never legacy.
+            appointment_type_id=anchor["category"],
+            diagnostic_test_id=anchor["id"],
+            diagnostic_test_label=anchor["name"], diagnostic_price=anchor.get("price"),
+        )
+    except db.QuotaExceededError as e:
+        return JSONResponse({"errors": [str(e)]}, status_code=400)
+    except IntegrityError:
+        return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
+    # Data-integrity guard: appointments_doctor_or_resource_or_procedure_chk
+    # requires doctor_id/diagnostic_test_id/procedure_id to never ALL be
+    # NULL -- this route only ever creates resource-bound rows, so if
+    # diagnostic_test_id somehow didn't persist, fail loudly (500) rather
+    # than silently leaving a broken row in the database that later crashes
+    # init_db() for everyone on next startup (see 2026-09-11 incident: three
+    # such rows had to be found and deleted by hand before the app would
+    # boot again).
+    assert created.diagnostic_test_id == anchor["id"], (
+        f"appointment {created.id} created without its diagnostic_test_id persisting "
+        f"(expected {anchor['id']}, got {created.diagnostic_test_id})"
+    )
+    if is_lab:
+        # Same UPDATE + appointment_lab_tests bulk-insert the WhatsApp Lab
+        # Test flow's on_booking_confirmed hook uses (flows/booking/types/
+        # lab.py's _on_lab_booking_confirmed) -- also starts the
+        # report-lifecycle tracking (lab_status='booked') as a side effect,
+        # so there's no separate set_lab_status() call needed for this branch.
+        basket_items = [
+            {"diagnostic_test_id": t["id"], "test_label": t["name"], "price": t.get("price")} for t in tests
+        ]
+        db.set_appointment_lab_order_details(
+            hospital.id, created.id, collection_method, collection_address, collection_pincode,
+            home_collection_charge, basket_items,
+        )
+    else:
+        # Starts the report-lifecycle tracking (portal_advance_lab_status
+        # above, "Today's lab queue"/"Pending report uploads" tiles) the
+        # same way a lab booking's basket call above does -- without this, a
+        # staff-created diagnostic test booking had NO status at all.
+        db.set_lab_status(hospital.id, created.id, "booked")
+
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.create",
+        entity_type="appointment", entity_id=str(created.id),
+        after={"test_ids": test_ids, "scheduled_at": scheduled_at.isoformat()},
     )
 
     return JSONResponse({"ok": True})
@@ -789,6 +1089,18 @@ async def portal_book_followup_now(
     source_appointment = db.get_appointment(principal.hospital.id, appointment_id)
     if source_appointment is None or source_appointment.status != db.STATUS_ATTENDED:
         return JSONResponse({"error": "No such attended appointment to follow up on."}, status_code=404)
+    if source_appointment.doctor_id is None:
+        # "Follow-up" is a doctor-consultation-only appointment_type_id
+        # (docs/per-appointment-type-flow-plan.md's fixed catalog has no
+        # test-category equivalent) -- a resource-bound (Diagnostics/Lab)
+        # visit has no doctor_id at all, and this route always passes
+        # `doctor_id=source_appointment.doctor_id` through with no
+        # diagnostic_test_id equivalent, so silently proceeding would create
+        # a new appointment with doctor_id/department_id/diagnostic_test_id
+        # all NULL -- the exact
+        # invalid, DB-constraint-violating shape that crashed the app on
+        # 2026-09-11. Reject outright instead of creating it.
+        return JSONResponse({"error": "This is a test booking, not a doctor visit — there's no follow-up concept for it."}, status_code=400)
 
     slot_id = (payload or {}).get("scheduled_at") or ""
     try:

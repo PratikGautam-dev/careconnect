@@ -269,7 +269,7 @@ async def test_reschedule_lab_booking_carries_basket_and_collection_forward(hosp
     connector = Tier1Connector()
     new_appointment = connector.reschedule_booking(
         hospital_id, original.id, PHONE, original.department_id, original.doctor_id,
-        original.scheduled_at + timedelta(minutes=30), resource_id=original.resource_id,
+        original.scheduled_at + timedelta(minutes=30), diagnostic_test_id=original.diagnostic_test_id,
     )
     assert new_appointment.collection_method == "home"
     assert new_appointment.collection_address == "42 MG Road"
@@ -393,6 +393,40 @@ def test_lab_status_advances_forward_only_never_directly_to_report_ready(hospita
     # Staff can never advance straight to report_ready -- only the
     # document-upload trigger below can do that.
     resp = client.post(f"/api/portal/bookings/{appt_id}/lab-status", headers=_auth(token))
+    assert resp.status_code == 400
+
+
+def test_diagnostic_status_advances_straight_to_processing_skipping_sample_collection(hospital_id):
+    """Diagnostics/imaging (MRI, CT Scan, ...) shares the exact same
+    lab_status lifecycle/endpoint as Lab Test -- it just skips the physical
+    "Sample Collected" stage (nothing to collect for a scan), going straight
+    booked -> processing, same as the Lab Test test above but one step
+    shorter."""
+    from datetime import datetime
+
+    _set_hospital_creds(hospital_id, password="testpass456", phone_number_id="pn2", access_token="tok2")
+    token = _login("testpass456")
+
+    test = db.create_diagnostic_test(
+        hospital_id, "diagnostic", "MRI Scan",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-13:00"], slot_duration_minutes=30,
+    )
+    slot = db.get_test_slots(hospital_id, test["id"])[0]
+    scheduled_at = datetime.fromisoformat(slot["id"])
+    appt = db.create_appointment(
+        hospital_id, "+15551231111", None, None, scheduled_at,
+        appointment_type_id="diagnostic", diagnostic_test_id=test["id"],
+        diagnostic_test_label="MRI Scan", lab_status="booked",
+    )
+
+    resp = client.post(f"/api/portal/bookings/{appt.id}/lab-status", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["appointment"]["lab_status"] == "processing"
+
+    # No further manual advance -- report_ready is upload-triggered only,
+    # same as Lab Test.
+    resp = client.post(f"/api/portal/bookings/{appt.id}/lab-status", headers=_auth(token))
     assert resp.status_code == 400
 
 

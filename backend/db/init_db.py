@@ -989,8 +989,11 @@ def init_db_on_connection(conn) -> int:
         ")"
     )
     conn.execute("ALTER TABLE appointments ALTER COLUMN doctor_id DROP NOT NULL")
-    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS resource_id TEXT REFERENCES diagnostic_resources(id)")
-    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id)")
+    # diagnostic_test_id itself (the column that used to be two separate,
+    # duplicate columns -- resource_id and diagnostic_test_id, merged into
+    # one) is added further down, once diagnostic_tests exists in its final
+    # form and diagnostic_resources is gone -- see that section's own
+    # comment. Nothing here needs it early.
     conn.execute(
         "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_variant_id "
         "INTEGER REFERENCES diagnostic_test_variants(id)"
@@ -1012,11 +1015,10 @@ def init_db_on_connection(conn) -> int:
     # older deploy) is enough; it must never be recreated in this idempotent
     # path.
     conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk")
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked "
-        "ON appointments(resource_id, scheduled_at, booking_ordinal) "
-        "WHERE status = 'booked' AND resource_id IS NOT NULL"
-    )
+    # The unique index that used to be recreated here (ux_appointments_
+    # resource_slot_ordinal_booked, now ux_appointments_diagnostic_test_
+    # slot_ordinal_booked) needs diagnostic_test_id to already exist --
+    # moved to just after that column's own creation, further down.
     # Migration 0026: Lab Test's multi-test basket (appointment_lab_tests),
     # collection-method/home-collection columns on appointments, the
     # hospital-configurable serviceable-PIN-code list (lab_service_areas),
@@ -1207,9 +1209,15 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_status TEXT")
     conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_procedure_status_check")
     conn.execute(
+        # NOT VALID: this drop+recreate runs on EVERY startup (not just once),
+        # and a plain ADD CONSTRAINT CHECK validates against every existing
+        # row at add-time -- one stray bad row would otherwise crash every
+        # future boot until someone finds and fixes it by hand. NOT VALID
+        # still enforces the check for every new insert/update from this
+        # point on; it only skips re-validating pre-existing rows.
         "ALTER TABLE appointments ADD CONSTRAINT appointments_procedure_status_check "
         "CHECK (procedure_status IS NULL OR procedure_status IN "
-        "('REQUESTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED'))"
+        "('REQUESTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED')) NOT VALID"
     )
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_estimated_price_min NUMERIC(10, 2)")
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_estimated_price_max NUMERIC(10, 2)")
@@ -1217,10 +1225,10 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS procedure_reschedule_requested_at TEXT")
     conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_chk")
     conn.execute("ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_doctor_or_resource_or_procedure_chk")
-    conn.execute(
-        "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_or_procedure_chk "
-        "CHECK (doctor_id IS NOT NULL OR resource_id IS NOT NULL OR procedure_id IS NOT NULL)"
-    )
+    # The re-ADD (NOT VALID, same rationale as appointments_procedure_status_
+    # check above) needs diagnostic_test_id to already exist -- moved to just
+    # after that column's own creation, further down, right next to the
+    # unique index that has the same dependency.
     # Migration 0030: lab_service_areas gains range_start/range_end so a
     # hospital can add a PIN-code range, not just individual codes.
     conn.execute("ALTER TABLE lab_service_areas ALTER COLUMN pincode DROP NOT NULL")
@@ -1228,9 +1236,11 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE lab_service_areas ADD COLUMN IF NOT EXISTS range_end TEXT")
     conn.execute("ALTER TABLE lab_service_areas DROP CONSTRAINT IF EXISTS lab_service_areas_single_xor_range_chk")
     conn.execute(
+        # NOT VALID -- see appointments_procedure_status_check's own comment
+        # above for why.
         "ALTER TABLE lab_service_areas ADD CONSTRAINT lab_service_areas_single_xor_range_chk "
         "CHECK ((pincode IS NOT NULL AND range_start IS NULL AND range_end IS NULL) OR "
-        "(pincode IS NULL AND range_start IS NOT NULL AND range_end IS NOT NULL AND range_start <= range_end))"
+        "(pincode IS NULL AND range_start IS NOT NULL AND range_end IS NOT NULL AND range_start <= range_end)) NOT VALID"
     )
     # Migration 0031: hospital-configurable slot-generation window, replacing
     # the hardcoded 14-day _SLOT_DAYS_AHEAD default.
@@ -1275,9 +1285,43 @@ def init_db_on_connection(conn) -> int:
     # Migration 0036: diagnostic tests/resources merge -- a diagnostic_tests
     # row now carries its own schedule directly (no separate
     # diagnostic_resources row, no department) -- see that migration's own
-    # docstring. No data is carried forward from diagnostic_resources.
-    conn.execute("DROP INDEX IF EXISTS ux_appointments_resource_slot_ordinal_booked")
-    conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS resource_id")
+    # docstring. No data was carried forward from diagnostic_resources at
+    # the time of this ONE-TIME cutover (old resource ids pointed at a table
+    # being retired, so there was nothing sane to map them to).
+    #
+    # 2026-09-11 incident: the DROP INDEX/DROP COLUMN pair that used to sit
+    # here (paired with the ADD COLUMN IF NOT EXISTS/CREATE UNIQUE INDEX IF
+    # NOT EXISTS below) was written in the same "safe to re-run forever"
+    # style as every other statement in this file, but a DROP COLUMN is NOT
+    # idempotent the way ADD COLUMN IF NOT EXISTS/DROP ... IF EXISTS on an
+    # already-gone object are -- every boot, it deleted appointments.resource_id
+    # (and every value in it) and the ADD COLUMN right below immediately
+    # recreated it empty, so it always found the column present to destroy
+    # again on the NEXT boot too. In effect, appointments.resource_id was
+    # silently wiped to NULL on every single app restart, for every
+    # resource-bound (Diagnostics/Lab) appointment, from the moment this
+    # migration first ran going forward -- not a one-time cutover at all.
+    # Removed entirely now that the actual one-time cutover has already
+    # happened in every environment that reaches this code -- there is
+    # nothing left to migrate, so this block is just the ordinary permanent
+    # column/index definition below, exactly like every other table in this
+    # file.
+    #
+    # 2026-09-11, later same day: resource_id itself was then merged into
+    # what used to be a second, fully-redundant appointments.diagnostic_test_id
+    # column (confirmed with the user: every write path set both to the same
+    # value, or left diagnostic_test_id NULL -- see the real migration,
+    # 20260911135450_merge_appointments_resource_id_into_.py, for the
+    # production ALTER TABLE ... RENAME COLUMN). This raw-SQL baseline never
+    # renames anything -- tests bypass Alembic and rebuild from an empty
+    # schema every time, so it just needs to arrive at the same end state
+    # directly: no early resource_id/diagnostic_test_id placeholder column
+    # (the old two-phase "placeholder now, real column later" shape below
+    # depended on one existing early only because DROP TABLE diagnostic_
+    # resources at the end of this block needs every FK into it gone first;
+    # removing the placeholder entirely removes that FK too, so nothing
+    # needs cleaning up here anymore), and diagnostic_test_id created ONCE,
+    # correctly typed, right below.
     conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS working_days TEXT NOT NULL DEFAULT ''")
     conn.execute("ALTER TABLE diagnostic_tests ADD COLUMN IF NOT EXISTS working_hours TEXT NOT NULL DEFAULT ''")
     conn.execute(
@@ -1306,11 +1350,23 @@ def init_db_on_connection(conn) -> int:
         ")"
     )
     conn.execute(
-        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES diagnostic_tests(id)"
+        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS diagnostic_test_id INTEGER REFERENCES diagnostic_tests(id)"
     )
     conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_resource_slot_ordinal_booked ON appointments "
-        "(resource_id, scheduled_at, booking_ordinal) WHERE status = 'booked' AND resource_id IS NOT NULL"
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_appointments_diagnostic_test_slot_ordinal_booked ON appointments "
+        "(diagnostic_test_id, scheduled_at, booking_ordinal) WHERE status = 'booked' AND diagnostic_test_id IS NOT NULL"
+    )
+    conn.execute(
+        # NOT VALID -- see appointments_procedure_status_check's own comment
+        # above for why (this is the constraint that has actually bitten us:
+        # 2026-09-11, three separate incidents, each one a stray row with
+        # doctor_id/diagnostic_test_id/procedure_id all NULL blocking every
+        # future startup until found and deleted by hand). Re-ADDed here
+        # (rather than back where it's DROPped, further up) because it needs
+        # diagnostic_test_id to already exist -- same reason the unique
+        # index above moved down here too.
+        "ALTER TABLE appointments ADD CONSTRAINT appointments_doctor_or_resource_or_procedure_chk "
+        "CHECK (doctor_id IS NOT NULL OR diagnostic_test_id IS NOT NULL OR procedure_id IS NOT NULL) NOT VALID"
     )
     conn.execute("DROP TABLE IF EXISTS diagnostic_resource_slots")
     conn.execute("DROP TABLE IF EXISTS diagnostic_resource_leave")

@@ -1,16 +1,17 @@
 import { Card } from "@/components/ui/Card";
+import { cn } from "@/lib/cn";
 
 // No real proxy exists -- staff_users.py tracks account-active, not daily
 // check-in. Rendered as an explicit empty state (dashes, greyed ring)
 // instead of an invented number.
-export function DashboardStaffAttendance() {
+export function DashboardStaffAttendance({ className }: { className?: string }) {
   const circumference = 2 * Math.PI * 40;
 
   return (
-    <Card className="p-space-4">
-      <h3 className="text-label mb-space-1 font-bold text-ink-900">Staff attendance (today)</h3>
-      <p className="text-hint mb-space-3">No check-in/attendance tracking exists yet.</p>
-      <div className="flex items-center gap-space-4">
+    <Card className={cn("flex flex-col p-space-4", className)}>
+      <h3 className="text-label mb-space-1 shrink-0 font-bold text-ink-900">Staff attendance (today)</h3>
+      <p className="text-hint mb-space-3 shrink-0">No check-in/attendance tracking exists yet.</p>
+      <div className="scrollbar-hide flex min-h-0 flex-1 items-center gap-space-4 overflow-y-auto">
         <div className="relative h-24 w-24 shrink-0">
           <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
             <circle cx="50" cy="50" r="40" fill="none" stroke="#e1e0d9" strokeWidth="10" />

@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { cn } from "@/lib/cn";
-import type { Appointment, NewBookingContext } from "@/hooks/useAppointments";
+import type { Appointment, SlotsByDate } from "@/hooks/useAppointments";
 
 type RescheduleDialogProps = {
   appointment: Appointment | null;
   onOpenChange: (open: boolean) => void;
-  ctx: NewBookingContext | null;
+  slotsByDate: SlotsByDate | null;
   message: string;
   setMessage: (v: string) => void;
   errors: string[];
@@ -30,7 +30,7 @@ type RescheduleDialogProps = {
  * (shown read-only below) rather than a dropdown -- rescheduling moves an
  * appointment's time, not who/what it's with. */
 export function RescheduleDialog({
-  appointment, onOpenChange, ctx, message, setMessage, errors, submitting,
+  appointment, onOpenChange, slotsByDate, message, setMessage, errors, submitting,
   date, setDate, slotId, setSlotId, datesForDoctor, slotsForDate, onSubmit,
 }: RescheduleDialogProps) {
   const open = appointment !== null;
@@ -50,12 +50,12 @@ export function RescheduleDialog({
               </Field>
               <Field label={appointment.doctor_id ? "Doctor" : "Resource"}>
                 <div className="flex h-11 items-center rounded-md border border-line bg-paper px-space-3 text-[14px] text-ink-600">
-                  {appointment.doctor_name || appointment.resource_name || "—"}
+                  {appointment.doctor_name || appointment.diagnostic_test_name || "—"}
                 </div>
               </Field>
             </div>
 
-            {!ctx ? (
+            {!slotsByDate ? (
               <p className="text-[13px] text-ink-400">Loading…</p>
             ) : (
               <>

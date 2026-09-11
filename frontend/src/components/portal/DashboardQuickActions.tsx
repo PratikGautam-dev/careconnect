@@ -1,37 +1,43 @@
-import { FlaskConical, Megaphone, Plus, UserPlus, FileDown } from "lucide-react";
-import { Card } from "@/components/ui/Card";
-import { QuickActionButton } from "./QuickActionButton";
+"use client";
 
-type Action = {
-  label: string;
-  icon: typeof Plus;
-} & ({ href: string } | { disabled: true });
+import { useState } from "react";
+import { Beaker, CalendarPlus, FlaskConical, Plus, UserPlus, FileDown } from "lucide-react";
+import { NewBookingDialog } from "./NewBookingDialog";
+import { NewTestBookingDialog } from "./NewTestBookingDialog";
+import { QuickActions, type QuickAction } from "./QuickActions";
+
+type Props = { className?: string };
 
 // Add doctor/Add staff/Create test navigate to the existing management
-// pages, which already own their add-forms. Broadcast/Export have no
+// pages, which already own their add-forms (Create test = define a new
+// bookable test TYPE, in Settings -- different from Book test below, which
+// books an appointment against an EXISTING test). Book appointment/Book test
+// open the same NewBookingDialog/NewTestBookingDialog the Doctor
+// appointments/Diagnostic & lab pages' own "Add new appointment"/"New test
+// booking" quick actions do, rather than just linking there. Export has no
 // backend anywhere in this app -- disabled, same "Coming soon" convention
 // PortalSidebar uses for its own unbuilt nav items.
-const ACTIONS: Action[] = [
-  { label: "Add doctor", icon: UserPlus, href: "/portal/doctors" },
-  { label: "Add staff", icon: Plus, href: "/portal/settings/staff" },
-  { label: "Broadcast message", icon: Megaphone, disabled: true },
-  { label: "Create test", icon: FlaskConical, href: "/portal/settings" },
-  { label: "Export report", icon: FileDown, disabled: true },
-];
+export function DashboardQuickActions({ className }: Props) {
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [testBookingOpen, setTestBookingOpen] = useState(false);
 
-export function DashboardQuickActions() {
+  const actions: QuickAction[] = [
+    { label: "Add doctor", icon: UserPlus, href: "/portal/doctors" },
+    { label: "Add staff", icon: Plus, href: "/portal/settings/staff" },
+    { label: "Book doctor appointment", icon: CalendarPlus, onClick: () => setBookingOpen(true) },
+    { label: "Book diagnostic & lab appointment", icon: Beaker, onClick: () => setTestBookingOpen(true) },
+    { label: "Create test", icon: FlaskConical, href: "/portal/settings" },
+    { label: "Export report", icon: FileDown, disabled: true, title: "Coming soon" },
+  ];
+
   return (
-    <Card className="p-space-4">
-      <h3 className="text-label mb-space-3 font-bold text-ink-900">Quick actions</h3>
-      <div className="space-y-space-2">
-        {ACTIONS.map((action) =>
-          "disabled" in action ? (
-            <QuickActionButton key={action.label} label={action.label} icon={action.icon} disabled />
-          ) : (
-            <QuickActionButton key={action.label} label={action.label} icon={action.icon} href={action.href} />
-          ),
-        )}
-      </div>
-    </Card>
+    <>
+      <QuickActions actions={actions} cardClassName={className} />
+      {/* onBooked is a no-op -- the dashboard's own usePortalDashboard hook
+          already polls on an interval, so a new booking shows up shortly
+          without needing a manual refetch hook threaded down here. */}
+      <NewBookingDialog open={bookingOpen} onOpenChange={setBookingOpen} onBooked={() => {}} />
+      <NewTestBookingDialog open={testBookingOpen} onOpenChange={setTestBookingOpen} onBooked={() => {}} />
+    </>
   );
 }

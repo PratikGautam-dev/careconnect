@@ -80,17 +80,24 @@ def get_diagnostic_tests(hospital_id: int, category: str) -> list[dict]:
 
 
 def get_diagnostic_test_summaries(hospital_id: int) -> list[dict]:
-    """Every active test, both categories, id/name only -- used by
-    auth/session.py's portal-reschedule context builder to pre-load every
-    resource-bound appointment's possible slots (mirrors the old
-    get_diagnostic_resources())."""
+    """Every active test, both categories -- used by auth/session.py's
+    portal-reschedule context builder to pre-load every resource-bound
+    appointment's possible slots (mirrors the old get_diagnostic_resources()),
+    and by the portal's new-test-booking dialog (NewTestBookingDialog.tsx) to
+    group tests by category and show a price. category/price were added for
+    that second caller -- the reschedule-context caller only ever used
+    id/name and ignores the extra fields."""
     session = get_session()
     rows = session.execute(
-        select(DiagnosticTest.id, DiagnosticTest.name)
+        select(DiagnosticTest.id, DiagnosticTest.name, DiagnosticTest.category, DiagnosticTest.price)
         .where(DiagnosticTest.hospital_id == hospital_id, DiagnosticTest.is_active.is_(True))
         .order_by(DiagnosticTest.name)
     ).all()
-    return [dict(r._mapping) for r in rows]
+    # _parse_test_row: price is NUMERIC -> SQLAlchemy hands back Decimal,
+    # which json.dumps() can't serialize -- same conversion every other test
+    # read already goes through, needed here too now that this function
+    # returns price at all.
+    return [_parse_test_row(dict(r._mapping)) for r in rows]
 
 
 def get_diagnostic_test(hospital_id: int, test_id: int) -> dict | None:

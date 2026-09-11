@@ -890,6 +890,50 @@ def test_bookings_list_never_includes_other_hospitals_appointments(two_hospitals
     assert len(resp.json()["appointments"]) == 1  # not hospital B's appointment too
 
 
+def test_bookings_calendar_scopes_by_month_category_and_hospital(two_hospitals):
+    a, b = two_hospitals["a"], two_hospitals["b"]
+    # This month: one plain (NULL appointment_type_id, folds into "doctor",
+    # same as get_appointments_page()'s own NULL-handling) doctor booking.
+    this_month_appt = _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
+    # A different hospital's same-month booking must never leak in.
+    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490002222")
+    # A booking in a different month must be excluded by the month filter.
+    now = datetime.now()
+    other_year, other_month = now.year + 1, now.month
+    far_future_appt = db.create_appointment(
+        a["id"], "5490003333", a["department_id"], a["doctor_id"], datetime(other_year, other_month, 15, 10, 0),
+    )
+
+    resp = client.get(
+        f"/api/portal/bookings/calendar?year={now.year}&month={now.month}", headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["year"] == now.year and body["month"] == now.month
+    ids = {row["id"] for row in body["appointments"]}
+    assert ids == {this_month_appt.id}
+
+    # The far-future appointment's own month, scoped to "doctor" (NULL
+    # appointment_type_id counts as doctor) -- present.
+    resp = client.get(
+        f"/api/portal/bookings/calendar?year={other_year}&month={other_month}&category=doctor", headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert {row["id"] for row in resp.json()["appointments"]} == {far_future_appt.id}
+
+    # Same month/appointment, but scoped to "diagnostic" -- a NULL
+    # appointment_type_id must never count as diagnostic.
+    resp = client.get(
+        f"/api/portal/bookings/calendar?year={other_year}&month={other_month}&category=diagnostic", headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["appointments"] == []
+
+    # Invalid month is rejected, not silently clamped.
+    resp = client.get("/api/portal/bookings/calendar?year=2026&month=13", headers=_auth(a["token"]))
+    assert resp.status_code == 400
+
+
 def test_dashboard_scoped_to_own_hospital_only(two_hospitals):
     a, b = two_hospitals["a"], two_hospitals["b"]
     _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
@@ -1299,7 +1343,7 @@ def test_reschedule_resource_bound_appointment_needs_no_department_or_doctor(two
     """Diagnostic/Lab reschedule follow-up: a resource-bound appointment
     (no doctor at all) reschedules with just slot_id -- department_id/
     doctor_id are derived server-side from the ORIGINAL appointment
-    (portal_reschedule_booking's own resource_id branch), never taken from
+    (portal_reschedule_booking's own diagnostic_test_id branch), never taken from
     the payload, matching the read-only Department/Doctor fields the
     frontend already shows for a doctor consultation."""
     a = two_hospitals["a"]
@@ -1309,7 +1353,7 @@ def test_reschedule_resource_bound_appointment_needs_no_department_or_doctor(two
     )
     slots = db.get_test_slots(a["id"], test["id"])
     appt = db.create_appointment(
-        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=test["id"],
+        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), diagnostic_test_id=test["id"],
     )
     new_slot = slots[1]
 
@@ -1327,7 +1371,7 @@ def test_reschedule_resource_bound_appointment_needs_no_department_or_doctor(two
         if x.phone == "5490001111" and x.status == db.STATUS_BOOKED
     ]
     assert len(new_appts) == 1
-    assert new_appts[0].resource_id == test["id"]
+    assert new_appts[0].diagnostic_test_id == test["id"]
     assert new_appts[0].scheduled_at.isoformat() == new_slot["id"]
 
 
@@ -1339,7 +1383,7 @@ def test_reschedule_resource_bound_appointment_rejects_missing_slot(two_hospital
     )
     slots = db.get_test_slots(a["id"], test["id"])
     appt = db.create_appointment(
-        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), resource_id=test["id"],
+        a["id"], "5490001111", None, None, datetime.fromisoformat(slots[0]["id"]), diagnostic_test_id=test["id"],
     )
 
     resp = client.post(

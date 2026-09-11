@@ -152,7 +152,7 @@ export function createPatientColumns({
       header: "",
       cell: ({ row }) => (
         <div className="text-right">
-          <PatientCellAction patient={row.original} onDelete={onDelete} onSelect={onSelect} />
+          <PatientCellAction patient={row.original} onDelete={onDelete} />
         </div>
       ),
     },

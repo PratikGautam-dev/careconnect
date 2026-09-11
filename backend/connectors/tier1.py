@@ -134,11 +134,11 @@ class Tier1Connector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         return repo.is_pincode_serviceable(hospital_id, pincode)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
             source=source, patient_name=patient_name, patient_age=patient_age, patient_id=patient_id,
-            appointment_type_id=appointment_type_id, consent_given_at=consent_given_at, resource_id=resource_id,
+            appointment_type_id=appointment_type_id, consent_given_at=consent_given_at,
             diagnostic_test_id=diagnostic_test_id,
             diagnostic_test_label=diagnostic_test_label,
             diagnostic_price=diagnostic_price,
@@ -192,9 +192,9 @@ class Tier1Connector(Connector):
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         repo.set_appointment_video_link(hospital_id, appointment_id, video_link)
 
-    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price):
-        repo.set_appointment_diagnostic_details(
-            hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price,
+    def set_appointment_diagnostic_label_and_price(self, hospital_id, appointment_id, diagnostic_test_label, diagnostic_price):
+        repo.set_appointment_diagnostic_label_and_price(
+            hospital_id, appointment_id, diagnostic_test_label, diagnostic_price,
         )
 
     def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
@@ -262,7 +262,7 @@ class Tier1Connector(Connector):
     def get_pending_procedure_request(self, hospital_id, phone, procedure_id):
         return repo.get_pending_procedure_request(hospital_id, phone, procedure_id)
 
-    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None, resource_id=None):
+    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None, diagnostic_test_id=None):
         """Books the new slot BEFORE marking the old appointment rescheduled:
         if someone else grabbed this exact doctor+slot first (IntegrityError,
         left to propagate uncaught to the caller — same as create_booking),
@@ -293,9 +293,9 @@ class Tier1Connector(Connector):
         the same way create_procedure_booking() does. See
         connector.request_procedure_reschedule()/confirm_procedure_appointment().
 
-        Diagnostic/Lab Phase 2: resource_id/diagnostic_test_id/label/price all
-        carry forward the same way -- rescheduling moves the slot, never
-        re-asks which test was chosen.
+        Diagnostic/Lab Phase 2: diagnostic_test_id/label/price all carry
+        forward the same way -- rescheduling moves the slot, never re-asks
+        which test was chosen.
 
         Lab Test Phase 2 follow-up: collection_method/address/pincode/
         home_collection_charge carry forward the same way -- rescheduling
@@ -310,8 +310,10 @@ class Tier1Connector(Connector):
             hospital_id, phone, department_id, doctor_id, scheduled_at, patient_id=patient_id,
             exclude_appointment_id=old_appointment_id,
             appointment_type_id=old_appointment.appointment_type_id if old_appointment else None,
-            resource_id=resource_id if resource_id is not None else (old_appointment.resource_id if old_appointment else None),
-            diagnostic_test_id=old_appointment.diagnostic_test_id if old_appointment else None,
+            diagnostic_test_id=(
+                diagnostic_test_id if diagnostic_test_id is not None
+                else (old_appointment.diagnostic_test_id if old_appointment else None)
+            ),
             diagnostic_test_label=old_appointment.diagnostic_test_label if old_appointment else None,
             diagnostic_price=old_appointment.diagnostic_price if old_appointment else None,
             collection_method=old_appointment.collection_method if old_appointment else None,

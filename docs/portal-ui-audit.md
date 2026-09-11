@@ -177,8 +177,36 @@ just relocated (see below) rather than dropped for the new layout.
   already returned this on `/api/portal/dashboard`, it just wasn't typed/used
   on the frontend before this pass.
 - **Account menu** (top bar) — real session/settings/logout.
+- **Caching**: `/api/portal/dashboard` (7+ queries per request, including a
+  per-row `get_patient_by_phone` call) now has a 20s-TTL, no-invalidation
+  cache (same two-tier local-dict-in-front-of-Redis shape as the mini
+  calendar's own cache below) — TTL matches the frontend's own poll
+  interval, so a page-switch-and-back or a second staff member viewing at
+  the same time returns instantly from cache. Frontend-side, `usePortalDashboard`
+  now goes through the app's single `QueryClient` (`useQuery`, same as
+  `useAppointments.ts`) instead of local `useState` — navigating away from
+  `/portal/dashboard` and back shows the last-known data immediately from
+  the client-side cache (with a background refetch) rather than blanking to
+  "Loading…" and paying a fresh round trip every time.
 - **Quick actions**: Add doctor, Add staff, Create test — real navigation to
-  the pages that already own those add-forms.
+  the pages that already own those add-forms. Book appointment/Book test open
+  `NewBookingDialog`/`NewTestBookingDialog` (see Doctor appointments/
+  Diagnostic & lab sections below) directly from the dashboard. Export
+  report — disabled, no backend.
+- **Mini calendar** — now real: one fetch per month navigated to (not per
+  day) via the new `GET /api/portal/bookings/calendar?year=&month=&category=`,
+  the doctor-portal's own existing `/api/doctor/appointments/calendar`
+  pattern (`AppointmentCalendar.tsx`) generalized to hospital-wide +
+  category-scoped. Day cells show a booking-count badge; clicking a day
+  lists that day's bookings (patient, time, status) below the grid, all
+  derived client-side from the one month-array already fetched — no
+  per-day request. Scoped to **all** appointment types here (Dashboard);
+  the Doctor appointments/Diagnostic & lab pages pass `category="doctor"`/
+  `"diagnostic"` respectively (see those sections). Cached server-side for
+  60s (local dict + Redis via `core/redis_client.py`, no invalidation
+  wired into booking create/cancel/reschedule — a glanceable widget being
+  up to a minute stale is an accepted tradeoff against touching every
+  booking-mutation call site).
 
 ### Missing (no backend concept yet)
 
@@ -191,9 +219,6 @@ just relocated (see below) rather than dropped for the new layout.
 - **Staff attendance (today)** widget — no check-in/attendance tracking
   exists (only account-active, not "present today"). Shown as an explicit
   empty state, not an invented percentage.
-- **Mini calendar** — a real, date-correct month grid, but no events
-  plotted; no calendar/scheduling backend exists (dropped from
-  `PortalSidebar`'s nav for the same reason).
 - **Header search** — no cross-entity search endpoint (patient search exists
   but is scoped to the Patients page only). Disabled, "Coming soon".
 - **Notification bell** — no notification system exists. Disabled, "Coming
@@ -248,8 +273,8 @@ time/status tabs.
   - Selection checkboxes and the bulk-delete button were kept (real,
     pre-existing functionality the mockup doesn't show) — flagged here as a
     deliberate difference from the image, not an oversight.
-- Mini calendar — same real, date-correct (but eventless) grid as the
-  dashboard's.
+- Mini calendar — same real, per-month-bookings widget as the dashboard's
+  (see that section), scoped here to `category="doctor"` only.
 
 ### Missing
 
@@ -257,10 +282,15 @@ time/status tabs.
   already reads "Confirmed". Shown as "—".
 - **Filter** button — no filter panel built yet (search box covers the
   common case). Disabled, "Coming soon".
-- **Reschedule appointment / Cancel appointment / Send reminder / Export
-  appointments** quick actions — reschedule/cancel already exist per-row in
-  the table (no "pick an appointment" flow from a standalone button yet);
-  reminders and export have no backend at all. Disabled, "Coming soon".
+- **Export appointments** quick action — no backend for it. Disabled,
+  "Coming soon".
+- **Send reminder** — moved into each row's own Actions menu (next to the
+  real Reschedule/Cancel there) rather than staying as a page-level Quick
+  Action; still disabled, since no reminder backend exists. Reschedule and
+  Cancel were already real, per-row-only actions (no "pick an appointment"
+  flow from a standalone button exists, or is needed) — the page-level
+  Quick Actions no longer duplicate them as disabled placeholders pointing
+  back at the row.
 - "Room / Mode" (from the mockup's table) — no room-assignment concept
   exists in this schema at all; not added as a column rather than shown with
   invented values.
@@ -280,34 +310,110 @@ with lab-status advancement).
 - **Total test bookings, Diagnostics today, Lab tests today** (+ real
   vs-yesterday deltas) — same client-side computation as the Doctor
   appointments page's tiles.
-- **Pending report uploads** — real, but **Lab Test-only**: count of
-  still-booked Lab Test rows whose `lab_status` hasn't reached
-  `report_ready`. Diagnostics-type bookings have no equivalent status field
-  at all, so they can't be counted here (see Missing).
+- **Report-lifecycle tracking now covers Diagnostics too, not just Lab
+  Test** — previously `lab_status` was only ever set for `"lab"`-category
+  bookings, so a Diagnostics-type row (MRI/CT Scan/X-Ray/...) had genuinely
+  no way to track/advance its status at all, and even a Lab Test booking
+  created via the staff "New test booking" dialog never got `lab_status`
+  set in the first place (a real bug — `portal_create_new_test_booking`
+  never called `set_lab_status()`). Both fixed: the dialog now calls
+  `db.set_lab_status(hospital.id, created.id, "booked")` right after
+  creation for either category, and `portal_advance_lab_status`
+  (`POST /api/portal/bookings/{id}/lab-status`) now picks a per-category
+  forward-map — Lab Test still goes `booked -> sample_collected ->
+  processing` (a physical sample to collect), Diagnostics goes straight
+  `booked -> processing` (nothing to collect for a scan). `report_ready` is
+  reached the same way for both: automatically, the moment a lab report
+  document is uploaded — never a manual staff click. Frontend mirrors this
+  with a per-category `LAB_STATUS_NEXT_LABEL` map in
+  `appointments-cellaction.tsx` ("Mark sample collected"/"Mark processing"
+  for Lab Test, "Mark in progress" for Diagnostics).
+- **Pending report uploads** — now counts BOTH Lab Test and Diagnostics
+  rows still booked without a report (previously Lab Test-only, back when
+  Diagnostics had no status field to check).
 - **All bookings / Diagnostics / Lab tests / Completed / Pending /
   Cancelled tabs + counts** — real, derived from `appointment_type_id`/
   `status` on the loaded list.
 - **Status column** — reads `lab_status` (Pending/Sample Collected/
-  Processing/Completed) for a still-booked Lab Test row; falls back to the
-  plain appointment status (Confirmed/Attended/Cancelled/...) for
-  Diagnostics-type rows and any resolved row of either type.
-- **Today's lab queue** card — real breakdown by `lab_status` among today's
-  Lab Test bookings (Diagnostics-type has no equivalent stage tracking, so
+  Processing/Completed) for a still-booked row of EITHER category now (a
+  Diagnostics row just never actually shows "Sample Collected", since its
+  forward-map skips that stage) — falls back to the plain appointment
+  status (Confirmed/Attended/Cancelled/...) for any resolved row, or one
+  with no `lab_status` at all.
+- **Today's lab queue** card — deliberately stays Lab Test-only (unlike
+  Pending report uploads above): its stage labels ("Waiting for sample
+  collection", "Sample collected") describe a physical specimen workflow
+  that doesn't apply to Diagnostics/imaging at all, so folding them in here
+  would misrepresent them rather than just under-counting. Real breakdown by
+  `lab_status` among today's Lab Test bookings (Diagnostics-type has no
+  equivalent stage tracking IN THIS CARD specifically — see above — so
   this card is Lab Test-only too).
 - **Test / Procedure, Assigned department, Patient ID** columns — real
-  (`resource_name`, `department_name`, `patient_display_id`).
+  (`diagnostic_test_name`, `department_name`, `patient_display_id`).
+- **New test booking** quick action — opens `NewTestBookingDialog`, a
+  resource-bound sibling of `NewBookingDialog` (Patient → Test/service →
+  Date → Slot, no department/doctor step). Posts to the new
+  `POST /api/portal/new-test-booking`, which reuses the existing
+  `/api/portal/new-booking/context` data (departments/doctors/resources) and
+  the same `connector.create_booking(diagnostic_test_id=...)` path
+  `RescheduleDialog` already exercised for resource-bound appointments. Also
+  mounted from the Dashboard's Quick Actions ("Book test") the same way
+  "Book appointment" mounts `NewBookingDialog` there.
+- **2026-09-11 schema cleanup**: `appointments` used to carry two separate
+  FK columns pointing at `diagnostic_tests.id` — `resource_id` (the one
+  actually wired into the slot-locking/double-booking check, the unique
+  index, and the doctor-or-resource-or-procedure CHECK constraint) and a
+  fully-redundant `diagnostic_test_id` always set to the same value (or left
+  `NULL` for a Lab Test basket booking). Merged into one column,
+  `diagnostic_test_id`, via a real Alembic migration (data preserved) — see
+  that migration's own docstring. Every backend/frontend reference
+  (`_appointment_json`'s `resource_id`/`resource_name` keys, the
+  `/new-booking/slots?resource_id=` query param, the `Appointment` TS type's
+  fields, etc.) renamed to match.
+- **Multi-test lab booking (parity with the WhatsApp Lab Test basket)**:
+  `NewTestBookingDialog` now lets staff pick MULTIPLE lab-category tests in
+  one booking (checkboxes + a running chip list + price total), matching
+  `flows/booking/types/lab.py`'s existing basket for patients booking via
+  WhatsApp — one collection method (Visit/Home, with pincode+address for
+  Home) and one slot for the whole basket, anchored on the first test
+  picked, persisted via the same `set_appointment_lab_order_details()` call
+  (which also bulk-inserts the N-row `appointment_lab_tests` basket table —
+  previously only ever written by the WhatsApp flow, so it looked
+  permanently empty from the portal side). Diagnostic-category tests stay
+  single-select (no basket concept there either, on either booking path);
+  picking a test of a different category than what's already selected
+  replaces the whole selection rather than mixing categories, mirroring the
+  backend's own rejection of a mixed-category basket.
+- **Bug fix**: the route wasn't setting `appointment_type_id` on the created
+  appointment, so it defaulted to `NULL` -- which `_apply_category_filter()`'s
+  legacy-row convention folds into the "doctor" category, so a test booking
+  showed up on the Doctor appointments page instead of here. Fixed by
+  passing `appointment_type_id=test["category"]` ("diagnostic" or "lab",
+  `diagnostic_tests.category`'s own CHECK constraint) through to
+  `connector.create_booking()`.
+- **Perf follow-up** (both booking dialogs, `RescheduleDialog`, and the
+  patient page's follow-up "Book now" panel): `/api/portal/new-booking/context`
+  used to eager-load EVERY doctor's and EVERY resource's available slots on
+  every open (`slots_by_doctor`/`slots_by_resource`) -- for even this app's
+  small dev seed (10 doctors + 15 tests), that's 25 items x several real DB
+  round trips each (a Redis cache hit still costs 2 queries; a miss costs
+  several more plus a hospital-settings write), noticeably slow to open. Now
+  `/context` returns only departments/doctors/resources (list-only, cheap),
+  and slots for whichever ONE doctor/resource is actually relevant are
+  fetched lazily via the new `GET /api/portal/new-booking/slots?doctor_id=`/
+  `?diagnostic_test_id=` (`fetchSlotsByDate` in `useAppointments.ts`, shared by all
+  four consumers). Also dropped the disabled "Branch" field from both
+  dialogs (single-location hospital — nothing to actually choose).
 - **View pending reports** quick action — switches to the Pending tab.
 - Lab-status advancement ("Mark sample collected" / "Mark processing") and
   attendance marking, both folded into the row Actions menu — real,
   pre-existing hook mutations, previously only wired on the old combined
   appointments page.
+- Mini calendar — same real, per-month-bookings widget as the dashboard's
+  (see that section), scoped here to `category="diagnostic"` only.
 
 ### Missing
 
-- **New test booking** — disabled. `NewBookingDialog` only supports a
-  doctor/department/date/slot flow; there's no resource/test equivalent
-  picker yet, even though rescheduling an *existing* resource-bound booking
-  already works (`RescheduleDialog` handles it).
 - **Upload lab report** — disabled. Document upload exists
   (`/portal/patients/[id]`, `document_type: "lab_report"`), but only
   patient-scoped, not from a specific booking here.
@@ -318,8 +424,25 @@ with lab-status advancement).
   dropped rather than invented (same call as the Doctor appointments page's
   "Room / Mode").
 - Known gap found while building this, not fixed here (out of scope): the
-  appointment detail page's "Doctor" field has no `resource_name` fallback,
-  so "View Details" on a diagnostic/lab row won't show its test name there.
+  appointment detail page's "Doctor" field has no `diagnostic_test_name`
+  fallback, so "View Details" on a diagnostic/lab row won't show its test
+  name there.
+- **Bug fix, found while investigating the lab_status work above**: the
+  patient detail page's (`/portal/patients/[id]`) "Book follow-up now" panel
+  wasn't gated by visit type at all -- only by `status === "attended"` --
+  so it offered "Follow-up…" for a resource-bound (Diagnostics/Lab) attended
+  visit too, even though "follow-up" is a doctor-consultation-only
+  appointment_type_id with no test-category equivalent. Clicking it would
+  have created a new appointment with `doctor_id`/`department_id`/
+  `diagnostic_test_id` all `NULL` -- the exact invalid shape that violates
+  `appointments_doctor_or_resource_or_procedure_chk` and crashes `init_db()`
+  for everyone on next backend restart (the same incident that briefly took
+  the dev server down while building this feature). Fixed at both layers:
+  `portal_book_followup_now` now rejects a resource-bound source appointment
+  with a 400 (defense in depth, since a direct API call bypasses the
+  frontend), and `visit-history-columns.tsx`'s Follow-up cell now hides the
+  action entirely for a Diagnostics/Lab/Daycare-type visit instead of
+  offering something that always fails.
 
 ## Sidebar navigation
 

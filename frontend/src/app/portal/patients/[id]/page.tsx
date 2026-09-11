@@ -53,7 +53,7 @@ export default function PatientDetailPage() {
     visitTypeCounts, filteredVisits,
     followupPanelId, openFollowupPanel, closeFollowupPanel, followupError,
     extendDays, setExtendDays, extendingId, handleExtendFollowup,
-    bookCtx, bookDate, setBookDate, bookSlotId, setBookSlotId, bookingId, handleBookFollowupNow,
+    bookSlotsByDate, bookDate, setBookDate, bookSlotId, setBookSlotId, bookingId, handleBookFollowupNow,
   } = usePatientDetail(patientId, ready);
 
   if (!data) {
@@ -144,11 +144,13 @@ export default function PatientDetailPage() {
                 Or book this follow-up now (with {v.doctor_name}, {v.department_name})
               </p>
               {(() => {
-                const dates = bookCtx ? Object.keys(bookCtx.slots_by_doctor[v.doctor_id] || {}).sort() : [];
-                const slots = bookCtx && bookDate ? bookCtx.slots_by_doctor[v.doctor_id]?.[bookDate] || [] : [];
+                const dates = bookSlotsByDate ? Object.keys(bookSlotsByDate).sort() : [];
+                const slots = bookSlotsByDate && bookDate ? bookSlotsByDate[bookDate] || [] : [];
                 return (
                   <>
-                    {dates.length === 0 ? (
+                    {bookSlotsByDate === null ? (
+                      <p className="mb-space-2 text-[12.5px] text-ink-400">Loading available dates…</p>
+                    ) : dates.length === 0 ? (
                       <p className="mb-space-2 text-[12.5px] text-ink-400">No available dates for this doctor.</p>
                     ) : (
                       <div className="mb-space-2 flex flex-wrap gap-space-2">

@@ -36,7 +36,7 @@ async def _start_reschedule_flow_for_appointment(
     Section 0), scoped to the appointment's existing doctor (no re-picking
     department/doctor).
 
-    Diagnostic/Lab Phase 2: a resource-bound appointment (appt.resource_id
+    Diagnostic/Lab Phase 2: a resource-bound appointment (appt.diagnostic_test_id
     set) reschedules against that SAME resource's own calendar instead --
     it never re-picks a test/variant, only a new date/time.
 
@@ -51,12 +51,12 @@ async def _start_reschedule_flow_for_appointment(
         from flows.booking.types.procedure import _start_procedure_reschedule_request
         await _start_procedure_reschedule_request(wa, sessions, phone, hospital_id, appt, connector, language=language)
         return
-    is_resource = appt.resource_id is not None
+    is_resource = appt.diagnostic_test_id is not None
     slots = (
-        connector.get_available_resource_slots(hospital_id, appt.resource_id) if is_resource
+        connector.get_available_resource_slots(hospital_id, appt.diagnostic_test_id) if is_resource
         else connector.get_available_slots(hospital_id, appt.doctor_id)
     )
-    display_name = appt.resource_name if is_resource else appt.doctor_name
+    display_name = appt.diagnostic_test_name if is_resource else appt.doctor_name
     if not slots:
         await _notify_no_slots_available(wa, sessions, hospital_id, phone, display_name, language=language)
         return
@@ -66,7 +66,7 @@ async def _start_reschedule_flow_for_appointment(
         "department_name": appt.department_name,
         "doctor_id": appt.doctor_id,
         "doctor_name": display_name,
-        "resource_id": appt.resource_id,
+        "resource_id": appt.diagnostic_test_id,
         # Patient identity SEPARATION (Spec.md Section 0): carries the
         # ORIGINAL appointment's own patient through the reschedule -- without
         # this, a multi-patient phone rescheduling would have no way to know
@@ -75,7 +75,7 @@ async def _start_reschedule_flow_for_appointment(
     }
     sessions.set(hospital_id, phone, STATE_AWAITING_RESCHEDULE_DATE, new_context)
     await _send_date_menu(
-        wa, phone, hospital_id, appt.doctor_id, display_name, connector, language=language, resource_id=appt.resource_id,
+        wa, phone, hospital_id, appt.doctor_id, display_name, connector, language=language, resource_id=appt.diagnostic_test_id,
     )
 
 
@@ -271,7 +271,7 @@ async def _handle_awaiting_reschedule_confirm(
                     doctor_id=context.get("doctor_id"),
                     scheduled_at=datetime.fromisoformat(f"{context['slot_date']}T{context['slot_time']}"),
                     patient_id=context.get("active_patient_id"),
-                    resource_id=context.get("resource_id"),
+                    diagnostic_test_id=context.get("resource_id"),
                 )
             except IntegrityError:
                 # Someone else grabbed this exact doctor+slot first -- the connector's

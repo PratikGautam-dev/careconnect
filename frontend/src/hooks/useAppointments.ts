@@ -21,8 +21,8 @@ export type Appointment = {
   // null) for a resource-bound booking -- an MRI machine or lab collection
   // point, not a doctor. Diagnostic tests/resources merge: this is a
   // diagnostic_tests.id now -- a test IS the schedulable resource.
-  resource_id: number | null;
-  resource_name: string | null;
+  diagnostic_test_id: number | null;
+  diagnostic_test_name: string | null;
   scheduled_at: string;
   status: string;
   source: string;
@@ -48,18 +48,48 @@ export type Appointment = {
 
 export type Department = { id: string; name: string };
 export type Doctor = { id: string; name: string };
-export type Resource = { id: number; name: string };
+// category/price (added for the portal's multi-test lab booking basket --
+// NewTestBookingDialog groups by category and shows a price) are absent
+// from the plain reschedule-context caller's own reads, which is fine --
+// TypeScript structural typing doesn't require every consumer to use every
+// field.
+export type Resource = { id: number; name: string; category: "diagnostic" | "lab"; price: number | null };
 export type Slot = { id: string; label: string };
+export type SlotsByDate = Record<string, Slot[]>;
 export type NewBookingContext = {
   departments: Department[];
   doctors_by_department: Record<string, Doctor[]>;
-  slots_by_doctor: Record<string, Record<string, Slot[]>>;
   // Diagnostic/Lab reschedule follow-up: the resource-bound equivalent of
-  // doctors_by_department/slots_by_doctor above -- a resource has no
-  // department picker of its own in this dialog, so just a flat list.
+  // doctors_by_department above -- a resource has no department picker of
+  // its own in this dialog, so just a flat list. Slots for a specific
+  // doctor/resource are fetched separately, on demand, via
+  // GET /api/portal/new-booking/slots?doctor_id=/?diagnostic_test_id= (see
+  // fetchSlotsByDate below) -- not eager-loaded here for every doctor/
+  // resource, which is what this endpoint used to do before it became slow
+  // enough to notice.
   resources: Resource[];
-  slots_by_resource: Record<string, Record<string, Slot[]>>;
 };
+
+/** Fetches available slots for exactly ONE doctor or ONE resource (pass
+ * exactly one), grouped by date -- the lazy counterpart to the context
+ * endpoint above. Shared by every consumer that used to read
+ * ctx.slots_by_doctor[id]/slots_by_resource[id] out of the old eager
+ * all-at-once context: NewBookingDialog/NewTestBookingDialog (via their own
+ * hooks), RescheduleDialog (below), and the patient page's follow-up
+ * "Book now" panel (usePatientDetail.ts). */
+export async function fetchSlotsByDate(
+  router: ReturnType<typeof useRouter>, opts: { doctorId?: string; resourceId?: string },
+): Promise<SlotsByDate | null> {
+  const params = new URLSearchParams();
+  if (opts.doctorId) params.set("doctor_id", opts.doctorId);
+  if (opts.resourceId) params.set("diagnostic_test_id", opts.resourceId);
+  const result = await portalFetch(`/api/portal/new-booking/slots?${params.toString()}`);
+  if (!result.ok) {
+    if (result.unauthorized) router.push("/portal/login");
+    return null;
+  }
+  return (result.data as { slots_by_date: SlotsByDate }).slots_by_date;
+}
 
 // docs/per-appointment-type-flow-plan.md's fixed catalog (db/repositories/
 // appointment_types.py's DEFAULT_APPOINTMENT_TYPES) -- there's no portal CRUD
@@ -124,16 +154,16 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
 
   const [reschedulePanelId, setReschedulePanelId] = useState<number | null>(null);
   const [reschedulingId, setReschedulingId] = useState<number | null>(null);
-  const [rescheduleCtx, setRescheduleCtx] = useState<NewBookingContext | null>(null);
+  const [rescheduleSlotsByDate, setRescheduleSlotsByDate] = useState<SlotsByDate | null>(null);
   const [rescheduleErrors, setRescheduleErrors] = useState<string[]>([]);
   const [rescheduleMessage, setRescheduleMessage] = useState(DEFAULT_RESCHEDULE_MESSAGE);
   // Department/doctor (or resource) are fixed to whichever the appointment
   // already has -- rescheduling only moves the date/slot, so this is set
   // once (from the appointment being rescheduled) when the dialog opens,
   // never from a user pick. Kept internal (not returned below) since
-  // RescheduleDialog reads department_name/doctor_name/resource_name
+  // RescheduleDialog reads department_name/doctor_name/diagnostic_test_name
   // straight off the Appointment it's given for display -- these are only
-  // here to index into rescheduleCtx.slots_by_doctor/slots_by_resource.
+  // here to fetch that one doctor's/resource's slots (rescheduleSlotsByDate).
   const [rDoctorId, setRDoctorId] = useState("");
   const [rResourceId, setRResourceId] = useState("");
   const [rDate, setRDate] = useState("");
@@ -419,19 +449,19 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     setRescheduleMessage(DEFAULT_RESCHEDULE_MESSAGE);
     setRescheduleErrors([]);
     const appointment = appointments?.find((a) => a.id === id);
-    setRDoctorId(appointment?.doctor_id || "");
-    setRResourceId(appointment?.resource_id != null ? String(appointment.resource_id) : "");
+    const doctorId = appointment?.doctor_id || "";
+    const resourceId = appointment?.diagnostic_test_id != null ? String(appointment.diagnostic_test_id) : "";
+    setRDoctorId(doctorId);
+    setRResourceId(resourceId);
     setRDate("");
     setRSlotId("");
-    if (!rescheduleCtx) {
-      // Reuses the exact same context endpoint /portal/new-booking already
-      // reads doctor/resource slot options from -- no separate endpoint.
-      // Department/doctor/resource are fixed to the appointment's own (see
-      // rDoctorId/rResourceId above), so only slots_by_doctor[rDoctorId] or
-      // slots_by_resource[rResourceId] is actually read out of this.
-      const result = await portalFetch("/api/portal/new-booking/context");
-      if (result.ok) setRescheduleCtx(result.data as NewBookingContext);
-    }
+    // Fixed to THIS appointment's own doctor/resource (never user-picked --
+    // see rDoctorId/rResourceId's own comment above), so only that one
+    // entity's slots are fetched -- not every doctor/resource in the
+    // hospital, which /new-booking/context used to eager-load for this.
+    setRescheduleSlotsByDate(null);
+    const slots = await fetchSlotsByDate(router, { doctorId: doctorId || undefined, resourceId: resourceId || undefined });
+    setRescheduleSlotsByDate(slots ?? {});
   }
 
   function closeReschedulePanel() {
@@ -447,7 +477,7 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         department_id: appointment?.department_id || "", doctor_id: appointment?.doctor_id || rDoctorId,
-        resource_id: appointment?.resource_id ?? (rResourceId ? Number(rResourceId) : null),
+        diagnostic_test_id: appointment?.diagnostic_test_id ?? (rResourceId ? Number(rResourceId) : null),
         slot_id: rSlotId, message: rescheduleMessage.trim(),
       }),
     });
@@ -468,14 +498,10 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
 
   // Diagnostic/Lab reschedule follow-up: a resource-bound appointment has no
   // doctor at all -- rResourceId is set instead of rDoctorId when the panel
-  // opens (see openReschedulePanel), so exactly one of these two ever has
-  // slots to offer.
-  const rDatesForDoctor = rescheduleCtx
-    ? Object.keys((rDoctorId ? rescheduleCtx.slots_by_doctor[rDoctorId] : rescheduleCtx.slots_by_resource[rResourceId]) || {}).sort()
-    : [];
-  const rSlotsForDate = rDate && rescheduleCtx
-    ? (rDoctorId ? rescheduleCtx.slots_by_doctor[rDoctorId]?.[rDate] : rescheduleCtx.slots_by_resource[rResourceId]?.[rDate]) || []
-    : [];
+  // opens (see openReschedulePanel), but rescheduleSlotsByDate already holds
+  // whichever one's slots regardless (fetchSlotsByDate takes exactly one).
+  const rDatesForDoctor = rescheduleSlotsByDate ? Object.keys(rescheduleSlotsByDate).sort() : [];
+  const rSlotsForDate = rDate && rescheduleSlotsByDate ? rescheduleSlotsByDate[rDate] || [] : [];
 
   const selectedAppointments = deletableAppointments.filter((a) => selected.has(a.id));
   const allSelected = deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
@@ -486,7 +512,7 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
     applyFilters, resetFilters, filtersDirty,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
-    reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
+    reschedulePanelId, reschedulingId, rescheduleSlotsByDate, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
     rDate, setRDate, rSlotId, setRSlotId,
     rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,

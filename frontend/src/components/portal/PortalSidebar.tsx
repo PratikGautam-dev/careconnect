@@ -48,7 +48,7 @@ const ROLE_LABEL: Record<string, string> = {
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
   { key: "appointments", label: "Doctor appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
-  { key: "diagnostic", label: "Diagnostic & lab test appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
+  { key: "diagnostic", label: "Diagnostic & lab appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
   { key: "report-review", label: "Report review", icon: ClipboardCheck, pageKey: "report-review" },
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },

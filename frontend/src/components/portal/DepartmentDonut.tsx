@@ -2,6 +2,7 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card } from "@/components/ui/Card";
+import { cn } from "@/lib/cn";
 
 type Slice = { department_name: string; count: number };
 
@@ -20,11 +21,11 @@ function DonutTooltip({ active, payload }: { active?: boolean; payload?: { name:
   );
 }
 
-export function DepartmentDonut({ data }: { data: Slice[] }) {
+export function DepartmentDonut({ data, className }: { data: Slice[]; className?: string }) {
   const total = data.reduce((sum, d) => sum + d.count, 0);
 
   return (
-    <Card className="p-space-4">
+    <Card className={cn("p-space-4", className)}>
       <h3 className="text-label mb-space-4 font-bold text-ink-900">Appointments by department</h3>
       {total === 0 ? (
         <div className="flex h-[220px] items-center justify-center text-[13px] text-ink-400">
@@ -56,7 +57,7 @@ export function DepartmentDonut({ data }: { data: Slice[] }) {
               <span className="text-[11px] text-ink-400">Total</span>
             </div>
           </div>
-          <ul className="flex-1 space-y-space-2">
+          <ul className="max-h-47.5 flex-1 space-y-space-2 overflow-y-auto">
             {data.map((d, i) => (
               <li key={d.department_name} className="flex items-center gap-space-2 text-[12.5px]">
                 <span

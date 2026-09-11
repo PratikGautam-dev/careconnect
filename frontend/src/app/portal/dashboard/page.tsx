@@ -1,6 +1,15 @@
 "use client";
 
-import { Ban, CalendarClock, CalendarRange, IndianRupee, ClipboardList, Stethoscope, UserPlus, Users } from "lucide-react";
+import {
+  Ban,
+  CalendarClock,
+  CalendarRange,
+  IndianRupee,
+  ClipboardList,
+  Stethoscope,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { DashboardActivityFeed } from "@/components/portal/DashboardActivityFeed";
 import { DashboardPendingApprovals } from "@/components/portal/DashboardPendingApprovals";
@@ -18,7 +27,11 @@ import { usePortalDashboard } from "@/hooks/usePortalDashboard";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { useStaffSession } from "@/lib/staffAuth";
 
-const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
+const TIER_LABELS: Record<string, string> = {
+  tier1: "Tier 1",
+  tier2: "Tier 2",
+  tier3: "Tier 3",
+};
 
 export default function PortalDashboardPage() {
   // Doctors get their own dashboard content (today's appointments, their own
@@ -60,110 +73,131 @@ function HospitalDashboard() {
 
   // Same ±30-day window the department donut already computes -- reused
   // here so the stat tile and the donut's center label always agree.
-  const totalAppointments = data ? data.department_breakdown.reduce((sum, d) => sum + d.count, 0) : null;
+  const totalAppointments = data
+    ? data.department_breakdown.reduce((sum, d) => sum + d.count, 0)
+    : null;
 
   return (
     <PortalShell hospital={hospital} active="dashboard">
-        <PageHeader
-          title={
-            <>
-              Admin Dashboard
-              {data && (
-                <span className="ml-space-2 text-[15px] font-medium text-ink-400">
-                  ({TIER_LABELS[data.hospital.data_tier] || data.hospital.data_tier})
-                </span>
-              )}
-            </>
-          }
-          description={formatHeaderDate(today)}
-          actions={<PortalTopBarActions />}
-        />
-
-        {!data ? (
-          <p className="text-[13px] text-ink-400">Loading…</p>
-        ) : (
+      <PageHeader
+        title={
           <>
-            <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatTile
-                label="Total appointments"
-                value={totalAppointments}
-                deltaPct={null}
-                hint="Last 30 days (± window)"
-                icon={CalendarRange}
-              />
-              <StatTile
-                label="Today's appointments"
-                value={data.stats.today_appointments}
-                deltaPct={data.stats.today_appointments_delta_pct}
-                icon={CalendarClock}
-              />
-              <StatTile
-                label="Active doctors"
-                value={data.staffing.active_doctors}
-                deltaPct={null}
-                hint={`of ${data.staffing.total_doctors} total`}
-                icon={Stethoscope}
-              />
-              <StatTile
-                label="Staff on duty"
-                value={data.staffing.active_staff}
-                deltaPct={null}
-                hint={`of ${data.staffing.total_staff} total · active accounts, not attendance`}
-                icon={Users}
-                tint="clay"
-              />
-              <StatTile
-                label="New patients"
-                value={data.stats.new_patients_today}
-                deltaPct={data.stats.new_patients_today_delta_pct}
-                icon={UserPlus}
-              />
-              <StatTile
-                label="No-shows"
-                value={data.stats.no_shows_today}
-                deltaPct={data.stats.no_shows_today_delta_pct}
-                upIsGood={false}
-                icon={Ban}
-                tint="error"
-              />
-              <StatTile
-                label="Pending leave requests"
-                value={null}
-                deltaPct={null}
-                hint="No approval workflow yet"
-                icon={ClipboardList}
-                tint="clay"
-              />
-              <StatTile
-                label="Revenue / collections"
-                value={null}
-                deltaPct={null}
-                hint="Billing isn't connected yet"
-                icon={IndianRupee}
-                tint="success"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
-              <div className="space-y-space-4">
-                <WeeklyTrendChart data={data.weekly_counts} />
-                <RecentAppointmentsTable appointments={data.recent_appointments} />
-              </div>
-
-              <div className="space-y-space-4">
-                <DepartmentDonut data={data.department_breakdown} />
-                <DashboardPendingApprovals />
-                <DashboardStaffAttendance />
-              </div>
-
-              <div className="space-y-space-4">
-                <DashboardQuickActions />
-                <PortalMiniCalendar />
-                <DashboardActivityFeed items={data.activity_feed} />
-              </div>
-            </div>
+            Admin Dashboard
+            {data && (
+              <span className="ml-space-2 text-[15px] font-medium text-ink-400">
+                (
+                {TIER_LABELS[data.hospital.data_tier] ||
+                  data.hospital.data_tier}
+                )
+              </span>
+            )}
           </>
-        )}
+        }
+        description={formatHeaderDate(today)}
+        actions={<PortalTopBarActions />}
+      />
+
+      {!data ? (
+        <p className="text-[13px] text-ink-400">Loading…</p>
+      ) : (
+        <>
+          <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              label="Total appointments"
+              value={totalAppointments}
+              deltaPct={null}
+              hint="Last 30 days (± window)"
+              icon={CalendarRange}
+            />
+            <StatTile
+              label="Today's appointments"
+              value={data.stats.today_appointments}
+              deltaPct={data.stats.today_appointments_delta_pct}
+              icon={CalendarClock}
+            />
+            <StatTile
+              label="Active doctors"
+              value={data.staffing.active_doctors}
+              deltaPct={null}
+              hint={`of ${data.staffing.total_doctors} total`}
+              icon={Stethoscope}
+            />
+            <StatTile
+              label="Staff on duty"
+              value={data.staffing.active_staff}
+              deltaPct={null}
+              hint={`of ${data.staffing.total_staff} total · active accounts, not attendance`}
+              icon={Users}
+              tint="clay"
+            />
+            <StatTile
+              label="New patients"
+              value={data.stats.new_patients_today}
+              deltaPct={data.stats.new_patients_today_delta_pct}
+              icon={UserPlus}
+            />
+            <StatTile
+              label="No-shows"
+              value={data.stats.no_shows_today}
+              deltaPct={data.stats.no_shows_today_delta_pct}
+              upIsGood={false}
+              icon={Ban}
+              tint="error"
+            />
+            <StatTile
+              label="Pending leave requests"
+              value={null}
+              deltaPct={null}
+              hint="No approval workflow yet"
+              icon={ClipboardList}
+              tint="clay"
+            />
+            <StatTile
+              label="Revenue / collections"
+              value={null}
+              deltaPct={null}
+              hint="Billing isn't connected yet"
+              icon={IndianRupee}
+              tint="success"
+            />
+          </div>
+
+          {/* Direct grid children (no space-y wrapper divs) so components
+                flow horizontally, row by row, via CSS Grid's own
+                auto-placement -- only RecentAppointmentsTable/
+                DashboardPendingApprovals are widened to 2 columns, every
+                other tile stays 1-wide and fills in around them. */}
+          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3 mb-space-4">
+            <WeeklyTrendChart data={data.weekly_counts} className="h-90" />
+            <DepartmentDonut
+              data={data.department_breakdown}
+              className="h-90"
+            />
+            <DashboardQuickActions className="h-90" />
+          </div>
+
+          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+            {/* Stacked in normal flow (space-y), not separate grid tracks --
+                so PendingApprovals/StaffAttendance always sit directly under
+                RecentAppointmentsTable and shift down as it grows, instead
+                of sitting in a fixed-height grid row with a gap underneath. */}
+            <div className="space-y-space-4 lg:col-span-2">
+              <RecentAppointmentsTable
+                appointments={data.recent_appointments}
+              />
+              <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-2">
+                <DashboardPendingApprovals className="h-62" />
+                <DashboardStaffAttendance className="h-62" />
+              </div>
+            </div>
+
+            <div className="space-y-space-4">
+              <PortalMiniCalendar />
+              <DashboardActivityFeed items={data.activity_feed} />
+            </div>
+          </div>
+        </>
+      )}
     </PortalShell>
   );
 }

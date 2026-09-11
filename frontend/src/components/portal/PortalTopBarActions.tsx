@@ -47,7 +47,7 @@ export function PortalTopBarActions() {
       >
         <Bell size={16} strokeWidth={2} />
       </button>
-
+{/* 
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-space-2 rounded-md border border-line bg-card py-space-1 pl-space-1 pr-space-2 hover:bg-paper">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[12px] font-bold text-brand-700">
@@ -66,7 +66,7 @@ export function PortalTopBarActions() {
             <LogOut size={14} /> Log out
           </DropdownMenuItem>
         </DropdownMenuContent>
-      </DropdownMenu>
+      </DropdownMenu> */}
     </div>
   );
 }

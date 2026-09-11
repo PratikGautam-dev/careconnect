@@ -20,6 +20,13 @@ export const STATUS_LABELS: Record<string, string> = {
   attended: "Attended", no_show: "No-show",
 };
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
+// "Follow-up" is a doctor-consultation-only appointment_type_id (no
+// test-category equivalent in the fixed catalog) -- a resource-bound
+// (Diagnostics/Lab) visit has no doctor at all, so offering "Follow-up…"
+// for one would let staff hit portal_book_followup_now() with no doctor to
+// follow up with. Backend rejects it outright either way (defense in
+// depth); this just keeps the button from being offered in the first place.
+const TEST_CATEGORY_TYPES = new Set(["diagnostic", "lab", "daycare"]);
 
 type CreateVisitHistoryColumnsOptions = {
   followupPanelId: number | null;
@@ -119,7 +126,9 @@ export function createVisitHistoryColumns({
       header: "Follow-up",
       cell: ({ row }) => {
         const v = row.original;
-        if (v.status !== "attended") return <span className="text-ink-300">—</span>;
+        if (v.status !== "attended" || (v.appointment_type_id && TEST_CATEGORY_TYPES.has(v.appointment_type_id))) {
+          return <span className="text-ink-300">—</span>;
+        }
         return (
           <div className="flex items-center gap-space-2 whitespace-nowrap">
             <span

@@ -61,36 +61,25 @@ def _verify_session(cookie_value: str) -> int | None:
     return hospital_id
 
 
-def _build_new_booking_context(hospital) -> tuple[list[dict], dict, dict, list[dict], dict]:
-    """Shared by portal/routes/bookings.py's new-booking GET (blank form) and POST
-    (re-render on error) endpoints -- departments/doctors/available-slots,
-    all hospital-scoped and all read through the SAME connector interface
-    (Section 12.6.2) the WhatsApp flow uses, not a parallel query path.
+def _build_new_booking_context(hospital) -> tuple[list[dict], dict, list[dict]]:
+    """Shared by portal/routes/bookings.py's new-booking GET endpoint --
+    departments/doctors and resources (diagnostic tests), all hospital-
+    scoped and read through the SAME connector interface (Section 12.6.2)
+    the WhatsApp flow uses, not a parallel query path.
 
-    Reschedule dialog follow-up: also reused (RescheduleDialog.tsx) for a
-    diagnostic/lab (resource-bound) appointment, which has no doctor at all
-    -- resources/slots_by_resource give it the equivalent of doctors_by_
-    department/slots_by_doctor above, same shape, so the frontend needs no
-    separate endpoint for this case."""
+    Slots follow-up: this used to ALSO eager-load every doctor's AND every
+    resource's available slots here (slots_by_doctor/slots_by_resource) --
+    dropped. A form only ever needs ONE doctor's or ONE resource's slots at
+    a time (whichever the user just picked, or whichever the appointment/
+    visit already has, for RescheduleDialog and the patient page's "Book
+    now" follow-up panel) -- eager-loading ALL of them turned one page open
+    into N doctors + M resources, each several real DB round trips (a Redis
+    hit still means 2+ queries; a miss means several more plus a write), not
+    a single cheap query per item. Slots are now fetched lazily, one entity
+    at a time, via GET /api/portal/new-booking/slots?doctor_id=/?diagnostic_test_id=
+    (portal_new_booking_slots() in bookings.py) instead."""
     connector = connectors.get_connector_for_hospital(hospital)
     departments = connector.get_departments(hospital.id)
-    doctors_by_department: dict[str, list[dict]] = {}
-    slots_by_doctor: dict[str, dict[str, list[dict]]] = {}
-    for dept in departments:
-        doctors = connector.get_doctors(hospital.id, dept["id"])
-        doctors_by_department[dept["id"]] = doctors
-        for doc in doctors:
-            slots = connector.get_available_slots(hospital.id, doc["id"])
-            by_date: dict[str, list[dict]] = {}
-            for s in slots:
-                by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
-            slots_by_doctor[doc["id"]] = by_date
+    doctors_by_department = {dept["id"]: connector.get_doctors(hospital.id, dept["id"]) for dept in departments}
     resources = connector.get_diagnostic_test_summaries(hospital.id)
-    slots_by_resource: dict[str, dict[str, list[dict]]] = {}
-    for res in resources:
-        slots = connector.get_available_resource_slots(hospital.id, res["id"])
-        by_date = {}
-        for s in slots:
-            by_date.setdefault(s["date"], []).append({"id": s["id"], "label": s["label"]})
-        slots_by_resource[res["id"]] = by_date
-    return departments, doctors_by_department, slots_by_doctor, resources, slots_by_resource
+    return departments, doctors_by_department, resources

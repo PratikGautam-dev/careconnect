@@ -30,7 +30,7 @@ def get_test_slots(hospital_id: int, test_id: int, now: datetime | None = None) 
 
     booked_rows = session.execute(
         select(AppointmentRow.scheduled_at).where(
-            AppointmentRow.hospital_id == hospital_id, AppointmentRow.resource_id == test_id,
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.diagnostic_test_id == test_id,
             AppointmentRow.status == STATUS_BOOKED,
         )
     ).all()
@@ -73,7 +73,7 @@ def get_test_slots_for_admin(
         DiagnosticTestSlot.scheduled_at, DiagnosticTestSlot.blocked, DiagnosticTestSlot.block_reason,
     ).where(DiagnosticTestSlot.hospital_id == hospital_id, DiagnosticTestSlot.test_id == test_id)
     booked_stmt = select(AppointmentRow.scheduled_at).where(
-        AppointmentRow.hospital_id == hospital_id, AppointmentRow.resource_id == test_id,
+        AppointmentRow.hospital_id == hospital_id, AppointmentRow.diagnostic_test_id == test_id,
         AppointmentRow.status == STATUS_BOOKED,
     )
     if date_str:
@@ -107,7 +107,7 @@ def set_test_slot_blocked(
     if blocked:
         existing = session.execute(
             select(AppointmentRow.id).where(
-                AppointmentRow.hospital_id == hospital_id, AppointmentRow.resource_id == test_id,
+                AppointmentRow.hospital_id == hospital_id, AppointmentRow.diagnostic_test_id == test_id,
                 AppointmentRow.scheduled_at == scheduled_at, AppointmentRow.status == STATUS_BOOKED,
             )
         ).first()
@@ -140,7 +140,7 @@ def remove_test_slot(hospital_id: int, test_id: int, scheduled_at: str) -> bool:
     session = get_session()
     existing = session.execute(
         select(AppointmentRow.id).where(
-            AppointmentRow.hospital_id == hospital_id, AppointmentRow.resource_id == test_id,
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.diagnostic_test_id == test_id,
             AppointmentRow.scheduled_at == scheduled_at, AppointmentRow.status == STATUS_BOOKED,
         )
     ).first()

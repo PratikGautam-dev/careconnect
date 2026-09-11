@@ -141,6 +141,36 @@ def test_book_followup_now_404s_for_an_appointment_that_was_never_attended(hospi
     assert resp.status_code == 404
 
 
+def test_book_followup_now_rejects_a_resource_bound_attended_visit(hospital_id):
+    """"Follow-up" is a doctor-consultation-only appointment_type_id -- a
+    resource-bound (Diagnostics/Lab) attended visit has no doctor_id at all,
+    and this route always passes doctor_id/department_id straight through
+    with no resource_id equivalent. Left unguarded, this would create a new
+    appointment with doctor_id/department_id/resource_id all NULL -- the
+    exact invalid shape that violates appointments_doctor_or_resource_or_
+    procedure_chk and crashes init_db() on next startup for everyone."""
+    test = db.create_diagnostic_test(
+        hospital_id, "diagnostic", "MRI Scan (followup test)",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        working_hours=["09:00-13:00"], slot_duration_minutes=30,
+    )
+    slot = db.get_test_slots(hospital_id, test["id"])[0]
+    scheduled_at = datetime.fromisoformat(slot["id"])
+    appt = db.create_appointment(
+        hospital_id, "5490002012", None, None, scheduled_at,
+        appointment_type_id="diagnostic", diagnostic_test_id=test["id"],
+        diagnostic_test_label="MRI Scan (followup test)",
+    )
+    db.mark_attendance(hospital_id, appt.id, True)
+
+    headers = _staff_auth(hospital_id, "admin", "admin-followup-resource-test@example.com")
+    resp = client.post(
+        f"/api/portal/bookings/{appt.id}/followup/book", json={"scheduled_at": slot["id"]}, headers=headers,
+    )
+    assert resp.status_code == 400
+    assert not any(a.phone == "5490002012" and a.id != appt.id for a in db.get_all_appointments_for_hospital(hospital_id))
+
+
 def test_followup_valid_until_reflects_override_on_the_bookings_list(hospital_id):
     appt = _attended_appointment(hospital_id, "doc_card_1", "cardiology", days_ago=60, phone="5490002011")
     headers = _staff_auth(hospital_id, "admin", "admin-followup-test4@example.com")

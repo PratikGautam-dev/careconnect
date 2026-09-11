@@ -34,7 +34,7 @@ def _appointment_select_stmt():
     needs dict-like column access, not a particular ORM/raw origin.
 
     Diagnostic/Lab Phase 2: doctor/resource joins are both LEFT -- a booking
-    has exactly one of doctor_id/resource_id set, never both. Migration 0035:
+    has exactly one of doctor_id/diagnostic_test_id set, never both. Migration 0035:
     the department join is LEFT too now -- a resource-bound booking can have
     no department configured at all."""
     return (
@@ -46,8 +46,8 @@ def _appointment_select_stmt():
             AppointmentRow.patient_id, PatientRow.patient_display_id,
             AppointmentRow.appointment_type_id, AppointmentRow.consent_given_at, AppointmentRow.video_link,
             AppointmentRow.created_at, AppointmentRow.followup_override_until,
-            AppointmentRow.resource_id, DiagnosticTest.name.label("resource_name"),
-            AppointmentRow.diagnostic_test_id, AppointmentRow.diagnostic_test_label,
+            AppointmentRow.diagnostic_test_id, DiagnosticTest.name.label("diagnostic_test_name"),
+            AppointmentRow.diagnostic_test_label,
             AppointmentRow.diagnostic_price,
             AppointmentRow.collection_method, AppointmentRow.collection_address, AppointmentRow.collection_pincode,
             AppointmentRow.home_collection_charge, AppointmentRow.lab_status,
@@ -58,7 +58,7 @@ def _appointment_select_stmt():
         .select_from(AppointmentRow)
         .outerjoin(Department, Department.id == AppointmentRow.department_id)
         .outerjoin(DoctorRow, DoctorRow.id == AppointmentRow.doctor_id)
-        .outerjoin(DiagnosticTest, DiagnosticTest.id == AppointmentRow.resource_id)
+        .outerjoin(DiagnosticTest, DiagnosticTest.id == AppointmentRow.diagnostic_test_id)
         .outerjoin(PatientRow, PatientRow.id == AppointmentRow.patient_id)
         .outerjoin(Procedure, Procedure.id == AppointmentRow.procedure_id)
         .where(AppointmentRow.deleted_at.is_(None))
@@ -136,7 +136,6 @@ def create_appointment(
     exclude_appointment_id: int | None = None,
     appointment_type_id: str | None = None,
     consent_given_at: str | None = None,
-    resource_id: int | None = None,
     diagnostic_test_id: int | None = None,
     diagnostic_test_label: str | None = None,
     diagnostic_price: float | None = None,
@@ -152,13 +151,12 @@ def create_appointment(
     online/walkin quota is exhausted for that date.
 
     Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
-    exactly one of doctor_id/resource_id is ever set (appointments_doctor_or_
-    resource_chk enforces this at the DB level too) -- a resource-bound
-    booking runs the identical advisory-lock/quota/ordinal logic below, keyed
-    on resource_id against diagnostic_tests' own max_bookings_per_slot/
-    daily_booking_limit instead of doctors' (diagnostic tests/resources
-    merged into one entity -- resource_id now points straight at
-    diagnostic_tests.id). There's no online/walkin-quota or duplicate-
+    exactly one of doctor_id/diagnostic_test_id is ever set (appointments_
+    doctor_or_resource_or_procedure_chk enforces this at the DB level too) --
+    a resource-bound booking runs the identical advisory-lock/quota/ordinal
+    logic below, keyed on diagnostic_test_id against diagnostic_tests' own
+    max_bookings_per_slot/daily_booking_limit instead of doctors' (a test IS
+    the schedulable resource). There's no online/walkin-quota or duplicate-
     booking-by-doctor equivalent for resources (both are doctor-consultation-
     specific concepts) -- skipped entirely when doctor_id is None.
 
@@ -212,11 +210,11 @@ def create_appointment(
         daily_booking_limit = doctor_row["daily_booking_limit"] if doctor_row else None
         if doctor_row:
             source_quota = doctor_row["online_quota"] if source == SOURCE_WHATSAPP else doctor_row["walkin_quota"]
-    elif resource_id is not None:
+    elif diagnostic_test_id is not None:
         resource_row = conn.execute(
             "SELECT max_bookings_per_slot, daily_booking_limit FROM diagnostic_tests "
             "WHERE hospital_id = ? AND id = ?",
-            (hospital_id, resource_id),
+            (hospital_id, diagnostic_test_id),
         ).fetchone()
         max_bookings_per_slot = resource_row["max_bookings_per_slot"] if resource_row else 1
         daily_booking_limit = resource_row["daily_booking_limit"] if resource_row else None
@@ -235,10 +233,10 @@ def create_appointment(
     else:
         patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
 
-    # Fixed internal literal ("doctor_id"/"resource_id"), never user input --
-    # safe to interpolate into the raw SQL below.
-    resource_column = "doctor_id" if doctor_id is not None else "resource_id"
-    resource_value = doctor_id if doctor_id is not None else resource_id
+    # Fixed internal literal ("doctor_id"/"diagnostic_test_id"), never user
+    # input -- safe to interpolate into the raw SQL below.
+    resource_column = "doctor_id" if doctor_id is not None else "diagnostic_test_id"
+    resource_value = doctor_id if doctor_id is not None else diagnostic_test_id
 
     conn.execute("BEGIN")
     try:
@@ -320,13 +318,13 @@ def create_appointment(
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
             "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
-            "appointment_type_id, consent_given_at, resource_id, diagnostic_test_id, "
+            "appointment_type_id, consent_given_at, diagnostic_test_id, "
             "diagnostic_test_label, diagnostic_price, "
             "collection_method, collection_address, collection_pincode, home_collection_charge, lab_status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
              _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
-             appointment_type_id, consent_given_at, resource_id, diagnostic_test_id,
+             appointment_type_id, consent_given_at, diagnostic_test_id,
              diagnostic_test_label, diagnostic_price,
              collection_method, collection_address, collection_pincode, home_collection_charge, lab_status),
         )
@@ -361,22 +359,24 @@ def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link
     conn.commit()
 
 
-def set_appointment_diagnostic_details(
-    hospital_id: int, appointment_id: int, diagnostic_test_id: int,
-    diagnostic_test_label: str, diagnostic_price: float | None,
+def set_appointment_diagnostic_label_and_price(
+    hospital_id: int, appointment_id: int, diagnostic_test_label: str, diagnostic_price: float | None,
 ) -> None:
     """Diagnostic/Lab Phase 2: called once, right after create_appointment()
     succeeds, by flows/booking/types/_diagnostic_shared.py's
     on_booking_confirmed hook -- same shape as set_appointment_duration()
-    above. resource_id itself is set at INSERT time (create_appointment()),
-    not here, since it participates in the booking transaction's own
-    advisory-lock/double-booking logic."""
+    above. diagnostic_test_id itself is set at INSERT time
+    (create_appointment()), not here, since it participates in the booking
+    transaction's own advisory-lock/double-booking logic -- this only ever
+    has label/price left to set post-hoc (used to also re-set
+    diagnostic_test_id to the same value create_appointment() already wrote,
+    back when it was still a second, separate column -- see the merge
+    migration's own docstring)."""
     conn = get_connection()
     conn.execute(
-        "UPDATE appointments SET diagnostic_test_id = ?, "
-        "diagnostic_test_label = ?, diagnostic_price = ? "
+        "UPDATE appointments SET diagnostic_test_label = ?, diagnostic_price = ? "
         "WHERE id = ? AND hospital_id = ?",
-        (diagnostic_test_id, diagnostic_test_label, diagnostic_price, appointment_id, hospital_id),
+        (diagnostic_test_label, diagnostic_price, appointment_id, hospital_id),
     )
     conn.commit()
 
@@ -388,7 +388,7 @@ def set_appointment_lab_order_details(
     """Lab Test Phase 2 follow-up: called once, right after create_appointment()
     succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
     same "safe post-hoc hook, doesn't need the concurrency-critical
-    transaction" rationale as set_appointment_diagnostic_details() above.
+    transaction" rationale as set_appointment_diagnostic_label_and_price() above.
     Sets lab_status to 'booked' (the start of the report lifecycle) and
     bulk-inserts the basket into appointment_lab_tests. `basket_items`: list
     of {diagnostic_test_id, test_label, price}."""
@@ -476,7 +476,7 @@ def create_procedure_appointment(
 ) -> Appointment:
     """Daycare/Procedure rebuild, instant-booking path (Step 4 straight
     through to a real slot). A procedure binds N resources (bed/chair +
-    equipment + staff), not the single doctor_id/resource_id column
+    equipment + staff), not the single doctor_id/diagnostic_test_id column
     create_appointment() already handles, so this is its own dedicated
     creation path -- same advisory-lock-protected BEGIN/COMMIT shape as
     create_appointment() (see that function's own docstring for why this
@@ -931,6 +931,47 @@ def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> lis
     return [_row_to_appointment(r._mapping) for r in rows]
 
 
+def _apply_category_filter(stmt, category: str | None):
+    """Shared by get_appointments_page()/get_appointments_for_month() --
+    "doctor" | "diagnostic", mirroring the frontend's own matchesCategory()
+    (useAppointments.ts). "doctor" also includes legacy rows with no
+    appointment_type_id at all (they predate the column)."""
+    if category == "doctor":
+        return stmt.where(
+            or_(AppointmentRow.appointment_type_id.is_(None), AppointmentRow.appointment_type_id.in_(BOOK_DOCTOR_APPOINTMENT_CATEGORY))
+        )
+    elif category == "diagnostic":
+        return stmt.where(AppointmentRow.appointment_type_id.in_(TESTS_DIAGNOSTICS_CATEGORY))
+    return stmt
+
+
+def get_appointments_for_month(
+    hospital_id: int, year: int, month: int, category: str | None = None, doctor_id: str | None = None,
+) -> list[Appointment]:
+    """Portal-wide (not single-doctor) counterpart to
+    get_doctor_appointments_for_month() -- same month-bounds computation
+    (scheduled_at compared as .isoformat() strings, this column is stored
+    as text), for the shared PortalMiniCalendar used across the Dashboard/
+    Doctor appointments/Diagnostic & lab pages, each passing its own
+    category scope (or None for "all", the Dashboard's case). `doctor_id`
+    mirrors get_appointments_page()'s own doctor-role scoping -- a doctor
+    account viewing one of these pages must only ever see their own
+    appointments' dates, same as portal_bookings()/portal_bookings_summary()."""
+    month_start = datetime(year, month, 1)
+    month_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    session = get_session()
+    stmt = _appointment_select_stmt().where(
+        AppointmentRow.hospital_id == hospital_id,
+        AppointmentRow.scheduled_at >= month_start.isoformat(),
+        AppointmentRow.scheduled_at < month_end.isoformat(),
+    )
+    if doctor_id is not None:
+        stmt = stmt.where(AppointmentRow.doctor_id == doctor_id)
+    stmt = _apply_category_filter(stmt, category).order_by(AppointmentRow.scheduled_at.asc())
+    rows = session.execute(stmt).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
 def get_appointments_page(
     hospital_id: int,
     *,
@@ -964,12 +1005,7 @@ def get_appointments_page(
     stmt = _appointment_select_stmt().where(AppointmentRow.hospital_id == hospital_id)
     if doctor_id is not None:
         stmt = stmt.where(AppointmentRow.doctor_id == doctor_id)
-    if category == "doctor":
-        stmt = stmt.where(
-            or_(AppointmentRow.appointment_type_id.is_(None), AppointmentRow.appointment_type_id.in_(BOOK_DOCTOR_APPOINTMENT_CATEGORY))
-        )
-    elif category == "diagnostic":
-        stmt = stmt.where(AppointmentRow.appointment_type_id.in_(TESTS_DIAGNOSTICS_CATEGORY))
+    stmt = _apply_category_filter(stmt, category)
     if status:
         stmt = stmt.where(AppointmentRow.status == status)
     if appointment_type_id:

@@ -10,10 +10,8 @@ import {
   FileDown,
   Search,
   Send,
-  SlidersHorizontal,
   Trash2,
   X,
-  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -21,11 +19,13 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { FilterActions } from "@/components/portal/FilterActions";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
+import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
@@ -84,7 +84,7 @@ export default function PortalAppointmentsPage() {
     statusFilter, setStatusFilter, typeFilter, setTypeFilter,
     applyFilters, resetFilters, filtersDirty,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
-    reschedulePanelId, reschedulingId, rescheduleCtx, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
+    reschedulePanelId, reschedulingId, rescheduleSlotsByDate, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
     rDate, setRDate, rSlotId, setRSlotId,
     rDatesForDoctor, rSlotsForDate,
     openReschedulePanel, closeReschedulePanel, handleReschedule,
@@ -194,6 +194,15 @@ export default function PortalAppointmentsPage() {
     return null;
   }
 
+  // Reschedule/Cancel/Send reminder dropped from here -- they're per-
+  // appointment actions, not page-level ones, so they live in each row's own
+  // Actions menu (appointments-cellaction.tsx) instead of duplicating a
+  // disabled "use the row's own action" placeholder here.
+  const quickActions: QuickAction[] = [
+    { label: "Add new appointment", icon: CalendarPlus, onClick: () => setNewBookingOpen(true) },
+    { label: "Export appointments", icon: FileDown, disabled: true, title: "Coming soon" },
+  ];
+
   return (
     <PortalShell hospital={hospital} active="appointments">
         <PageHeader
@@ -285,18 +294,11 @@ export default function PortalAppointmentsPage() {
                 allLabel="All Status"
                 options={APPOINTMENT_STATUS_OPTIONS}
               />
-              {/* Filter/Reset -- search + the two dropdowns above are all
-                  staged (draft) until Filter is clicked, since each one now
-                  triggers a real /api/portal/bookings request instead of an
-                  instant client-side filter. */}
-              <Button type="button" size="md" onClick={applyFilters}>
-                <SlidersHorizontal size={14} /> Filter
-              </Button>
-              {(filtersDirty || searchQuery || statusFilter !== "all" || typeFilter !== "all") && (
-                <Button type="button" variant="secondary" size="md" onClick={resetFilters}>
-                  Reset
-                </Button>
-              )}
+              <FilterActions
+                onApply={applyFilters}
+                onReset={resetFilters}
+                showReset={filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all"}
+              />
             </div>
 
             <Card className="p-space-4">
@@ -345,40 +347,9 @@ export default function PortalAppointmentsPage() {
               )}
             </Card>
 
-            <Card className="p-space-4">
-              <h3 className="text-label mb-space-3 font-bold text-ink-900">Quick actions</h3>
-              <div className="space-y-space-2">
-                <Button type="button" variant="primary" className="w-full justify-start" onClick={() => setNewBookingOpen(true)}>
-                  <CalendarPlus size={15} className="shrink-0" /> Add new appointment
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-full justify-start"
-                  disabled
-                  title="Coming soon — use a row's own Reschedule action for now"
-                >
-                  <CalendarClock size={15} className="shrink-0" /> Reschedule appointment
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-full justify-start"
-                  disabled
-                  title="Coming soon — use a row's own Cancel action for now"
-                >
-                  <XCircle size={15} className="shrink-0" /> Cancel appointment
-                </Button>
-                <Button type="button" variant="secondary" className="w-full justify-start" disabled title="Coming soon">
-                  <Send size={15} className="shrink-0" /> Send reminder
-                </Button>
-                <Button type="button" variant="secondary" className="w-full justify-start" disabled title="Coming soon">
-                  <FileDown size={15} className="shrink-0" /> Export appointments
-                </Button>
-              </div>
-            </Card>
+            <QuickActions actions={quickActions} />
 
-            <PortalMiniCalendar />
+            <PortalMiniCalendar category="doctor" />
           </div>
         </div>
 
@@ -402,14 +373,13 @@ export default function PortalAppointmentsPage() {
         <NewBookingDialog
           open={newBookingOpen}
           onOpenChange={setNewBookingOpen}
-          hospital={hospital}
           onBooked={load}
         />
 
         <RescheduleDialog
           appointment={(appointments || []).find((a) => a.id === reschedulePanelId) ?? null}
           onOpenChange={(open) => { if (!open) closeReschedulePanel(); }}
-          ctx={rescheduleCtx}
+          slotsByDate={rescheduleSlotsByDate}
           message={rescheduleMessage}
           setMessage={setRescheduleMessage}
           errors={rescheduleErrors}

@@ -120,6 +120,24 @@ def _fresh_slots_cache():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_dashboard_and_calendar_caches():
+    """portal/routes/dashboard.py's and portal/routes/bookings.py's short-TTL
+    local caches are keyed by hospital_id, REUSED across tests by
+    _fresh_test_db's schema recreation below -- without this, a payload
+    cached by one test could leak into the very next one within its TTL,
+    same class of cross-test bleed _fresh_rbac_caches/_fresh_slots_cache
+    above already guard against for their own caches."""
+    from portal.routes.bookings import reset_calendar_cache_for_tests
+    from portal.routes.dashboard import reset_dashboard_cache_for_tests
+
+    reset_dashboard_cache_for_tests()
+    reset_calendar_cache_for_tests()
+    yield
+    reset_dashboard_cache_for_tests()
+    reset_calendar_cache_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_test_db():
     """
     Fresh Postgres schema per test (SPEC Section 12.6 Tier 1, now Postgres/Neon

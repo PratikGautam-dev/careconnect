@@ -634,7 +634,7 @@ async def _create_booking_and_notify(
                 patient_id=context.get("active_patient_id"),
                 appointment_type_id=context.get("appointment_type_id"),
                 consent_given_at=consent_given_at,
-                resource_id=context.get("resource_id"),
+                diagnostic_test_id=context.get("resource_id"),
             )
     except DuplicateBookingError as exc:
         # Item 5: must be checked BEFORE the generic IntegrityError

@@ -3,7 +3,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { cn } from "@/lib/cn";
-import { formatTimeOnly } from "@/lib/formatDate";
+import { formatShortDateTime, formatTimeOnly } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
 import { AVATAR_TINTS, initials, STATUS_LABELS, STATUS_STYLES } from "./appointments-columns";
@@ -15,11 +15,14 @@ const TEST_TYPE_STYLES: Record<string, string> = {
   daycare: "bg-black/4 text-ink-600",
 };
 
-// The finer-grained progress a Lab Test row can be in before its report is
-// ready -- there's no equivalent tracking for a Diagnostics-type row (no
-// lab_status column for it at all), so those fall back to the plain booked/
-// attended/cancelled status below instead of a fabricated "In Progress" or
-// "Scheduled" stage.
+// The finer-grained progress a resource-bound (Lab Test OR Diagnostics) row
+// can be in before its report is ready -- both categories now share this
+// same lab_status column; Diagnostics rows just skip "Sample Collected"
+// (no physical sample for an MRI/CT/X-Ray) via the backend's own
+// _DIAGNOSTIC_STATUS_FORWARD, going straight booked -> processing. A row
+// with no lab_status at all (e.g. one predating this, or a doctor
+// consultation) falls back to the plain booked/attended/cancelled status
+// below instead of a fabricated stage.
 const LAB_STAGE_LABELS: Record<string, string> = {
   booked: "Pending", sample_collected: "Sample Collected", processing: "Processing", report_ready: "Completed",
 };
@@ -106,7 +109,7 @@ export function createDiagnosticAppointmentColumns({
       id: "scheduled_at",
       header: "Booking time",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">{formatTimeOnly(row.original.scheduled_at)}</span>
+        <span className="whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(row.original.scheduled_at)}</span>
       ),
     },
     {
@@ -133,9 +136,9 @@ export function createDiagnosticAppointmentColumns({
       },
     },
     {
-      id: "resource_name",
+      id: "diagnostic_test_name",
       header: "Test / Procedure",
-      cell: ({ row }) => <span className="text-ink-900">{row.original.resource_name || "—"}</span>,
+      cell: ({ row }) => <span className="text-ink-900">{row.original.diagnostic_test_name || "—"}</span>,
     },
     {
       id: "type",

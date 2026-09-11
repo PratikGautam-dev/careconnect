@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { portalFetch, type PortalHospital } from "@/lib/portalAuth";
 import { useStaffSession } from "@/lib/staffAuth";
 
@@ -52,32 +52,33 @@ export type DashboardData = {
 // New bookings (WhatsApp or staff-created) don't push to this tab -- there's
 // no websocket/SSE infra in this app -- so poll instead of fetching once on
 // mount, otherwise the numbers only ever update on a manual page reload.
+// Matches the backend's own dashboard response cache TTL (portal/routes/
+// dashboard.py) -- polling faster than that cache refreshes would just be
+// re-reading the same cached payload.
 const POLL_INTERVAL_MS = 20_000;
 
-/** Loads + polls the /portal/dashboard stats. */
+/** Loads + polls the /portal/dashboard stats -- backed by the app's single
+ * QueryClient (Providers.tsx), not local state, so navigating away and back
+ * shows the last-known data instantly (from cache) while a background
+ * refetch keeps it current, instead of blanking to "Loading..." and paying
+ * a fresh round trip every time (same fix useAppointments.ts already gets
+ * from useQuery). */
 export function usePortalDashboard() {
   const router = useRouter();
   const session = useStaffSession();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const routerRef = useRef(router);
-  routerRef.current = router;
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/dashboard");
-    if (!result.ok) {
-      if (result.unauthorized) routerRef.current.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setData(result.data as DashboardData);
-  }, []);
+  const { data, error: queryError } = useQuery({
+    queryKey: ["portal-dashboard"],
+    refetchInterval: POLL_INTERVAL_MS,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/dashboard");
+      if (!result.ok) {
+        if (result.unauthorized) router.push("/portal/login");
+        throw new Error(result.unauthorized ? "Not authenticated." : result.error);
+      }
+      return result.data as DashboardData;
+    },
+  });
 
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [load]);
-
-  return { data, error, hospital: session?.hospital ?? null };
+  return { data: data ?? null, error: queryError ? (queryError as Error).message : null, hospital: session?.hospital ?? null };
 }

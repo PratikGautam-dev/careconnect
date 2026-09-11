@@ -4,14 +4,12 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
-import type { PortalHospital } from "@/lib/portalAuth";
 import { cn } from "@/lib/cn";
 import { useNewBooking } from "@/hooks/useNewBooking";
 
 type NewBookingDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  hospital: PortalHospital | null;
   /** Fired the moment a booking is created, before the user dismisses the
    * dialog's own success state -- lets the caller (the appointments list)
    * refresh in the background rather than waiting on "Done". */
@@ -27,13 +25,13 @@ type NewBookingDialogProps = {
  * than its own page -- same form/hook (useNewBooking) as before, just
  * mounted for the dialog's lifetime instead of a page's. */
 export function NewBookingDialog({
-  open, onOpenChange, hospital, onBooked, initialPatientName, initialPatientPhone,
+  open, onOpenChange, onBooked, initialPatientName, initialPatientPhone,
 }: NewBookingDialogProps) {
   const {
     ctx, error, errors, submitting, success,
     patientName, setPatientName, patientPhone, setPatientPhone,
     departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
-    doctors, datesForDoctor, slotsForDate,
+    doctors, datesForDoctor, slotsForDate, slotsLoading,
     handleSubmit,
   } = useNewBooking(open, onBooked, initialPatientName, initialPatientPhone);
 
@@ -61,12 +59,6 @@ export function NewBookingDialog({
                 <Input id="patient_phone" required value={patientPhone} onChange={(e) => setPatientPhone(e.target.value)} />
               </Field>
             </div>
-
-            <Field label="Branch" htmlFor="branch" hint="Single-location hospital — nothing to choose yet.">
-              <select id="branch" disabled className="h-11 w-full cursor-not-allowed rounded-md border border-line bg-paper px-space-3 text-[14px] text-ink-600">
-                <option>Main Branch — {hospital?.name}</option>
-              </select>
-            </Field>
 
             <Field label="Department" htmlFor="department" required>
               <select
@@ -106,7 +98,9 @@ export function NewBookingDialog({
 
             {doctorId && (
               <Field label="Date">
-                {datesForDoctor.length === 0 ? (
+                {slotsLoading ? (
+                  <p className="text-[12.5px] text-ink-400">Loading available dates…</p>
+                ) : datesForDoctor.length === 0 ? (
                   <p className="text-[12.5px] text-ink-400">No available dates for this doctor.</p>
                 ) : (
                   <div className="flex flex-wrap gap-space-2">

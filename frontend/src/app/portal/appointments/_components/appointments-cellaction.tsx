@@ -1,6 +1,6 @@
 "use client";
 
-import { Beaker, CalendarClock, Check, Eye, MoreHorizontal, Trash2, UserX, XCircle } from "lucide-react";
+import { Beaker, CalendarClock, Check, Eye, MoreHorizontal, Send, Trash2, UserX, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
@@ -27,15 +27,22 @@ type AppointmentCellActionProps = {
   markingAttendanceId?: number | null;
   onAttendance?: (id: number, attended: boolean) => void;
   /** Optional -- lab_status advancement (Mark Sample Collected / Mark
-   * Processing), only ever offered for a row that actually has a
-   * lab_status (Lab Test appointments only). */
+   * Processing / Mark In Progress), only ever offered for a row that
+   * actually has a lab_status (Lab Test AND Diagnostics appointments; a
+   * doctor consultation never has one). */
   advancingLabStatusId?: number | null;
   onAdvanceLabStatus?: (id: number) => void;
 };
 
-const LAB_STATUS_NEXT_LABEL: Record<string, string> = {
-  booked: "Mark sample collected",
-  sample_collected: "Mark processing",
+// Lab Test goes booked -> sample_collected -> processing; Diagnostics
+// (imaging -- MRI/CT/X-Ray/...) has no physical sample-collection step, so
+// it goes straight booked -> processing (mirrors the backend's own
+// _DIAGNOSTIC_STATUS_FORWARD in portal/routes/bookings.py). Either way,
+// report_ready is never a manual step -- it's set automatically when a
+// lab_report document is uploaded against the appointment.
+const LAB_STATUS_NEXT_LABEL: Record<string, Record<string, string>> = {
+  lab: { booked: "Mark sample collected", sample_collected: "Mark processing" },
+  diagnostic: { booked: "Mark in progress" },
 };
 
 /** Trailing actions cell -- one combined dropdown menu, same pattern as
@@ -88,9 +95,9 @@ export function AppointmentCellAction({
                     </DropdownMenuItem>
                   </>
                 )}
-                {onAdvanceLabStatus && a.lab_status && LAB_STATUS_NEXT_LABEL[a.lab_status] && (
+                {onAdvanceLabStatus && a.lab_status && LAB_STATUS_NEXT_LABEL[a.appointment_type_id || ""]?.[a.lab_status] && (
                   <DropdownMenuItem disabled={advancingLabStatusId === a.id} onClick={() => onAdvanceLabStatus(a.id)}>
-                    <Beaker size={14} /> {LAB_STATUS_NEXT_LABEL[a.lab_status]}
+                    <Beaker size={14} /> {LAB_STATUS_NEXT_LABEL[a.appointment_type_id || ""][a.lab_status]}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onOpenReschedule(a.id)}>
@@ -98,6 +105,9 @@ export function AppointmentCellAction({
                 </DropdownMenuItem>
                 <DropdownMenuItem variant="destructive" onClick={() => onOpenCancel(a.id)}>
                   <XCircle size={14} /> Cancel
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled title="Coming soon — no reminder backend exists yet">
+                  <Send size={14} /> Send reminder
                 </DropdownMenuItem>
               </>
             ) : (

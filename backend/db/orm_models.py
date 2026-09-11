@@ -428,9 +428,10 @@ class AppointmentRow(Base):
     # resource-bound booking's diagnostic_resources/procedure_resources row
     # can itself have no department configured.
     department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
-    # Diagnostic/Lab Phase 2: nullable -- a resource-bound booking (resource_id
-    # set) has no doctor at all. appointments_doctor_or_resource_chk enforces
-    # at least one of the two is set.
+    # Diagnostic/Lab Phase 2: nullable -- a resource-bound booking
+    # (diagnostic_test_id set) has no doctor at all.
+    # appointments_doctor_or_resource_or_procedure_chk enforces at least one
+    # of doctor_id/diagnostic_test_id/procedure_id is set.
     doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id"))
     scheduled_at: Mapped[str]
     status: Mapped[str]
@@ -454,11 +455,16 @@ class AppointmentRow(Base):
     # to for scheduling purposes (None for every doctor-bound appointment
     # type). Diagnostic tests/resources merge: this now points straight at
     # diagnostic_tests.id -- for a Lab Test basket booking it's whichever
-    # basket item anchors the slot (see flows/booking/types/lab.py), not
-    # necessarily the same row as diagnostic_test_id below.
+    # basket item anchors the slot (see flows/booking/types/lab.py).
     # diagnostic_test_label/diagnostic_price are snapshots at booking time,
     # same denormalization convention as patient_name/patient_phone.
-    resource_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
+    #
+    # This used to be two columns (resource_id -- the one actually wired
+    # into the double-booking/advisory-lock check, the unique index, and the
+    # doctor-or-resource-or-procedure CHECK constraint -- plus a second,
+    # fully-redundant diagnostic_test_id always set to the same value or
+    # left NULL). Merged into one under this name; see migration
+    # 20260911135450's own docstring.
     diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
     diagnostic_test_label: Mapped[str | None]
     diagnostic_price: Mapped[float | None] = mapped_column(Numeric(10, 2))

@@ -91,8 +91,10 @@ class Connector(abc.ABC):
 
     # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
     # the resource-keyed sibling of get_available_slots above. Diagnostic
-    # tests/resources merge: resource_id is a diagnostic_tests.id now -- a
-    # test IS the schedulable resource, there's no separate entity anymore.
+    # tests/resources merge: resource_id (here, the param name -- a plain
+    # diagnostic_tests.id, not the old appointments.resource_id column,
+    # since merged into diagnostic_test_id) is the schedulable entity, no
+    # separate resource table anymore.
     @abc.abstractmethod
     def get_available_resource_slots(self, hospital_id: int, resource_id: int) -> list[dict]: ...
 
@@ -118,7 +120,7 @@ class Connector(abc.ABC):
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str | None, scheduled_at: datetime,
         source: str = "whatsapp", patient_name: str | None = None, patient_age: int | None = None,
         patient_id: int | None = None, appointment_type_id: str | None = None,
-        consent_given_at: str | None = None, resource_id: int | None = None,
+        consent_given_at: str | None = None,
         diagnostic_test_id: int | None = None,
         diagnostic_test_label: str | None = None,
         diagnostic_price: float | None = None,
@@ -182,16 +184,15 @@ class Connector(abc.ABC):
     def set_appointment_video_link(self, hospital_id: int, appointment_id: int, video_link: str) -> None: ...
 
     @abc.abstractmethod
-    def set_appointment_diagnostic_details(
-        self, hospital_id: int, appointment_id: int, diagnostic_test_id: int,
-        diagnostic_test_label: str, diagnostic_price: float | None,
+    def set_appointment_diagnostic_label_and_price(
+        self, hospital_id: int, appointment_id: int, diagnostic_test_label: str, diagnostic_price: float | None,
     ) -> None: ...
 
     # Lab Test Phase 2 follow-up: called once, right after create_booking()
     # succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
     # the basket-specific fields don't need the concurrency-critical
     # create_booking() transaction, same rationale as
-    # set_appointment_diagnostic_details above. basket_items: list of
+    # set_appointment_diagnostic_label_and_price above. basket_items: list of
     # {diagnostic_test_id, test_label, price}.
     @abc.abstractmethod
     def set_appointment_lab_order_details(
@@ -264,7 +265,7 @@ class Connector(abc.ABC):
         doctor_id: str | None,
         scheduled_at: datetime,
         patient_id: int | None = None,
-        resource_id: int | None = None,
+        diagnostic_test_id: int | None = None,
     ) -> Appointment: ...
 
     @abc.abstractmethod
@@ -350,7 +351,7 @@ class _UnimplementedTierConnector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         self._not_implemented("is_pincode_serviceable")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, resource_id=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         self._not_implemented("create_booking")
 
     def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
@@ -434,10 +435,10 @@ class _UnimplementedTierConnector(Connector):
     def set_appointment_video_link(self, hospital_id, appointment_id, video_link):
         self._not_implemented("set_appointment_video_link")
 
-    def set_appointment_diagnostic_details(self, hospital_id, appointment_id, diagnostic_test_id, diagnostic_test_label, diagnostic_price):
-        self._not_implemented("set_appointment_diagnostic_details")
+    def set_appointment_diagnostic_label_and_price(self, hospital_id, appointment_id, diagnostic_test_label, diagnostic_price):
+        self._not_implemented("set_appointment_diagnostic_label_and_price")
 
-    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None, resource_id=None):
+    def reschedule_booking(self, hospital_id, old_appointment_id, phone, department_id, doctor_id, scheduled_at, patient_id=None, diagnostic_test_id=None):
         self._not_implemented("reschedule_booking")
 
     def get_upcoming_appointments(self, hospital_id, phone=None, offset_hours=None, now=None):

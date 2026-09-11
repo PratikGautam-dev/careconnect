@@ -2,6 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card } from "@/components/ui/Card";
+import { cn } from "@/lib/cn";
 
 type Point = { date: string; label: string; count: number };
 
@@ -15,9 +16,9 @@ function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
-export function WeeklyTrendChart({ data }: { data: Point[] }) {
+export function WeeklyTrendChart({ data, className }: { data: Point[]; className?: string }) {
   return (
-    <Card className="p-space-4">
+    <Card className={cn("p-space-4", className)}>
       <h3 className="text-label mb-space-4 font-bold text-ink-900">Appointment trends (this week)</h3>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>

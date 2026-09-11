@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
-import { NewBookingContext, TYPE_LABELS } from "@/hooks/useAppointments";
+import { fetchSlotsByDate, type SlotsByDate, TYPE_LABELS } from "@/hooks/useAppointments";
 
 function visitTypeBucket(v: { appointment_type_id: string | null }) {
   return v.appointment_type_id && v.appointment_type_id in TYPE_LABELS ? v.appointment_type_id : "other";
@@ -119,7 +119,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   const [followupError, setFollowupError] = useState("");
   const [extendDays, setExtendDays] = useState("3");
   const [extendingId, setExtendingId] = useState<number | null>(null);
-  const [bookCtx, setBookCtx] = useState<NewBookingContext | null>(null);
+  const [bookSlotsByDate, setBookSlotsByDate] = useState<SlotsByDate | null>(null);
   const [bookDate, setBookDate] = useState("");
   const [bookSlotId, setBookSlotId] = useState("");
   const [bookingId, setBookingId] = useState<number | null>(null);
@@ -244,10 +244,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setBookDate("");
     setBookSlotId("");
     setFollowupPanelId(visit.id);
-    if (!bookCtx) {
-      const result = await portalFetch("/api/portal/new-booking/context");
-      if (result.ok) setBookCtx(result.data as NewBookingContext);
-    }
+    // Fixed to THIS visit's own doctor (follow-up rebooks with the same
+    // doctor, never a picker) -- fetched fresh per visit since a different
+    // visit can have a different doctor, not eager-loaded for every doctor
+    // in the hospital the way /new-booking/context used to.
+    setBookSlotsByDate(null);
+    const slots = await fetchSlotsByDate(router, { doctorId: visit.doctor_id });
+    setBookSlotsByDate(slots ?? {});
   }
 
   function closeFollowupPanel() {
@@ -357,6 +360,6 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     sendingDocId, sendError, handleSendToWhatsapp,
     followupPanelId, openFollowupPanel, closeFollowupPanel, followupError,
     extendDays, setExtendDays, extendingId, handleExtendFollowup,
-    bookCtx, bookDate, setBookDate, bookSlotId, setBookSlotId, bookingId, handleBookFollowupNow,
+    bookSlotsByDate, bookDate, setBookDate, bookSlotId, setBookSlotId, bookingId, handleBookFollowupNow,
   };
 }

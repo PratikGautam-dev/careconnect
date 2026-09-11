@@ -234,3 +234,15 @@ body {
 .text-hint.is-note {
   font-style: italic;
 }
+
+/* Scrollable-but-no-visible-scrollbar utility -- for fixed-height cards
+   (e.g. the dashboard's Pending approvals/Staff attendance pair) that need
+   to stay scrollable once their content outgrows the fixed height, without
+   a visible scrollbar track breaking the "these two match" visual parity. */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge/IE */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/newer Edge */
+}

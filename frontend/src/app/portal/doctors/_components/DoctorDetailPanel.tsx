@@ -15,6 +15,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
 import type { Doctor } from "@/hooks/useDoctors";
 import { AVATAR_TINTS } from "./doctors-columns";
@@ -90,6 +91,24 @@ export function DoctorDetailPanel({
     return start && end ? `${formatClockTime(start)} - ${formatClockTime(end)}` : r;
   }).join(", ") : null;
 
+  const quickActions: QuickAction[] = [
+    ...(canManage ? [{ label: "Edit profile", icon: Pencil, onClick: () => onEdit(doctor) }] : []),
+    { label: "Book appointment", icon: CalendarPlus, onClick: onBookAppointment },
+    { label: "View schedule", icon: Eye, onClick: onToggleSchedule, active: scheduleOpen },
+    ...(canManage
+      ? [{
+          label: doctor.is_active ? "Mark unavailable" : "Mark available",
+          icon: Power,
+          onClick: () => onToggleActive(doctor),
+          disabled: togglingId === doctor.id,
+        }]
+      : []),
+    { label: "Send message", icon: MessageCircle, disabled: true, title: "Coming soon — no doctor-facing internal messaging exists yet" },
+    ...(canManage
+      ? [{ label: "Manage leave", icon: CalendarClock, onClick: onToggleLeave, active: leaveOpen, fullWidth: true }]
+      : []),
+  ];
+
   return (
     <Card className="p-space-4">
       <div className="mb-space-4 flex flex-col items-center text-center">
@@ -140,64 +159,7 @@ export function DoctorDetailPanel({
 
       <div className="mt-space-4 border-t border-line pt-space-3">
         <p className="text-label mb-space-2 font-bold text-ink-900">Quick actions</p>
-        <div className="grid grid-cols-2 gap-space-2">
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => onEdit(doctor)}
-              className="flex items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:border-brand-300 hover:bg-brand-50"
-            >
-              <Pencil size={14} /> Edit profile
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onBookAppointment}
-            className="flex items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:border-brand-300 hover:bg-brand-50"
-          >
-            <CalendarPlus size={14} /> Book appointment
-          </button>
-          <button
-            type="button"
-            onClick={onToggleSchedule}
-            className={cn(
-              "flex items-center gap-space-2 rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-              scheduleOpen ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-ink-900 hover:border-brand-300 hover:bg-brand-50",
-            )}
-          >
-            <Eye size={14} /> View schedule
-          </button>
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => onToggleActive(doctor)}
-              disabled={togglingId === doctor.id}
-              className="flex items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:border-brand-300 hover:bg-brand-50 disabled:opacity-50"
-            >
-              <Power size={14} /> {doctor.is_active ? "Mark unavailable" : "Mark available"}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled
-            title="Coming soon — no doctor-facing internal messaging exists yet"
-            className="flex cursor-not-allowed items-center gap-space-2 rounded-md border border-line px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-400"
-          >
-            <MessageCircle size={14} /> Send message
-          </button>
-          {canManage && (
-            <button
-              type="button"
-              onClick={onToggleLeave}
-              className={cn(
-                "col-span-2 flex items-center gap-space-2 rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                leaveOpen ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-ink-900 hover:border-brand-300 hover:bg-brand-50",
-              )}
-            >
-              <CalendarClock size={14} /> Manage leave
-            </button>
-          )}
-        </div>
+        <QuickActionList actions={quickActions} columns={2} size="sm" />
       </div>
     </Card>
   );
