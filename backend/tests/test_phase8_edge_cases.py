@@ -212,7 +212,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
         "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
         "date": contested["date"], "date_label": "Sat, Aug 8",
         "slot_id": contested["id"], "slot_date": contested["date"], "slot_time": contested["time"],
-        "patient_name": "Race Loser", "patient_age": 41,
+        "patient_name": "Race Loser", "patient_date_of_birth": "1985-01-01",
     }
     sessions_a.set(hospital_id, PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
     sessions_b.set(hospital_id, OTHER_PHONE, "AWAITING_CONFIRMATION", dict(shared_context))
@@ -227,7 +227,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
     session_b = sessions_b.get(hospital_id, OTHER_PHONE)
     assert session_b["state"] == "AWAITING_TIME_SLOT"
     assert session_b["context"]["patient_name"] == "Race Loser"
-    assert session_b["context"]["patient_age"] == 41
+    assert session_b["context"]["patient_date_of_birth"] == "1985-01-01"
     offered_ids = _row_ids(_list_sends(wa)[-1])
     assert contested["id"] not in offered_ids
     assert same_day_alternate["id"] in offered_ids
@@ -266,7 +266,7 @@ async def test_confirm_race_loser_picks_alternate_slot_without_being_reasked_nam
     ("AWAITING_PATIENT_NAME", {"department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao"}),
     ("AWAITING_PATIENT_AGE", {"department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao", "patient_name": "x"}),
     ("AWAITING_CONFIRMATION", {"department_name": "Cardiology", "doctor_name": "Dr. Anjali Rao", "date_label": "x",
-                                "slot_time": "x", "patient_name": "x", "patient_age": 30}),
+                                "slot_time": "x", "patient_name": "x", "patient_date_of_birth": "1996-01-01"}),
     ("AWAITING_CANCEL_SELECTION", {}),
     ("AWAITING_CANCEL_CONFIRM", {"appointment_id": 1}),
     ("AWAITING_RESCHEDULE_SELECTION", {}),
@@ -393,7 +393,7 @@ async def test_duplicate_booking_with_same_doctor_and_age_is_blocked_with_quick_
     existing = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slots[0]['date']}T{slots[0]['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
 
     wa2 = FakeWhatsAppClient()
@@ -403,7 +403,7 @@ async def test_duplicate_booking_with_same_doctor_and_age_is_blocked_with_quick_
         "doctor_id": doctor_id, "doctor_name": "Dr. Anjali Rao",
         "date": slots[1]["date"], "date_label": "Sat, Aug 8",
         "slot_id": slots[1]["id"], "slot_date": slots[1]["date"], "slot_time": slots[1]["time"],
-        "patient_name": "Ravi Kumar", "patient_age": 34,
+        "patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01",
     })
 
     await handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("confirm"))

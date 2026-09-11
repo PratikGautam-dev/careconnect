@@ -56,9 +56,9 @@ def _sessions_en(hospital_id, phone=PHONE):
     return sessions
 
 
-async def _register_via_chat(wa, sessions, hospital_id, connector, phone, booking_for_id, name, contact_number=None, age=30):
+async def _register_via_chat(wa, sessions, hospital_id, connector, phone, booking_for_id, name, contact_number=None, date_of_birth="01-01-1995"):
     """Drives the real chat flow: "hi" -> Myself/Someone Else -> name ->
-    [contact number, Someone Else only] -> age -> gender -> create."""
+    [contact number, Someone Else only] -> date of birth -> gender -> create."""
     await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply("hi"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(wa, sessions, phone, hospital_id, tap(booking_for_id), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(name), connector=connector, enabled_features=["book_doctor_appointment"])
@@ -66,7 +66,7 @@ async def _register_via_chat(wa, sessions, hospital_id, connector, phone, bookin
         await flows.handle_incoming(
             wa, sessions, phone, hospital_id, text_reply(contact_number), connector=connector, enabled_features=["book_doctor_appointment"],
         )
-    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, phone, hospital_id, text_reply(date_of_birth), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
         wa, sessions, phone, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
@@ -125,7 +125,7 @@ async def test_invalid_contact_number_is_rejected_and_reprompted(hospital_id):
         assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["book_doctor_appointment"])
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_AGE
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_DOB
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_second_registration_from_same_account_skips_the_question_and_lock
         wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("8"), connector=connector, enabled_features=["manage_patients"],
+        wa, sessions, PHONE, hospital_id, text_reply("01-01-2018"), connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
@@ -167,27 +167,27 @@ async def test_second_registration_from_same_account_skips_the_question_and_lock
     assert {p["relationship_label"] for p in linked} == {"Self", "Other"}
 
 
-def test_duplicate_detection_matches_on_name_contact_phone_age_and_gender(hospital_id):
+def test_duplicate_detection_matches_on_name_contact_phone_dob_and_gender(hospital_id):
     """find_potential_duplicate_patient() -- confirmed with the user: exact
-    name + exact contact phone + exact age + exact gender (all four),
-    scoped to the hospital. Widened from name+phone only since a 4-field
-    exact match is essentially certain to be the same real person."""
-    db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", 45, relationship_label="Self", gender="Female")
+    name + exact contact phone + exact date of birth + exact gender (all
+    four), scoped to the hospital. Widened from name+phone only since a
+    4-field exact match is essentially certain to be the same real person."""
+    db.create_patient_profile(hospital_id, "5490009999", "Asha Rao", "1980-08-15", relationship_label="Self", gender="Female")
 
     # All four match.
-    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 45, "Female")
+    match = db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", "1980-08-15", "Female")
     assert match is not None
     assert match["name"] == "Asha Rao"
     assert match["phone"] == "5490009999"
 
-    # Same name+phone+gender, DIFFERENT age -- no longer a match.
-    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 46, "Female") is None
+    # Same name+phone+gender, DIFFERENT date of birth -- no longer a match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", "1981-08-15", "Female") is None
 
-    # Same name+phone+age, DIFFERENT gender -- no longer a match.
-    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", 45, "Male") is None
+    # Same name+phone+dob, DIFFERENT gender -- no longer a match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "5490009999", "1980-08-15", "Male") is None
 
-    # Same name+age+gender, DIFFERENT contact phone -- no match.
-    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333", 45, "Female") is None
+    # Same name+dob+gender, DIFFERENT contact phone -- no match.
+    assert db.find_potential_duplicate_patient(hospital_id, "Asha Rao", "1112223333", "1980-08-15", "Female") is None
 
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ async def test_readding_the_same_name_and_contact_from_your_own_phone_is_blocked
         wa, sessions, PHONE, hospital_id, text_reply("6200876670"), connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("30"), connector=connector, enabled_features=["manage_patients"],
+        wa, sessions, PHONE, hospital_id, text_reply("01-01-1995"), connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),
@@ -313,7 +313,7 @@ async def test_patient_list_never_shows_the_self_or_other_relationship_label(hos
         wa, sessions, PHONE, hospital_id, text_reply("6200876670"), connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(
-        wa, sessions, PHONE, hospital_id, text_reply("30"), connector=connector, enabled_features=["manage_patients"],
+        wa, sessions, PHONE, hospital_id, text_reply("01-01-1995"), connector=connector, enabled_features=["manage_patients"],
     )
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID),

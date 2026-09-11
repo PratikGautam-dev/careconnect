@@ -223,8 +223,10 @@ CREATE TABLE IF NOT EXISTS doctors (
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
     department_id TEXT NOT NULL REFERENCES departments(id),
     name TEXT NOT NULL,
-    specialization TEXT,
-    qualification TEXT,
+    -- Migration 20260911190007: mandatory alongside phone/employee_id below
+    -- (confirmed with the user) -- were nullable before this.
+    specialization TEXT NOT NULL DEFAULT '',
+    qualification TEXT NOT NULL DEFAULT '',
     years_experience INTEGER,
     working_days TEXT NOT NULL DEFAULT '',
     working_hours TEXT NOT NULL DEFAULT '',
@@ -271,7 +273,16 @@ CREATE TABLE IF NOT EXISTS doctors (
     -- them, not just the bot. Portal's own doctor MANAGEMENT list
     -- (get_all_doctors_for_hospital) still shows inactive doctors, so staff
     -- can toggle them back on.
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Migration 20260911190007: the Doctors page's mocked columns (phone,
+    -- employee ID, location) becoming real. phone/employee_id are mandatory
+    -- (confirmed with the user, alongside specialization/qualification
+    -- above); location stays optional. All three are plain free-text,
+    -- staff-entered values -- no generated ID scheme for employee_id, since
+    -- this schema has no existing employee-numbering convention to extend.
+    phone TEXT NOT NULL DEFAULT '',
+    employee_id TEXT NOT NULL DEFAULT '',
+    location TEXT
 );
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT '';
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS max_bookings_per_slot INTEGER NOT NULL DEFAULT 1;
@@ -281,16 +292,6 @@ ALTER TABLE doctors ADD COLUMN IF NOT EXISTS walkin_quota INTEGER;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS followup_duration_minutes INTEGER;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS effective_from TEXT;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-
--- Dedicated doctor login (see migration 0010) -- nullable/additive, admin-
--- issued via POST /api/portal/doctors/{doctor_id}/login-credentials, never
--- self-registered. A doctor row with email IS NULL simply has no login yet;
--- every existing doctor-management/booking path is unaffected either way.
--- password_hash reuses the exact PBKDF2-SHA256 scheme as
--- hospitals.portal_password_hash (hash_portal_password()/verify_portal_password()).
-ALTER TABLE doctors ADD COLUMN IF NOT EXISTS email TEXT;
-ALTER TABLE doctors ADD COLUMN IF NOT EXISTS password_hash TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_doctors_email ON doctors(email) WHERE email IS NOT NULL;
 
 -- Section 14.7: one row per date a doctor is unavailable for the whole day
 -- (leave/holiday/on-call elsewhere). generate_slots_for_doctor() skips any
@@ -1255,12 +1256,34 @@ CREATE TABLE IF NOT EXISTS staff_details (
     identity_id INTEGER PRIMARY KEY REFERENCES identities(id),
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
     role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')),
-    doctor_id TEXT REFERENCES doctors(id)
+    doctor_id TEXT REFERENCES doctors(id),
+    -- Migration 20260911174439: department_id/phone/address/shift/
+    -- reports_to_id/attendance_status -- the Staff page's mocked columns
+    -- becoming real. department_id is only ever set for a non-doctor
+    -- (admin/receptionist) row -- a doctor row's department already comes
+    -- from doctor_id -> doctors.department_id, so storing it twice here
+    -- would let the two drift. attendance_status is a manually-set current
+    -- status (no check-in/out timestamps, no history table -- confirmed
+    -- with the user, that's a separate future attendance module) with a
+    -- default of 'present' so an existing/newly-created row always has one.
+    department_id TEXT REFERENCES departments(id),
+    phone TEXT,
+    address TEXT,
+    shift TEXT CHECK (shift IS NULL OR shift IN ('day', 'evening', 'night')),
+    reports_to_id INTEGER REFERENCES identities(id),
+    attendance_status TEXT NOT NULL DEFAULT 'present'
+        CHECK (attendance_status IN ('present', 'on_leave', 'half_day'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_details_doctor_id ON staff_details(doctor_id) WHERE doctor_id IS NOT NULL;
 ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_doctor_role_pairing;
 ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_doctor_role_pairing
     CHECK ((role = 'doctor') = (doctor_id IS NOT NULL));
+ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_department_doctor_role;
+ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_department_doctor_role
+    CHECK (role != 'doctor' OR department_id IS NULL);
+ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_reports_to_not_self;
+ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_reports_to_not_self
+    CHECK (reports_to_id IS NULL OR reports_to_id != identity_id);
 
 CREATE TABLE IF NOT EXISTS super_admin_details (
     identity_id INTEGER PRIMARY KEY REFERENCES identities(id)

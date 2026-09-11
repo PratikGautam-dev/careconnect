@@ -38,17 +38,45 @@ def _validate_doctor_fields(
     breaks_raw: str = "", max_bookings_raw: str = "1", daily_limit_raw: str = "",
     online_quota_raw: str = "", walkin_quota_raw: str = "",
     followup_duration_raw: str = "", effective_from_raw: str = "",
+    phone: str = "", employee_id: str = "", location: str = "",
+    require_contact_fields: bool = True,
 ) -> tuple[dict | None, list[str], list[str]]:
     """Returns (doctor_dict_or_None, errors, warnings). errors block
     submission (same as before Section 14.7); warnings (currently just the
     online/walk-in quota vs. daily_booking_limit check) don't -- the caller
-    still gets a doctor dict back alongside them."""
+    still gets a doctor dict back alongside them.
+
+    Migration 20260911190007 (confirmed with the user): specialization/
+    qualification/phone/employee_id are mandatory on the Doctors page's own
+    Add/Edit form and CSV import (portal/routes/doctors.py, the two callers
+    that leave require_contact_fields at its True default) -- location stays
+    optional regardless. The tenant onboarding wizard (admin/onboarding.py,
+    admin/onboarding_api.py) explicitly passes require_contact_fields=False:
+    it's a lighter-weight initial-setup flow that never collected phone/
+    employee_id and doesn't force specialization/qualification either, so
+    this migration doesn't retroactively block hospital onboarding."""
     errors = []
     warnings = []
     name = name.strip()
     label = f"Doctor #{index + 1}" + (f" ({name})" if name else "")
     if not name:
         errors.append(f"Doctor #{index + 1}: name is required.")
+
+    specialization = specialization.strip()
+    qualification = qualification.strip()
+    phone = phone.strip()
+    employee_id = employee_id.strip()
+    if require_contact_fields:
+        if not specialization:
+            errors.append(f"{label}: specialization is required.")
+        if not qualification:
+            errors.append(f"{label}: qualification is required.")
+        if not phone:
+            errors.append(f"{label}: phone is required.")
+        if not employee_id:
+            errors.append(f"{label}: employee ID is required.")
+
+    location = location.strip()
 
     years_experience = None
     years_raw = years_raw.strip()
@@ -183,8 +211,8 @@ def _validate_doctor_fields(
 
     return {
         "name": name,
-        "specialization": specialization.strip() or None,
-        "qualification": qualification.strip() or None,
+        "specialization": specialization,
+        "qualification": qualification,
         "years_experience": years_experience,
         "working_days": working_days,
         "working_hours": working_hours,
@@ -196,6 +224,9 @@ def _validate_doctor_fields(
         "walkin_quota": walkin_quota,
         "followup_duration_minutes": followup_duration_minutes,
         "effective_from": effective_from,
+        "phone": phone,
+        "employee_id": employee_id,
+        "location": location or None,
     }, [], warnings
 
 

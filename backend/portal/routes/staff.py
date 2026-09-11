@@ -22,12 +22,19 @@ from portal.deps import get_current_staff, require_permission
 router = APIRouter()
 
 _VALID_ROLES = {"admin", "receptionist", "doctor"}
+_VALID_SHIFTS = {"day", "evening", "night"}
+_VALID_ATTENDANCE_STATUSES = {"present", "on_leave", "half_day"}
 
 
 def _staff_row(staff: dict) -> dict:
     return {
         "id": staff["id"], "name": staff["name"], "email": staff["email"],
         "role": staff["role"], "doctor_id": staff["doctor_id"], "is_active": staff["is_active"],
+        "created_at": staff.get("created_at"),
+        "phone": staff.get("phone"), "address": staff.get("address"), "shift": staff.get("shift"),
+        "attendance_status": staff.get("attendance_status"),
+        "department_id": staff.get("department_id"), "department_name": staff.get("department_name"),
+        "reports_to_id": staff.get("reports_to_id"), "reports_to_name": staff.get("reports_to_name"),
     }
 
 
@@ -49,6 +56,11 @@ class CreateStaffPayload(BaseModel):
     password: str = ""
     role: str = ""
     doctor_id: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    department_id: str | None = None
+    shift: str | None = None
+    reports_to_id: int | None = None
 
 
 @router.post("/api/portal/staff")
@@ -75,6 +87,16 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
         errors.append("A doctor must be selected for the Doctor role.")
     if payload.role != "doctor" and payload.doctor_id:
         errors.append("doctor_id may only be set for the Doctor role.")
+    if payload.role == "doctor" and payload.department_id:
+        errors.append("A doctor's department comes from their linked doctor profile, not department_id.")
+    if payload.department_id and db.find_department(principal.hospital.id, payload.department_id) is None:
+        errors.append("Choose a valid department.")
+    if payload.shift and payload.shift not in _VALID_SHIFTS:
+        errors.append(f'Unrecognized shift "{payload.shift}".')
+    if payload.reports_to_id and payload.reports_to_id not in {
+        s["id"] for s in db.list_staff_users_for_hospital(principal.hospital.id)
+    }:
+        errors.append("Choose a valid staff member to report to.")
     if errors:
         # {"error": "..."} (a single joined string), not {"errors": [...]} --
         # matching every other route's error-response shape in this codebase
@@ -88,6 +110,8 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
         staff = db.create_staff_user(
             principal.hospital.id, payload.role, email, hash_portal_password(payload.password),
             name, doctor_id=payload.doctor_id,
+            phone=payload.phone, address=payload.address, department_id=payload.department_id,
+            shift=payload.shift, reports_to_id=payload.reports_to_id,
         )
     except db.IntegrityError:
         return JSONResponse(
@@ -105,6 +129,19 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
 
 class UpdateStaffPayload(BaseModel):
     is_active: bool | None = None
+    # "Edit staff details" fields -- all nullable, all optional. Whether one
+    # of these was actually SENT (vs. just defaulting to None) is read off
+    # model_fields_set below, not off "is this None" -- several of these are
+    # themselves nullable columns (address, department_id, reports_to_id),
+    # so a null-but-sent value has to be distinguishable from "wasn't part
+    # of this PATCH at all" in order to support clearing one.
+    name: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    department_id: str | None = None
+    shift: str | None = None
+    reports_to_id: int | None = None
+    attendance_status: str | None = None
 
 
 @router.patch("/api/portal/staff/{staff_id}")
@@ -116,22 +153,57 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
     if forbidden:
         return forbidden
 
-    if payload.is_active is None:
+    detail_keys = {"name", "phone", "address", "department_id", "shift", "reports_to_id", "attendance_status"}
+    sent_detail_keys = payload.model_fields_set & detail_keys
+    if payload.is_active is None and not sent_detail_keys:
         return JSONResponse({"error": "Nothing to update."}, status_code=400)
 
-    # Scope check: set_staff_user_active() itself has no hospital_id filter
-    # (staff_users.id is already globally unique), so this lookup is what
-    # stops an admin at hospital A from deactivating a staff row at hospital B.
+    # Scope check: set_staff_user_active()/update_staff_user_details() have
+    # no hospital_id filter of their own (identities.id is already globally
+    # unique), so this lookup is what stops an admin at hospital A from
+    # editing a staff row at hospital B.
     staff = [s for s in db.list_staff_users_for_hospital(principal.hospital.id) if s["id"] == staff_id]
     if not staff:
         return JSONResponse({"error": "Staff member not found."}, status_code=404)
+    target = staff[0]
 
-    db.set_staff_user_active(staff_id, payload.is_active)
-    db.record_audit_log(
-        "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>",
-        "staff.set_active" if payload.is_active else "staff.deactivate",
-        entity_type="staff_users", entity_id=str(staff_id), after={"is_active": payload.is_active},
-    )
+    if "department_id" in sent_detail_keys and payload.department_id:
+        if target["role"] == "doctor":
+            return JSONResponse(
+                {"error": "A doctor's department comes from their linked doctor profile, not this field."},
+                status_code=400,
+            )
+        if db.find_department(principal.hospital.id, payload.department_id) is None:
+            return JSONResponse({"error": "Choose a valid department."}, status_code=400)
+    if "shift" in sent_detail_keys and payload.shift and payload.shift not in _VALID_SHIFTS:
+        return JSONResponse({"error": f'Unrecognized shift "{payload.shift}".'}, status_code=400)
+    if "attendance_status" in sent_detail_keys and payload.attendance_status not in _VALID_ATTENDANCE_STATUSES:
+        return JSONResponse(
+            {"error": f'Unrecognized attendance status "{payload.attendance_status}".'}, status_code=400,
+        )
+    if "reports_to_id" in sent_detail_keys and payload.reports_to_id is not None:
+        if payload.reports_to_id == staff_id:
+            return JSONResponse({"error": "A staff member can't report to themselves."}, status_code=400)
+        if payload.reports_to_id not in {s["id"] for s in db.list_staff_users_for_hospital(principal.hospital.id)}:
+            return JSONResponse({"error": "Choose a valid staff member to report to."}, status_code=400)
+
+    if payload.is_active is not None:
+        db.set_staff_user_active(staff_id, payload.is_active)
+        db.record_audit_log(
+            "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>",
+            "staff.set_active" if payload.is_active else "staff.deactivate",
+            entity_type="staff_users", entity_id=str(staff_id), after={"is_active": payload.is_active},
+        )
+
+    if sent_detail_keys:
+        identity_fields = {"name": payload.name} if "name" in sent_detail_keys else {}
+        staff_fields = {k: getattr(payload, k) for k in sent_detail_keys if k != "name"}
+        db.update_staff_user_details(staff_id, identity_fields=identity_fields, staff_fields=staff_fields)
+        db.record_audit_log(
+            "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>", "staff.update_details",
+            entity_type="staff_users", entity_id=str(staff_id), after={k: getattr(payload, k) for k in sent_detail_keys},
+        )
+
     updated = [s for s in db.list_staff_users_for_hospital(principal.hospital.id) if s["id"] == staff_id][0]
     return JSONResponse(_staff_row(updated))
 

@@ -1,164 +1,198 @@
 "use client";
 
-import { Badge } from "@/components/ui/Badge";
+import { useMemo, useState } from "react";
+import { Building2, CalendarX, Plus, Search, UserCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
-import { Input } from "@/components/ui/Input";
+import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PasswordInput } from "@/components/ui/PasswordInput";
-import { Switch } from "@/components/ui/Switch";
+import { AddStaffDialog } from "@/components/portal/AddStaffDialog";
+import { EditStaffDialog } from "@/components/portal/EditStaffDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { usePermission, useStaffSession, type StaffRole } from "@/lib/staffAuth";
+import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
+import { StatTile } from "@/components/portal/StatTile";
+import { usePortalGuard } from "@/components/portal/usePortalGuard";
+import { usePermission } from "@/lib/staffAuth";
+import { formatHeaderDate } from "@/lib/formatDate";
+import { useDepartments } from "@/hooks/useDepartments";
 import { useStaffManagement } from "@/hooks/useStaffManagement";
+import { createStaffColumns, type StaffRow } from "./_components/staff-columns";
+import { StaffDetailPanel } from "./_components/StaffDetailPanel";
 
-const ROLE_LABEL: Record<StaffRole, string> = {
-  admin: "Admin",
-  receptionist: "Receptionist",
-  doctor: "Doctor",
-};
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
 
 export default function StaffManagementPage() {
-  // useStaffSession (not getStaffSession directly) -- avoids a hydration
-  // mismatch, same reasoning as the roles page's own fix.
-  const session = useStaffSession();
+  const { hospital, ready } = usePortalGuard();
   const canView = usePermission("staff", "view");
+  const canManage = usePermission("staff", "write");
+  const departments = useDepartments(ready && canView);
 
   const {
-    staff, doctors, error, togglingId,
-    showForm, toggleForm,
-    name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
-    formError, saving,
-    handleCreate, handleToggleActive,
+    staff, error, togglingId, load, handleToggleActive, handleSetAttendance,
     resetPasswordTarget, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
     resetErrors, resetting, openResetPassword, closeResetPassword, handleResetPassword,
   } = useStaffManagement(canView);
 
-  if (!canView) {
-    return (
-      <PortalShell hospital={session?.hospital || null} active="staff">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Staff Management.</p>
-      </PortalShell>
-    );
-  }
+  const [addStaffOpen, setAddStaffOpen] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<StaffRow | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const today = new Date();
+
+  const rows: StaffRow[] = useMemo(() => staff || [], [staff]);
+  const departmentOptions = useMemo(() => (departments || []).map((d) => ({ value: d.id, label: d.name })), [departments]);
+
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return rows.filter((s) => {
+      if (departmentFilter !== "all" && s.department_id !== departmentFilter) return false;
+      if (statusFilter !== "all" && (statusFilter === "active") !== s.is_active) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        (s.department_name || "").toLowerCase().includes(q) ||
+        (s.phone || "").includes(q)
+      );
+    });
+  }, [rows, searchQuery, departmentFilter, statusFilter]);
+
+  const selected = rows.find((s) => s.id === selectedId) || null;
+  const selectedIndex = selected ? rows.findIndex((s) => s.id === selected.id) : 0;
+
+  const onLeaveCount = rows.filter((s) => s.attendance_status === "on_leave").length;
+  // department_name, not department_id -- a doctor-role row's department
+  // comes via doctor_id -> doctors.department_id (department_id itself is
+  // always null there by design), so counting department_id alone would
+  // silently ignore every doctor's department.
+  const departmentsCovered = new Set(rows.map((s) => s.department_name).filter(Boolean)).size;
 
   return (
-    <PortalShell hospital={session?.hospital || null} active="staff">
+    <PortalShell hospital={hospital} active="staff">
       <PageHeader
         title="Staff"
-        actions={
-          <PermissionGate page="staff" action="write">
-            <Button size="md" onClick={toggleForm}>
-              {showForm ? "Cancel" : "Add staff member"}
-            </Button>
-          </PermissionGate>
-        }
+        description={formatHeaderDate(today)}
+        actions={<PortalTopBarActions />}
       />
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {!ready || !canView ? (
+        !ready ? null : (
+          <p className="text-[13px] text-ink-400">You don&apos;t have access to Staff Management.</p>
+        )
+      ) : (
+        <>
+          {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
 
-      <PermissionGate page="staff" action="write">
-        {showForm && (
-          <Card className="mb-space-4 p-space-4">
-            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-space-3 md:grid-cols-2">
-              <Field label="Name" htmlFor="staff_name">
-                <Input id="staff_name" value={name} onChange={(e) => setName(e.target.value)} required />
-              </Field>
-              <Field label="Email" htmlFor="staff_email">
-                <Input
-                  id="staff_email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="Password" htmlFor="staff_password">
-                <Input
-                  id="staff_password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="Role" htmlFor="staff_role">
-                <select
-                  id="staff_role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as StaffRole)}
-                  className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="receptionist">Receptionist</option>
-                  <option value="doctor">Doctor</option>
-                </select>
-              </Field>
-              {role === "doctor" && (
-                <Field label="Doctor" htmlFor="staff_doctor" className="md:col-span-2">
-                  <select
-                    id="staff_doctor"
-                    value={doctorId}
-                    onChange={(e) => setDoctorId(e.target.value)}
-                    className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
-                  >
-                    <option value="">Select a doctor…</option>
-                    {doctors.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-              {formError && <p className="md:col-span-2 text-[12.5px] font-medium text-error">{formError}</p>}
-              <div className="md:col-span-2">
-                <Button type="submit" disabled={saving || !name || !email || !password} size="md">
-                  {saving ? "Creating…" : "Create staff member"}
-                </Button>
-              </div>
-            </form>
-          </Card>
-        )}
-      </PermissionGate>
+          <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile label="Total Staff" value={staff ? staff.length : null} deltaPct={null} hint="Live count" icon={Users} />
+            <StatTile
+              label="Active Staff"
+              value={staff ? staff.filter((s) => s.is_active).length : null}
+              deltaPct={null}
+              hint={staff ? `of ${staff.length} total` : ""}
+              icon={UserCheck}
+            />
+            <StatTile label="On Leave" value={staff ? onLeaveCount : null} deltaPct={null} hint="Today" icon={CalendarX} tint="clay" />
+            <StatTile label="Departments" value={staff ? departmentsCovered : null} deltaPct={null} hint="Live count" icon={Building2} />
+          </div>
 
-      <Card className="p-space-4">
-        {!staff ? (
-          <p className="text-[13px] text-ink-400">Loading…</p>
-        ) : staff.length === 0 ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">No staff members yet.</p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {staff.map((member) => (
-              <li key={member.id} className="flex flex-col gap-space-2 py-space-3 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
-                <div>
-                  <p className="text-[13.5px] font-semibold text-ink-900">{member.name}</p>
-                  <p className="text-[12px] text-ink-600">{member.email}</p>
-                </div>
-                <div className="flex items-center gap-space-3">
-                  <Badge tone="brand">{ROLE_LABEL[member.role]}</Badge>
-                  <Badge tone={member.is_active ? "success" : "neutral"}>
-                    {member.is_active ? "Active" : "Deactivated"}
-                  </Badge>
+          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <Card className="p-space-4">
+                <div className="mb-space-3 flex flex-wrap items-start justify-between gap-space-3">
+                  <div>
+                    <h3 className="text-label font-bold text-ink-900">Staff Directory</h3>
+                    <p className="text-hint mt-space-1">Manage hospital staff, view attendance and manage access.</p>
+                  </div>
                   <PermissionGate page="staff" action="write">
-                    <Button variant="secondary" onClick={() => openResetPassword(member)}>
-                      Reset password
+                    <Button size="md" onClick={() => setAddStaffOpen(true)}>
+                      <Plus size={14} /> Add Staff
                     </Button>
-                    <Switch
-                      checked={member.is_active}
-                      onChange={() => handleToggleActive(member)}
-                      disabled={togglingId === member.id}
-                      aria-label={`Toggle ${member.name}`}
-                    />
                   </PermissionGate>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+
+                {!staff ? (
+                  <p className="text-[13px] text-ink-400">Loading…</p>
+                ) : staff.length === 0 ? (
+                  <p className="py-space-4 text-center text-[13px] text-ink-400">No staff members yet.</p>
+                ) : (
+                  <>
+                    <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
+                      <div className="relative min-w-50 flex-1">
+                        <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+                        <input
+                          type="text"
+                          placeholder="Search by name, role, department or phone…"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                        />
+                      </div>
+                      <FilterSelect
+                        value={departmentFilter}
+                        onChange={setDepartmentFilter}
+                        allLabel="All Departments"
+                        options={departmentOptions}
+                      />
+                      <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Status" options={STATUS_OPTIONS} />
+                    </div>
+
+                    {filteredRows.length === 0 ? (
+                      <p className="py-space-4 text-center text-[13px] text-ink-400">No staff match your search/filters.</p>
+                    ) : (
+                      <DataTable
+                        columns={createStaffColumns({
+                          onSelect: (s) => setSelectedId(s.id),
+                          canManage,
+                          togglingId,
+                          onToggleActive: handleToggleActive,
+                          onResetPassword: openResetPassword,
+                        })}
+                        data={filteredRows}
+                        getRowId={(s) => String(s.id)}
+                        onRowClick={(s) => setSelectedId(s.id)}
+                        rowClassName={(s) => (s.id === selected?.id ? "bg-brand-50" : "")}
+                        pageSize={10}
+                        pageSizeOptions={[10, 25, 50]}
+                      />
+                    )}
+                  </>
+                )}
+              </Card>
+            </div>
+
+            <div>
+              <StaffDetailPanel
+                staff={selected}
+                index={Math.max(selectedIndex, 0)}
+                canManage={canManage}
+                onResetPassword={openResetPassword}
+                onEdit={setEditingStaff}
+                onSetAttendance={handleSetAttendance}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      <AddStaffDialog open={addStaffOpen} onOpenChange={setAddStaffOpen} onCreated={load} />
+
+      <EditStaffDialog
+        staff={editingStaff}
+        onOpenChange={(open) => { if (!open) setEditingStaff(null); }}
+        onSaved={load}
+      />
 
       <Dialog open={resetPasswordTarget !== null} onOpenChange={(open) => { if (!open) closeResetPassword(); }}>
         <DialogContent>

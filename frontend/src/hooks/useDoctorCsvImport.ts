@@ -44,6 +44,9 @@ export function useDoctorCsvImport(onImported: () => void) {
       walkin_quota: r.walkin_quota || "",
       followup_duration_minutes: r.followup_duration_minutes || "",
       effective_from: r.effective_from || "",
+      phone: r.phone || "",
+      employee_id: r.employee_id || "",
+      location: r.location || "",
     }));
     const res = await portalFetch("/api/portal/doctors/csv-import", {
       method: "POST",

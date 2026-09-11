@@ -28,6 +28,9 @@ export type DoctorScheduleFormState = {
   walkin_quota: string;
   followup_duration_minutes: string;
   effective_from: string;
+  phone: string;
+  employee_id: string;
+  location: string;
 };
 
 export function emptyDoctorScheduleForm(): DoctorScheduleFormState {
@@ -47,6 +50,9 @@ export function emptyDoctorScheduleForm(): DoctorScheduleFormState {
     walkin_quota: "",
     followup_duration_minutes: "",
     effective_from: "",
+    phone: "",
+    employee_id: "",
+    location: "",
   };
 }
 
@@ -111,9 +117,10 @@ export function DoctorScheduleForm({ departments, value, onChange, onSave, onCan
             {initial}
           </div>
           <div className="grid grid-cols-1 gap-space-2 md:grid-cols-2">
-            <Input placeholder="Doctor name" value={value.name} onChange={(e) => set("name", e.target.value)} />
+            <Input required placeholder="Doctor name" value={value.name} onChange={(e) => set("name", e.target.value)} />
             <Input
-              placeholder="Specialization"
+              required
+              placeholder="Specialization *"
               value={value.specialization}
               onChange={(e) => set("specialization", e.target.value)}
             />
@@ -148,8 +155,8 @@ export function DoctorScheduleForm({ departments, value, onChange, onSave, onCan
             ))}
           </select>
         </Field>
-        <Field label="Qualification" htmlFor="doctor_qualification">
-          <Input id="doctor_qualification" value={value.qualification} onChange={(e) => set("qualification", e.target.value)} />
+        <Field label="Qualification" htmlFor="doctor_qualification" required>
+          <Input required id="doctor_qualification" value={value.qualification} onChange={(e) => set("qualification", e.target.value)} />
         </Field>
         <Field label="Years experience" htmlFor="doctor_years">
           <Input
@@ -159,6 +166,15 @@ export function DoctorScheduleForm({ departments, value, onChange, onSave, onCan
             value={value.years_experience}
             onChange={(e) => set("years_experience", e.target.value)}
           />
+        </Field>
+        <Field label="Phone" htmlFor="doctor_phone" required>
+          <Input required id="doctor_phone" type="tel" value={value.phone} onChange={(e) => set("phone", e.target.value)} />
+        </Field>
+        <Field label="Employee ID" htmlFor="doctor_employee_id" required>
+          <Input required id="doctor_employee_id" value={value.employee_id} onChange={(e) => set("employee_id", e.target.value)} />
+        </Field>
+        <Field label="Location" htmlFor="doctor_location" hint="room/cabin, optional">
+          <Input id="doctor_location" value={value.location} onChange={(e) => set("location", e.target.value)} />
         </Field>
       </div>
 

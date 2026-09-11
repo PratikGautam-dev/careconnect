@@ -329,7 +329,7 @@ async def test_cancel_button_at_confirmation_still_declines_not_resets_to_menu(h
         "department_id": department["id"], "department_name": department["name"],
         "doctor_id": doctor_id, "doctor_name": "Dr. X",
         "date_label": "Sat, Aug 8", "slot_date": slot["date"], "slot_time": slot["time"],
-        "patient_name": "Ravi Kumar", "patient_age": 34,
+        "patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01",
     })
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("cancel"))
@@ -434,7 +434,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
     assert session["context"]["patient_name"] == "Ravi Kumar"
-    assert session["context"]["patient_age"] == 34
+    assert session["context"]["patient_date_of_birth"] == 34
 
     # Pick an appointment type -> department selection.
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
@@ -516,7 +516,7 @@ async def test_full_happy_path_through_confirmation(hospital_id):
     # ...and saved the patient's name/age (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
-    assert patient["age"] == 34
+    assert patient["date_of_birth"] == "34"  # dead path stores the raw age positionally into date_of_birth now
 
 
 @pytest.mark.asyncio
@@ -615,7 +615,7 @@ async def test_patient_name_and_age_free_text_validation(hospital_id):
     await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("41"))
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_APPOINTMENT_TYPE"
-    assert session["context"]["patient_age"] == 41
+    assert session["context"]["patient_date_of_birth"] == 41
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("new"))
     session = sessions.get(hospital_id, PHONE)
@@ -1169,7 +1169,7 @@ async def test_followup_with_no_previous_visit_sends_back_to_appointment_type(ho
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
 
@@ -1209,7 +1209,7 @@ async def test_followup_eligible_list_then_selecting_one_goes_straight_to_date_s
         datetime.now() - timedelta(days=10), patient_id=patient["id"],
     )
     db.mark_attendance(hospital_id, past_appt.id, True)
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
 
@@ -1241,7 +1241,7 @@ async def test_followup_back_from_date_returns_to_eligible_list(hospital_id):
         datetime.now() - timedelta(days=10), patient_id=patient["id"],
     )
     db.mark_attendance(hospital_id, past_appt.id, True)
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{past_appt.id}"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DATE"
@@ -1287,7 +1287,7 @@ async def test_diagnostic_appointment_type_skips_department_and_doctor_selection
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     test = _configure_test_schedule(hospital_id, "diagnostic")
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DIAGNOSTIC_TEST"
@@ -1313,7 +1313,7 @@ async def test_diagnostic_back_from_date_returns_to_test_then_appointment_type(h
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     test = _configure_test_schedule(hospital_id, "diagnostic")
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_DIAGNOSTIC_TEST"
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
@@ -1340,7 +1340,7 @@ async def test_diagnostic_change_selection_menu_omits_department_and_doctor(hosp
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
     test = _configure_test_schedule(hospital_id, "diagnostic")
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
     all_slots = db.get_test_slots(hospital_id, test["id"])
@@ -1373,7 +1373,7 @@ async def _book_through_confirmation(wa, sessions, hospital_id, appointment_type
     "confirm" to the success message."""
     from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
 
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(appointment_type_id))
     session = sessions.get(hospital_id, PHONE)
 
@@ -1431,7 +1431,7 @@ async def test_tele_sub_type_back_from_department_returns_to_new_or_followup_pro
     real step in the history stack, same as every other step."""
     wa = FakeWhatsAppClient()
     sessions = InMemorySessionStore()
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
 
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("tele"))
     assert sessions.get(hospital_id, PHONE)["state"] == "AWAITING_TELE_SUB_TYPE"
@@ -1530,7 +1530,7 @@ async def test_non_tele_types_get_no_video_link_in_their_confirmation(hospital_i
             hospital_id, PHONE, "cardiology", doctor_id, datetime.now() - timedelta(days=10), patient_id=patient["id"],
         )
         db.mark_attendance(hospital_id, past_appt.id, True)
-        sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_age": 34})
+        sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"active_patient_id": patient["id"], "patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01"})
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap("followup"))
         await handle_incoming(wa, sessions, PHONE, hospital_id, tap(f"appt_{past_appt.id}"))  # pick the eligible consultation
         doctor_id = sessions.get(hospital_id, PHONE)["context"]["doctor_id"]

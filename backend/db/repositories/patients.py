@@ -2,7 +2,7 @@
 """Patient search/directory, profiles, and the patient-identity-separation
 linking/consent model (Spec.md Section 0). Split out of db/repository.py --
 see ARCHITECTURE_PLAN.md Phase 1."""
-from datetime import datetime
+from datetime import date, datetime
 from typing import cast
 
 from sqlalchemy import and_, case, delete, func, or_, select, update
@@ -21,6 +21,21 @@ from db.repositories.accounts import _get_or_create_account_in_conn
 # --- Patients (Section 12.9 -- staff-created bookings need to search by name,
 # not just phone; see db/schema.sql's comment on the patients table and
 # create_appointment()'s _upsert_patient() for how rows get here) ---
+
+def age_from_dob(date_of_birth: str | None) -> int | None:
+    """Age is computed here, on read, from date_of_birth -- confirmed with
+    the user: age itself is never collected or stored again (patients.age
+    dropped outright, no fallback), so every response shape that used to
+    return a stored age now returns this instead. None for no/malformed DOB."""
+    if not date_of_birth:
+        return None
+    try:
+        dob = date.fromisoformat(date_of_birth)
+    except (TypeError, ValueError):
+        return None
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
 
 def is_valid_phone(phone: str | None) -> bool:
     """Deliberately permissive (SPEC Section 12.9's phone-validation follow-up)
@@ -116,7 +131,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     stmt = (
         select(
             PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
-            PatientRow.date_of_birth, PatientRow.gender, PatientRow.age, PatientRow.status, PatientRow.created_at,
+            PatientRow.date_of_birth, PatientRow.gender, PatientRow.status, PatientRow.created_at,
             last_visit.label("last_visit"), visit_count.label("visit_count"),
             visited_count.label("visited_count"), last_visit_department.label("department_name"),
             last_visit_doctor.label("doctor_name"),
@@ -129,7 +144,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
         .where(PatientRow.hospital_id == hospital_id)
         .group_by(
             PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
-            PatientRow.date_of_birth, PatientRow.gender, PatientRow.age, PatientRow.status, PatientRow.created_at,
+            PatientRow.date_of_birth, PatientRow.gender, PatientRow.status, PatientRow.created_at,
         )
         .order_by(last_visit.desc().nulls_last(), PatientRow.name.nulls_last(), PatientRow.phone)
     )
@@ -153,7 +168,7 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
             "id": r.id, "phone": r.phone, "name": r.name, "patient_display_id": r.patient_display_id,
             "mrn": r.mrn, "last_visit": r.last_visit, "visit_count": r.visit_count,
             "visited_count": r.visited_count, "date_of_birth": r.date_of_birth, "gender": r.gender,
-            "age": r.age, "status": r.status, "created_at": r.created_at,
+            "age": age_from_dob(r.date_of_birth), "status": r.status, "created_at": r.created_at,
             "department_name": r.department_name, "doctor_name": r.doctor_name,
         }
         for r in rows
@@ -215,7 +230,7 @@ def get_patients_for_doctor(hospital_id: int, doctor_id: str, limit: int = 500) 
 
 _PATIENT_COLUMNS = (
     PatientRow.id, PatientRow.hospital_id, PatientRow.phone, PatientRow.name, PatientRow.date_of_birth,
-    PatientRow.gender, PatientRow.address, PatientRow.age, PatientRow.patient_display_id, PatientRow.mrn,
+    PatientRow.gender, PatientRow.address, PatientRow.patient_display_id, PatientRow.mrn,
     PatientRow.status, PatientRow.created_at,
 )
 
@@ -308,7 +323,7 @@ def get_active_patients_for_phone(hospital_id: int, phone: str) -> list[dict]:
     session = get_session()
     rows = session.execute(
         select(
-            PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id,
+            PatientRow.id, PatientRow.name, PatientRow.date_of_birth, PatientRow.patient_display_id,
             PatientLink.relationship_label, PatientLink.id.label("link_id"),
         )
         .select_from(PatientLink)
@@ -458,7 +473,9 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
     )
 
 
-def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone: str, age: int, gender: str) -> dict | None:
+def find_potential_duplicate_patient(
+    hospital_id: int, name: str, contact_phone: str, date_of_birth: str, gender: str,
+) -> dict | None:
     """CareConnect architecture doc alignment (Spec.md Section 0), Sections
     8-10: searched BEFORE create_patient_profile() creates a brand-new
     `patients` row/MRN, so a family member who already has a hospital
@@ -469,21 +486,21 @@ def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone:
     insensitive) AND exact contact phone number (patients.phone -- the
     patient's OWN number: the messaging phone for "Myself", the collected
     number for "Someone Else", see create_patient_profile()'s contact_phone
-    param) AND exact age AND exact gender, among this hospital's ACTIVE
-    patients -- all four together make a match essentially certain to be
-    the same real person.
+    param) AND exact date of birth AND exact gender, among this hospital's
+    ACTIVE patients -- all four together make a match essentially certain
+    to be the same real person.
 
-    age/gender are REQUIRED (not Optional) rather than compared with a
-    None-tolerant `is_()`/`==` branch: SQLAlchemy compiles `Column == None`
-    to `IS NULL`, so an Optional param would silently match every candidate
-    with an unrecorded age/gender -- a real false-positive risk. The one
-    real caller (registration) always has both collected by the time it
-    calls this, so requiring them closes that path structurally. The
-    reverse asymmetry is accepted as-is: an EXISTING row with a NULL
-    age/gender (e.g. staff-created before gender was mandatory) will
-    correctly never match a concrete incoming value (three-valued SQL
-    logic) -- no false positive, but a genuine duplicate could be missed;
-    that's a known limitation, not a bug to fix here.
+    date_of_birth/gender are REQUIRED (not Optional) rather than compared
+    with a None-tolerant `is_()`/`==` branch: SQLAlchemy compiles
+    `Column == None` to `IS NULL`, so an Optional param would silently
+    match every candidate with an unrecorded date_of_birth/gender -- a real
+    false-positive risk. The one real caller (registration) always has both
+    collected by the time it calls this, so requiring them closes that path
+    structurally. The reverse asymmetry is accepted as-is: an EXISTING row
+    with a NULL date_of_birth/gender (e.g. staff-created before gender was
+    mandatory) will correctly never match a concrete incoming value
+    (three-valued SQL logic) -- no false positive, but a genuine duplicate
+    could be missed; that's a known limitation, not a bug to fix here.
 
     Deliberately does NOT exclude a patient already linked to the caller's
     own phone (an earlier version of this function did, via a
@@ -497,12 +514,12 @@ def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone:
     Returns the first match (deterministic: lowest patient id) or None."""
     session = get_session()
     row = session.execute(
-        select(PatientRow.id, PatientRow.name, PatientRow.age, PatientRow.patient_display_id, PatientRow.phone)
+        select(PatientRow.id, PatientRow.name, PatientRow.date_of_birth, PatientRow.patient_display_id, PatientRow.phone)
         .where(
             PatientRow.hospital_id == hospital_id, PatientRow.status == "active",
             func.lower(func.trim(PatientRow.name)) == func.lower(func.trim(name)),
             PatientRow.phone == contact_phone,
-            PatientRow.age == age, PatientRow.gender == gender,
+            PatientRow.date_of_birth == date_of_birth, PatientRow.gender == gender,
         )
         .order_by(PatientRow.id)
         .limit(1)
@@ -511,7 +528,7 @@ def find_potential_duplicate_patient(hospital_id: int, name: str, contact_phone:
 
 
 def create_patient_profile(
-    hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
+    hospital_id: int, phone: str, name: str, date_of_birth: str | None, relationship_label: str | None = None,
     gender: str | None = None, contact_phone: str | None = None,
 ) -> dict:
     """Creates a brand-new `patients` row (NEVER an upsert-by-phone -- multiple
@@ -557,8 +574,8 @@ def create_patient_profile(
     conn.execute("BEGIN")
     try:
         patient_row = conn.execute(
-            "INSERT INTO patients (hospital_id, phone, name, age, gender) VALUES (?, ?, ?, ?, ?) RETURNING id",
-            (hospital_id, contact_phone or phone, name, age, gender),
+            "INSERT INTO patients (hospital_id, phone, name, date_of_birth, gender) VALUES (?, ?, ?, ?, ?) RETURNING id",
+            (hospital_id, contact_phone or phone, name, date_of_birth, gender),
         ).fetchone()
         assert patient_row is not None  # INSERT ... RETURNING always returns the inserted row
         patient_id = patient_row["id"]
@@ -575,7 +592,8 @@ def create_patient_profile(
             pass
         raise
     return {
-        "id": patient_id, "name": name, "age": age, "gender": gender, "patient_display_id": display_id, "mrn": mrn,
+        "id": patient_id, "name": name, "date_of_birth": date_of_birth, "gender": gender,
+        "patient_display_id": display_id, "mrn": mrn,
         "relationship_label": relationship_label,
     }
 
@@ -596,7 +614,7 @@ def link_existing_patient(
     conn.execute("BEGIN")
     try:
         patient_row = conn.execute(
-            "SELECT id, name, age, patient_display_id FROM patients WHERE hospital_id = ? AND id = ? AND status = ?",
+            "SELECT id, name, date_of_birth, patient_display_id FROM patients WHERE hospital_id = ? AND id = ? AND status = ?",
             (hospital_id, patient_id, PATIENT_STATUS_ACTIVE),
         ).fetchone()
         if patient_row is None:
@@ -610,7 +628,7 @@ def link_existing_patient(
             pass
         raise
     return {
-        "id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"],
+        "id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"],
         "patient_display_id": patient_row["patient_display_id"], "relationship_label": relationship_label,
     }
 
@@ -689,21 +707,6 @@ def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consent
     ))
     session.commit()
     return result.rowcount > 0
-
-
-def update_patient_profile(hospital_id: int, patient_id: int, name: str, age: int | None) -> dict | None:
-    """Not exposed in the v1 WhatsApp flow (which only ever creates new
-    profiles, never edits one) -- kept available for a future "edit a linked
-    patient" step without needing a second migration. Returns None if
-    patient_id doesn't belong to this hospital."""
-    session = get_session()
-    result = cast(CursorResult, session.execute(
-        update(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id).values(name=name, age=age)
-    ))
-    session.commit()
-    if result.rowcount == 0:
-        return None
-    return get_patient(hospital_id, patient_id)
 
 
 def delete_patient_hard(hospital_id: int, patient_id: int) -> bool:

@@ -19,10 +19,10 @@ connectors.py -- every hospital-scoped read/write goes through the
 Physically split (same motivation/shape as flows/booking/'s own package) into:
 
   state.py             STATE_* constants, row/button ids, pure parsing
-                        helpers (age/name/contact-number)
+                        helpers (date of birth/name/contact-number)
   menu.py               the unified main menu + patient header
   registration.py       [Myself/Someone Else] -> name -> [contact number] ->
-                        age -> gender -> [duplicate decision] -> create/link
+                        date of birth -> gender -> [duplicate decision] -> create/link
   resolution.py          the "which patient is this" entry point --
                         already-resolved fast path, single-patient
                         confirmation, 2+-patient selector
@@ -69,16 +69,15 @@ from flows.patient_identity.state import (
     MANAGE_PATIENTS_BACK_ID,
     MANAGE_PATIENTS_ENTRY_ID,
     MANAGE_REMOVE_ROW_ID,
-    MAX_PATIENT_AGE,
+    MAX_PATIENT_AGE_YEARS,
     MAX_PATIENT_NAME_LENGTH,
-    MIN_PATIENT_AGE,
     MIN_PATIENT_NAME_LENGTH,
     STATE_AWAITING_BOOKING_FOR,
     STATE_AWAITING_CONSENT_ACTION,
     STATE_AWAITING_DUPLICATE_DECISION,
     STATE_AWAITING_MANAGE_PATIENTS_ACTION,
-    STATE_AWAITING_PATIENT_AGE,
     STATE_AWAITING_PATIENT_CONTACT_PHONE,
+    STATE_AWAITING_PATIENT_DOB,
     STATE_AWAITING_PATIENT_GENDER,
     STATE_AWAITING_PATIENT_NAME,
     STATE_AWAITING_REMOVE_PATIENT_SELECTION,
@@ -86,7 +85,7 @@ from flows.patient_identity.state import (
     STATE_AWAITING_UNLINK_CONFIRM,
     _GENDER_ROW_IDS,
     _parse_contact_phone_number,
-    _parse_patient_age,
+    _parse_patient_dob,
     _parse_patient_name,
     _parse_patient_row_id,
     _parse_unlink_row_id,
@@ -109,7 +108,7 @@ from flows.patient_identity.registration import (
     _create_or_link_patient,
     _handle_awaiting_booking_for,
     _handle_awaiting_duplicate_decision,
-    _handle_awaiting_patient_age,
+    _handle_awaiting_patient_dob,
     _handle_awaiting_patient_contact_number,
     _handle_awaiting_patient_gender,
     _handle_awaiting_patient_name,

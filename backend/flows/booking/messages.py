@@ -280,7 +280,8 @@ async def _select_patient_and_continue(
 
     if next_action == "booking":
         context = {
-            "active_patient_id": patient["id"], "patient_name": patient["name"], "patient_age": patient["age"],
+            "active_patient_id": patient["id"], "patient_name": patient["name"],
+            "patient_date_of_birth": patient["date_of_birth"],
         }
         if booking_category is not None:
             context["appointment_type_category"] = list(booking_category)
@@ -672,7 +673,8 @@ async def _send_confirmation(wa: WhatsAppClient, phone: str, hospital_id: int, c
         appointment_type_label=context.get("appointment_type_label"),
         department_line=department_line, doctor_name=context.get("doctor_name"),
         date_label=context.get("date_label"), time_label=context.get("slot_time"),
-        patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
+        patient_name=context.get("patient_name"),
+        patient_age=db.age_from_dob(context.get("patient_date_of_birth")),
         patient_code=(patient.get("patient_display_id") if patient else None) or "—",
         fee_line=fee_line,
     )

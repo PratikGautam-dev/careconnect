@@ -24,10 +24,11 @@ folding "which appointments are due" into one method with two filtering modes
 was the least-new-surface way to cover both booking_flow.py's (patient-scoped)
 and reminders/scheduler.py's (offset-scoped) needs with a single name.
 
-Section 12.11 (patient name/age collection during WhatsApp booking) adds
-`get_patient_info` and a `patient_age` param on `create_booking` — the "have
-we already met this patient" read core/booking_flow.py needs before deciding
-whether to ask for a name/age is exactly the kind of per-tier-varying data
+Section 12.11 (patient name/date-of-birth collection during WhatsApp
+booking) adds `get_patient_info` and a `patient_date_of_birth` param on
+`create_booking` — the "have we already met this patient" read
+core/booking_flow.py needs before deciding whether to ask for a
+name/date-of-birth is exactly the kind of per-tier-varying data
 access this interface exists to abstract (a Tier 2/3 hospital's own system
 may or may not have an equivalent concept), so it goes through here rather
 than booking_flow.py reaching into db/repository.py directly for it.
@@ -118,7 +119,7 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_booking(
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str | None, scheduled_at: datetime,
-        source: str = "whatsapp", patient_name: str | None = None, patient_age: int | None = None,
+        source: str = "whatsapp", patient_name: str | None = None, patient_date_of_birth: str | None = None,
         patient_id: int | None = None, appointment_type_id: str | None = None,
         consent_given_at: str | None = None,
         diagnostic_test_id: int | None = None,
@@ -143,7 +144,7 @@ class Connector(abc.ABC):
 
     @abc.abstractmethod
     def create_patient_profile(
-        self, hospital_id: int, phone: str, name: str, age: int | None, relationship_label: str | None = None,
+        self, hospital_id: int, phone: str, name: str, date_of_birth: str | None, relationship_label: str | None = None,
         gender: str | None = None, contact_phone: str | None = None,
     ) -> dict: ...
 
@@ -160,7 +161,7 @@ class Connector(abc.ABC):
 
     @abc.abstractmethod
     def find_potential_duplicate_patient(
-        self, hospital_id: int, name: str, contact_phone: str, age: int, gender: str,
+        self, hospital_id: int, name: str, contact_phone: str, date_of_birth: str, gender: str,
     ) -> dict | None: ...
 
     @abc.abstractmethod
@@ -224,7 +225,7 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_procedure_booking(
         self, hospital_id: int, phone: str, procedure_id: int, scheduled_at: datetime,
-        patient_name: str | None = None, patient_age: int | None = None, patient_id: int | None = None,
+        patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_id: int | None = None,
         procedure_order_reference: str | None = None,
     ) -> Appointment: ...
 
@@ -233,7 +234,7 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_procedure_request(
         self, hospital_id: int, phone: str, procedure_id: int,
-        patient_name: str | None = None, patient_age: int | None = None, patient_id: int | None = None,
+        patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_id: int | None = None,
         procedure_order_reference: str | None = None,
     ) -> Appointment: ...
 
@@ -351,7 +352,7 @@ class _UnimplementedTierConnector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         self._not_implemented("is_pincode_serviceable")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_age=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_date_of_birth=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         self._not_implemented("create_booking")
 
     def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
@@ -372,10 +373,10 @@ class _UnimplementedTierConnector(Connector):
     def get_procedure_available_slots(self, hospital_id, procedure_id):
         self._not_implemented("get_procedure_available_slots")
 
-    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
+    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_date_of_birth=None, patient_id=None, procedure_order_reference=None):
         self._not_implemented("create_procedure_booking")
 
-    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_age=None, patient_id=None, procedure_order_reference=None):
+    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_date_of_birth=None, patient_id=None, procedure_order_reference=None):
         self._not_implemented("create_procedure_request")
 
     def confirm_procedure_appointment(self, hospital_id, appointment_id, scheduled_at):
@@ -405,7 +406,7 @@ class _UnimplementedTierConnector(Connector):
     def list_active_patients(self, hospital_id, phone):
         self._not_implemented("list_active_patients")
 
-    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None, contact_phone=None):
+    def create_patient_profile(self, hospital_id, phone, name, date_of_birth, relationship_label=None, gender=None, contact_phone=None):
         self._not_implemented("create_patient_profile")
 
     def has_self_linked_patient(self, hospital_id, care_connect_account_id):
@@ -414,7 +415,7 @@ class _UnimplementedTierConnector(Connector):
     def unlink_patient(self, hospital_id, phone, patient_id):
         self._not_implemented("unlink_patient")
 
-    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, age, gender):
+    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, date_of_birth, gender):
         self._not_implemented("find_potential_duplicate_patient")
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):

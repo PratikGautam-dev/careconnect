@@ -267,9 +267,15 @@ def test_get_slots_excludes_already_past_slots(hospital_id):
 # --- _validate_doctor_fields(): breaks/quota/daily-limit validation ---
 
 def _base_args(**overrides):
+    """require_contact_fields=False here -- this section is about breaks/
+    quota/daily-limit validation specifically, predating migration
+    20260911190007's mandatory specialization/qualification/phone/
+    employee_id; see test_doctor_contact_fields_are_mandatory below for
+    that feature's own coverage."""
     args = dict(
         index=0, name="Dr. Valid", specialization="", qualification="",
         years_raw="", days_raw="Mon,Tue", hours_raw="09:00-12:00", duration_raw="30",
+        require_contact_fields=False,
     )
     args.update(overrides)
     return args
@@ -348,11 +354,38 @@ def test_defaults_when_no_section_14_7_fields_given():
     max_bookings_per_slot=1, everything else None/empty."""
     doctor, errors, warnings = _validate_doctor_fields(
         0, "Dr. Plain", "", "", "", "Mon", "09:00-10:00", "30",
+        require_contact_fields=False,
     )
     assert errors == []
     assert doctor["breaks"] == []
     assert doctor["max_bookings_per_slot"] == 1
     assert doctor["daily_booking_limit"] is None
+
+
+def test_doctor_contact_fields_are_mandatory_by_default():
+    """Migration 20260911190007 (confirmed with the user): specialization/
+    qualification/phone/employee_id block submission on the Doctors page's
+    own Add/Edit form and CSV import (both leave require_contact_fields at
+    its True default) -- location has no such check."""
+    doctor, errors, warnings = _validate_doctor_fields(**_base_args(require_contact_fields=True))
+    assert doctor is None
+    assert any("specialization is required" in e for e in errors)
+    assert any("qualification is required" in e for e in errors)
+    assert any("phone is required" in e for e in errors)
+    assert any("employee ID is required" in e for e in errors)
+
+
+def test_doctor_contact_fields_accepted_when_all_given():
+    doctor, errors, warnings = _validate_doctor_fields(**_base_args(
+        require_contact_fields=True, specialization="Cardiologist", qualification="MD",
+        phone="9876543210", employee_id="EMP-001", location="Room 204",
+    ))
+    assert errors == []
+    assert doctor["specialization"] == "Cardiologist"
+    assert doctor["qualification"] == "MD"
+    assert doctor["phone"] == "9876543210"
+    assert doctor["employee_id"] == "EMP-001"
+    assert doctor["location"] == "Room 204"
     assert doctor["online_quota"] is None
     assert doctor["walkin_quota"] is None
     assert doctor["followup_duration_minutes"] is None

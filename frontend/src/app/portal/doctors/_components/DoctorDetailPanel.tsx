@@ -6,6 +6,7 @@ import {
   CalendarPlus,
   Eye,
   IdCard,
+  KeyRound,
   Mail,
   MapPin,
   MessageCircle,
@@ -18,7 +19,7 @@ import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
 import type { Doctor } from "@/hooks/useDoctors";
-import { AVATAR_TINTS } from "./doctors-columns";
+import { AVATAR_TINTS, mockLeaveBalance } from "./doctors-columns";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -67,16 +68,23 @@ type Props = {
   leaveOpen: boolean;
   onToggleLeave: () => void;
   onBookAppointment: () => void;
+  onCreateLogin: (doc: Doctor) => void;
 };
 
-/** Right-rail "selected doctor" profile card -- only ever shows fields this
- * schema actually has (qualification/specialization/department/experience/
- * email/working hours, all real); Employee ID, phone, room/cabin, and a
- * live "available since HH:MM" aren't tracked anywhere here, so they're
- * shown as "—" with a note rather than invented. */
+/** Right-rail "selected doctor" profile card -- every field shown is real
+ * (migration 20260911190007 made phone/employee_id/location real columns,
+ * alongside the pre-existing qualification/specialization/department/
+ * experience/working hours) except Leave Balance, still a placeholder --
+ * see mockLeaveBalance()'s own docstring. A live "available since HH:MM"
+ * check-in doesn't exist either; availability is the real Available/
+ * Unavailable toggle only. The Email row and "Create login" quick action
+ * are this doctor's unified-login status (login_email/login_staff_id, an
+ * outer join to staff_details/identities) -- not a profile contact field,
+ * the same login a doctor uses to sign into the shared portal (see the
+ * Staff page's own role="doctor" rows). */
 export function DoctorDetailPanel({
   doctor, index, canManage, onEdit, togglingId, onToggleActive, scheduleOpen, onToggleSchedule, leaveOpen, onToggleLeave,
-  onBookAppointment,
+  onBookAppointment, onCreateLogin,
 }: Props) {
   if (!doctor) {
     return (
@@ -104,6 +112,9 @@ export function DoctorDetailPanel({
         }]
       : []),
     { label: "Send message", icon: MessageCircle, disabled: true, title: "Coming soon — no doctor-facing internal messaging exists yet" },
+    ...(canManage && !doctor.login_staff_id
+      ? [{ label: "Create login", icon: KeyRound, onClick: () => onCreateLogin(doctor), fullWidth: true }]
+      : []),
     ...(canManage
       ? [{ label: "Manage leave", icon: CalendarClock, onClick: onToggleLeave, active: leaveOpen, fullWidth: true }]
       : []),
@@ -135,11 +146,19 @@ export function DoctorDetailPanel({
 
       <div className="space-y-space-2 border-t border-line pt-space-3">
         <DetailRow icon={Building2} label="Department" value={doctor.department_name} />
-        <DetailRow icon={IdCard} label="Employee ID" value="—" />
+        <DetailRow icon={IdCard} label="Employee ID" value={doctor.employee_id || "—"} />
         <DetailRow icon={CalendarClock} label="Experience" value={doctor.years_experience != null ? `${doctor.years_experience} years` : "—"} />
-        <DetailRow icon={Phone} label="Phone" value="—" />
-        <DetailRow icon={Mail} label="Email" value={doctor.email || "—"} />
-        <DetailRow icon={MapPin} label="Location" value="—" />
+        <DetailRow icon={Phone} label="Phone" value={doctor.phone || "—"} />
+        <DetailRow icon={Mail} label="Login email" value={doctor.login_email || "No login yet"} />
+        <DetailRow icon={MapPin} label="Location" value={doctor.location || "—"} />
+        {(() => {
+          const { used, total } = mockLeaveBalance(doctor.id);
+          return (
+            <div title="Placeholder -- the Leave module hasn't shipped yet">
+              <DetailRow icon={CalendarClock} label="Leave balance" value={`${total - used} / ${total} days`} />
+            </div>
+          );
+        })()}
       </div>
 
       <div className="mt-space-3 rounded-md border border-line bg-paper p-space-3">
@@ -153,7 +172,7 @@ export function DoctorDetailPanel({
       </div>
 
       <p className="text-hint mt-space-2">
-        Employee ID, phone, location, and room/cabin aren&apos;t tracked in this app yet — availability shown above is
+        Leave balance is a placeholder until the Leave module ships — every other field above is real. Availability is
         the real Available/Unavailable toggle, not a live &quot;since HH:MM&quot; check-in.
       </p>
 

@@ -12,7 +12,7 @@ scheme's own "short TTL, re-issued not extended" posture -- just with an
 immediate kill switch added on top, which the plain-HMAC scheme never had.
 
 Two structurally separate token types, same "a leaked secret should only
-forge the one thing it's for" precedent DOCTOR_SECRET vs PORTAL_SECRET
+forge the one thing it's for" precedent ADMIN_SECRET vs TENANTS_ADMIN_SECRET
 already established: `typ: "staff"` tokens are signed with JWT_SECRET,
 `typ: "super_admin"` tokens with SUPER_ADMIN_JWT_SECRET -- verify_access_token()
 checks `typ` explicitly (not just signature validity) so even a token signed

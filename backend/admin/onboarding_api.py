@@ -127,6 +127,7 @@ def _validate_departments(departments: list[DepartmentIn]) -> tuple[list[dict], 
                 doc.walkin_quota,
                 doc.followup_duration_minutes,
                 doc.effective_from,
+                require_contact_fields=False,
             )
             errors.extend(doc_errors)
             warnings.extend(doc_warnings)

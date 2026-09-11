@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import json
 import os
+from datetime import datetime
 
 import pytest
 
@@ -33,7 +34,7 @@ from core.session_store import InMemorySessionStore
 from core.translations import t as translate
 from core.translations.menu import FEATURE_BOOK_DOCTOR_APPOINTMENT, RECEPTION_HANDOFF_TEXT, WELCOME_MENU
 from core.translations.booking import (
-    ASK_PATIENT_AGE,
+    ASK_PATIENT_DOB,
     ASK_PATIENT_GENDER,
     ASK_PATIENT_NAME,
     CONFIRM_BOOKING_SUMMARY,
@@ -76,7 +77,7 @@ class FakeWhatsAppClient:
 
 
 _DEFAULT_FAKE_PATIENT = {
-    "id": 1, "name": "Test Patient", "age": 30, "patient_display_id": "PAT-TEST-0001",
+    "id": 1, "name": "Test Patient", "date_of_birth": "1996-01-01", "patient_display_id": "PAT-TEST-0001",
     "relationship_label": "Self",
 }
 
@@ -138,10 +139,10 @@ class FakeConnector:
     def list_active_patients(self, hospital_id, phone):
         return self._patients
 
-    def create_patient_profile(self, hospital_id, phone, name, age, relationship_label=None, gender=None, contact_phone=None):
+    def create_patient_profile(self, hospital_id, phone, name, date_of_birth, relationship_label=None, gender=None, contact_phone=None):
         next_id = (max((p["id"] for p in self._patients), default=0)) + 1
         patient = {
-            "id": next_id, "name": name, "age": age, "gender": gender, "relationship_label": relationship_label,
+            "id": next_id, "name": name, "date_of_birth": date_of_birth, "gender": gender, "relationship_label": relationship_label,
             "patient_display_id": f"PAT-TEST-{next_id:04d}", "contact_phone": contact_phone or phone,
         }
         self._patients.append(patient)
@@ -150,11 +151,11 @@ class FakeConnector:
     def has_self_linked_patient(self, hospital_id, care_connect_account_id):
         return any(p.get("relationship_label") == "Self" for p in self._patients)
 
-    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, age, gender):
+    def find_potential_duplicate_patient(self, hospital_id, name, contact_phone, date_of_birth, gender):
         return None
 
     def link_existing_patient(self, hospital_id, phone, patient_id, relationship_label=None):
-        patient = {"id": patient_id, "name": "Linked Patient", "age": None, "patient_display_id": f"PAT-TEST-{patient_id:04d}", "relationship_label": relationship_label}
+        patient = {"id": patient_id, "name": "Linked Patient", "date_of_birth": None, "patient_display_id": f"PAT-TEST-{patient_id:04d}", "relationship_label": relationship_label}
         self._patients.append(patient)
         return patient
 
@@ -965,11 +966,20 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert kwargs["text"] == translate(ASK_PATIENT_NAME, "hi")
 
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Ravi Kumar"), connector=connector, enabled_features=["book_doctor_appointment"])
-    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_AGE
+    assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_DOB
     kind, kwargs = wa.sent[-1]
-    assert kwargs["text"] == translate(ASK_PATIENT_AGE, "hi", patient_name="Ravi Kumar")
+    assert kwargs["text"] == translate(ASK_PATIENT_DOB, "hi", patient_name="Ravi Kumar")
 
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("34"), connector=connector, enabled_features=["book_doctor_appointment"])
+    # Jan 1 makes the resulting age deterministic regardless of which
+    # calendar date this test happens to run on (no "birthday hasn't
+    # happened yet this year" edge case to worry about) -- the confirmation
+    # summary assertion below computes the same expected age from this same
+    # birth year, rather than hardcoding a value that would drift.
+    patient_birth_year = 1992
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply(f"01-01-{patient_birth_year}"),
+        connector=connector, enabled_features=["book_doctor_appointment"],
+    )
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
     kind, kwargs = wa.sent[-1]
     assert kind == "buttons"
@@ -1029,7 +1039,7 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
         doctor_name=session["context"]["doctor_name"],
         date_label=session["context"]["date_label"],
         time_label=session["context"]["slot_time"],
-        patient_name="Ravi Kumar", patient_age=34, patient_code=patient_code,
+        patient_name="Ravi Kumar", patient_age=datetime.now().year - patient_birth_year, patient_code=patient_code,
         fee_line="",  # no hospital_settings.new_consultation_fee configured for this test hospital
     )
 
@@ -1040,10 +1050,10 @@ async def test_language_persists_across_a_full_booking_flow_in_hindi(hospital_id
     assert "सफलतापूर्वक" in kwargs["body_text"]
     # Item 8 (Spec.md Section 0): reference_id format is now APT-<DDMMYY>-<NNN>.
     assert "APT-" in kwargs["body_text"]
-    # Booked with the patient's name/age (Section 12.11's other half).
+    # Booked with the patient's name/date of birth (Section 12.11's other half).
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient["name"] == "Ravi Kumar"
-    assert patient["age"] == 34
+    assert patient["date_of_birth"] == f"{patient_birth_year}-01-01"
     # Reset to IDLE. Language-reset follow-up (Spec.md Section 0): a FULLY
     # COMPLETED booking now clears the chosen language too (was preserved
     # before this fix) -- the next fresh conversation shows the picker
@@ -1130,7 +1140,12 @@ async def test_a_linked_patient_is_remembered_across_a_genuinely_new_session_obj
     session2 = sessions2.get(hospital_id, PHONE)
     assert session2["state"] == "AWAITING_APPOINTMENT_TYPE"
     assert session2["context"]["patient_name"] == "Priya Shah"
-    assert session2["context"]["patient_age"] == 29
+    # Session #1 went through book.py's own dead-for-real-traffic age state
+    # machine (bare "AWAITING_PATIENT_NAME" literal above, not
+    # patient_identity.STATE_AWAITING_PATIENT_NAME), which still positionally
+    # passes its parsed age into what is now create_patient_profile's
+    # date_of_birth param -- round-trips through the TEXT column as "29".
+    assert session2["context"]["patient_date_of_birth"] == "29"
     await flows.handle_incoming(wa2, sessions2, PHONE, hospital_id, tap("new"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions2.get(hospital_id, PHONE)["state"] == "AWAITING_DEPARTMENT"
     kind, kwargs = wa2.sent[-1]

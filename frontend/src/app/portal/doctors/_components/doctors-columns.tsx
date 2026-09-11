@@ -21,6 +21,18 @@ function initials(name: string): string {
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
 
+/** Placeholder only -- there is no Leave module yet (balances/accrual/
+ * requests), confirmed with the user as a later follow-up. Deterministic
+ * per doctor id purely so it doesn't look like the exact same hardcoded
+ * value on every row; it is not backed by any real leave data. */
+export function mockLeaveBalance(doctorId: string): { used: number; total: number } {
+  let hash = 0;
+  for (const ch of doctorId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const total = 12 + (hash % 9); // 12..20 days
+  const used = hash % (total + 1); // 0..total
+  return { used, total };
+}
+
 type CreateDoctorColumnsOptions = {
   onSelect: (doc: Doctor) => void;
   canManage: boolean;
@@ -34,8 +46,11 @@ type CreateDoctorColumnsOptions = {
  * ever reflects the real is_active flag (Available/Unavailable) -- there's
  * no real-time presence tracking in this schema, so the reference mockup's
  * finer In Consultation/In Surgery states aren't shown here (see the page's
- * own note). Contact only ever shows email (real) -- doctors have no phone
- * field anywhere in this schema. */
+ * own note). Contact's email row shows this doctor's unified-login email
+ * (login_email, null until a login is created -- see the detail panel's own
+ * "Create login" action); phone is real too (migration 20260911190007).
+ * Leave balance is the one still-mocked column -- see mockLeaveBalance()'s
+ * own docstring above. */
 export function createDoctorColumns({
   onSelect,
   canManage,
@@ -84,6 +99,23 @@ export function createDoctorColumns({
       cell: ({ row }) => <span className="text-ink-600">{row.original.department_name}</span>,
     },
     {
+      id: "employee_id",
+      header: "Employee ID",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.employee_id || "—"}</span>,
+    },
+    {
+      id: "leave_balance",
+      header: "Leave Balance",
+      cell: ({ row }) => {
+        const { used, total } = mockLeaveBalance(row.original.id);
+        return (
+          <span className="text-ink-600" title="Placeholder -- the Leave module hasn't shipped yet">
+            {total - used} / {total} days
+          </span>
+        );
+      },
+    },
+    {
       id: "availability",
       header: "Availability",
       cell: ({ row }) => (
@@ -104,11 +136,11 @@ export function createDoctorColumns({
         const d = row.original;
         return (
           <div className="space-y-0.5 text-[12px]">
-            <p className="flex items-center gap-1 text-ink-400">
-              <Phone size={11} /> Not tracked
+            <p className="flex items-center gap-1 text-ink-600">
+              <Phone size={11} /> {d.phone || "—"}
             </p>
             <p className="flex items-center gap-1 text-ink-600">
-              <Mail size={11} /> {d.email || "—"}
+              <Mail size={11} /> {d.login_email || "No login yet"}
             </p>
           </div>
         );

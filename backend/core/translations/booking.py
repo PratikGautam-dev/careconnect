@@ -46,6 +46,13 @@ ASK_PATIENT_CONTACT_NUMBER = "ask_patient_contact_number"
 INVALID_PATIENT_CONTACT_NUMBER = "invalid_patient_contact_number"
 ASK_PATIENT_AGE = "ask_patient_age"
 INVALID_PATIENT_AGE = "invalid_patient_age"
+# DOB replaces age going forward (confirmed with the user) -- these are the
+# ones flows/patient_identity's live registration flow actually uses now.
+# ASK_PATIENT_AGE/INVALID_PATIENT_AGE above stay as they are: flows/booking/
+# book.py's own dead-for-real-traffic age-collection state machine (kept
+# only for tests/test_booking_flow.py) still legitimately uses them.
+ASK_PATIENT_DOB = "ask_patient_dob"
+INVALID_PATIENT_DOB = "invalid_patient_dob"
 ASK_PATIENT_GENDER = "ask_patient_gender"
 INVALID_PATIENT_GENDER = "invalid_patient_gender"
 GENDER_MALE = "gender_male"
@@ -274,6 +281,14 @@ STRINGS: dict[str, dict[Language, str]] = {
     INVALID_PATIENT_AGE: {
         "en": "Please enter a valid age (a number between 0 and 100).",
         "hi": "कृपया एक मान्य उम्र दर्ज करें (0 से 100 के बीच की संख्या)।",
+    },
+    ASK_PATIENT_DOB: {
+        "en": "Please enter the patient's date of birth (DD-MM-YYYY).",
+        "hi": "कृपया मरीज की जन्मतिथि दर्ज करें (DD-MM-YYYY)।",
+    },
+    INVALID_PATIENT_DOB: {
+        "en": "Please enter a valid date of birth in DD-MM-YYYY format (e.g. 15-08-1990).",
+        "hi": "कृपया DD-MM-YYYY प्रारूप में एक मान्य जन्मतिथि दर्ज करें (उदाहरण: 15-08-1990)।",
     },
     ASK_PATIENT_GENDER: {
         "en": "Please share the patient's gender:",

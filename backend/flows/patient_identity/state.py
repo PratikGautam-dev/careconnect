@@ -3,6 +3,8 @@
 patient-identity package -- no WhatsApp sends, no Connector calls, nothing
 async. Mirrors flows/booking/state.py's own role in that package."""
 
+from datetime import date, datetime
+
 from connectors import GENDER_OPTIONS
 
 # --- Row/button ids ---
@@ -10,7 +12,7 @@ from connectors import GENDER_OPTIONS
 GOTO_MAIN_MENU = "goto_main_menu"
 CONFIRM_YES = "confirm"
 CONFIRM_NO = "cancel"
-# "Back" for the identity-resolution mini-flow (name -> age -> gender ->
+# "Back" for the identity-resolution mini-flow (name -> date of birth -> gender ->
 # [duplicate decision]). Separate from flows/booking/state.py's own BACK_ID
 # since this module never imports from booking.
 BACK_ID = "identity_nav_back"
@@ -96,7 +98,7 @@ def _patient_row_title(patient: dict) -> str:
 STATE_AWAITING_BOOKING_FOR = "IDENTITY_AWAITING_BOOKING_FOR"
 STATE_AWAITING_PATIENT_NAME = "IDENTITY_AWAITING_NAME"
 STATE_AWAITING_PATIENT_CONTACT_PHONE = "IDENTITY_AWAITING_CONTACT_PHONE"
-STATE_AWAITING_PATIENT_AGE = "IDENTITY_AWAITING_AGE"
+STATE_AWAITING_PATIENT_DOB = "IDENTITY_AWAITING_DOB"
 STATE_AWAITING_PATIENT_GENDER = "IDENTITY_AWAITING_GENDER"
 STATE_AWAITING_DUPLICATE_DECISION = "IDENTITY_AWAITING_DUPLICATE_DECISION"
 STATE_AWAITING_SINGLE_PATIENT_CONFIRM = "IDENTITY_AWAITING_SINGLE_CONFIRM"
@@ -105,25 +107,34 @@ STATE_AWAITING_REMOVE_PATIENT_SELECTION = "IDENTITY_AWAITING_REMOVE_PATIENT_SELE
 STATE_AWAITING_UNLINK_CONFIRM = "IDENTITY_AWAITING_UNLINK_CONFIRM"
 STATE_AWAITING_CONSENT_ACTION = "IDENTITY_AWAITING_CONSENT_ACTION"
 
-FREE_TEXT_INPUT_STATES = {STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_CONTACT_PHONE, STATE_AWAITING_PATIENT_AGE}
+FREE_TEXT_INPUT_STATES = {STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_CONTACT_PHONE, STATE_AWAITING_PATIENT_DOB}
 
-MIN_PATIENT_AGE = 0
-MAX_PATIENT_AGE = 120
+# dd-mm-yyyy, per spec (confirmed with the user -- replaces the old plain-age
+# ask everywhere, including this WhatsApp flow).
+_PATIENT_DOB_FORMAT = "%d-%m-%Y"
+MAX_PATIENT_AGE_YEARS = 120
 
 MIN_PATIENT_NAME_LENGTH = 3  # ">=3 characters" per spec
 MAX_PATIENT_NAME_LENGTH = 50
 
 
-def _parse_patient_age(text: str) -> int | None:
-    """Parses a digits-only age in [MIN_PATIENT_AGE, MAX_PATIENT_AGE]; None
-    for anything else (empty, non-numeric, negative, out of range)."""
-    text = text.strip()
-    if not text.isdigit():
+def _parse_patient_dob(text: str) -> str | None:
+    """Parses a dd-mm-yyyy date of birth into ISO YYYY-MM-DD (patients.
+    date_of_birth's own storage format, matching the portal demographics
+    form's <input type="date"> convention) -- None for anything malformed,
+    a non-existent calendar date, a future date, or an implausible age
+    (> MAX_PATIENT_AGE_YEARS)."""
+    try:
+        dob = datetime.strptime(text.strip(), _PATIENT_DOB_FORMAT).date()
+    except ValueError:
         return None
-    age = int(text)
-    if age < MIN_PATIENT_AGE or age > MAX_PATIENT_AGE:
+    today = date.today()
+    if dob > today:
         return None
-    return age
+    years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    if years > MAX_PATIENT_AGE_YEARS:
+        return None
+    return dob.isoformat()
 
 
 CONTACT_PHONE_NUMBER_LENGTH = 10

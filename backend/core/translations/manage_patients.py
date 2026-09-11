@@ -5,7 +5,7 @@ patient to act on them" list into a 2-button Remove Patient/Add Patient
 entry point -- Remove Patient shows the patient list ONLY when removing;
 there is no separate "switch active patient" action here anymore (that's
 handled entirely by the patient-selector/resolution flow shown before the
-main menu). Add reuses booking.py's ask_patient_name/ask_patient_age
+main menu). Add reuses booking.py's ask_patient_name/ask_patient_dob
 (patient_flow_next="manage_patients"); remove reuses booking.py's
 confirm_button/cancel_button as its Yes/No labels, same convention the
 cancel/reschedule confirmation cards already use."""

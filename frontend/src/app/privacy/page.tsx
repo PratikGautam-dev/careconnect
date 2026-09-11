@@ -83,8 +83,8 @@ export default function PrivacyPolicyPage() {
             <Section id="information-we-collect" title="Information we collect">
               <p>
                 <strong className="text-ink-900">From patients, via WhatsApp:</strong> your phone number, name,
-                age, and the appointment details you provide (department, doctor, date, time, and any reason or
-                notes you share). We only collect what a message-driven appointment flow needs to actually book
+                date of birth, and the appointment details you provide (department, doctor, date, time, and any
+                reason or notes you share). We only collect what a message-driven appointment flow needs to actually book
                 and remind you of your visit.
               </p>
               <p>

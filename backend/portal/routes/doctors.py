@@ -1,4 +1,3 @@
-import secrets
 from datetime import datetime
 
 from fastapi import APIRouter, Header
@@ -7,8 +6,6 @@ from pydantic import BaseModel, Field
 
 import db.repository as db
 from admin.validation import _validate_doctor_fields
-from db.connection import IntegrityError
-from db.repositories.hospitals import hash_portal_password
 from portal.deps import _authenticate, require_capability
 from portal.routes.bookings import _appointment_json
 
@@ -61,6 +58,9 @@ class DoctorPayload(BaseModel):
     walkin_quota: str = ""
     followup_duration_minutes: str = ""
     effective_from: str = ""
+    phone: str = ""
+    employee_id: str = ""
+    location: str = ""
 
 
 @router.post("/api/portal/doctors")
@@ -81,6 +81,7 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
         ",".join(payload.working_days), ",".join(payload.working_hours), payload.slot_duration_minutes,
         ",".join(payload.breaks), payload.max_bookings_per_slot, payload.daily_booking_limit,
         payload.online_quota, payload.walkin_quota, payload.followup_duration_minutes, payload.effective_from,
+        phone=payload.phone, employee_id=payload.employee_id, location=payload.location,
     )
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
@@ -100,68 +101,15 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
         walkin_quota=doctor_data["walkin_quota"],
         followup_duration_minutes=doctor_data["followup_duration_minutes"],
         effective_from=doctor_data["effective_from"],
+        phone=doctor_data["phone"],
+        employee_id=doctor_data["employee_id"],
+        location=doctor_data["location"],
     )
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "doctor.create",
         entity_type="doctor", entity_id=doctor["id"], after={"name": doctor_data["name"]},
     )
     return JSONResponse({"doctor": doctor, "warnings": warnings})
-
-
-@router.post("/api/portal/doctors/{doctor_id}/login-credentials")
-async def portal_set_doctor_login_credentials(
-    doctor_id: str, payload: dict, authorization: str | None = Header(default=None)
-):
-    """Admin-issued/reset dedicated doctor login (Spec.md Section 0's
-    doctor-portal build) -- separate from this doctor's row otherwise; a
-    doctor with no credentials set keeps working through the shared staff
-    portal exactly as before. payload = {"email": str, "password"?: str} --
-    if password is omitted, a random one is generated and returned ONCE in
-    this response (never re-displayable after this), same "show it once,
-    the admin relays it to the doctor directly" model the shared staff
-    portal password already effectively uses on creation."""
-    hospital = _authenticate(authorization)
-    if hospital is None:
-        return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    forbidden = require_capability(hospital, "manage_doctors")
-    if forbidden:
-        return forbidden
-    if db.get_doctor_full(hospital.id, doctor_id) is None:
-        return JSONResponse({"error": "No such doctor."}, status_code=404)
-    email = ((payload or {}).get("email") or "").strip().lower()
-    if not email:
-        return JSONResponse({"error": "Email is required."}, status_code=400)
-    password = (payload or {}).get("password") or secrets.token_urlsafe(9)
-    password_hash = hash_portal_password(password)
-    try:
-        ok = db.set_doctor_login_credentials(hospital.id, doctor_id, email, password_hash)
-    except IntegrityError:
-        return JSONResponse({"error": "This email is already used by another doctor."}, status_code=409)
-    if not ok:
-        return JSONResponse({"error": "No such doctor."}, status_code=404)
-    db.record_audit_log(
-        "portal", hospital.id, "tenant portal", "doctor.login_credentials_set",
-        entity_type="doctor", entity_id=doctor_id, after={"email": email},
-    )
-    return JSONResponse({"ok": True, "email": email, "password": password})
-
-
-@router.post("/api/portal/doctors/{doctor_id}/login-credentials/revoke")
-async def portal_revoke_doctor_login_credentials(doctor_id: str, authorization: str | None = Header(default=None)):
-    hospital = _authenticate(authorization)
-    if hospital is None:
-        return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    forbidden = require_capability(hospital, "manage_doctors")
-    if forbidden:
-        return forbidden
-    ok = db.clear_doctor_login_credentials(hospital.id, doctor_id)
-    if not ok:
-        return JSONResponse({"error": "No such doctor."}, status_code=404)
-    db.record_audit_log(
-        "portal", hospital.id, "tenant portal", "doctor.login_credentials_revoked",
-        entity_type="doctor", entity_id=doctor_id,
-    )
-    return JSONResponse({"ok": True})
 
 
 @router.post("/api/portal/doctors/{doctor_id}/active")
@@ -374,6 +322,9 @@ class DoctorCsvRow(BaseModel):
     walkin_quota: str = ""
     followup_duration_minutes: str = ""
     effective_from: str = ""
+    phone: str = ""
+    employee_id: str = ""
+    location: str = ""
 
 
 class DoctorCsvImportPayload(BaseModel):
@@ -421,6 +372,7 @@ async def portal_csv_import_doctors(
             row.working_days, row.working_hours, row.slot_duration_minutes, row.breaks,
             row.max_bookings_per_slot, row.daily_booking_limit, row.online_quota, row.walkin_quota,
             row.followup_duration_minutes, row.effective_from,
+            phone=row.phone, employee_id=row.employee_id, location=row.location,
         )
         if errors:
             row_errors.extend(f"{label}: {e}" for e in errors)
@@ -441,6 +393,9 @@ async def portal_csv_import_doctors(
             walkin_quota=doctor_data["walkin_quota"],
             followup_duration_minutes=doctor_data["followup_duration_minutes"],
             effective_from=doctor_data["effective_from"],
+            phone=doctor_data["phone"],
+            employee_id=doctor_data["employee_id"],
+            location=doctor_data["location"],
         )
         created_count += 1
 
@@ -491,6 +446,7 @@ async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authoriza
         ",".join(payload.working_days), ",".join(payload.working_hours), payload.slot_duration_minutes,
         ",".join(payload.breaks), payload.max_bookings_per_slot, payload.daily_booking_limit,
         payload.online_quota, payload.walkin_quota, payload.followup_duration_minutes, payload.effective_from,
+        phone=payload.phone, employee_id=payload.employee_id, location=payload.location,
     )
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
@@ -510,6 +466,9 @@ async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authoriza
         walkin_quota=doctor_data["walkin_quota"],
         followup_duration_minutes=doctor_data["followup_duration_minutes"],
         effective_from=doctor_data["effective_from"],
+        phone=doctor_data["phone"],
+        employee_id=doctor_data["employee_id"],
+        location=doctor_data["location"],
     )
     if doctor is None:
         return JSONResponse({"error": "No such doctor."}, status_code=404)

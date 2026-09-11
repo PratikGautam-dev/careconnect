@@ -128,7 +128,7 @@ async def _book_diagnostic_test(wa, sessions, hospital_id, test_name: str, phone
     picking the named test. confirm=True (default) also taps "confirm"; a
     caller that wants to inspect the confirmation card itself (not the final
     success card) passes confirm=False and taps it separately."""
-    sessions.set(hospital_id, phone, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, phone, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": 34})
     await handle_incoming(wa, sessions, phone, hospital_id, tap("diagnostic"))
     tests = db.get_diagnostic_tests(hospital_id, "diagnostic")
     test = next(t for t in tests if t["name"] == test_name)
@@ -235,7 +235,7 @@ async def test_unconfigured_test_shows_not_available_instead_of_falling_back_to_
     full = db.get_diagnostic_test_full(hospital_id, test["id"])
     assert not full["working_days"]
 
-    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_age": 34})
+    sessions.set(hospital_id, PHONE, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Ravi Kumar", "patient_date_of_birth": 34})
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap("diagnostic"))
     await handle_incoming(wa, sessions, PHONE, hospital_id, tap(str(test["id"])))
 

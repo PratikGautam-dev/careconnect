@@ -170,7 +170,7 @@ async def test_change_time_from_submenu_returns_to_time_list_preserving_name_age
     assert session["context"]["date"] == date_str
     # Back must never re-trigger name/age collection.
     assert session["context"]["patient_name"] == "Ravi Kumar"
-    assert session["context"]["patient_age"] == 34
+    assert session["context"]["patient_date_of_birth"] == 34
 
 
 async def test_change_department_from_submenu_returns_to_department_list_preserving_name_age(hospital_id):
@@ -183,7 +183,7 @@ async def test_change_department_from_submenu_returns_to_department_list_preserv
     session = sessions.get(hospital_id, PHONE)
     assert session["state"] == "AWAITING_DEPARTMENT"
     assert session["context"]["patient_name"] == "Ravi Kumar"
-    assert session["context"]["patient_age"] == 34
+    assert session["context"]["patient_date_of_birth"] == 34
     kwargs = _last_list(wa)
     assert _row_ids(kwargs) == {d["id"] for d in db.get_departments(hospital_id)}
     assert wa.sent[-1][0] == "buttons"  # the follow-up Back button

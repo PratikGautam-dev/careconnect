@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Search, Trash2, UserPlus, UserRound, UserRoundCheck, Users } from "lucide-react";
+import { Search, Trash2, UserPlus, UserRound, UserRoundCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -121,11 +121,6 @@ export default function PortalPatientsPage() {
                   </Button>
                 </PermissionGate>
               )}
-              <PermissionGate page="patients" action="write">
-                <Button size="md" disabled title="Coming soon — patients are created from a booking, not a standalone form yet">
-                  <Plus size={15} /> Add Patient
-                </Button>
-              </PermissionGate>
             </div>
           </div>
 

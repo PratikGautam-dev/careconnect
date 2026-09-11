@@ -25,7 +25,7 @@ from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 
 import db.repository as db
-from portal.deps import _authenticate_doctor, get_current_staff
+from portal.deps import get_current_staff
 from portal.routes.bookings import _appointment_json
 from webhook.dispatch import _get_whatsapp_client
 
@@ -39,26 +39,23 @@ def _require_doctor(authorization: str | None):
     idiom (portal/deps.py's require_capability docstring) rather than a
     FastAPI Depends() factory, matching every existing /api/portal/* route.
 
-    Dual-path (docs/rbac-redis-plan.md Phase 3): tries the new unified
-    get_current_staff() FIRST (a staff_users row with role='doctor', reading
-    doctor_id off the verified StaffPrincipal), falling back to the original
-    _authenticate_doctor() (auth/doctor_session.py's dedicated doctor token)
-    for any doctor not yet migrated off doctors.email/password_hash. Both
-    paths preserve the exact same isolation guarantee this module's own
-    header docstring describes: doctor_id is read ONLY from a verified
-    token/session, never from a request parameter, regardless of which of
-    the two auth schemes actually authenticated this caller. A StaffPrincipal
-    whose role isn't 'doctor' (an Admin/Receptionist's own staff login) is
-    deliberately rejected here, not silently allowed through with
-    doctor_id=None -- these routes are Doctor-scoped by definition."""
+    Backed entirely by the unified staff login (get_current_staff(): a
+    staff_users row with role='doctor', reading doctor_id off the verified
+    StaffPrincipal) -- the old dedicated doctor-session token
+    (auth/doctor_session.py, doctors.email/password_hash) this used to fall
+    back to has been removed; it was never wired into the frontend, so the
+    unified path was already the only one actually reachable. doctor_id is
+    read ONLY from the verified StaffPrincipal, never from a request
+    parameter -- that's what makes it structurally impossible for a doctor's
+    own valid token to be used to ask for a DIFFERENT doctor's data at the
+    same hospital. A StaffPrincipal whose role isn't 'doctor' (an
+    Admin/Receptionist's own staff login) is deliberately rejected here, not
+    silently allowed through with doctor_id=None -- these routes are
+    Doctor-scoped by definition."""
     principal = get_current_staff(authorization)
-    if principal is not None and principal.role == "doctor" and principal.doctor_id is not None:
-        return (principal.hospital, principal.doctor_id), None
-    auth = _authenticate_doctor(authorization)
-    if auth is None:
+    if principal is None or principal.role != "doctor" or principal.doctor_id is None:
         return None, JSONResponse({"error": "Not authenticated."}, status_code=401)
-    hospital, doctor_id = auth
-    return (hospital, doctor_id), None
+    return (principal.hospital, principal.doctor_id), None
 
 
 @router.get("/api/doctor/dashboard")
@@ -218,6 +215,9 @@ async def doctor_update_schedule(payload: dict, authorization: str | None = Head
         walkin_quota=current.get("walkin_quota"),
         followup_duration_minutes=current.get("followup_duration_minutes"),
         effective_from=payload.get("effective_from", current.get("effective_from")),
+        phone=current.get("phone", ""),
+        employee_id=current.get("employee_id", ""),
+        location=current.get("location"),
     )
     return JSONResponse({"doctor": updated})
 

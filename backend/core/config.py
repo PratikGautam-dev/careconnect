@@ -22,7 +22,7 @@ core/redis_client.py's get_redis(), not a hand-rolled copy.
 REDIS_URL below is the ONE exception, added for core/redis_client.py's
 get_redis() specifically -- that function calls get_settings().REDIS_URL
 fresh on every invocation (never caches the value at import time the way
-PORTAL_SECRET/DOCTOR_SECRET below do), so it preserves the exact same live-
+PORTAL_SECRET/JWT_SECRET below do), so it preserves the exact same live-
 read-per-call semantics os.environ.get() would have given it, without
 actually reintroducing the frozen-singleton risk this docstring warns about.
 Not retrofitted onto the six sites above -- this is scoped to redis_client.py
@@ -61,19 +61,12 @@ class Settings(BaseSettings):
     TENANTS_ADMIN_SECRET: str = ""
     PORTAL_SECRET: str = ""
     AUTH_SECRET: str = ""
-    # Dedicated doctor-login session token (auth/doctor_session.py) -- its own
-    # secret, not PORTAL_SECRET/AUTH_SECRET, same "a leaked secret should only
-    # forge the one thing it's for" reasoning ADMIN_SECRET vs
-    # TENANTS_ADMIN_SECRET and PORTAL_SECRET vs AUTH_SECRET already apply: a
-    # leaked PORTAL_SECRET must not also forge a doctor-scoped token, and vice
-    # versa.
-    DOCTOR_SECRET: str = ""
     # RBAC (docs/rbac-redis-plan.md): staff JWT access tokens (auth/jwt_session.py)
     # and super-admin JWT access tokens are signed with SEPARATE secrets, same
     # "a leaked secret should only forge the one thing it's for" precedent
-    # DOCTOR_SECRET vs PORTAL_SECRET already established -- a leaked JWT_SECRET
-    # must never be usable to forge a super-admin token (full platform access),
-    # and vice versa.
+    # ADMIN_SECRET vs TENANTS_ADMIN_SECRET already established -- a leaked
+    # JWT_SECRET must never be usable to forge a super-admin token (full
+    # platform access), and vice versa.
     JWT_SECRET: str = ""
     SUPER_ADMIN_JWT_SECRET: str = ""
     # See this module's own docstring above -- the one exception to "REDIS_URL

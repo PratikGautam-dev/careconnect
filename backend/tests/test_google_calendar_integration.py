@@ -27,7 +27,6 @@ os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "mytoken")
 os.environ.setdefault("WHATSAPP_APP_SECRET", "appsecret")
 os.environ.setdefault("INTERNAL_SECRET", "internalsecret")
 os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
-os.environ.setdefault("DOCTOR_SECRET", "test-doctor-secret")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 os.environ.setdefault("SUPER_ADMIN_JWT_SECRET", "test-super-admin-jwt-secret")
 
@@ -81,9 +80,9 @@ def _calendar_env_vars_unset(monkeypatch):
 
 def test_app_boots_with_all_three_calendar_env_vars_unset():
     """Not just "doesn't raise" -- confirms core/config.py's Settings()
-    actually reads them back as the empty-string default, the same
-    DOCTOR_SECRET-precedent shape every other optional secret in that file
-    uses, and that the app object built at this file's own import time
+    actually reads them back as the empty-string default, the same shape
+    every other optional secret in that file uses, and that the app object
+    built at this file's own import time
     (`from main import app` above, with these vars already unset per the
     fixture) is a real, usable FastAPI app."""
     settings = get_settings()

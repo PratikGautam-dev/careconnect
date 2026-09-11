@@ -1,16 +1,16 @@
 # flows/patient_identity/registration.py
 """Registration: [Myself/Someone Else] -> name -> [contact number, Someone
-Else only] -> age -> gender -> [duplicate decision] -> create/link. The
-first-time-phone path out of resolution.py's get_or_prompt_for_active_patient,
-and also reachable mid-conversation via Manage Patients' "Add Patient"
-(identity_flow_next="manage_patients")."""
+Else only] -> date of birth -> gender -> [duplicate decision] -> create/link.
+The first-time-phone path out of resolution.py's
+get_or_prompt_for_active_patient, and also reachable mid-conversation via
+Manage Patients' "Add Patient" (identity_flow_next="manage_patients")."""
 from connectors import Connector, DuplicateSelfLinkError, RELATIONSHIP_OTHER, RELATIONSHIP_SELF, TooManyLinkedPatientsError
 from core.translations import t
 from core.translations.common import BACK_OPTION
 from core.translations.booking import (
     ASK_BOOKING_FOR,
-    ASK_PATIENT_AGE,
     ASK_PATIENT_CONTACT_NUMBER,
+    ASK_PATIENT_DOB,
     ASK_PATIENT_GENDER,
     ASK_PATIENT_NAME,
     BOOKING_FOR_OTHER_BUTTON,
@@ -19,8 +19,8 @@ from core.translations.booking import (
     GENDER_FEMALE,
     GENDER_MALE,
     GENDER_OTHER,
-    INVALID_PATIENT_AGE,
     INVALID_PATIENT_CONTACT_NUMBER,
+    INVALID_PATIENT_DOB,
     INVALID_PATIENT_NAME,
 )
 from core.translations.patient_identity import (
@@ -45,13 +45,13 @@ from flows.patient_identity.state import (
     GENDER_OTHER_ID,
     STATE_AWAITING_BOOKING_FOR,
     STATE_AWAITING_DUPLICATE_DECISION,
-    STATE_AWAITING_PATIENT_AGE,
     STATE_AWAITING_PATIENT_CONTACT_PHONE,
+    STATE_AWAITING_PATIENT_DOB,
     STATE_AWAITING_PATIENT_GENDER,
     STATE_AWAITING_PATIENT_NAME,
     _GENDER_ROW_IDS,
     _parse_contact_phone_number,
-    _parse_patient_age,
+    _parse_patient_dob,
     _parse_patient_name,
 )
 
@@ -137,8 +137,8 @@ async def _handle_awaiting_patient_name(
 ) -> None:
     """Accepts a valid name (letters/spaces only, 4-50 characters) and moves
     on -- to the contact-number question for "Someone Else", or straight to
-    age for "Myself" (whose contact number is already the messaging phone,
-    set back in _handle_awaiting_booking_for). Re-prompts on anything else.
+    date of birth for "Myself" (whose contact number is already the
+    messaging phone, set back in _handle_awaiting_booking_for). Re-prompts on anything else.
     BACK returns to the Myself/Someone Else question if it was actually
     shown (context["booking_for_asked"]), else to Manage Patients if this
     is mid-"Add Patient" -- the very first registration has no earlier
@@ -163,8 +163,8 @@ async def _handle_awaiting_patient_name(
             if context.get("identity_flow_next") == "manage_patients":
                 await _send_back_button(wa, phone, language=language)
             return
-        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context, language=language)
-        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=name))
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_DOB, new_context, language=language)
+        await wa.send_text(phone, t(ASK_PATIENT_DOB, language, patient_name=name))
         if context.get("identity_flow_next") == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
@@ -181,8 +181,8 @@ async def _handle_awaiting_patient_contact_number(
 ) -> None:
     """"Someone Else" only -- never reached for "Myself", which uses the
     messaging phone directly (set in _handle_awaiting_booking_for). Accepts
-    an exact 10-digit number and moves to the age question; re-prompts on
-    anything invalid/missing. BACK returns to the name question."""
+    an exact 10-digit number and moves to the date-of-birth question;
+    re-prompts on anything invalid/missing. BACK returns to the name question."""
     if reply["type"] == "interactive_reply" and reply["id"] == BACK_ID:
         identity_flow_next = context.get("identity_flow_next", "resolve")
         new_context = {k: v for k, v in context.items() if k != "pending_contact_phone"}
@@ -200,43 +200,44 @@ async def _handle_awaiting_patient_contact_number(
             await _send_back_button(wa, phone, language=language)
         return
     new_context = {**context, "pending_contact_phone": contact_phone}
-    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, new_context, language=language)
-    await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=new_context.get("pending_name", "")))
+    sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_DOB, new_context, language=language)
+    await wa.send_text(phone, t(ASK_PATIENT_DOB, language, patient_name=new_context.get("pending_name", "")))
     if context.get("identity_flow_next") == "manage_patients":
         await _send_back_button(wa, phone, language=language)
 
 
-async def _handle_awaiting_patient_age(
+async def _handle_awaiting_patient_dob(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Accepts a valid age and moves to the gender question; re-prompts on
-    anything invalid/missing. BACK returns to the contact-number question
-    for "Someone Else" (who has one), or the name question for "Myself"."""
+    """Accepts a valid date of birth and moves to the gender question;
+    re-prompts on anything invalid/missing. BACK returns to the
+    contact-number question for "Someone Else" (who has one), or the name
+    question for "Myself"."""
     if reply["type"] == "interactive_reply" and reply["id"] == BACK_ID:
         identity_flow_next = context.get("identity_flow_next", "resolve")
         if context.get("pending_relationship") == RELATIONSHIP_OTHER:
-            new_context = {k: v for k, v in context.items() if k != "pending_age"}
+            new_context = {k: v for k, v in context.items() if k != "pending_date_of_birth"}
             sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_CONTACT_PHONE, new_context, language=language)
             await wa.send_text(phone, t(ASK_PATIENT_CONTACT_NUMBER, language, patient_name=context.get("pending_name", "")))
             if identity_flow_next == "manage_patients":
                 await _send_back_button(wa, phone, language=language)
             return
-        new_context = {k: v for k, v in context.items() if k not in ("pending_name", "pending_age")}
+        new_context = {k: v for k, v in context.items() if k not in ("pending_name", "pending_date_of_birth")}
         sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_NAME, new_context, language=language)
         await wa.send_text(phone, t(ASK_PATIENT_NAME, language))
         if identity_flow_next == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
-    age = _parse_patient_age(reply["text"]) if reply["type"] == "text" else None
-    if age is None:
-        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context, language=language)
-        await wa.send_text(phone, t(INVALID_PATIENT_AGE, language))
-        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("pending_name", "")))
+    date_of_birth = _parse_patient_dob(reply["text"]) if reply["type"] == "text" else None
+    if date_of_birth is None:
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_DOB, context, language=language)
+        await wa.send_text(phone, t(INVALID_PATIENT_DOB, language))
+        await wa.send_text(phone, t(ASK_PATIENT_DOB, language, patient_name=context.get("pending_name", "")))
         if context.get("identity_flow_next") == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
-    new_context = {**context, "pending_age": age}
+    new_context = {**context, "pending_date_of_birth": date_of_birth}
     await _send_gender_prompt(wa, sessions, phone, hospital_id, new_context, language)
 
 
@@ -271,10 +272,10 @@ async def _handle_awaiting_patient_gender(
     name+contact you already have would otherwise silently create a genuine
     duplicate `patients` row every time; see
     find_potential_duplicate_patient()'s own docstring). Re-prompts on an
-    unrecognized tap; BACK returns to the age question."""
+    unrecognized tap; BACK returns to the date-of-birth question."""
     if reply["type"] == "interactive_reply" and reply["id"] == BACK_ID:
-        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_AGE, context, language=language)
-        await wa.send_text(phone, t(ASK_PATIENT_AGE, language, patient_name=context.get("pending_name", "")))
+        sessions.set(hospital_id, phone, STATE_AWAITING_PATIENT_DOB, context, language=language)
+        await wa.send_text(phone, t(ASK_PATIENT_DOB, language, patient_name=context.get("pending_name", "")))
         if context.get("identity_flow_next") == "manage_patients":
             await _send_back_button(wa, phone, language=language)
         return
@@ -286,7 +287,7 @@ async def _handle_awaiting_patient_gender(
     new_context = {**context, "pending_gender": gender}
     match = connector.find_potential_duplicate_patient(
         hospital_id, new_context["pending_name"], new_context["pending_contact_phone"],
-        new_context["pending_age"], new_context["pending_gender"],
+        new_context["pending_date_of_birth"], new_context["pending_gender"],
     )
     if match is not None and connector.validate_active_patient_link(hospital_id, phone, match["id"]):
         identity_flow_next = context.get("identity_flow_next", "resolve")
@@ -328,7 +329,7 @@ async def _handle_awaiting_duplicate_decision(
     """Resolves a duplicate-patient match: link the existing profile (no new
     MRN) or cancel back to the start. No "create a genuinely new profile
     anyway" escape hatch anymore (confirmed with the user) -- the match is a
-    strict 4-field match (name+contact+age+gender), essentially certain to
+    strict 4-field match (name+contact+date of birth+gender), essentially certain to
     be the same real person, so deliberately creating a duplicate record is
     never the right move. Re-shows the same choice on an unrecognized/stale
     tap."""
@@ -379,7 +380,7 @@ async def _create_or_link_patient(
 ) -> None:
     """Shared tail end of registration: links an existing patient
     (context["link_target_patient_id"] set) or creates a brand-new one from
-    the collected name/age/gender, then lands on the main menu (or back on
+    the collected name/date of birth/gender, then lands on the main menu (or back on
     Manage Patients, if that's where this registration was launched from)."""
     identity_flow_next = context.get("identity_flow_next", "resolve")
     try:
@@ -390,7 +391,7 @@ async def _create_or_link_patient(
             )
         else:
             patient = connector.create_patient_profile(
-                hospital_id, phone, context["pending_name"], context.get("pending_age"),
+                hospital_id, phone, context["pending_name"], context.get("pending_date_of_birth"),
                 relationship_label=context.get("pending_relationship"), gender=context.get("pending_gender"),
                 contact_phone=context.get("pending_contact_phone"),
             )

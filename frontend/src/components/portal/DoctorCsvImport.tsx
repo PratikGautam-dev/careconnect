@@ -14,6 +14,8 @@ const PREVIEW_COLUMNS: ColumnDef<CsvRow>[] = [
   { id: "department_name", header: "Department", cell: ({ row }) => <span className="text-ink-900">{row.original.department_name}</span> },
   { id: "name", header: "Name", cell: ({ row }) => <span className="text-ink-900">{row.original.name}</span> },
   { id: "specialization", header: "Specialization", cell: ({ row }) => <span className="text-ink-600">{row.original.specialization}</span> },
+  { id: "phone", header: "Phone", cell: ({ row }) => <span className="text-ink-600">{row.original.phone}</span> },
+  { id: "employee_id", header: "Employee ID", cell: ({ row }) => <span className="text-ink-600">{row.original.employee_id}</span> },
   { id: "working_days", header: "Days", cell: ({ row }) => <span className="text-ink-600">{row.original.working_days}</span> },
 ];
 
@@ -21,7 +23,7 @@ const CSV_COLUMNS = [
   "department_name", "name", "specialization", "qualification", "years_experience",
   "working_days", "working_hours", "slot_duration_minutes", "breaks",
   "max_bookings_per_slot", "daily_booking_limit", "online_quota", "walkin_quota",
-  "followup_duration_minutes", "effective_from",
+  "followup_duration_minutes", "effective_from", "phone", "employee_id", "location",
 ];
 
 const SAMPLE_CSV = [
@@ -29,7 +31,7 @@ const SAMPLE_CSV = [
   [
     "Cardiology", "Dr. Ananya Singh", "Cardiologist", "MD", "12",
     '"Mon,Tue,Wed,Thu,Fri"', '"09:00-13:00,16:00-19:00"', "20", '"11:20-11:40"',
-    "1", "30", "20", "10", "15", "",
+    "1", "30", "20", "10", "15", "", "9876543210", "EMP-001", "Room 204",
   ].join(","),
 ].join("\n");
 

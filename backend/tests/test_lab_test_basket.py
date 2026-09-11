@@ -104,7 +104,7 @@ def _set_test_price(hospital_id, test: dict, price: float) -> None:
 
 
 async def _start_lab_booking(wa, sessions, hospital_id, phone: str = PHONE):
-    sessions.set(hospital_id, phone, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Priya Singh", "patient_age": 29})
+    sessions.set(hospital_id, phone, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Priya Singh", "patient_date_of_birth": 29})
     await handle_incoming(wa, sessions, phone, hospital_id, tap("lab"))
 
 

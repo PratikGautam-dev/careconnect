@@ -8,7 +8,8 @@ second caller wouldn't need a second copy of this logic, but
 CALENDAR_TOKEN_ENCRYPTION_KEY (core/config.py) is the only key in use so far.
 
 Missing/invalid-key handling follows the same "boots cleanly, degrades at the
-point of use" discipline as DOCTOR_SECRET etc. -- encrypt_secret()/
+point of use" discipline as every other optional secret in core/config.py --
+encrypt_secret()/
 decrypt_secret() raise CryptoNotConfiguredError rather than letting Fernet's
 own ValueError (malformed key) or InvalidToken (wrong key / corrupted data)
 propagate as an unhandled 500. Route handlers catch this one exception type

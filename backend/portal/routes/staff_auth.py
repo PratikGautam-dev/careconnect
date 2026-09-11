@@ -1,18 +1,15 @@
 # portal/routes/staff_auth.py
 """Unified staff login (docs/rbac-redis-plan.md) -- Admin/Receptionist/
-Doctor all authenticate here now, replacing the shared hospital-wide
-password (portal/routes/auth.py's /api/portal/login) and the dedicated
-doctor login (portal/routes/doctor_auth.py's /api/doctor/login) for anyone
-who's been migrated to a staff_users row. Both of those stay alive
-unchanged (docs/rbac-redis-plan.md's explicit dual-path rollout window) --
-this is an ADDITIVE third path, not a replacement deployed in the same
-change.
+Doctor all authenticate here now. Replaces both the old shared hospital-wide
+password (portal/routes/auth.py's /api/portal/login, kept alive unchanged
+for anyone not yet migrated to a staff_users row) and the old dedicated
+doctor login (a separate DOCTOR_SECRET-token /api/doctor/login, since
+removed -- it was never wired into the frontend, so this unified path was
+already the only one actually reachable for a doctor).
 
 email is globally unique (staff_users.email, ux_staff_users_email) so login
 is email+password alone, no hospital selector -- the caller learns
-hospital_id FROM the matched row, same pattern
-find_doctor_by_email()/doctors.py already established for dedicated doctor
-login."""
+hospital_id FROM the matched row."""
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel

@@ -120,6 +120,7 @@ def _build_departments(
             _at(doctor_breaks, i), _at(doctor_max_bookings_per_slot, i), _at(doctor_daily_booking_limit, i),
             _at(doctor_online_quota, i), _at(doctor_walkin_quota, i),
             _at(doctor_followup_duration_minutes, i), _at(doctor_effective_from, i),
+            require_contact_fields=False,
         )
         errors.extend(doc_errors)
         warnings.extend(doc_warnings)

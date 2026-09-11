@@ -158,7 +158,8 @@ async def test_adding_a_second_through_fifth_patient_works(hospital_id):
         await flows.handle_incoming(
             wa, sessions, PHONE, hospital_id, text_reply("9876543210"), connector=connector, enabled_features=["manage_patients"],
         )
-        await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(str(age)), connector=connector, enabled_features=["manage_patients"])
+        dob_text = f"01-01-{datetime.now().year - age}"
+        await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply(dob_text), connector=connector, enabled_features=["manage_patients"])
         # Gender -- required before the profile is actually created.
         assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
         await flows.handle_incoming(

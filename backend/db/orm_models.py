@@ -371,8 +371,12 @@ class DoctorRow(Base):
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
     name: Mapped[str]
-    specialization: Mapped[str | None]
-    qualification: Mapped[str | None]
+    # Migration 20260911190007: the Doctors page's mocked columns (phone,
+    # employee ID, location) becoming real -- phone/employee_id join
+    # specialization/qualification as mandatory fields (confirmed with the
+    # user); location stays optional.
+    specialization: Mapped[str]
+    qualification: Mapped[str]
     years_experience: Mapped[int | None]
     working_days: Mapped[str]
     working_hours: Mapped[str]
@@ -385,8 +389,9 @@ class DoctorRow(Base):
     followup_duration_minutes: Mapped[int | None]
     effective_from: Mapped[str | None]
     is_active: Mapped[bool]
-    email: Mapped[str | None]
-    password_hash: Mapped[str | None]
+    phone: Mapped[str]
+    employee_id: Mapped[str]
+    location: Mapped[str | None]
     # Migration 0033: a QUEUED future schedule change -- when a schedule
     # edit's effective_from is still in the future, the submitted pattern
     # goes here instead of overwriting the columns above immediately, so the
@@ -443,7 +448,12 @@ class AppointmentRow(Base):
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"))
     patient_name: Mapped[str | None]
     patient_phone: Mapped[str | None]
-    patient_age: Mapped[int | None]
+    # Family/multi-person-booking follow-up (Spec.md Section 0): denormalized
+    # snapshot for the legacy duplicate-booking check that tells apart two
+    # family members sharing one phone (was patient_age/patients.age --
+    # replaced by the age-to-DOB migration, see that migration's own
+    # docstring).
+    patient_date_of_birth: Mapped[str | None]
     deleted_at: Mapped[str | None]
     appointment_type_id: Mapped[str | None]
     consent_given_at: Mapped[str | None]
@@ -625,7 +635,7 @@ class PatientDocument(Base):
 
 
 class PatientRow(Base):
-    """db/schema.sql's patients table -- the full mapping (12 columns, matches
+    """db/schema.sql's patients table -- the full mapping (11 columns, matches
     the table exactly). Named PatientRow, not Patient, to leave that name
     free for a future dataclass -- see UserAccount's docstring for the same
     naming precedent. create_patient_profile()/link_existing_patient()/
@@ -645,7 +655,6 @@ class PatientRow(Base):
     date_of_birth: Mapped[str | None]
     gender: Mapped[str | None]
     address: Mapped[str | None]
-    age: Mapped[int | None]
     created_at: Mapped[str]
     status: Mapped[str]
     patient_display_id: Mapped[str | None]
@@ -811,6 +820,15 @@ class StaffDetail(Base):
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     role: Mapped[str]
     doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id"))
+    # Migration 20260911174439 -- see schema.sql's own comment on this table
+    # for why department_id is doctor-role-exclusive and attendance_status
+    # has no history table behind it.
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
+    phone: Mapped[str | None]
+    address: Mapped[str | None]
+    shift: Mapped[str | None]
+    reports_to_id: Mapped[int | None] = mapped_column(ForeignKey("identities.id"))
+    attendance_status: Mapped[str]
 
 
 class SuperAdminDetail(Base):

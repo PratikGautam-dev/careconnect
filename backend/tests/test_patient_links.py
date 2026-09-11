@@ -17,10 +17,10 @@ PHONE = "5491112345678"
 
 
 def test_create_patient_profile_creates_a_real_patient_and_an_active_link(hospital_id):
-    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", "1992-08-15")
 
     assert patient["name"] == "Ravi Kumar"
-    assert patient["age"] == 34
+    assert patient["date_of_birth"] == "1992-08-15"
     assert patient["patient_display_id"]  # a real short code was generated
 
     linked = db.get_active_patients_for_phone(hospital_id, PHONE)
@@ -143,7 +143,7 @@ def test_backfill_patient_links_creates_one_self_link_per_existing_patient(hospi
     appt = db.create_appointment(
         hospital_id, "5490001111", "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
-        patient_name="Legacy Patient", patient_age=50,
+        patient_name="Legacy Patient", patient_date_of_birth=50,
     )
     pre_existing_patient_id = appt.patient_id
     assert db.get_active_patients_for_phone(hospital_id, "5490001111") == []  # not linked yet
@@ -170,7 +170,7 @@ def test_backfill_patient_links_covers_every_existing_patient_with_zero_loss(hos
         db.create_appointment(
             hospital_id, f"549000111{i}", "cardiology", doctor_a,
             datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
-            patient_name=f"Patient {i}", patient_age=30 + i,
+            patient_name=f"Patient {i}", patient_date_of_birth=30 + i,
         )
 
     _backfill_patient_links(conn)
@@ -191,7 +191,7 @@ def test_backfill_patient_links_is_idempotent(hospital_id):
     db.create_appointment(
         hospital_id, "5490001111", "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
-        patient_name="Legacy Patient", patient_age=50,
+        patient_name="Legacy Patient", patient_date_of_birth=50,
     )
 
     _backfill_patient_links(conn)

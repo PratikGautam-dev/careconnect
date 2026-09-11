@@ -128,9 +128,14 @@ export function createPatientColumns({
       ),
     },
     {
-      id: "department_name",
-      header: "Department",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.department_name || "—"}</span>,
+      id: "visit_count",
+      header: "Total Booked",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.visit_count}</span>,
+    },
+    {
+      id: "visited_count",
+      header: "Total Visited",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.visited_count}</span>,
     },
     {
       id: "last_visit",

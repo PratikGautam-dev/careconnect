@@ -66,11 +66,11 @@ def _appointment_select_stmt():
 
 # --- Appointments ---
 
-def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: int | None = None) -> dict:
-    """Keeps `patients` in sync on every booking. name/age passed in wins;
-    missing ones keep the existing value (never clobbered to NULL). Returns
-    {id, name, age, patient_display_id} -- the display id is only generated
-    once, on first creation.
+def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, date_of_birth: str | None = None) -> dict:
+    """Keeps `patients` in sync on every booking. name/date_of_birth passed
+    in wins; missing ones keep the existing value (never clobbered to
+    NULL). Returns {id, name, date_of_birth, patient_display_id} -- the
+    display id is only generated once, on first creation.
 
     No UNIQUE(hospital_id, phone) constraint anymore (multi-profile support),
     so this is an explicit lookup-then-update-or-insert guarded by a session-
@@ -94,31 +94,35 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, age: i
     conn.execute("SELECT pg_advisory_lock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
     try:
         existing = conn.execute(
-            "SELECT id, name, age, patient_display_id, mrn FROM patients "
+            "SELECT id, name, date_of_birth, patient_display_id, mrn FROM patients "
             "WHERE hospital_id = ? AND phone = ? ORDER BY id LIMIT 1",
             (hospital_id, phone),
         ).fetchone()
         if existing is not None:
             resolved_name = name if name is not None else existing["name"]
-            resolved_age = age if age is not None else existing["age"]
+            resolved_dob = date_of_birth if date_of_birth is not None else existing["date_of_birth"]
             conn.execute(
-                "UPDATE patients SET name = ?, age = ? WHERE id = ?",
-                (resolved_name, resolved_age, existing["id"]),
+                "UPDATE patients SET name = ?, date_of_birth = ? WHERE id = ?",
+                (resolved_name, resolved_dob, existing["id"]),
             )
             return {
-                "id": existing["id"], "name": resolved_name, "age": resolved_age,
+                "id": existing["id"], "name": resolved_name, "date_of_birth": resolved_dob,
                 "patient_display_id": existing["patient_display_id"], "mrn": existing["mrn"],
             }
         row = conn.execute(
-            "INSERT INTO patients (hospital_id, phone, name, age) VALUES (?, ?, ?, ?) RETURNING id, name, age",
-            (hospital_id, phone, name, age),
+            "INSERT INTO patients (hospital_id, phone, name, date_of_birth) VALUES (?, ?, ?, ?) "
+            "RETURNING id, name, date_of_birth",
+            (hospital_id, phone, name, date_of_birth),
         ).fetchone()
         assert row is not None  # INSERT ... RETURNING always returns the inserted row
         display_id, mrn = _generate_patient_identifiers(conn, hospital_id)
         conn.execute(
             "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, row["id"]),
         )
-        return {"id": row["id"], "name": row["name"], "age": row["age"], "patient_display_id": display_id, "mrn": mrn}
+        return {
+            "id": row["id"], "name": row["name"], "date_of_birth": row["date_of_birth"],
+            "patient_display_id": display_id, "mrn": mrn,
+        }
     finally:
         conn.execute("SELECT pg_advisory_unlock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
 
@@ -131,7 +135,7 @@ def create_appointment(
     scheduled_at: datetime,
     source: str = SOURCE_WHATSAPP,
     patient_name: str | None = None,
-    patient_age: int | None = None,
+    patient_date_of_birth: str | None = None,
     patient_id: int | None = None,
     exclude_appointment_id: int | None = None,
     appointment_type_id: str | None = None,
@@ -163,7 +167,7 @@ def create_appointment(
     `source` ("whatsapp"/"staff") is purely descriptive except for which
     quota column it counts against. `patient_id`, when given, resolves
     identity directly from that patient row (skips _upsert_patient) and the
-    duplicate-booking check compares patient_id instead of name+age.
+    duplicate-booking check compares patient_id instead of name+date_of_birth.
     `exclude_appointment_id` excludes the old appointment from the duplicate
     check during a reschedule -- it's still 'booked' at this point, and
     would otherwise self-block against the very appointment being replaced.
@@ -224,14 +228,14 @@ def create_appointment(
     # patient_id given -> identity already resolved, read that row directly.
     if patient_id is not None:
         patient_row = conn.execute(
-            "SELECT id, name, age FROM patients WHERE hospital_id = ? AND id = ?",
+            "SELECT id, name, date_of_birth FROM patients WHERE hospital_id = ? AND id = ?",
             (hospital_id, patient_id),
         ).fetchone()
         if patient_row is None:
             raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
-        patient = {"id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"]}
+        patient = {"id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"]}
     else:
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth)
 
     # Fixed internal literal ("doctor_id"/"diagnostic_test_id"), never user
     # input -- safe to interpolate into the raw SQL below.
@@ -283,7 +287,7 @@ def create_appointment(
         # a doctor-consultation-specific concept, skipped entirely for a
         # resource-bound booking (doctor_id is None).
         effective_name = patient["name"]
-        effective_age = patient["age"]
+        effective_date_of_birth = patient["date_of_birth"]
         if doctor_id is not None and patient_id is not None:
             existing_by_patient = conn.execute(
                 "SELECT id FROM appointments WHERE hospital_id = ? AND doctor_id = ? "
@@ -295,19 +299,19 @@ def create_appointment(
                     "An active appointment with this doctor already exists for this patient.",
                     existing_by_patient[0]["id"],
                 )
-        elif doctor_id is not None and effective_name is not None and effective_age is not None:
+        elif doctor_id is not None and effective_name is not None and effective_date_of_birth is not None:
             # Legacy path (staff portal, no patient_id): compare against
-            # each existing booking's own denormalized name/age, so a
-            # different family member (different name or age) still gets through.
+            # each existing booking's own denormalized name/date_of_birth, so
+            # a different family member (different name or DOB) still gets through.
             existing_appointments = conn.execute(
-                "SELECT id, patient_name, patient_age FROM appointments WHERE hospital_id = ? AND phone = ? "
+                "SELECT id, patient_name, patient_date_of_birth FROM appointments WHERE hospital_id = ? AND phone = ? "
                 "AND doctor_id = ? AND status = ? AND id IS DISTINCT FROM ? ORDER BY scheduled_at",
                 (hospital_id, phone, doctor_id, STATUS_BOOKED, exclude_appointment_id),
             ).fetchall()
             for existing_appt in existing_appointments:
                 same_name = (existing_appt["patient_name"] or "").strip().lower() == effective_name.strip().lower()
-                same_age = existing_appt["patient_age"] == effective_age
-                if same_name and same_age:
+                same_dob = existing_appt["patient_date_of_birth"] == effective_date_of_birth
+                if same_name and same_dob:
                     raise DuplicateBookingError(
                         "An active appointment with this doctor already exists for this patient.", existing_appt["id"],
                     )
@@ -317,13 +321,13 @@ def create_appointment(
         # transaction is aborted" instead of the real IntegrityError.
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
+            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_date_of_birth, "
             "appointment_type_id, consent_given_at, diagnostic_test_id, "
             "diagnostic_test_label, diagnostic_price, "
             "collection_method, collection_address, collection_pincode, home_collection_charge, lab_status) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, doctor_id, scheduled_at_iso, free_ordinal_row["ordinal"], source,
-             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_age,
+             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, effective_date_of_birth,
              appointment_type_id, consent_given_at, diagnostic_test_id,
              diagnostic_test_label, diagnostic_price,
              collection_method, collection_address, collection_pincode, home_collection_charge, lab_status),
@@ -471,7 +475,7 @@ def set_lab_status(hospital_id: int, appointment_id: int, lab_status: str) -> Ap
 
 def create_procedure_appointment(
     hospital_id: int, phone: str, procedure_id: int, scheduled_at: datetime,
-    patient_id: int | None = None, patient_name: str | None = None, patient_age: int | None = None,
+    patient_id: int | None = None, patient_name: str | None = None, patient_date_of_birth: str | None = None,
     procedure_order_reference: str | None = None,
 ) -> Appointment:
     """Daycare/Procedure rebuild, instant-booking path (Step 4 straight
@@ -497,13 +501,13 @@ def create_procedure_appointment(
 
     if patient_id is not None:
         patient_row = conn.execute(
-            "SELECT id, name, age FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
+            "SELECT id, name, date_of_birth FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
         ).fetchone()
         if patient_row is None:
             raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
-        patient = {"id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"]}
+        patient = {"id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"]}
     else:
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth)
 
     conn.execute("BEGIN")
     try:
@@ -514,12 +518,12 @@ def create_procedure_appointment(
         reserved = reserve_procedure_resources(hospital_id, procedure_id, scheduled_at, conn)
         cur = conn.execute(
             "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
+            "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_date_of_birth, "
             "appointment_type_id, procedure_id, procedure_status, procedure_estimated_price_min, "
             "procedure_estimated_price_max, procedure_order_reference) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (hospital_id, phone, department_id, None, scheduled_at_iso, 0, SOURCE_WHATSAPP,
-             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, patient["age"],
+             _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, patient["date_of_birth"],
              "daycare", procedure_id, "CONFIRMED", procedure["estimated_price_min"], procedure["estimated_price_max"],
              procedure_order_reference),
         )
@@ -546,7 +550,7 @@ def create_procedure_appointment(
 
 def create_procedure_request(
     hospital_id: int, phone: str, procedure_id: int, patient_id: int | None = None,
-    patient_name: str | None = None, patient_age: int | None = None, procedure_order_reference: str | None = None,
+    patient_name: str | None = None, patient_date_of_birth: str | None = None, procedure_order_reference: str | None = None,
 ) -> Appointment:
     """Approval-required path (Step 3): a plain INSERT, no advisory lock
     needed -- no resource is reserved yet, no slot chosen yet. scheduled_at
@@ -571,23 +575,23 @@ def create_procedure_request(
 
     if patient_id is not None:
         patient_row = conn.execute(
-            "SELECT id, name, age FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
+            "SELECT id, name, date_of_birth FROM patients WHERE hospital_id = ? AND id = ?", (hospital_id, patient_id),
         ).fetchone()
         if patient_row is None:
             raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
-        patient = {"id": patient_row["id"], "name": patient_row["name"], "age": patient_row["age"]}
+        patient = {"id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"]}
     else:
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_age)
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth)
 
     now = datetime.now()
     cur = conn.execute(
         "INSERT INTO appointments (hospital_id, phone, department_id, doctor_id, scheduled_at, "
-        "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_age, "
+        "booking_ordinal, source, reference_id, patient_id, patient_name, patient_phone, patient_date_of_birth, "
         "appointment_type_id, procedure_id, procedure_status, procedure_estimated_price_min, "
         "procedure_estimated_price_max, procedure_order_reference) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (hospital_id, phone, department_id, None, now.isoformat(), 0, SOURCE_WHATSAPP,
-         _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, patient["age"],
+         _generate_reference_id(conn, hospital_id), patient["id"], patient["name"], phone, patient["date_of_birth"],
          "daycare", procedure_id, "REQUESTED", procedure["estimated_price_min"], procedure["estimated_price_max"],
          procedure_order_reference),
     )

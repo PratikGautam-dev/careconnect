@@ -772,7 +772,7 @@ def test_remove_slot_refuses_when_booked(two_hospitals):
     slot = db.get_slots(a["id"], a["doctor_id"])[0]
     db.create_appointment(
         a["id"], "5490007777", a["department_id"], a["doctor_id"], datetime.fromisoformat(slot["id"]),
-        patient_name="Blocker Test", patient_age=30,
+        patient_name="Blocker Test", patient_date_of_birth=30,
     )
 
     resp = client.post(
@@ -1483,7 +1483,7 @@ def test_patient_display_id_never_regenerates_on_a_second_booking_via_the_portal
     first_id = db.get_patient_by_phone(a["id"], "5491112223333")["patient_display_id"]
 
     slot2 = db.get_slots(a["id"], a["doctor_id"])[1]
-    db.create_appointment(a["id"], "5491112223333", a["department_id"], a["doctor_id"], datetime.fromisoformat(slot2["id"]), patient_age=8)
+    db.create_appointment(a["id"], "5491112223333", a["department_id"], a["doctor_id"], datetime.fromisoformat(slot2["id"]), patient_date_of_birth=8)
     second_id = db.get_patient_by_phone(a["id"], "5491112223333")["patient_display_id"]
 
     assert second_id == first_id

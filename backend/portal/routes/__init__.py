@@ -9,7 +9,6 @@ from portal.routes.auth import router as auth_router
 from portal.routes.bookings import router as bookings_router
 from portal.routes.dashboard import router as dashboard_router
 from portal.routes.diagnostic_tests import router as diagnostic_tests_router
-from portal.routes.doctor_auth import router as doctor_auth_router
 from portal.routes.doctor_portal import router as doctor_portal_router
 from portal.routes.doctors import router as doctors_router
 from portal.routes.documents import router as documents_router
@@ -35,16 +34,15 @@ router.include_router(diagnostic_tests_router)
 router.include_router(lab_service_areas_router)
 router.include_router(settings_router)
 router.include_router(handoffs_router)
-# Dedicated doctor login (Spec.md Section 0's doctor-portal build) -- a
-# separate /api/doctor/* surface, not /api/portal/*, gated by its own
-# doctor-scoped token (auth/doctor_session.py), never the shared staff
-# portal's hospital-wide one.
-router.include_router(doctor_auth_router)
+# Doctor self-service: a separate /api/doctor/* surface, not /api/portal/*,
+# gated by _require_doctor() (a staff_users row with role="doctor",
+# docs/rbac-redis-plan.md's unified login) -- the old dedicated
+# DOCTOR_SECRET-token login this used to fall back to has been removed
+# (that credential path was never wired into the frontend; the unified
+# staff login below is the only way a doctor gets in now).
 router.include_router(doctor_portal_router)
-# RBAC (docs/rbac-redis-plan.md): unified staff login + the roles/permissions
-# and staff-management admin UIs -- additive alongside auth_router/
-# doctor_auth_router above, not a replacement, during the dual-path
-# migration window.
+# RBAC (docs/rbac-redis-plan.md): unified staff login (every role,
+# including doctor) + the roles/permissions and staff-management admin UIs.
 router.include_router(staff_auth_router)
 router.include_router(staff_router)
 router.include_router(roles_router)

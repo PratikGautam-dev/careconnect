@@ -15,12 +15,11 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import cast
 
-import sqlalchemy.exc
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import CursorResult
 
-from db.connection import get_session, reraise_as_driver_integrity_error
-from db.orm_models import Department, DoctorLeave, DoctorRow
+from db.connection import get_session
+from db.orm_models import Department, DoctorLeave, DoctorRow, Identity, StaffDetail
 from core.redis_client import cache_delete
 
 _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -99,8 +98,8 @@ def create_doctor(
     hospital_id: int,
     department_id: str,
     name: str,
-    specialization: str | None = None,
-    qualification: str | None = None,
+    specialization: str = "",
+    qualification: str = "",
     years_experience: int | None = None,
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
@@ -112,6 +111,9 @@ def create_doctor(
     walkin_quota: int | None = None,
     followup_duration_minutes: int | None = None,
     effective_from: str | None = None,
+    phone: str = "",
+    employee_id: str = "",
+    location: str | None = None,
 ) -> dict:
     """working_days (e.g. ["Mon", "Wed", "Fri"]) and working_hours (e.g.
     ["10:00-13:00", "17:00-20:00"]) are this doctor's working pattern (Section
@@ -123,7 +125,14 @@ def create_doctor(
     breaks (Section 14.7, e.g. ["11:20-11:40"]) is comma-stored exactly like
     working_hours, and applies the same way -- uniformly across every working
     day, not per-specific-day. effective_from has no effect on a brand-new
-    doctor (nothing to preserve yet) -- it only matters on update_doctor()."""
+    doctor (nothing to preserve yet) -- it only matters on update_doctor().
+
+    specialization/qualification/phone/employee_id default to "" (not None)
+    since migration 20260911190007 made all four NOT NULL -- the Doctors
+    page's own Add/Edit form (admin/validation.py's _validate_doctor_fields)
+    is what actually requires a real value; callers that don't collect these
+    at all (CSV import defaults aside, onboarding, tests) still work
+    unchanged, just persisting an empty string instead of NULL."""
     doctor_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
     session = get_session()
     session.execute(
@@ -135,6 +144,7 @@ def create_doctor(
             max_bookings_per_slot=max_bookings_per_slot, daily_booking_limit=daily_booking_limit,
             online_quota=online_quota, walkin_quota=walkin_quota,
             followup_duration_minutes=followup_duration_minutes, effective_from=effective_from,
+            phone=phone, employee_id=employee_id, location=location,
         )
     )
     session.commit()
@@ -146,6 +156,7 @@ _DOCTOR_FULL_COLUMNS = (
     DoctorRow.years_experience, DoctorRow.working_days, DoctorRow.working_hours, DoctorRow.slot_duration_minutes,
     DoctorRow.breaks, DoctorRow.max_bookings_per_slot, DoctorRow.daily_booking_limit, DoctorRow.online_quota,
     DoctorRow.walkin_quota, DoctorRow.followup_duration_minutes, DoctorRow.effective_from, DoctorRow.is_active,
+    DoctorRow.phone, DoctorRow.employee_id, DoctorRow.location,
 )
 
 
@@ -154,10 +165,24 @@ def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
     portal.py's doctor-edit form (Section 12.7 follow-up: self-serve doctor
     management) needs the full working pattern to pre-fill, and needs
     department_id from the doctor_id alone (the edit URL only carries the
-    doctor's id, not which department it's under)."""
+    doctor's id, not which department it's under).
+
+    Also carries this doctor's unified-login status via an outer join to
+    staff_details/identities (login_staff_id/login_email/login_active are
+    all None when no staff_details row is linked to this doctor_id yet) --
+    the Doctors page's detail panel uses this to show "Create login" vs the
+    real login state, replacing the old dedicated doctors.email/password_hash
+    columns (migration 20260912xxxxxx dropped them, see its own docstring)."""
     session = get_session()
     row = session.execute(
-        select(*_DOCTOR_FULL_COLUMNS).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
+        select(
+            *_DOCTOR_FULL_COLUMNS,
+            Identity.id.label("login_staff_id"), Identity.email.label("login_email"),
+            Identity.is_active.label("login_active"),
+        )
+        .outerjoin(StaffDetail, StaffDetail.doctor_id == DoctorRow.id)
+        .outerjoin(Identity, Identity.id == StaffDetail.identity_id)
+        .where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
     ).first()
     if row is None:
         return None
@@ -179,19 +204,30 @@ def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
     doctor must still show up (with its off state) so staff can toggle it
     back on; get_doctors() is the one that hides them from bookable lists.
 
-    Carries qualification/years_experience/email/working_days/working_hours
-    too (same query, no extra round trip) -- the doctors list page's own
-    table + detail panel need these, and get_doctor_full() below is a
-    separate per-doctor fetch this list intentionally avoids doing 1-per-row."""
+    Carries qualification/years_experience/working_days/working_hours too
+    (same query, no extra round trip) -- the doctors list page's own table +
+    detail panel need these, and get_doctor_full() below is a separate
+    per-doctor fetch this list intentionally avoids doing 1-per-row.
+
+    Also outer-joins this doctor's unified-login status (staff_details/
+    identities, doctor_id-linked) -- login_staff_id/login_email/login_active
+    are all None when this doctor has no staff login yet. See
+    get_doctor_full()'s own docstring for why (replaces the old dedicated
+    doctors.email/password_hash columns)."""
     session = get_session()
     rows = session.execute(
         select(
             DoctorRow.id, DoctorRow.department_id, Department.name.label("department_name"),
             DoctorRow.name, DoctorRow.specialization, DoctorRow.is_active,
-            DoctorRow.qualification, DoctorRow.years_experience, DoctorRow.email,
+            DoctorRow.qualification, DoctorRow.years_experience,
             DoctorRow.working_days, DoctorRow.working_hours,
+            DoctorRow.phone, DoctorRow.employee_id, DoctorRow.location,
+            Identity.id.label("login_staff_id"), Identity.email.label("login_email"),
+            Identity.is_active.label("login_active"),
         )
         .join(Department, Department.id == DoctorRow.department_id)
+        .outerjoin(StaffDetail, StaffDetail.doctor_id == DoctorRow.id)
+        .outerjoin(Identity, Identity.id == StaffDetail.identity_id)
         .where(DoctorRow.hospital_id == hospital_id)
         .order_by(Department.name, DoctorRow.name)
     ).all()
@@ -226,73 +262,12 @@ def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool
     return result.rowcount > 0
 
 
-def set_doctor_login_credentials(hospital_id: int, doctor_id: str, email: str, password_hash: str) -> bool:
-    """Admin-issued/reset doctor login (dedicated doctor portal, separate
-    from the shared staff portal) -- called only from
-    portal/routes/doctors.py's admin-only credential route, never
-    self-service. Overwrites any existing email/password_hash outright, same
-    "reset replaces, doesn't merge" semantics as a portal password reset.
-    Returns False if no matching doctor row exists for this hospital (404 for
-    the caller) or if `email` is already taken by a DIFFERENT doctor
-    (ux_doctors_email is globally unique, not per-hospital) -- surfaced to
-    the caller as a psycopg2 IntegrityError via reraise_as_driver_integrity_error,
-    same pattern every other unique-constraint-backed write in this codebase uses."""
-    session = get_session()
-    try:
-        result = cast(CursorResult, session.execute(
-            update(DoctorRow).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
-            .values(email=email, password_hash=password_hash)
-        ))
-        session.commit()
-    except sqlalchemy.exc.IntegrityError as e:
-        session.rollback()
-        raise reraise_as_driver_integrity_error(e)
-    return result.rowcount > 0
-
-
-def clear_doctor_login_credentials(hospital_id: int, doctor_id: str) -> bool:
-    """Revokes a doctor's login (admin action) without touching anything
-    else about the doctor row -- any outstanding doctor-session tokens still
-    verify cryptographically (auth/doctor_session.py's HMAC has no server-side
-    revocation list, same "re-issued rather than revoked" posture
-    auth/session.py's own module docstring already accepts for the shared
-    portal token), but a fresh login attempt fails immediately since
-    find_doctor_by_email() can no longer find this doctor's email at all."""
-    session = get_session()
-    result = cast(CursorResult, session.execute(
-        update(DoctorRow).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
-        .values(email=None, password_hash=None)
-    ))
-    session.commit()
-    return result.rowcount > 0
-
-
-def find_doctor_by_email(email: str) -> dict | None:
-    """Doctor-login lookup (auth path, not staff-portal) -- email is globally
-    unique (ux_doctors_email), not scoped to one hospital first, so this is
-    the one doctor-repository read that doesn't take hospital_id as a
-    parameter; the caller learns hospital_id FROM this row instead of
-    supplying it. Returns None for a doctor with no login configured
-    (email IS NULL never matches) or an inactive doctor (is_active=False is
-    excluded here the same way get_doctors() already excludes inactive
-    doctors from every bookable/patient-facing path -- a doctor taken off
-    the schedule shouldn't still be able to log in and touch data)."""
-    session = get_session()
-    row = session.execute(
-        select(
-            DoctorRow.id, DoctorRow.hospital_id, DoctorRow.name,
-            DoctorRow.email, DoctorRow.password_hash,
-        ).where(DoctorRow.email == email, DoctorRow.is_active.is_(True))
-    ).first()
-    return dict(row._mapping) if row is not None else None
-
-
 def update_doctor(
     hospital_id: int,
     doctor_id: str,
     name: str,
-    specialization: str | None = None,
-    qualification: str | None = None,
+    specialization: str = "",
+    qualification: str = "",
     years_experience: int | None = None,
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
@@ -304,6 +279,9 @@ def update_doctor(
     walkin_quota: int | None = None,
     followup_duration_minutes: int | None = None,
     effective_from: str | None = None,
+    phone: str = "",
+    employee_id: str = "",
+    location: str | None = None,
 ) -> dict | None:
     """portal.py's doctor-edit form. Returns None if no such doctor exists at
     this hospital (nothing updated), same "hospital_id in the WHERE clause is
@@ -327,6 +305,7 @@ def update_doctor(
         "years_experience": years_experience, "max_bookings_per_slot": max_bookings_per_slot,
         "online_quota": online_quota, "walkin_quota": walkin_quota,
         "followup_duration_minutes": followup_duration_minutes,
+        "phone": phone, "employee_id": employee_id, "location": location,
     }
     if is_future_change:
         values.update(

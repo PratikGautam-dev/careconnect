@@ -16,6 +16,7 @@ from typing import cast
 import sqlalchemy.exc
 from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import aliased
 
 from db.connection import get_session, reraise_as_driver_integrity_error
 from db.orm_models import Department, DoctorRow, HospitalRow, Identity, StaffDetail
@@ -23,11 +24,16 @@ from db.orm_models import Department, DoctorRow, HospitalRow, Identity, StaffDet
 _STAFF_COLUMNS = (
     Identity.id, StaffDetail.hospital_id, StaffDetail.role, Identity.email, Identity.password_hash,
     Identity.name, StaffDetail.doctor_id, Identity.is_active, Identity.token_version,
+    StaffDetail.phone, StaffDetail.address, StaffDetail.shift, StaffDetail.attendance_status,
+    StaffDetail.department_id, StaffDetail.reports_to_id,
 )
 
 
 def create_staff_user(
     hospital_id: int, role: str, email: str, password_hash: str, name: str, doctor_id: str | None = None,
+    *,
+    phone: str | None = None, address: str | None = None, department_id: str | None = None,
+    shift: str | None = None, reports_to_id: int | None = None,
 ) -> dict:
     """Raises db.connection.IntegrityError (via reraise_as_driver_integrity_error)
     if email is already taken by ANY identity (ux_identities_email is
@@ -47,7 +53,10 @@ def create_staff_user(
             insert(Identity).values(email=email, password_hash=password_hash, name=name).returning(Identity.id)
         ).scalar_one()
         session.execute(
-            insert(StaffDetail).values(identity_id=new_id, hospital_id=hospital_id, role=role, doctor_id=doctor_id)
+            insert(StaffDetail).values(
+                identity_id=new_id, hospital_id=hospital_id, role=role, doctor_id=doctor_id,
+                phone=phone, address=address, department_id=department_id, shift=shift, reports_to_id=reports_to_id,
+            )
         )
         session.commit()
     except sqlalchemy.exc.IntegrityError as e:
@@ -61,9 +70,8 @@ def get_staff_user_by_email(email: str) -> dict | None:
     (an exact match against ux_identities_email's own index expression, not
     ilike -- ilike would treat stray '%'/'_' characters in a submitted email
     as wildcards) since staff will type it with whatever casing they happen
-    to use. Returns an inactive staff row too (unlike doctors.py's
-    find_doctor_by_email(), which excludes inactive doctors at the query
-    level) -- the caller (staff login route) needs to distinguish "wrong
+    to use. Returns an inactive staff row too, not excluded at the query
+    level -- the caller (staff login route) needs to distinguish "wrong
     password" from "account deactivated" for a clearer error, not have both
     collapse into the same generic lookup-failed 401. The JOIN to
     StaffDetail is what makes this "get a staff login by email" rather than
@@ -95,11 +103,28 @@ def get_staff_user_by_id(staff_id: int) -> dict | None:
 def list_staff_users_for_hospital(hospital_id: int) -> list[dict]:
     """Staff management page's list view -- included since it's a trivial
     read and every other domain's repository file ships its own "list for
-    this hospital" query rather than the route layer building one ad hoc."""
+    this hospital" query rather than the route layer building one ad hoc.
+
+    department_name resolves to whichever of the two possible sources this
+    row actually has: a doctor-role row's linked doctor's department, or a
+    non-doctor row's own department_id (the two are mutually exclusive --
+    see the DB's own ck_staff_details_department_doctor_role). reports_to_name
+    is the linked staff member's name, if any."""
     session = get_session()
+    own_department = aliased(Department)
+    doctor_department = aliased(Department)
+    reports_to = aliased(Identity)
     rows = session.execute(
-        select(*_STAFF_COLUMNS)
+        select(
+            *_STAFF_COLUMNS, Identity.created_at,
+            func.coalesce(doctor_department.name, own_department.name).label("department_name"),
+            reports_to.name.label("reports_to_name"),
+        )
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .outerjoin(own_department, own_department.id == StaffDetail.department_id)
+        .outerjoin(DoctorRow, DoctorRow.id == StaffDetail.doctor_id)
+        .outerjoin(doctor_department, doctor_department.id == DoctorRow.department_id)
+        .outerjoin(reports_to, reports_to.id == StaffDetail.reports_to_id)
         .where(StaffDetail.hospital_id == hospital_id)
         .order_by(Identity.name)
     ).all()
@@ -235,6 +260,31 @@ def set_staff_user_active(staff_id: int, is_active: bool) -> bool:
     _bump_token_version(staff_id)
     session.commit()
     return True
+
+
+def update_staff_user_details(staff_id: int, *, identity_fields: dict | None = None, staff_fields: dict | None = None) -> None:
+    """The Staff page's "Edit staff details" action -- name lives on
+    Identity (identity_fields), phone/address/department_id/shift/
+    reports_to_id/attendance_status on StaffDetail (staff_fields).
+    Deliberately separate from update_staff_user_role()/
+    set_staff_user_active() (neither role/doctor_id nor is_active change
+    here) and does NOT bump token_version -- none of these fields affect
+    what an already-issued token authorizes.
+
+    Takes already-filtered {column: value} dicts rather than one keyword arg
+    per column -- unlike is_active (a plain bool, no "clear" concept),
+    several of these ARE nullable (address, department_id, reports_to_id...),
+    so "None means leave unchanged" would make clearing one impossible.
+    The caller (portal/routes/staff.py, via Pydantic's model_fields_set)
+    is what actually distinguishes "field omitted from the PATCH body" from
+    "field explicitly sent as null/empty to clear it" -- by the time a key
+    reaches either dict here, it's meant to be written, value included."""
+    session = get_session()
+    if identity_fields:
+        session.execute(update(Identity).where(Identity.id == staff_id).values(**identity_fields))
+    if staff_fields:
+        session.execute(update(StaffDetail).where(StaffDetail.identity_id == staff_id).values(**staff_fields))
+    session.commit()
 
 
 def update_staff_user_password(staff_id: int, password_hash: str) -> bool:

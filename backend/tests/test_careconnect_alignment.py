@@ -109,7 +109,7 @@ async def test_duplicate_match_offers_link_existing(hospital_id):
     move."""
     connector = flows._DEFAULT_CONNECTOR
     existing = db.create_patient_profile(
-        hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self", gender="Other",
+        hospital_id, "915490009999", "Asha Rao", "1981-01-01", relationship_label="Self", gender="Other",
     )
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)  # 0 linked patients on THIS phone -> registration
@@ -123,7 +123,7 @@ async def test_duplicate_match_offers_link_existing(hospital_id):
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_CONTACT_PHONE
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["book_doctor_appointment"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("01-01-1981"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
@@ -145,7 +145,7 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
     overridden to "Self"."""
     connector = flows._DEFAULT_CONNECTOR
     existing = db.create_patient_profile(
-        hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self", gender="Other",
+        hospital_id, "915490009999", "Asha Rao", "1981-01-01", relationship_label="Self", gender="Other",
     )
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
@@ -156,7 +156,7 @@ async def test_link_existing_reuses_the_same_mrn_not_a_new_one(hospital_id):
     )
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["book_doctor_appointment"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("01-01-1981"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
@@ -186,7 +186,7 @@ async def test_cancel_on_duplicate_decision_restarts_registration(hospital_id):
     restarts from the top (identity_flow_next defaults to "resolve", not
     "manage_patients", for a fresh conversation)."""
     connector = flows._DEFAULT_CONNECTOR
-    db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", 45, relationship_label="Self", gender="Other")
+    db.create_patient_profile(hospital_id, "915490009999", "Asha Rao", "1981-01-01", relationship_label="Self", gender="Other")
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id)
 
@@ -196,7 +196,7 @@ async def test_cancel_on_duplicate_decision_restarts_registration(hospital_id):
     )
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Asha Rao"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("5490009999"), connector=connector, enabled_features=["book_doctor_appointment"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("45"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("01-01-1981"), connector=connector, enabled_features=["book_doctor_appointment"])
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.GENDER_OTHER_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
@@ -224,7 +224,7 @@ async def test_linking_a_someone_else_match_whose_own_phone_is_this_conversation
     # without it being actively linked here yet.
     self_match_phone = "917612345678"
     existing = db.create_patient_profile(
-        hospital_id, "919999999999", "Ravi Kumar", 34, gender="Other", contact_phone=self_match_phone,
+        hospital_id, "919999999999", "Ravi Kumar", "1992-01-01", gender="Other", contact_phone=self_match_phone,
     )
     assert connector.list_active_patients(hospital_id, self_match_phone) == []
     wa = FakeWhatsAppClient()
@@ -246,7 +246,7 @@ async def test_linking_a_someone_else_match_whose_own_phone_is_this_conversation
         connector=connector, enabled_features=["book_doctor_appointment"],
     )
     await flows.handle_incoming(
-        wa, sessions, self_match_phone, hospital_id, text_reply("34"),
+        wa, sessions, self_match_phone, hospital_id, text_reply("01-01-1992"),
         connector=connector, enabled_features=["book_doctor_appointment"],
     )
     await flows.handle_incoming(
@@ -277,7 +277,7 @@ async def test_no_match_creates_the_patient_directly_once_gender_is_collected(ho
         wa, sessions, PHONE, hospital_id, tap(patient_identity.BOOKING_FOR_SELF_ID), connector=connector, enabled_features=["book_doctor_appointment"],
     )
     await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Someone Unique"), connector=connector, enabled_features=["book_doctor_appointment"])
-    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("52"), connector=connector, enabled_features=["book_doctor_appointment"])
+    await flows.handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("01-01-1974"), connector=connector, enabled_features=["book_doctor_appointment"])
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_PATIENT_GENDER
 
     await flows.handle_incoming(

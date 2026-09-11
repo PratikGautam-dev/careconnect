@@ -253,7 +253,7 @@ async def _handle_awaiting_procedure_request_confirm(
         if rid == CONFIRM_YES:
             connector.create_procedure_request(
                 hospital_id, phone, context["procedure_id"],
-                patient_name=context.get("patient_name"), patient_age=context.get("patient_age"),
+                patient_name=context.get("patient_name"), patient_date_of_birth=context.get("patient_date_of_birth"),
                 patient_id=context.get("active_patient_id"),
             )
             summary = t(PROCEDURE_REQUEST_SUBMITTED, language)

@@ -129,19 +129,21 @@ def _backfill_appointment_patient_denorm(conn) -> None:
     conn.commit()
 
 
-def _backfill_appointment_patient_age(conn) -> None:
+def _backfill_appointment_patient_date_of_birth(conn) -> None:
     """Family/multi-person-booking follow-up (Spec.md Section 0):
-    appointments.patient_age is populated going forward by
+    appointments.patient_date_of_birth is populated going forward by
     create_appointment() itself -- catches up every row that predates that
-    column, from the (single, mutable) patients.age value, same
-    best-effort approximation the column's own docstring already flags.
-    Gated on a.patient_age IS NULL specifically (not reusing the patient_id
-    gate above) since a row can already have patient_id/patient_name set
-    from an earlier startup's run of the backfill above, before this
-    column existed -- that gate alone would skip it here."""
+    column, from the (single, mutable) patients.date_of_birth value, same
+    best-effort approximation the column's own docstring already flags
+    (originally patient_age/patients.age, replaced by the DOB migration --
+    see that migration's own docstring). Gated on a.patient_date_of_birth
+    IS NULL specifically (not reusing the patient_id gate above) since a
+    row can already have patient_id/patient_name set from an earlier
+    startup's run of the backfill above, before this column existed --
+    that gate alone would skip it here."""
     conn.execute(
-        "UPDATE appointments a SET patient_age = p.age "
-        "FROM patients p WHERE p.hospital_id = a.hospital_id AND p.phone = a.phone AND a.patient_age IS NULL"
+        "UPDATE appointments a SET patient_date_of_birth = p.date_of_birth "
+        "FROM patients p WHERE p.hospital_id = a.hospital_id AND p.phone = a.phone AND a.patient_date_of_birth IS NULL"
     )
     conn.commit()
 
@@ -1383,6 +1385,80 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS diagnostic_test_variant_id")
     conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS diagnostic_variant_label")
     conn.execute("DROP TABLE IF EXISTS diagnostic_test_variants")
+    # Migration 20260911162026: patient age -> date of birth (confirmed with
+    # the user). age is dropped outright, no fallback -- an existing patient
+    # with no date_of_birth on file just shows a blank age until one is
+    # entered. appointments' denormalized snapshot moves from patient_age to
+    # patient_date_of_birth, same role (the legacy duplicate-booking check
+    # that tells apart two family members sharing one phone), just DOB-keyed.
+    conn.execute("ALTER TABLE patients DROP COLUMN IF EXISTS age")
+    conn.execute("ALTER TABLE appointments DROP COLUMN IF EXISTS patient_age")
+    conn.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_date_of_birth TEXT")
+    # Migration 20260911174439: staff_details gains department_id/phone/
+    # address/shift/reports_to_id/attendance_status -- the Staff page's
+    # mocked columns becoming real. department_id is doctor-role-exclusive
+    # (a doctor row's department already comes from doctor_id ->
+    # doctors.department_id) and attendance_status is a manually-set
+    # current status with no history table behind it -- see that
+    # migration's own docstring.
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS department_id TEXT REFERENCES departments(id)")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS phone TEXT")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS address TEXT")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS shift TEXT")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS reports_to_id INTEGER REFERENCES identities(id)")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS attendance_status TEXT NOT NULL DEFAULT 'present'")
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_shift")
+    conn.execute(
+        "ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_shift "
+        "CHECK (shift IS NULL OR shift IN ('day', 'evening', 'night'))"
+    )
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_attendance_status")
+    conn.execute(
+        "ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_attendance_status "
+        "CHECK (attendance_status IN ('present', 'on_leave', 'half_day'))"
+    )
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_department_doctor_role")
+    conn.execute(
+        "ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_department_doctor_role "
+        "CHECK (role != 'doctor' OR department_id IS NULL)"
+    )
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_reports_to_not_self")
+    conn.execute(
+        "ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_reports_to_not_self "
+        "CHECK (reports_to_id IS NULL OR reports_to_id != identity_id)"
+    )
+    # Migration 20260911190007: doctors gains phone/employee_id/location --
+    # the Doctors page's mocked columns becoming real. phone/employee_id join
+    # specialization/qualification as mandatory fields (confirmed with the
+    # user); location stays optional. Existing rows are backfilled to ''
+    # before the NOT NULL is added so this never fails against a hospital
+    # that already has doctors on file, and all four get a DB-level
+    # server_default of '' so a raw INSERT that never mentions them (db/
+    # seed.py's default-hospital seeding, e.g.) keeps working unchanged --
+    # the Doctors page's own Add/Edit form and CSV import are what actually
+    # block a blank value (admin/validation.py's _validate_doctor_fields()).
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS phone TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS employee_id TEXT")
+    conn.execute("ALTER TABLE doctors ADD COLUMN IF NOT EXISTS location TEXT")
+    conn.execute("UPDATE doctors SET phone = '' WHERE phone IS NULL")
+    conn.execute("UPDATE doctors SET employee_id = '' WHERE employee_id IS NULL")
+    conn.execute("UPDATE doctors SET specialization = '' WHERE specialization IS NULL")
+    conn.execute("UPDATE doctors SET qualification = '' WHERE qualification IS NULL")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN phone SET DEFAULT ''")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN employee_id SET DEFAULT ''")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN specialization SET DEFAULT ''")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN qualification SET DEFAULT ''")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN phone SET NOT NULL")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN employee_id SET NOT NULL")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN specialization SET NOT NULL")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN qualification SET NOT NULL")
+    # Migration 20260911190251: drops the old dedicated doctor-login
+    # credential columns (email/password_hash, migration 0012) -- dead code,
+    # confirmed unused by any frontend UI; every doctor login now goes
+    # through the unified staff login instead (staff_details role='doctor').
+    conn.execute("DROP INDEX IF EXISTS ux_doctors_email")
+    conn.execute("ALTER TABLE doctors DROP COLUMN IF EXISTS password_hash")
+    conn.execute("ALTER TABLE doctors DROP COLUMN IF EXISTS email")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
@@ -1400,7 +1476,7 @@ def init_db_on_connection(conn) -> int:
     _backfill_enabled_features(conn)
     _backfill_patients(conn)
     _backfill_appointment_patient_denorm(conn)
-    _backfill_appointment_patient_age(conn)
+    _backfill_appointment_patient_date_of_birth(conn)
     _backfill_patient_display_ids(conn)
     _backfill_patient_mrns(conn)
     _backfill_patient_links(conn)

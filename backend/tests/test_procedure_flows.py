@@ -91,7 +91,7 @@ def _create_approval_procedure(hospital_id, resource_types=("bed_chair", "staff"
 
 
 async def _start_procedure_booking(wa, sessions, hospital_id, phone: str = PHONE):
-    sessions.set(hospital_id, phone, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Abhi Sharma", "patient_age": 41})
+    sessions.set(hospital_id, phone, "AWAITING_APPOINTMENT_TYPE", {"patient_name": "Abhi Sharma", "patient_date_of_birth": 41})
     await handle_incoming(wa, sessions, phone, hospital_id, tap("daycare"))
 
 
@@ -229,7 +229,7 @@ def test_duration_spanning_multiple_grid_slots_only_offers_fully_free_spans(hosp
     assert slots_before
     first = slots_before[0]
     scheduled_at = datetime.fromisoformat(first["id"])
-    db.create_procedure_appointment(hospital_id, PHONE, procedure["id"], scheduled_at, patient_name="Test", patient_age=30)
+    db.create_procedure_appointment(hospital_id, PHONE, procedure["id"], scheduled_at, patient_name="Test", patient_date_of_birth=30)
     slots_after = db.get_procedure_available_slots(hospital_id, procedure["id"])
     assert first["id"] not in {s["id"] for s in slots_after}
 
@@ -337,7 +337,7 @@ async def test_rejected_request_notifies_patient(hospital_id, sessions):
 def test_approval_queue_lists_only_open_requests(hospital_id):
     procedure = _create_approval_procedure(hospital_id)
     _set_hospital_password(hospital_id, "adminpass")
-    requested = db.create_procedure_request(hospital_id, PHONE, procedure["id"], patient_name="Test", patient_age=30)
+    requested = db.create_procedure_request(hospital_id, PHONE, procedure["id"], patient_name="Test", patient_date_of_birth=30)
 
     token = _login("adminpass")
     resp = client.get("/api/portal/procedure-approval-queue", headers=_auth(token))
@@ -361,7 +361,7 @@ async def test_request_reschedule_does_not_move_the_appointment_until_approved(h
     slots = db.get_procedure_available_slots(hospital_id, procedure["id"])
     original_scheduled_at = datetime.fromisoformat(slots[0]["id"])
     appt = db.create_procedure_appointment(
-        hospital_id, PHONE, procedure["id"], original_scheduled_at, patient_name="Test", patient_age=30,
+        hospital_id, PHONE, procedure["id"], original_scheduled_at, patient_name="Test", patient_date_of_birth=30,
     )
 
     wa = FakeWhatsAppClient()
@@ -400,7 +400,7 @@ def test_reject_reschedule_request_leaves_appointment_untouched(hospital_id):
     slots = db.get_procedure_available_slots(hospital_id, procedure["id"])
     scheduled_at = datetime.fromisoformat(slots[0]["id"])
     appt = db.create_procedure_appointment(
-        hospital_id, PHONE, procedure["id"], scheduled_at, patient_name="Test", patient_age=30,
+        hospital_id, PHONE, procedure["id"], scheduled_at, patient_name="Test", patient_date_of_birth=30,
     )
     db.request_procedure_reschedule(hospital_id, appt.id, scheduled_at + timedelta(days=1))
 

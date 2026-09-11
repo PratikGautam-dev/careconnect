@@ -48,11 +48,11 @@ def test_ids_are_sequential_and_hospital_scoped(hospital_id, second_hospital_id)
     slots_b = db.get_slots(second_hospital_id, doctor_b)
 
     db.create_appointment(hospital_id, PHONE_A, "cardiology", doctor_a,
-                           datetime.fromisoformat(f"{slots_a[0]['date']}T{slots_a[0]['time']}"), patient_name="Ravi", patient_age=30)
+                           datetime.fromisoformat(f"{slots_a[0]['date']}T{slots_a[0]['time']}"), patient_name="Ravi", patient_date_of_birth=30)
     db.create_appointment(hospital_id, PHONE_B, "cardiology", doctor_a,
-                           datetime.fromisoformat(f"{slots_a[1]['date']}T{slots_a[1]['time']}"), patient_name="Priya", patient_age=25)
+                           datetime.fromisoformat(f"{slots_a[1]['date']}T{slots_a[1]['time']}"), patient_name="Priya", patient_date_of_birth=25)
     db.create_appointment(second_hospital_id, PHONE_A, t2_dept, doctor_b,
-                           datetime.fromisoformat(f"{slots_b[0]['date']}T{slots_b[0]['time']}"), patient_name="Amit", patient_age=40)
+                           datetime.fromisoformat(f"{slots_b[0]['date']}T{slots_b[0]['time']}"), patient_name="Amit", patient_date_of_birth=40)
 
     patient_a1 = db.get_patient_by_phone(hospital_id, PHONE_A)
     patient_a2 = db.get_patient_by_phone(hospital_id, PHONE_B)
@@ -83,14 +83,14 @@ def test_id_is_never_regenerated_on_a_second_booking(hospital_id):
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slots = db.get_slots(hospital_id, doctor_id)
 
-    _book(hospital_id, PHONE_A, doctor_id, slots[0], patient_name="Ravi Kumar", patient_age=34)
+    _book(hospital_id, PHONE_A, doctor_id, slots[0], patient_name="Ravi Kumar", patient_date_of_birth=34)
     first_id = db.get_patient_by_phone(hospital_id, PHONE_A)["patient_display_id"]
     assert first_id is not None
 
     # Second booking, same doctor is blocked by the duplicate-booking guard
     # (same name+age) -- use a different age to simulate a family member on
     # the same phone, still the same underlying `patients` row/id.
-    _book(hospital_id, PHONE_A, doctor_id, slots[1], patient_age=8)
+    _book(hospital_id, PHONE_A, doctor_id, slots[1], patient_date_of_birth=8)
     second_id = db.get_patient_by_phone(hospital_id, PHONE_A)["patient_display_id"]
 
     assert second_id == first_id
@@ -115,7 +115,7 @@ def test_id_survives_a_failed_first_booking_attempt(hospital_id):
     with pytest.raises(QuotaExceededError):
         db.create_appointment(
             hospital_id, PHONE_A, department_id, doctor["id"], scheduled_at,
-            patient_name="Ravi Kumar", patient_age=34,
+            patient_name="Ravi Kumar", patient_date_of_birth=34,
         )
 
     patient = db.get_patient_by_phone(hospital_id, PHONE_A)
@@ -197,7 +197,7 @@ def test_backfill_is_idempotent_and_a_later_real_booking_continues_the_sequence(
     # with the backfilled one.
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE_A, doctor_id, slot, patient_name="Ravi Kumar", patient_age=34)
+    _book(hospital_id, PHONE_A, doctor_id, slot, patient_name="Ravi Kumar", patient_date_of_birth=34)
     new_id = db.get_patient_by_phone(hospital_id, PHONE_A)["patient_display_id"]
     assert new_id != first_run_id
     old_seq = int(first_run_id.rsplit("-", 1)[1])
@@ -212,7 +212,7 @@ def test_hospital_short_code_derivation_and_persistence(hospital_id):
     conn = get_connection()
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot = db.get_slots(hospital_id, doctor_id)[0]
-    _book(hospital_id, PHONE_A, doctor_id, slot, patient_name="Ravi Kumar", patient_age=34)
+    _book(hospital_id, PHONE_A, doctor_id, slot, patient_name="Ravi Kumar", patient_date_of_birth=34)
 
     row = conn.execute("SELECT patient_id_prefix, name FROM hospitals WHERE id = ?", (hospital_id,)).fetchone()
     assert row["name"] == "Default Hospital"

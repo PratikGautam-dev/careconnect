@@ -412,7 +412,7 @@ def _confirmation_context(appointment_type_id="new"):
     return {
         "appointment_type_id": appointment_type_id, "appointment_type_label": "New Consultation",
         "department_name": "Cardiology", "doctor_name": "Dr. X", "date_label": "Sat, Aug 8",
-        "slot_time": "10:00 AM", "patient_name": "Ravi Kumar", "patient_age": 34,
+        "slot_time": "10:00 AM", "patient_name": "Ravi Kumar", "patient_date_of_birth": "1992-01-01",
     }
 
 

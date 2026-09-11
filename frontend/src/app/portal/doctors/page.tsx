@@ -17,6 +17,7 @@ import { DoctorSlotManager } from "@/components/portal/DoctorSlotManager";
 import { DoctorTodayAppointments } from "@/components/portal/DoctorTodayAppointments";
 import { DoctorCsvImport } from "@/components/portal/DoctorCsvImport";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
+import { AddStaffDialog } from "@/components/portal/AddStaffDialog";
 import { type Doctor, useDoctors } from "@/hooks/useDoctors";
 import { createDoctorColumns } from "./_components/doctors-columns";
 import { DoctorDetailPanel } from "./_components/DoctorDetailPanel";
@@ -28,6 +29,7 @@ export default function PortalDoctorsPage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
+  const [createLoginFor, setCreateLoginFor] = useState<Doctor | null>(null);
   // Backend route guards already 403 the actual mutations for clinic tenants
   // lacking manage_doctors -- this is just a UI convenience so those staff
   // don't hit an error after filling out a form. Fails open (keeps the
@@ -218,6 +220,7 @@ export default function PortalDoctorsPage() {
                   leaveOpen={leaveOpen}
                   onToggleLeave={() => { setLeaveOpen((v) => !v); setScheduleOpen(false); }}
                   onBookAppointment={() => setBookingOpen(true)}
+                  onCreateLogin={setCreateLoginFor}
                 />
               </div>
             </div>
@@ -240,6 +243,12 @@ export default function PortalDoctorsPage() {
         )}
 
         <NewBookingDialog open={bookingOpen} onOpenChange={setBookingOpen} onBooked={load} />
+        <AddStaffDialog
+          open={createLoginFor !== null}
+          onOpenChange={(open) => { if (!open) setCreateLoginFor(null); }}
+          onCreated={load}
+          presetDoctor={createLoginFor}
+        />
     </PortalShell>
   );
 }

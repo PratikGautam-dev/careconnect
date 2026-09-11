@@ -30,13 +30,13 @@ def test_second_booking_same_doctor_same_age_is_blocked(hospital_id):
 
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, scheduled_a,
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
 
     with pytest.raises(DuplicateBookingError) as exc_info:
         db.create_appointment(
             hospital_id, PHONE, "cardiology", doctor_id, scheduled_b,
-            patient_age=34,
+            patient_date_of_birth="1992-01-01",
         )
     assert exc_info.value.existing_appointment_id == first.id
 
@@ -57,12 +57,12 @@ def test_second_booking_different_doctor_is_allowed(hospital_id):
     db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_a,
         datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
     second = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_b,
         datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
-        patient_age=34,
+        patient_date_of_birth="1992-01-01",
     )
     assert second.doctor_id == doctor_b
 
@@ -77,13 +77,13 @@ def test_second_booking_different_age_same_doctor_is_allowed(hospital_id):
     db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
     # A DIFFERENT age is passed for this attempt -- e.g. a sibling.
     second = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
-        patient_age=8,
+        patient_date_of_birth="2018-01-01",
     )
     assert second.doctor_id == doctor_id
 
@@ -100,12 +100,12 @@ def test_second_booking_same_age_different_name_same_doctor_is_allowed(hospital_
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
     second = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
-        patient_name="Priya Kumar", patient_age=34,
+        patient_name="Priya Kumar", patient_date_of_birth="1992-01-01",
     )
     assert second.id != first.id
     assert second.doctor_id == doctor_id
@@ -121,13 +121,13 @@ def test_second_booking_same_name_and_age_same_doctor_is_still_blocked(hospital_
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
     with pytest.raises(DuplicateBookingError) as exc_info:
         db.create_appointment(
             hospital_id, PHONE, "cardiology", doctor_id,
             datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
-            patient_name="Ravi Kumar", patient_age=34,
+            patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
         )
     assert exc_info.value.existing_appointment_id == first.id
 
@@ -139,7 +139,7 @@ def test_patient_id_duplicate_check_blocks_same_linked_patient_same_doctor(hospi
     same linked patient booking the same doctor twice is still blocked."""
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot_a, slot_b = _first_two_slots(hospital_id, doctor_id)
-    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
+    patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", "1992-01-01")
 
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
@@ -164,8 +164,8 @@ def test_patient_id_duplicate_check_allows_two_different_linked_patients_same_do
     the phone number."""
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot_a, slot_b = _first_two_slots(hospital_id, doctor_id)
-    parent = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34)
-    child = db.create_patient_profile(hospital_id, PHONE, "Priya Kumar", 8)
+    parent = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", "1992-01-01")
+    child = db.create_patient_profile(hospital_id, PHONE, "Priya Kumar", "2018-01-01")
 
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
@@ -182,21 +182,21 @@ def test_patient_id_duplicate_check_allows_two_different_linked_patients_same_do
     assert second.patient_id == child["id"]
 
 
-def test_appointment_stores_its_own_patient_age_denormalized(hospital_id):
-    """The other half of this follow-up: appointments.patient_age is now
-    populated directly, the same way patient_id/patient_name/patient_phone
-    already were (Item 8)."""
+def test_appointment_stores_its_own_patient_date_of_birth_denormalized(hospital_id):
+    """The other half of this follow-up: appointments.patient_date_of_birth
+    is now populated directly, the same way patient_id/patient_name/
+    patient_phone already were (Item 8)."""
     doctor_id = db.get_doctors(hospital_id, "cardiology")[0]["id"]
     slot = db.get_slots(hospital_id, doctor_id)[0]
 
     appt = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-08-15",
     )
     conn = db.get_connection()
-    row = conn.execute("SELECT patient_age FROM appointments WHERE id = ?", (appt.id,)).fetchone()
-    assert row["patient_age"] == 34
+    row = conn.execute("SELECT patient_date_of_birth FROM appointments WHERE id = ?", (appt.id,)).fetchone()
+    assert row["patient_date_of_birth"] == "1992-08-15"
 
 
 def test_name_age_saved_even_when_the_first_booking_attempt_fails(hospital_id):
@@ -222,7 +222,7 @@ def test_name_age_saved_even_when_the_first_booking_attempt_fails(hospital_id):
     with pytest.raises(QuotaExceededError):
         db.create_appointment(
             hospital_id, PHONE, department_id, doctor["id"], scheduled_at,
-            patient_name="Ravi Kumar", patient_age=34,
+            patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
         )
 
     # The booking itself failed and rolled back -- no appointment exists.
@@ -234,7 +234,7 @@ def test_name_age_saved_even_when_the_first_booking_attempt_fails(hospital_id):
     patient = db.get_patient_by_phone(hospital_id, PHONE)
     assert patient is not None
     assert patient["name"] == "Ravi Kumar"
-    assert patient["age"] == 34
+    assert patient["date_of_birth"] == "1992-01-01"
 
 
 def test_cancelling_the_first_appointment_allows_a_new_one(hospital_id):
@@ -246,14 +246,14 @@ def test_cancelling_the_first_appointment_allows_a_new_one(hospital_id):
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_a['date']}T{slot_a['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
     db.cancel_appointment(hospital_id, first.id)
 
     second = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot_b['date']}T{slot_b['time']}"),
-        patient_age=34,
+        patient_date_of_birth="1992-01-01",
     )
     assert second.id != first.id
 
@@ -275,7 +275,7 @@ def test_cancelling_the_exact_same_slot_makes_it_immediately_rebookable(hospital
 
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, scheduled_at,
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
     # Freshly cancelled -> immediately re-appears as available.
     db.cancel_appointment(hospital_id, first.id)
@@ -285,7 +285,7 @@ def test_cancelling_the_exact_same_slot_makes_it_immediately_rebookable(hospital
     # DIFFERENT patient succeeds -- not rejected as "just taken".
     second = db.create_appointment(
         hospital_id, "5490009999", "cardiology", doctor_id, scheduled_at,
-        patient_name="Someone Else", patient_age=50,
+        patient_name="Someone Else", patient_date_of_birth="1976-01-01",
     )
     assert second.id != first.id
     assert second.doctor_id == doctor_id
@@ -300,7 +300,7 @@ def test_appointment_gets_denormalized_patient_columns(hospital_id):
     appt = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id,
         datetime.fromisoformat(f"{slot['date']}T{slot['time']}"),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth="1992-01-01",
     )
 
     conn = db.get_connection()

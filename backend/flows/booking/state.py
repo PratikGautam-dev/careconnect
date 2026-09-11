@@ -166,7 +166,7 @@ _HISTORY_KEY = "_history"
 
 
 _PRESERVE_ACROSS_BACK = (
-    "patient_name", "patient_age", "active_patient_id",
+    "patient_name", "patient_date_of_birth", "active_patient_id",
     "appointment_type_id", "appointment_type_label", "appointment_type_requires_consent",
 )
 

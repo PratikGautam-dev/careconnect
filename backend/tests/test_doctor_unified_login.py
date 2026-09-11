@@ -9,17 +9,18 @@ commit; the later frontend commit was never on the line that continued as
 dev), not a deliberate deletion.
 
 The unified system replaces the old standalone doctor login
-(auth/doctor_session.py's DOCTOR_SECRET-signed token, /api/doctor/login)
-with a staff_users row (role="doctor") authenticating through the SAME
+(auth/doctor_session.py's DOCTOR_SECRET-signed token, /api/doctor/login,
+both since deleted -- confirmed unused by any frontend UI) with a
+staff_users row (role="doctor") authenticating through the SAME
 /api/portal/staff/login every other staff role uses. portal/deps.py's
 get_current_staff() + portal/routes/doctor_portal.py's _require_doctor()
-already had a dual-path fallback added for this (tries get_current_staff()
-first, falls back to the old doctor token) -- this file proves that path
-actually preserves the exact isolation guarantee tests/test_doctor_login.py
-established for the original token type: doctor_id is read only from the
-verified identity, never a request parameter, so Dr. A's token can never
-reach Dr. B's data, regardless of which of the two token types authenticated
-the caller.
+now run this as the ONLY path (the dual-path fallback to the old doctor
+token this file used to also prove was removed once the old path itself
+was deleted) -- this file proves the isolation guarantee
+tests/test_doctor_login.py (now deleted) originally established still
+holds through the unified path: doctor_id is read only from the verified
+identity, never a request parameter, so Dr. A's token can never reach Dr.
+B's data.
 """
 import os
 from datetime import datetime, timedelta
@@ -30,7 +31,6 @@ os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "mytoken")
 os.environ.setdefault("WHATSAPP_APP_SECRET", "appsecret")
 os.environ.setdefault("INTERNAL_SECRET", "internalsecret")
 os.environ.setdefault("PORTAL_SECRET", "test-portal-secret")
-os.environ.setdefault("DOCTOR_SECRET", "test-doctor-secret")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 os.environ.setdefault("SUPER_ADMIN_JWT_SECRET", "test-super-admin-jwt-secret")
 
@@ -116,10 +116,9 @@ def test_unified_staff_login_for_a_doctor_role_reports_role_doctor(hospital_id):
 
 
 def test_unified_login_token_correctly_scopes_doctor_portal_routes(hospital_id):
-    """The actual dual-path proof: a staff JWT (not the old DOCTOR_SECRET
-    token) authenticates successfully against /api/doctor/* -- confirming
-    _require_doctor()'s get_current_staff()-first fallback chain works, not
-    just that it compiles."""
+    """The actual unified-login proof: a staff JWT authenticates
+    successfully against /api/doctor/* -- confirming _require_doctor()'s
+    get_current_staff() check works, not just that it compiles."""
     doctor_id = _make_doctor_staff_user(hospital_id, "Dr. Unified Two", "unified.two@example.com")
     _book(hospital_id, doctor_id, "5490003333")
     token = _staff_login("unified.two@example.com", "hunter22")["access_token"]

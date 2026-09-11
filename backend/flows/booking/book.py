@@ -250,7 +250,7 @@ async def _start_booking_for_preselected_type(
         return
     new_context = {
         "active_patient_id": active_patient["id"], "patient_name": active_patient["name"],
-        "patient_age": active_patient["age"],
+        "patient_date_of_birth": active_patient["date_of_birth"],
         "appointment_type_id": appt_type["id"],
         "appointment_type_label": appt_type["label"],
         "appointment_type_requires_consent": appt_type["requires_consent"],
@@ -334,7 +334,7 @@ async def _handle_awaiting_department(
             # Bug fix (Section 3.3 "Go back" follow-up): this branch used to
             # build new_context from scratch with no **context spread, unlike
             # every other handler below -- silently dropping _history/
-            # patient_name/patient_age if a patient reached here via the
+            # patient_name/patient_date_of_birth if a patient reached here via the
             # confirmation screen's "change department" path. Explicit
             # carry-forward instead of a blanket spread, since department_id/
             # name from the OLD pick must NOT survive a fresh department pick.
@@ -618,7 +618,7 @@ async def _create_booking_and_notify(
                 procedure_id=procedure_id,
                 scheduled_at=scheduled_at,
                 patient_name=context.get("patient_name"),
-                patient_age=context.get("patient_age"),
+                patient_date_of_birth=context.get("patient_date_of_birth"),
                 patient_id=context.get("active_patient_id"),
                 procedure_order_reference=context.get("procedure_order_reference"),
             )
@@ -630,7 +630,7 @@ async def _create_booking_and_notify(
                 doctor_id=context.get("doctor_id"),
                 scheduled_at=scheduled_at,
                 patient_name=context.get("patient_name"),
-                patient_age=context.get("patient_age"),
+                patient_date_of_birth=context.get("patient_date_of_birth"),
                 patient_id=context.get("active_patient_id"),
                 appointment_type_id=context.get("appointment_type_id"),
                 consent_given_at=consent_given_at,

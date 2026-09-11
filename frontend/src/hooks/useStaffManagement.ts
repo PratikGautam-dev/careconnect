@@ -4,28 +4,44 @@ import { staffFetch, type StaffRole } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 
-export type StaffMember = { id: number; name: string; email: string; role: StaffRole; is_active: boolean };
-export type Doctor = { id: string; name: string };
+export type AttendanceStatus = "present" | "on_leave" | "half_day";
+export type Shift = "day" | "evening" | "night";
 
-/** Loads + owns every mutation on /portal/settings/staff: the staff list,
- * the linked-doctor picker, create-staff-member form state, and the
- * active/inactive toggle. */
+// Matches portal/routes/staff.py's _staff_row() -- department_id/
+// department_name/reports_to_id/reports_to_name/phone/address/shift/
+// attendance_status/created_at were all mocked client-side before; they're
+// now real staff_details/identities columns (migration 20260911174439).
+// Leave balance/leave workflow are NOT part of this -- still unbuilt,
+// see StaffDetailPanel's own note.
+export type StaffMember = {
+  id: number;
+  name: string;
+  email: string;
+  role: StaffRole;
+  doctor_id: string | null;
+  is_active: boolean;
+  created_at: string | null;
+  phone: string | null;
+  address: string | null;
+  shift: Shift | null;
+  attendance_status: AttendanceStatus;
+  department_id: string | null;
+  department_name: string | null;
+  reports_to_id: number | null;
+  reports_to_name: string | null;
+};
+
+/** Loads + owns every mutation on /portal/settings/staff EXCEPT creating a
+ * new staff member -- that form now lives in its own reusable
+ * AddStaffDialog/useAddStaff, since it's also opened from the dashboard's
+ * Quick Actions, not just this page. This hook keeps the staff list, the
+ * active/inactive toggle, and the reset-password dialog. */
 export function useStaffManagement(canView: boolean) {
   const router = useRouter();
 
   const [staff, setStaff] = useState<StaffMember[] | null>(null);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
-
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<StaffRole>("receptionist");
-  const [doctorId, setDoctorId] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const [resetPasswordTarget, setResetPasswordTarget] = useState<StaffMember | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -43,64 +59,10 @@ export function useStaffManagement(canView: boolean) {
     setStaff(result.data as StaffMember[]);
   }, [router]);
 
-  const loadDoctors = useCallback(async () => {
-    // Reuses the same doctor-list endpoint the Doctors page already fetches
-    // from, so a "doctor" staff row can be linked to an existing doctor
-    // record instead of duplicating name/specialization entry here.
-    const result = await staffFetch("/api/portal/doctors");
-    if (!result.ok) return;
-    const data = result.data as { doctors: Doctor[] };
-    setDoctors(data.doctors || []);
-  }, []);
-
   useEffect(() => {
     if (!canView) return;
     load();
-    loadDoctors();
-  }, [canView, load, loadDoctors]);
-
-  function toggleForm() {
-    setShowForm((v) => !v);
-    setFormError(null);
-  }
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (role === "doctor" && !doctorId) {
-      setFormError("Select which doctor this login belongs to.");
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    const result = await staffFetch("/api/portal/staff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        email,
-        password,
-        role,
-        doctor_id: role === "doctor" ? doctorId : undefined,
-      }),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setFormError(result.error);
-        toast.error("Couldn't create staff member", result.error);
-      }
-      return;
-    }
-    toast.success("Staff member created");
-    setName("");
-    setEmail("");
-    setPassword("");
-    setRole("receptionist");
-    setDoctorId("");
-    setShowForm(false);
-    load();
-  }
+  }, [canView, load]);
 
   async function handleToggleActive(member: StaffMember) {
     setTogglingId(member.id);
@@ -117,6 +79,21 @@ export function useStaffManagement(canView: boolean) {
       router.push("/portal/login");
     } else {
       toast.error("Couldn't update staff member", result.error);
+    }
+  }
+
+  async function handleSetAttendance(member: StaffMember, attendanceStatus: AttendanceStatus) {
+    const result = await staffFetch(`/api/portal/staff/${member.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attendance_status: attendanceStatus }),
+    });
+    if (result.ok) {
+      load();
+    } else if (result.unauthorized) {
+      router.push("/portal/login");
+    } else {
+      toast.error("Couldn't update attendance status", result.error);
     }
   }
 
@@ -163,11 +140,8 @@ export function useStaffManagement(canView: boolean) {
   }
 
   return {
-    staff, doctors, error, togglingId,
-    showForm, toggleForm,
-    name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
-    formError, saving,
-    handleCreate, handleToggleActive,
+    staff, error, togglingId, load,
+    handleToggleActive, handleSetAttendance,
     resetPasswordTarget, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
     resetErrors, resetting, openResetPassword, closeResetPassword, handleResetPassword,
   };

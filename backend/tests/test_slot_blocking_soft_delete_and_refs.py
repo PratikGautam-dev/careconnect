@@ -39,7 +39,7 @@ def test_cannot_block_a_slot_with_a_real_booking(hospital_id):
     slot = db.get_slots(hospital_id, doctor_id)[0]
     db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(slot["id"]),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth=34,
     )
 
     ok = db.set_slot_blocked(hospital_id, doctor_id, slot["id"], True)
@@ -57,7 +57,7 @@ def test_soft_delete_appointment_requires_non_booked_status(hospital_id):
     slot = db.get_slots(hospital_id, doctor_id)[0]
     appt = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(slot["id"]),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth=34,
     )
 
     # Still 'booked' -- refused.
@@ -136,11 +136,11 @@ def test_total_bookings_count_unaffected_by_status_or_soft_delete(hospital_id, s
 
     a = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(slots[0]["id"]),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth=34,
     )
     b = db.create_appointment(
         hospital_id, "5490009999", "cardiology", doctor_id, datetime.fromisoformat(slots[1]["id"]),
-        patient_name="Someone Else", patient_age=50,
+        patient_name="Someone Else", patient_date_of_birth=50,
     )
     assert db.get_total_bookings_count() == before + 2
 
@@ -154,7 +154,7 @@ def test_total_bookings_count_unaffected_by_status_or_soft_delete(hospital_id, s
     t2_slot = db.get_slots(second_hospital_id, t2_doctor_id)[0]
     db.create_appointment(
         second_hospital_id, PHONE, "t2_neurology", t2_doctor_id, datetime.fromisoformat(t2_slot["id"]),
-        patient_name="Cross Tenant", patient_age=40,
+        patient_name="Cross Tenant", patient_date_of_birth=40,
     )
     assert db.get_total_bookings_count() == before + 3
 
@@ -167,11 +167,11 @@ def test_reference_id_format_and_per_hospital_daily_sequence(hospital_id, second
 
     first = db.create_appointment(
         hospital_id, PHONE, "cardiology", doctor_id, datetime.fromisoformat(slots[0]["id"]),
-        patient_name="Ravi Kumar", patient_age=34,
+        patient_name="Ravi Kumar", patient_date_of_birth=34,
     )
     second = db.create_appointment(
         hospital_id, "5490009999", "cardiology", doctor_id, datetime.fromisoformat(slots[1]["id"]),
-        patient_name="Someone Else", patient_age=50,
+        patient_name="Someone Else", patient_date_of_birth=50,
     )
     # Item 2 follow-up (Spec.md Section 0): date part switched from a
     # month-abbreviation (DDMMMYY) to fully numeric DDMMYY, confirmed with
@@ -186,7 +186,7 @@ def test_reference_id_format_and_per_hospital_daily_sequence(hospital_id, second
     t2_slot = db.get_slots(second_hospital_id, t2_doctor_id)[0]
     t2_appt = db.create_appointment(
         second_hospital_id, PHONE, "t2_neurology", t2_doctor_id, datetime.fromisoformat(t2_slot["id"]),
-        patient_name="Cross Tenant", patient_age=40,
+        patient_name="Cross Tenant", patient_date_of_birth=40,
     )
     t2_seq = int(t2_appt.reference_id.rsplit("-", 1)[1])
     assert t2_seq == 1

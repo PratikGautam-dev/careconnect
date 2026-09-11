@@ -5,6 +5,12 @@ import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
 export type Department = { id: string; name: string };
+// login_staff_id/login_email/login_active come from an outer join to
+// staff_details/identities (db.get_all_doctors_for_hospital()) -- all three
+// are null when this doctor has no staff login yet. Replaces the old
+// dedicated doctors.email/password_hash columns (dropped, migration
+// 20260911190251) -- a doctor's login now always goes through the unified
+// staff login (Staff page or this page's own "Create login" action).
 export type Doctor = {
   id: string;
   department_id: string;
@@ -14,9 +20,17 @@ export type Doctor = {
   is_active: boolean;
   qualification: string | null;
   years_experience: number | null;
-  email: string | null;
   working_days: string[];
   working_hours: string[];
+  // Migration 20260911190007: phone/employee_id are mandatory (confirmed
+  // with the user, alongside specialization/qualification above); location
+  // stays optional.
+  phone: string;
+  employee_id: string;
+  location: string | null;
+  login_staff_id: number | null;
+  login_email: string | null;
+  login_active: boolean | null;
 };
 
 /** Loads + owns every mutation on the /portal/doctors page: department
@@ -139,6 +153,9 @@ export function useDoctors(ready: boolean) {
         walkin_quota: doctorForm.walkin_quota,
         followup_duration_minutes: doctorForm.followup_duration_minutes,
         effective_from: doctorForm.effective_from,
+        phone: doctorForm.phone,
+        employee_id: doctorForm.employee_id,
+        location: doctorForm.location,
       }),
     });
     setSavingDoctor(false);
@@ -199,6 +216,9 @@ export function useDoctors(ready: boolean) {
       walkin_quota: full.walkin_quota != null ? String(full.walkin_quota) : "",
       followup_duration_minutes: full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
       effective_from: (full.effective_from as string) || "",
+      phone: (full.phone as string) || "",
+      employee_id: (full.employee_id as string) || "",
+      location: (full.location as string) || "",
     });
     setEditingDoctorId(doc.id);
     setDoctorErrors([]);
