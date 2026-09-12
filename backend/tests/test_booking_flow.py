@@ -655,6 +655,44 @@ async def test_free_text_in_awaiting_department_reprompts_same_state(hospital_id
 
 
 @pytest.mark.asyncio
+async def test_deactivated_department_is_excluded_from_the_whatsapp_department_menu(hospital_id):
+    """Settings -> Departments' real is_active/show_on_frontend/
+    whatsapp_booking_enabled fields (migration 20260912141027) must
+    actually filter the WhatsApp department picker (db.get_departments,
+    read here via connector.get_departments), not just exist in the
+    schema -- see test_departments_api.py for the portal-route-level
+    coverage of the same fields."""
+    db.set_department_active(hospital_id, "cardiology", False)
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_DEPARTMENT", {})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Cardiology please"))
+
+    row_ids = _row_ids(_last_list(wa))
+    assert "cardiology" not in row_ids
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_booking_disabled_department_is_excluded_from_the_menu_without_deactivating(hospital_id):
+    """Same as above, but via the visibility flag rather than the whole
+    department's active status -- both are real, independent gates on the
+    same query."""
+    db.set_department_visibility(
+        hospital_id, "cardiology",
+        show_on_frontend=True, online_booking_enabled=True, whatsapp_booking_enabled=False,
+    )
+    wa = FakeWhatsAppClient()
+    sessions = InMemorySessionStore()
+    sessions.set(hospital_id, PHONE, "AWAITING_DEPARTMENT", {})
+
+    await handle_incoming(wa, sessions, PHONE, hospital_id, text_reply("Cardiology please"))
+
+    row_ids = _row_ids(_last_list(wa))
+    assert "cardiology" not in row_ids
+
+
+@pytest.mark.asyncio
 async def test_unrecognized_tap_id_in_awaiting_doctor_reprompts_same_state(hospital_id):
     """Item 8: re-sends the real doctor list directly -- no separate generic
     "please choose" text first."""

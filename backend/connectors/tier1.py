@@ -96,6 +96,9 @@ class Tier1Connector(Connector):
     def get_departments(self, hospital_id):
         return repo.get_departments(hospital_id)
 
+    def get_all_departments(self, hospital_id):
+        return repo.get_all_departments_for_hospital(hospital_id)
+
     def get_doctors(self, hospital_id, department_id):
         return repo.get_doctors(hospital_id, department_id)
 

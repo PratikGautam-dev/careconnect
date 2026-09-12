@@ -17,6 +17,7 @@ from typing import cast
 
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import aliased
 
 from db.connection import get_session
 from db.orm_models import Department, DoctorLeave, DoctorRow, Identity, StaffDetail
@@ -38,11 +39,90 @@ def invalidate_doctor_slots_cache(hospital_id: int, doctor_id: str) -> None:
 # --- Departments / doctors ---
 
 def get_departments(hospital_id: int) -> list[dict]:
+    """The connector interface's own get_departments() (Section 12.6.2) --
+    the WhatsApp bot's booking flow reads the department picker menu through
+    this one function (connectors/tier1.py -> here), so filtering to
+    is_active/show_on_frontend/whatsapp_booking_enabled here is the single
+    enforcement point for "staff hid/deactivated this department" everywhere
+    a patient could actually book, not just one call site. The portal's own
+    department MANAGEMENT list uses get_all_departments_for_hospital()
+    instead, which intentionally still shows hidden/inactive departments so
+    staff can toggle them back on -- same is_active split as
+    get_doctors()/get_all_doctors_for_hospital() above."""
     session = get_session()
     rows = session.execute(
-        select(Department.id, Department.name).where(Department.hospital_id == hospital_id).order_by(Department.name)
+        select(Department.id, Department.name)
+        .where(
+            Department.hospital_id == hospital_id, Department.is_active.is_(True),
+            Department.show_on_frontend.is_(True), Department.whatsapp_booking_enabled.is_(True),
+        )
+        .order_by(Department.name)
     ).all()
     return [dict(r._mapping) for r in rows]
+
+
+def get_all_departments_for_hospital(hospital_id: int) -> list[dict]:
+    """Every department at this hospital, active or not, hidden or not --
+    Settings -> Departments' own management list (deliberately NOT filtered
+    the way get_departments() above is, same reasoning as
+    get_all_doctors_for_hospital()). Carries the full profile plus two
+    real, correlated-subquery counts (doctor_count from `doctors`,
+    support_staff_count from `staff_details` -- already exclusively
+    non-doctor rows there, enforced by ck_staff_details_department_doctor_
+    role) and the head doctor's own name/qualification/phone/email via an
+    outer join (None when head_doctor_id is unset). "Email" is the head
+    doctor's own portal-login email (identities.email via staff_details --
+    doctors.email was dropped in migration 20260911190251, every doctor
+    login now goes through the unified staff login), so it's None for a
+    head doctor with no portal login of their own, same as
+    get_all_doctors_for_hospital()'s own login_email column."""
+    session = get_session()
+    head_doctor = aliased(DoctorRow)
+    head_doctor_staff = aliased(StaffDetail)
+    head_doctor_identity = aliased(Identity)
+    doctor_count = (
+        select(func.count(DoctorRow.id))
+        .where(DoctorRow.department_id == Department.id, DoctorRow.hospital_id == hospital_id)
+        .correlate(Department)
+        .scalar_subquery()
+    )
+    support_staff_count = (
+        select(func.count(StaffDetail.identity_id))
+        .where(StaffDetail.department_id == Department.id, StaffDetail.hospital_id == hospital_id)
+        .correlate(Department)
+        .scalar_subquery()
+    )
+    rows = session.execute(
+        select(
+            Department.id, Department.name, Department.floor_wing, Department.consultation_hours,
+            Department.description, Department.is_active, Department.show_on_frontend,
+            Department.online_booking_enabled, Department.whatsapp_booking_enabled,
+            Department.head_doctor_id,
+            head_doctor.name.label("head_doctor_name"), head_doctor.qualification.label("head_doctor_qualification"),
+            head_doctor.phone.label("head_doctor_phone"),
+            head_doctor_identity.email.label("head_doctor_email"),
+            doctor_count.label("doctor_count"), support_staff_count.label("support_staff_count"),
+        )
+        .outerjoin(head_doctor, head_doctor.id == Department.head_doctor_id)
+        .outerjoin(head_doctor_staff, head_doctor_staff.doctor_id == head_doctor.id)
+        .outerjoin(head_doctor_identity, head_doctor_identity.id == head_doctor_staff.identity_id)
+        .where(Department.hospital_id == hospital_id)
+        .order_by(Department.name)
+    ).all()
+    departments = []
+    for r in rows:
+        d = dict(r._mapping)
+        head_doctor_id = d.pop("head_doctor_id")
+        name = d.pop("head_doctor_name")
+        qualification = d.pop("head_doctor_qualification")
+        phone = d.pop("head_doctor_phone")
+        email = d.pop("head_doctor_email")
+        d["head_doctor"] = (
+            {"id": head_doctor_id, "name": name, "qualification": qualification, "phone": phone, "email": email}
+            if head_doctor_id else None
+        )
+        departments.append(d)
+    return departments
 
 
 def find_department(hospital_id: int, department_id: str) -> dict | None:
@@ -81,17 +161,87 @@ def find_doctor(hospital_id: int, department_id: str, doctor_id: str) -> dict | 
     return dict(row._mapping) if row else None
 
 
-def create_department(hospital_id: int, name: str) -> dict:
+def create_department(
+    hospital_id: int, name: str,
+    floor_wing: str | None = None, consultation_hours: str | None = None,
+    description: str | None = None, head_doctor_id: str | None = None,
+) -> dict:
     """id is a UUID-derived opaque string (not a slug of `name`), scoped by an
     h{hospital_id}_ prefix -- avoids both the collision risk of slugifying
     arbitrary user-entered text and the known Tier 1 limitation that
     departments.id is globally unique, not (hospital_id, id) composite-unique
-    (db/schema.sql's comment on that table)."""
+    (db/schema.sql's comment on that table). Profile fields are all optional
+    at creation (Settings -> Departments' Add Department dialog can fill
+    them in later via update_department()) -- is_active/show_on_frontend/
+    online_booking_enabled/whatsapp_booking_enabled all default true at the
+    DB level, same as every other department."""
     department_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
     session = get_session()
-    session.execute(insert(Department).values(id=department_id, hospital_id=hospital_id, name=name))
+    session.execute(insert(Department).values(
+        id=department_id, hospital_id=hospital_id, name=name,
+        floor_wing=floor_wing, consultation_hours=consultation_hours,
+        description=description, head_doctor_id=head_doctor_id,
+    ))
     session.commit()
     return {"id": department_id, "name": name}
+
+
+def update_department(
+    hospital_id: int, department_id: str, name: str,
+    floor_wing: str | None, consultation_hours: str | None,
+    description: str | None, head_doctor_id: str | None,
+) -> bool:
+    """Edit Department -- returns False if no matching department row
+    exists for this hospital, True on a real update, same contract as
+    set_doctor_active()/update_doctor() above."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(Department).where(Department.hospital_id == hospital_id, Department.id == department_id).values(
+            name=name, floor_wing=floor_wing, consultation_hours=consultation_hours,
+            description=description, head_doctor_id=head_doctor_id,
+        )
+    ))
+    session.commit()
+    return result.rowcount > 0
+
+
+def set_department_active(hospital_id: int, department_id: str, is_active: bool) -> bool:
+    """Deactivate/Activate Department quick action -- same contract as
+    set_doctor_active() above. Deactivating does NOT clear show_on_frontend/
+    whatsapp_booking_enabled -- get_departments() already ANDs is_active in,
+    so a deactivated department is hidden from the WhatsApp picker
+    regardless of those two flags' own state, and re-activating restores
+    whatever visibility it had before without the staff needing to re-set
+    it."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(Department).where(Department.hospital_id == hospital_id, Department.id == department_id)
+        .values(is_active=is_active)
+    ))
+    session.commit()
+    return result.rowcount > 0
+
+
+def set_department_visibility(
+    hospital_id: int, department_id: str,
+    show_on_frontend: bool, online_booking_enabled: bool, whatsapp_booking_enabled: bool,
+) -> bool:
+    """The Department Details panel's "Patient-Facing Availability" toggles.
+    show_on_frontend/whatsapp_booking_enabled both feed directly into
+    get_departments()'s filter (the WhatsApp department picker, this app's
+    one real patient channel) -- online_booking_enabled is stored/returned
+    but not read by get_departments() or anywhere else yet, since no
+    separate online booking channel exists in this codebase to gate
+    (confirmed with the user; forward-compatible schema, not dead code)."""
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(Department).where(Department.hospital_id == hospital_id, Department.id == department_id).values(
+            show_on_frontend=show_on_frontend, online_booking_enabled=online_booking_enabled,
+            whatsapp_booking_enabled=whatsapp_booking_enabled,
+        )
+    ))
+    session.commit()
+    return result.rowcount > 0
 
 
 def create_doctor(

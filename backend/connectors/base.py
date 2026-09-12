@@ -81,8 +81,16 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def get_appointment_types(self, hospital_id: int) -> list[dict]: ...
 
+    # Patient-facing (WhatsApp department picker) -- excludes a department
+    # a staff member deactivated or hid from patients. get_all_departments
+    # below is the staff-portal sibling (new-booking context, etc.), which
+    # must still see a hidden/inactive department so staff can still book
+    # into or re-enable it.
     @abc.abstractmethod
     def get_departments(self, hospital_id: int) -> list[dict]: ...
+
+    @abc.abstractmethod
+    def get_all_departments(self, hospital_id: int) -> list[dict]: ...
 
     @abc.abstractmethod
     def get_doctors(self, hospital_id: int, department_id: str) -> list[dict]: ...
@@ -330,6 +338,9 @@ class _UnimplementedTierConnector(Connector):
 
     def get_departments(self, hospital_id):
         self._not_implemented("get_departments")
+
+    def get_all_departments(self, hospital_id):
+        self._not_implemented("get_all_departments")
 
     def get_doctors(self, hospital_id, department_id):
         self._not_implemented("get_doctors")

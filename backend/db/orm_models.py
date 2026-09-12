@@ -349,12 +349,29 @@ class DoctorSlotOverride(Base):
 class Department(Base):
     """db/schema.sql's departments table. id is a caller-generated opaque
     string (h{hospital_id}_{uuid}), not a DB-assigned SERIAL -- see
-    create_department()'s own docstring."""
+    create_department()'s own docstring.
+
+    Migration 20260912141027 (Settings -> Departments tab): floor_wing/
+    consultation_hours/description/head_doctor_id are the profile fields;
+    is_active is the internal status; show_on_frontend/
+    whatsapp_booking_enabled both gate the one real patient channel this
+    app has (the WhatsApp department picker -- see get_departments());
+    online_booking_enabled is stored/toggleable only, since no separate
+    online booking channel exists anywhere in this codebase yet to enforce
+    it in (confirmed with the user, not an oversight)."""
     __tablename__ = "departments"
 
     id: Mapped[str] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     name: Mapped[str]
+    floor_wing: Mapped[str | None]
+    consultation_hours: Mapped[str | None]
+    description: Mapped[str | None]
+    head_doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id", ondelete="SET NULL"))
+    is_active: Mapped[bool]
+    show_on_frontend: Mapped[bool]
+    online_booking_enabled: Mapped[bool]
+    whatsapp_booking_enabled: Mapped[bool]
 
 
 class DoctorRow(Base):

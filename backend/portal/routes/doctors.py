@@ -28,32 +28,19 @@ async def portal_doctors(authorization: str | None = Header(default=None)):
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    departments = db.get_departments(hospital.id)
+    # NOT db.get_departments() -- that one now excludes hidden/inactive
+    # departments (it feeds the WhatsApp patient-facing picker only, see its
+    # own docstring). This bundled list feeds the Doctors page's own
+    # department list AND the Add/Edit Doctor form's department picker, both
+    # staff-facing -- a department a staff member hid from patients must
+    # still show up here so a doctor can still be assigned to it.
+    departments = [{"id": d["id"], "name": d["name"]} for d in db.get_all_departments_for_hospital(hospital.id)]
     doctors = db.get_all_doctors_for_hospital(hospital.id)
     on_leave_today_count = db.get_doctors_on_leave_today_count(hospital.id)
     leave_usage = db.get_leave_usage_by_identity(hospital.id)
     leave_policy = db.get_leave_policy(hospital.id)
     doctors = [_with_leave_balance(d, leave_usage, leave_policy) for d in doctors]
     return JSONResponse({"departments": departments, "doctors": doctors, "on_leave_today_count": on_leave_today_count})
-
-
-@router.post("/api/portal/departments")
-async def portal_create_department(payload: dict, authorization: str | None = Header(default=None)):
-    hospital = _authenticate(authorization)
-    if hospital is None:
-        return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    forbidden = require_capability(hospital, "manage_departments")
-    if forbidden:
-        return forbidden
-    name = (payload or {}).get("name", "").strip()
-    if not name:
-        return JSONResponse({"error": "Department name is required."}, status_code=400)
-    department = db.create_department(hospital.id, name)
-    db.record_audit_log(
-        "portal", hospital.id, "tenant portal", "department.create",
-        entity_type="department", entity_id=department["id"], after={"name": name},
-    )
-    return JSONResponse({"department": department})
 
 
 class DoctorPayload(BaseModel):
@@ -365,7 +352,11 @@ async def portal_csv_import_doctors(
     if forbidden:
         return forbidden
 
-    existing_departments = {d["name"].strip().lower(): d["id"] for d in db.get_departments(hospital.id)}
+    # Not db.get_departments() -- see the /api/portal/doctors handler above
+    # for why the CSV import needs every department, hidden/inactive or not
+    # (otherwise importing into a hidden department would create a
+    # duplicate instead of finding the existing one by name).
+    existing_departments = {d["name"].strip().lower(): d["id"] for d in db.get_all_departments_for_hospital(hospital.id)}
     created_count = 0
     row_errors: list[str] = []
 

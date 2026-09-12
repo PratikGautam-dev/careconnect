@@ -8,6 +8,7 @@ from portal.routes.appointment_types import router as appointment_types_router
 from portal.routes.auth import router as auth_router
 from portal.routes.bookings import router as bookings_router
 from portal.routes.dashboard import router as dashboard_router
+from portal.routes.departments import router as departments_router
 from portal.routes.diagnostic_tests import router as diagnostic_tests_router
 from portal.routes.doctor_portal import router as doctor_portal_router
 from portal.routes.doctors import router as doctors_router
@@ -29,6 +30,7 @@ router.include_router(patients_router)
 router.include_router(documents_router)
 router.include_router(bookings_router)
 router.include_router(doctors_router)
+router.include_router(departments_router)
 router.include_router(appointment_types_router)
 router.include_router(procedures_router)
 router.include_router(diagnostic_tests_router)

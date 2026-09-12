@@ -194,10 +194,29 @@ ALTER TABLE hospitals ADD CONSTRAINT hospitals_session_timeout_minutes_check
 -- composite-unique, so two hospitals can't both have an id="cardiology" row yet.
 -- Fine for the single hospital Tier 1 actually runs today; revisit before a
 -- second hospital is onboarded (Phase 9, Section 12.4).
+-- floor_wing/consultation_hours/description/head_doctor_id are the
+-- Settings -> Departments profile fields; is_active is the internal
+-- status; show_on_frontend/whatsapp_booking_enabled both gate the one
+-- real patient channel this app has (the WhatsApp department picker, see
+-- db.get_departments()); online_booking_enabled is stored/toggleable only
+-- -- no separate online booking channel exists yet to enforce it in
+-- (migration 20260912141027).
 CREATE TABLE IF NOT EXISTS departments (
     id TEXT PRIMARY KEY,
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    floor_wing TEXT,
+    consultation_hours TEXT,
+    description TEXT,
+    -- No inline REFERENCES here: doctors (below) itself references
+    -- departments, so the FK for this column is added via ALTER TABLE
+    -- right after the doctors table is created instead, to avoid a
+    -- forward reference to a table that doesn't exist yet in this file.
+    head_doctor_id TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    show_on_frontend BOOLEAN NOT NULL DEFAULT TRUE,
+    online_booking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    whatsapp_booking_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- specialization/qualification/years_experience are display-only. working_days
@@ -284,6 +303,16 @@ CREATE TABLE IF NOT EXISTS doctors (
     employee_id TEXT NOT NULL DEFAULT '',
     location TEXT
 );
+
+-- Deferred FK for departments.head_doctor_id (see that column's own
+-- comment above) -- doctors must exist first, so this can't be inline on
+-- the departments table above. DROP+ADD (not a bare ADD) so re-running
+-- this file against an already-initialized DB stays idempotent, same
+-- pattern as ck_staff_details_department_doctor_role below.
+ALTER TABLE departments DROP CONSTRAINT IF EXISTS departments_head_doctor_id_fkey;
+ALTER TABLE departments
+    ADD CONSTRAINT departments_head_doctor_id_fkey
+    FOREIGN KEY (head_doctor_id) REFERENCES doctors(id) ON DELETE SET NULL;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT '';
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS max_bookings_per_slot INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS daily_booking_limit INTEGER;

@@ -1501,6 +1501,27 @@ def init_db_on_connection(conn) -> int:
     conn.execute(
         "ALTER TABLE leave_requests ADD CONSTRAINT ck_leave_requests_date_order CHECK (to_date >= from_date)"
     )
+    # Migration 20260912141027: Settings -> Departments tab -- departments
+    # gains a profile (floor_wing/consultation_hours/description/
+    # head_doctor_id), an internal is_active status, and three patient-
+    # facing visibility flags. show_on_frontend/whatsapp_booking_enabled
+    # both gate the one real patient channel this app has (the WhatsApp
+    # department picker, see db.get_departments()); online_booking_enabled
+    # is stored/toggleable only -- no separate online booking channel
+    # exists yet to enforce it in (confirmed with the user). All four
+    # booleans default true so an existing department stays exactly as
+    # visible/bookable as it always was.
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS floor_wing TEXT")
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS consultation_hours TEXT")
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS description TEXT")
+    conn.execute(
+        "ALTER TABLE departments ADD COLUMN IF NOT EXISTS head_doctor_id TEXT "
+        "REFERENCES doctors(id) ON DELETE SET NULL"
+    )
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS show_on_frontend BOOLEAN NOT NULL DEFAULT TRUE")
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS online_booking_enabled BOOLEAN NOT NULL DEFAULT TRUE")
+    conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS whatsapp_booking_enabled BOOLEAN NOT NULL DEFAULT TRUE")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

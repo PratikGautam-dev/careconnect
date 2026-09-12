@@ -444,6 +444,190 @@ with lab-status advancement).
   action entirely for a Diagnostics/Lab/Daycare-type visit instead of
   offering something that always fails.
 
+## Settings
+
+`frontend/src/app/portal/settings/page.tsx`
+
+Being rebuilt tab-by-tab against a reference mockup (segmented tabs:
+General / Hospital Profile / Departments / Notifications / Integrations /
+Security) — one screenshot per tab, General first. The previous single-page
+real settings form is preserved untouched at `_reference/legacy-general-
+settings-page.tsx` (a `_`-prefixed, unrouted folder) so nothing is lost
+while each of its pieces finds a new home across these tabs.
+
+### General tab — Wired
+
+- **Advance Booking Limit** = real `future_booking_days`
+  (`usePortalSettings`, 1–90 days).
+- **Session Timeout** = real `session_timeout_minutes` (`usePortalSettings`,
+  2–120 minutes).
+- **Language** = real `default_language` (English/Hindi), plus a real
+  **"Ask patients to choose a language"** toggle = `language_prompt_enabled`
+  — both in the Hospital Information card now, not just the Appointment
+  Settings/Security cards.
+- **Business Hours** = real `business_hours_text` — added to Hospital
+  Information (wasn't in the mockup as its own field, but fit naturally
+  alongside Address/Phone/Email rather than needing its own tab).
+- All four load/save through the same `/api/portal/settings` the legacy
+  form used — Save Changes submits the real settings object (just these
+  fields changed here), with the hook's own inline error/saved state shown
+  next to the button. The two dropdowns' (Advance Booking Limit, Session
+  Timeout) preset options are widened to include whatever value is actually
+  stored, so a non-preset real value never mismatches the `<select>`.
+
+### General tab — Mock (no backend concept yet)
+
+- **Hospital Information**: Address, Phone Number, Email Address, Timezone,
+  Date Format — none of these exist on `hospital_settings`/`hospitals`.
+  **Hospital Name** is editable here; the legacy page makes it read-only
+  ("tied to your Meta WhatsApp connection") — worth matching once this is
+  wired, not free text. (Language, the language-prompt toggle, and Business
+  Hours in this same card are real now — see Wired above.)
+- **Hospital Branding** — logo upload (local `FileReader` preview only, not
+  persisted), primary/secondary color, tagline: no branding concept exists
+  anywhere in this schema.
+- **WhatsApp Configuration** — enable toggle, business number, API key,
+  connection status/Test Connection: no such config surface exists (the
+  WhatsApp Business API credentials live in infra config, not app DB).
+- **Appointment Settings** — Default Duration, Buffer Time, Maximum
+  Appointments/Day, Allow Online Appointments, Require Appointment Approval,
+  Send Appointment Reminders: none of these are real (Advance Booking Limit,
+  above, is the one exception).
+- **Notification Preferences** (all 6 toggles) — none are real; the closest
+  existing concept is `reminder_offsets_hours`/`reminder_template_name`
+  (configurable timing, not an on/off toggle).
+- **Security & Session Settings** — Password Expiry, Require 2FA, Enforce
+  Strong Password Policy, Allow Multiple Sessions, Log User Activities: none
+  exist (Session Timeout, above, is the one exception).
+
+### Real settings not yet placed in any new tab (still only in the legacy reference page)
+
+- Welcome message text, Closing/thank-you message, Privacy notice text —
+  real (`hospital_settings`); bot messaging content, not "info about your
+  hospital," so no natural fit in Hospital Information (unlike Business
+  Hours and Language/language-prompt, both now wired there — see above).
+- Handoff auto-resolve hours, Require explicit patient confirmation — real.
+- Follow-up appointments: eligibility window (days), follow-up fee, new
+  consultation fee, home sample collection charge — real; doesn't appear
+  anywhere in the new mockup yet.
+- **Google Calendar connection** (`GoogleCalendarCard`) — real; likely
+  belongs under a future **Integrations** tab.
+- **Appointment type toggles** (`AppointmentTypeToggles`) — real; likely
+  **Departments** (or a dedicated services tab not in the current 6).
+- **Diagnostic tests manager** (`DiagnosticTestsManager`) — real; likely
+  **Departments**.
+- **Leave policy manager** (`LeavePolicyManager`) — real; unclear fit yet,
+  maybe **Hospital Profile**.
+- **Lab service areas manager** (`LabServiceAreasManager`) — real; likely
+  **Departments**.
+
+### Hospital Profile tab — Wired
+
+- **Hospital Name** — real, read straight from the already-loaded
+  `hospital.name` prop (`usePortalGuard`), disabled with the same "contact
+  the platform team" hint as the legacy page and General tab's Hospital
+  Information card. Not part of this tab's own mock state, so there's no
+  third, independently-editable copy of it anywhere.
+
+### Hospital Profile tab — Mock (no backend concept yet)
+
+Everything else on this tab is local mock state
+(`hospital-profile-mock.ts`) — none of it exists on `hospital_settings`/
+`hospitals`/anywhere else in this schema:
+
+- **Hospital Overview** — Short Name, Hospital Type, Established Year,
+  About Hospital (with a live character counter).
+- **Hospital Logo & Cover** — logo AND cover image, both local `FileReader`
+  previews only, not persisted (same non-persistence as General tab's own
+  logo upload).
+- **Registration & License Details** — registration/license numbers,
+  issuing authority, validity dates.
+- **Accreditation & Certifications** — accreditation body/number/validity.
+- **Contact Information** — Alternate Phone and Website are net-new mock
+  fields; Phone/Email/Address duplicate General tab's Hospital Information
+  card fields (also mock there) rather than sharing one source of truth —
+  matches the reference mockup, which shows Address in both places too, but
+  worth flagging: editing one does NOT update the other.
+- **Emergency Contact**, **Operating Hours**, **Bed Capacity** — no
+  equivalent concept anywhere in this app.
+- **Specialties & Services** — an editable chip list (add/remove); no
+  specialty/service catalog exists on a hospital record (doctors have their
+  own `specialization` field, unrelated to this).
+- **Branch / Campus Information** — a small local table; "+ Add Branch"
+  appends a mock row, editing a non-main-campus row is a stub ("isn't wired
+  to a backend yet" toast). No multi-branch/campus concept exists anywhere
+  — this app models one hospital per tenant.
+
+### Departments tab — fully real (by explicit request, not mocked)
+
+`frontend/src/app/portal/settings/_components/DepartmentsTab.tsx` /
+`frontend/src/hooks/useDepartments.ts` (`useDepartmentsAdmin`) / backend
+`portal/routes/departments.py`, migration `20260912141027`.
+
+Unlike General/Hospital Profile, this tab was built real end-to-end,
+confirmed with the user up front. `departments` was previously just
+`(id, hospital_id, name)` — this migration adds a profile (`floor_wing`,
+`consultation_hours`, `description`, `head_doctor_id`), an internal
+`is_active` status, and three patient-facing visibility flags.
+
+- **Stat tiles** (Total/Active Departments, Doctors/Support Staff
+  Assigned) — real, computed client-side from the loaded list. No
+  historical snapshot exists for a "+2 this month" delta (no `created_at`
+  on departments) — rendered as "Live count", same no-history treatment
+  Patients/Doctors already give their own cumulative tiles.
+- **Department Directory table** (search, status filter, numbered
+  pagination) and **Department Details** panel (Head of Department,
+  Floor/Wing, Consultation Hours, doctor/support-staff counts,
+  Description) — all real, via the new `GET /api/portal/departments`
+  (`get_all_departments_for_hospital`): doctor_count/support_staff_count
+  are correlated-subquery counts against `doctors`/`staff_details`
+  (support-staff rows there are already exclusively non-doctor, enforced
+  by the existing `ck_staff_details_department_doctor_role` CHECK), and
+  Head of Department is an outer join to `doctors` (+ `staff_details`/
+  `identities` for their portal-login email, same source
+  `get_all_doctors_for_hospital`'s own `login_email` uses — `doctors.email`
+  itself was dropped in migration `20260911190251`).
+- **Add/Edit Department**, **Deactivate/Activate** — real
+  (`POST`/`PATCH /api/portal/departments[/…]`, `.../active`), gated by the
+  existing `manage_departments` capability the original bare create route
+  already used.
+- **Patient-Facing Availability** (3 toggles, from the user's own separate
+  design note, not the original screenshot) — **`show_on_frontend`** and
+  **`whatsapp_booking_enabled`** are both real: they gate
+  `db.get_departments()`, the WhatsApp booking flow's one department-picker
+  query (`connector.get_departments()`, called throughout `flows/
+  booking/*.py`) — a hidden or deactivated department is confirmed (via
+  `tests/test_booking_flow.py`) to actually disappear from that menu.
+  **`online_booking_enabled`** is real (stored, toggleable, returned) but
+  **has no enforcement point of its own** — this app's only real
+  patient-facing channel is WhatsApp (confirmed: no separate web/online
+  booking route exists anywhere in this codebase), so there's nothing
+  else to gate yet. Flagged in its own hint text in the UI, not left
+  silently inert.
+- **Quick Actions — Assign Doctor / Manage Staff** — real, no new backend
+  needed: "Assign Doctor" fetches the doctor's full existing record first
+  (`GET /api/portal/doctors/{id}`) and resubmits it with `department_id`
+  changed (the update route fully re-validates/replaces every field, same
+  as the Doctors page's own edit form — a bare `{department_id}` PATCH
+  would have blanked out their specialization/qualification/hours).
+  "Manage Staff" is a true partial `PATCH /api/portal/staff/{id}`
+  (`department_id` only) — the staff route reads `model_fields_set`, so
+  this one genuinely doesn't need the fetch-full-record dance.
+- **Staff-facing call sites fixed to NOT use the new patient-only filter**:
+  `GET /api/portal/doctors`'s own bundled `departments` list (the Doctors
+  page's department list + Add/Edit Doctor's department picker), the CSV
+  doctor-import's existing-department lookup, and the staff portal's own
+  "new booking" context (`auth/session.py`, new `connector.
+  get_all_departments()`) — all three now call the unfiltered
+  `get_all_departments_for_hospital` instead of the newly-filtered
+  `get_departments`, so a department a staff member hid from WhatsApp
+  patients doesn't also silently disappear from staff's own tools.
+
+### Notifications / Integrations / Security tabs
+
+Not built yet — each renders a plain "share the reference screenshot to
+build it out" placeholder card until its own mockup arrives.
+
 ## Sidebar navigation
 
 `frontend/src/components/portal/PortalSidebar.tsx`

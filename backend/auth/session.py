@@ -79,7 +79,11 @@ def _build_new_booking_context(hospital) -> tuple[list[dict], dict, list[dict]]:
     at a time, via GET /api/portal/new-booking/slots?doctor_id=/?diagnostic_test_id=
     (portal_new_booking_slots() in bookings.py) instead."""
     connector = connectors.get_connector_for_hospital(hospital)
-    departments = connector.get_departments(hospital.id)
+    # get_all_departments (not get_departments) -- this builds the STAFF
+    # portal's own new-booking form context, which must still offer a
+    # department a staff member hid from the WhatsApp picker (they can
+    # still manually book a walk-in/phone patient into it).
+    departments = connector.get_all_departments(hospital.id)
     doctors_by_department = {dept["id"]: connector.get_doctors(hospital.id, dept["id"]) for dept in departments}
     resources = connector.get_diagnostic_test_summaries(hospital.id)
     return departments, doctors_by_department, resources
