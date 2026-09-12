@@ -1459,6 +1459,48 @@ def init_db_on_connection(conn) -> int:
     conn.execute("DROP INDEX IF EXISTS ux_doctors_email")
     conn.execute("ALTER TABLE doctors DROP COLUMN IF EXISTS password_hash")
     conn.execute("ALTER TABLE doctors DROP COLUMN IF EXISTS email")
+    # Migration 20260912065049: Leave Requests admin page -- hospitals gains
+    # the portal-admin-configurable annual leave policy (doctor/receptionist
+    # only, confirmed with the user), and leave_requests is the new
+    # pending/approved/rejected review queue. See that migration's own
+    # docstring for why identity_id, not staff_details, is the applicant FK.
+    conn.execute("ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS doctor_annual_leave_days INTEGER NOT NULL DEFAULT 20")
+    conn.execute("ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS staff_annual_leave_days INTEGER NOT NULL DEFAULT 30")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS leave_requests ("
+        "id SERIAL PRIMARY KEY, "
+        "hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "identity_id INTEGER NOT NULL REFERENCES identities(id), "
+        "leave_type TEXT NOT NULL, "
+        "from_date TEXT NOT NULL, "
+        "to_date TEXT NOT NULL, "
+        "reason TEXT, "
+        "status TEXT NOT NULL DEFAULT 'pending', "
+        "decided_by INTEGER REFERENCES identities(id), "
+        "decided_at TEXT, "
+        "created_at TEXT NOT NULL DEFAULT now()::text"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_leave_requests_hospital_id ON leave_requests(hospital_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_leave_requests_identity_id ON leave_requests(identity_id)"
+    )
+    conn.execute("ALTER TABLE leave_requests DROP CONSTRAINT IF EXISTS ck_leave_requests_leave_type")
+    conn.execute(
+        "ALTER TABLE leave_requests ADD CONSTRAINT ck_leave_requests_leave_type "
+        "CHECK (leave_type IN ('casual', 'sick', 'annual', 'maternity', 'conference', 'personal'))"
+    )
+    conn.execute("ALTER TABLE leave_requests DROP CONSTRAINT IF EXISTS ck_leave_requests_status")
+    conn.execute(
+        "ALTER TABLE leave_requests ADD CONSTRAINT ck_leave_requests_status "
+        "CHECK (status IN ('pending', 'approved', 'rejected'))"
+    )
+    conn.execute("ALTER TABLE leave_requests DROP CONSTRAINT IF EXISTS ck_leave_requests_date_order")
+    conn.execute(
+        "ALTER TABLE leave_requests ADD CONSTRAINT ck_leave_requests_date_order CHECK (to_date >= from_date)"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

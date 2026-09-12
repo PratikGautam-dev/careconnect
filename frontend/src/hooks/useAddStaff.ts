@@ -50,10 +50,11 @@ export function useAddStaff(
   }, []);
 
   const loadStaffOptions = useCallback(async () => {
-    // For the "Reports to" picker -- reuses the same list the Staff page's
-    // own table renders, so a brand-new hire can be assigned a manager who
-    // already exists.
-    const result = await staffFetch("/api/portal/staff");
+    // For the "Reports to" picker -- GET /api/portal/staff/options, not the
+    // Staff page's own GET /api/portal/staff (that one excludes doctors
+    // from its directory; this picker still needs to offer a doctor as a
+    // valid manager).
+    const result = await staffFetch("/api/portal/staff/options");
     if (!result.ok) return;
     setStaffOptions((result.data as StaffOption[]) || []);
   }, []);

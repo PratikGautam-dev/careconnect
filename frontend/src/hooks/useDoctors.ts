@@ -31,6 +31,10 @@ export type Doctor = {
   login_staff_id: number | null;
   login_email: string | null;
   login_active: boolean | null;
+  // Leave Requests migration (20260912065049) -- both null for a doctor
+  // with no login yet (no identity to attach a leave request to).
+  leave_balance_total: number | null;
+  leave_balance_used: number | null;
 };
 
 /** Loads + owns every mutation on the /portal/doctors page: department

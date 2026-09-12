@@ -12,6 +12,17 @@ from portal.routes.bookings import _appointment_json
 router = APIRouter()
 
 
+def _with_leave_balance(doctor: dict, leave_usage: dict[int, int], leave_policy: dict) -> dict:
+    # Leave Requests migration (20260912065049): only a doctor WITH a login
+    # (login_staff_id) can even have a leave_requests row (identity_id is
+    # the applicant FK) -- a doctor with no login yet gets None/None, shown
+    # as "not applicable" rather than a fabricated 0/20.
+    staff_id = doctor.get("login_staff_id")
+    doctor["leave_balance_total"] = leave_policy["doctor_annual_leave_days"] if staff_id is not None else None
+    doctor["leave_balance_used"] = leave_usage.get(staff_id, 0) if staff_id is not None else None
+    return doctor
+
+
 @router.get("/api/portal/doctors")
 async def portal_doctors(authorization: str | None = Header(default=None)):
     hospital = _authenticate(authorization)
@@ -20,6 +31,9 @@ async def portal_doctors(authorization: str | None = Header(default=None)):
     departments = db.get_departments(hospital.id)
     doctors = db.get_all_doctors_for_hospital(hospital.id)
     on_leave_today_count = db.get_doctors_on_leave_today_count(hospital.id)
+    leave_usage = db.get_leave_usage_by_identity(hospital.id)
+    leave_policy = db.get_leave_policy(hospital.id)
+    doctors = [_with_leave_balance(d, leave_usage, leave_policy) for d in doctors]
     return JSONResponse({"departments": departments, "doctors": doctors, "on_leave_today_count": on_leave_today_count})
 
 

@@ -40,16 +40,22 @@ const ROLE_LABEL: Record<string, string> = {
 // only, per the conversation -- deeper wiring for the items with no href
 // below is deliberate follow-up work, not done here). Items with no href
 // render as disabled "Coming soon" rows (see the .filter/.map below) --
-// there's no backend yet for report review, billing, report analytics, or a
-// leave-request queue. Doctor appointments and Diagnostic & lab test
-// appointments share the "appointments" permission -- both are views over
-// the same underlying appointment list, just scoped to a different
-// appointment_type_id category (useAppointments' `category` param).
+// there's no backend yet for billing or report analytics. Leave requests
+// (migration 20260912065049) is real now. Doctor appointments and
+// Diagnostic & lab test appointments share the "appointments" permission --
+// both are views over the same underlying appointment list, just scoped to
+// a different appointment_type_id category (useAppointments' `category`
+// param). Report review (/portal/report-review) is a real route now too,
+// but frontend-only mock data by explicit instruction -- there's no
+// role_permissions row for "report-review" (no backend page-key exists for
+// it), so it's listed in NO_PERMISSION_GATE_KEYS below to stay visible to
+// every signed-in role rather than being hidden by a permission lookup that
+// can never succeed.
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
   { key: "appointments", label: "Doctor appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
   { key: "diagnostic", label: "Diagnostic & lab appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
-  { key: "report-review", label: "Report review", icon: ClipboardCheck, pageKey: "report-review" },
+  { key: "report-review", label: "Report review", icon: ClipboardCheck, href: "/portal/report-review", pageKey: "report-review" },
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
   { key: "staff", label: "Staff", icon: UserCog, href: "/portal/settings/staff", pageKey: "staff" },
@@ -58,8 +64,14 @@ const NAV_ITEMS = [
   { key: "report-analytics", label: "Report analytics", icon: BarChart3, pageKey: "report-analytics" },
   { key: "roles", label: "Roles & permissions", icon: ShieldCheck, href: "/portal/settings/roles", pageKey: "roles" },
   { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },
-  { key: "leave-requests", label: "Leave requests", icon: CalendarClock, pageKey: "leave-requests" },
+  { key: "leave-requests", label: "Leave requests", icon: CalendarClock, href: "/portal/leave-requests", pageKey: "leave_requests" },
 ];
+
+// Nav items whose href-having route has no real backend permission model
+// yet -- gating these through hasPermission would hide them for every role
+// (an unrecognized pageKey never matches any role_permissions row), so they
+// skip that check entirely instead.
+const NO_PERMISSION_GATE_KEYS = new Set(["report-review"]);
 
 type Props = {
   hospital: PortalHospital | null;
@@ -129,7 +141,7 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             // Hrefless rows are visual placeholders, not real gated
             // capabilities, so they skip the permission map entirely --
             // otherwise an unrecognized pageKey would hide them outright.
-            (item) => !item.href || hasPermission(session, item.pageKey, "view"),
+            (item) => !item.href || NO_PERMISSION_GATE_KEYS.has(item.key) || hasPermission(session, item.pageKey, "view"),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

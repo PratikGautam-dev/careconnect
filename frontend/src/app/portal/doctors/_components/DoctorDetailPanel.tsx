@@ -19,7 +19,7 @@ import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
 import type { Doctor } from "@/hooks/useDoctors";
-import { AVATAR_TINTS, mockLeaveBalance } from "./doctors-columns";
+import { AVATAR_TINTS } from "./doctors-columns";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -71,12 +71,13 @@ type Props = {
   onCreateLogin: (doc: Doctor) => void;
 };
 
-/** Right-rail "selected doctor" profile card -- every field shown is real
- * (migration 20260911190007 made phone/employee_id/location real columns,
- * alongside the pre-existing qualification/specialization/department/
- * experience/working hours) except Leave Balance, still a placeholder --
- * see mockLeaveBalance()'s own docstring. A live "available since HH:MM"
- * check-in doesn't exist either; availability is the real Available/
+/** Right-rail "selected doctor" profile card -- every field shown is real,
+ * including Leave balance (leave_requests + hospitals.doctor_annual_leave_days,
+ * migration 20260912065049 -- null for a doctor with no login yet, since
+ * there's no identity to attach a leave request to). Applying for leave
+ * FROM this panel is still a later page (confirmed with the user) -- only
+ * the balance display itself is in scope here. A live "available since
+ * HH:MM" check-in doesn't exist either; availability is the real Available/
  * Unavailable toggle only. The Email row and "Create login" quick action
  * are this doctor's unified-login status (login_email/login_staff_id, an
  * outer join to staff_details/identities) -- not a profile contact field,
@@ -151,14 +152,15 @@ export function DoctorDetailPanel({
         <DetailRow icon={Phone} label="Phone" value={doctor.phone || "—"} />
         <DetailRow icon={Mail} label="Login email" value={doctor.login_email || "No login yet"} />
         <DetailRow icon={MapPin} label="Location" value={doctor.location || "—"} />
-        {(() => {
-          const { used, total } = mockLeaveBalance(doctor.id);
-          return (
-            <div title="Placeholder -- the Leave module hasn't shipped yet">
-              <DetailRow icon={CalendarClock} label="Leave balance" value={`${total - used} / ${total} days`} />
-            </div>
-          );
-        })()}
+        <DetailRow
+          icon={CalendarClock}
+          label="Leave balance"
+          value={
+            doctor.leave_balance_total != null
+              ? `${doctor.leave_balance_total - (doctor.leave_balance_used ?? 0)} / ${doctor.leave_balance_total} days`
+              : "—"
+          }
+        />
       </div>
 
       <div className="mt-space-3 rounded-md border border-line bg-paper p-space-3">
@@ -172,8 +174,8 @@ export function DoctorDetailPanel({
       </div>
 
       <p className="text-hint mt-space-2">
-        Leave balance is a placeholder until the Leave module ships — every other field above is real. Availability is
-        the real Available/Unavailable toggle, not a live &quot;since HH:MM&quot; check-in.
+        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) — applying for leave from here is still
+        a later page. Availability is the real Available/Unavailable toggle, not a live &quot;since HH:MM&quot; check-in.
       </p>
 
       <div className="mt-space-4 border-t border-line pt-space-3">

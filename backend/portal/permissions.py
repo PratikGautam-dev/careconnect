@@ -35,10 +35,16 @@ PAGE_SCHEDULE = "schedule"  # a doctor's own working hours/breaks/leave editor
 # Diagnostic Tests management page (each test carries its own schedule) --
 # same weight as PAGE_DOCTORS, off by default for receptionist/doctor.
 PAGE_DIAGNOSTIC_TESTS = "diagnostic_tests"
+# Leave Requests admin page (migration 20260912065049): review/approve/
+# reject doctor+receptionist leave requests -- admin-only by default, same
+# weight as PAGE_STAFF/PAGE_ROLES (staff-management-adjacent, not a page a
+# receptionist or doctor manages for others).
+PAGE_LEAVE_REQUESTS = "leave_requests"
 
 ALL_PAGES = {
     PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_PATIENTS, PAGE_DOCTORS,
     PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE, PAGE_DIAGNOSTIC_TESTS,
+    PAGE_LEAVE_REQUESTS,
 }
 ACTIONS = ("view", "write", "delete")
 
@@ -68,6 +74,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_ROLES: dict(_NONE),
         PAGE_SCHEDULE: dict(_NONE),
         PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
+        PAGE_LEAVE_REQUESTS: dict(_NONE),
     },
     "doctor": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
@@ -84,6 +91,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
         # through /portal/doctors regardless.
         PAGE_SCHEDULE: dict(_VIEW_WRITE),
         PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
+        PAGE_LEAVE_REQUESTS: dict(_NONE),
     },
 }
 

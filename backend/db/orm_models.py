@@ -600,6 +600,40 @@ class HospitalRow(Base):
     # patients. Nullable at the DB level for the same reason
     # CareConnectAccount.display_id is -- see that model's own comment.
     display_id: Mapped[str | None]
+    # Migration 20260912065049 -- Leave Requests admin page's portal-admin-
+    # configurable policy (doctor/receptionist only, confirmed with the
+    # user; admin approves leave rather than accruing an allowance). See
+    # LeaveRequest's own docstring for how a balance is computed against this.
+    doctor_annual_leave_days: Mapped[int]
+    staff_annual_leave_days: Mapped[int]
+
+
+class LeaveRequest(Base):
+    """db/schema.sql's leave_requests table (migration 20260912065049) --
+    the Leave Requests admin page's pending/approved/rejected review queue.
+    identity_id, not staff_details_id, is the applicant FK -- an identity is
+    the durable "who" a leave request belongs to, same reasoning
+    StaffDetail.reports_to_id already points at identities rather than
+    another staff_details row. Works uniformly for a doctor-role or
+    receptionist-role login, since both are identities either way.
+
+    decided_by/decided_at are both NULL until an admin approves or rejects
+    this request, then both set together -- there is no "decided but by
+    nobody" or "decided_by set but still pending" state. Duration is
+    computed from from_date/to_date at read time, never stored."""
+    __tablename__ = "leave_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    identity_id: Mapped[int] = mapped_column(ForeignKey("identities.id"))
+    leave_type: Mapped[str]
+    from_date: Mapped[str]
+    to_date: Mapped[str]
+    reason: Mapped[str | None]
+    status: Mapped[str]
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("identities.id"))
+    decided_at: Mapped[str | None]
+    created_at: Mapped[str]
 
 
 class PatientVisitNote(Base):

@@ -38,11 +38,12 @@ type Props = {
   onSetAttendance: (staff: StaffRow, status: AttendanceStatus) => void;
 };
 
-/** Right-rail "selected staff" profile card -- every field here is real
- * (staff_details/identities, migration 20260911174439) except Leave
- * balance, which stays an honest "not tracked yet" placeholder -- leave
- * tracking/workflow is explicitly out of scope for now (confirmed with the
- * user), unlike everything else on this card. */
+/** Right-rail "selected staff" profile card -- every field here is real,
+ * including Leave balance (leave_requests + hospitals.staff_annual_leave_days,
+ * migration 20260912065049 -- null for an admin row, since that policy is
+ * doctor/receptionist only). Applying for leave FROM this panel is still a
+ * later page (confirmed with the user) -- only the balance display itself
+ * is in scope here. */
 export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onEdit, onSetAttendance }: Props) {
   if (!staff) {
     return (
@@ -123,8 +124,19 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
       <div className="mt-space-2 grid grid-cols-2 gap-space-2">
         <div className="rounded-md border border-line bg-paper p-space-3">
           <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Leave balance</p>
-          <p className="text-[13px] font-bold text-ink-400">—</p>
-          <p className="text-[11.5px] text-ink-400">Not tracked yet</p>
+          {staff.leave_balance_total != null ? (
+            <>
+              <p className="text-[13px] font-bold text-ink-900">
+                {staff.leave_balance_total - (staff.leave_balance_used ?? 0)} / {staff.leave_balance_total} days
+              </p>
+              <p className="text-[11.5px] text-ink-600">remaining this year</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] font-bold text-ink-400">—</p>
+              <p className="text-[11.5px] text-ink-400">Not tracked for this role</p>
+            </>
+          )}
         </div>
         <div className="rounded-md border border-line bg-paper p-space-3">
           <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
@@ -134,7 +146,10 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
         </div>
       </div>
 
-      <p className="text-hint mt-space-2">Leave balance/history isn&apos;t tracked in this app yet. Everything else on this card is real.</p>
+      <p className="text-hint mt-space-2">
+        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) -- applying for leave from here is still
+        a later page.
+      </p>
 
       <div className="mt-space-4 border-t border-line pt-space-3">
         <p className="text-label mb-space-2 font-bold text-ink-900">Quick Actions</p>

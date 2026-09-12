@@ -100,7 +100,7 @@ def get_staff_user_by_id(staff_id: int) -> dict | None:
     return dict(row._mapping) if row is not None else None
 
 
-def list_staff_users_for_hospital(hospital_id: int) -> list[dict]:
+def list_staff_users_for_hospital(hospital_id: int, *, exclude_doctors: bool = False) -> list[dict]:
     """Staff management page's list view -- included since it's a trivial
     read and every other domain's repository file ships its own "list for
     this hospital" query rather than the route layer building one ad hoc.
@@ -109,12 +109,20 @@ def list_staff_users_for_hospital(hospital_id: int) -> list[dict]:
     row actually has: a doctor-role row's linked doctor's department, or a
     non-doctor row's own department_id (the two are mutually exclusive --
     see the DB's own ck_staff_details_department_doctor_role). reports_to_name
-    is the linked staff member's name, if any."""
+    is the linked staff member's name, if any.
+
+    exclude_doctors=True drops role='doctor' rows at the query level -- the
+    Staff page's own directory (receptionists/nurses/admins, not doctors,
+    who already have their own dedicated page + "Create login" action
+    there) passes this. Defaults to False so every other caller of this same
+    endpoint (the Add/Edit Staff dialogs' "reports to" picker) keeps seeing
+    every role, unchanged -- a receptionist can still legitimately report to
+    a doctor."""
     session = get_session()
     own_department = aliased(Department)
     doctor_department = aliased(Department)
     reports_to = aliased(Identity)
-    rows = session.execute(
+    query = (
         select(
             *_STAFF_COLUMNS, Identity.created_at,
             func.coalesce(doctor_department.name, own_department.name).label("department_name"),
@@ -126,8 +134,10 @@ def list_staff_users_for_hospital(hospital_id: int) -> list[dict]:
         .outerjoin(doctor_department, doctor_department.id == DoctorRow.department_id)
         .outerjoin(reports_to, reports_to.id == StaffDetail.reports_to_id)
         .where(StaffDetail.hospital_id == hospital_id)
-        .order_by(Identity.name)
-    ).all()
+    )
+    if exclude_doctors:
+        query = query.where(StaffDetail.role != "doctor")
+    rows = session.execute(query.order_by(Identity.name)).all()
     return [dict(r._mapping) for r in rows]
 
 

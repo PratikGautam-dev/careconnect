@@ -68,7 +68,11 @@ export default function StaffManagementPage() {
     });
   }, [rows, searchQuery, departmentFilter, statusFilter]);
 
-  const selected = rows.find((s) => s.id === selectedId) || null;
+  // Auto-selects the first (visible) row when nothing's been explicitly
+  // clicked yet -- same convention as the Doctors page's own detail panel --
+  // so the detail panel never starts on an empty "select someone" state
+  // while the directory has at least one row to show.
+  const selected = rows.find((s) => s.id === selectedId) || filteredRows[0] || null;
   const selectedIndex = selected ? rows.findIndex((s) => s.id === selected.id) : 0;
 
   const onLeaveCount = rows.filter((s) => s.attendance_status === "on_leave").length;

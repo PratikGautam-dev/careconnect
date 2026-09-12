@@ -1285,6 +1285,34 @@ ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_reports_to_
 ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_reports_to_not_self
     CHECK (reports_to_id IS NULL OR reports_to_id != identity_id);
 
+-- Leave Requests admin page (migration 20260912065049) -- doctor/
+-- receptionist leave requests, reviewed by an admin into one of
+-- pending/approved/rejected. identity_id, not staff_details_id, is the
+-- applicant FK -- same reasoning staff_details.reports_to_id already
+-- points at identities rather than another staff_details row. Not the
+-- same thing as doctor_leave below (a simpler "block this doctor's
+-- bookable slots on this whole day" scheduling mechanism, no approval
+-- workflow or balance, predates this feature).
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS doctor_annual_leave_days INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS staff_annual_leave_days INTEGER NOT NULL DEFAULT 30;
+CREATE TABLE IF NOT EXISTS leave_requests (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    identity_id INTEGER NOT NULL REFERENCES identities(id),
+    leave_type TEXT NOT NULL
+        CHECK (leave_type IN ('casual', 'sick', 'annual', 'maternity', 'conference', 'personal')),
+    from_date TEXT NOT NULL,
+    to_date TEXT NOT NULL,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    decided_by INTEGER REFERENCES identities(id),
+    decided_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    CHECK (to_date >= from_date)
+);
+CREATE INDEX IF NOT EXISTS ix_leave_requests_hospital_id ON leave_requests(hospital_id);
+CREATE INDEX IF NOT EXISTS ix_leave_requests_identity_id ON leave_requests(identity_id);
+
 CREATE TABLE IF NOT EXISTS super_admin_details (
     identity_id INTEGER PRIMARY KEY REFERENCES identities(id)
 );

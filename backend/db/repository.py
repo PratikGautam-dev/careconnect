@@ -26,6 +26,7 @@ from db.repositories.hospitals import *  # noqa: F401,F403
 from db.repositories.users import *  # noqa: F401,F403
 from db.repositories.doctors import *  # noqa: F401,F403
 from db.repositories.leave import *  # noqa: F401,F403
+from db.repositories.leave_requests import *  # noqa: F401,F403
 from db.repositories.slots import *  # noqa: F401,F403
 from db.repositories.accounts import *  # noqa: F401,F403
 from db.repositories.consent import *  # noqa: F401,F403

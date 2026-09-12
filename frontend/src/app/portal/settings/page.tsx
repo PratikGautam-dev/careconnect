@@ -12,7 +12,9 @@ import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggl
 import { DiagnosticTestsManager } from "@/components/portal/DiagnosticTestsManager";
 import { GoogleCalendarCard } from "@/components/portal/GoogleCalendarCard";
 import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
+import { LeavePolicyManager } from "@/components/portal/LeavePolicyManager";
 import { PortalShell } from "@/components/portal/PortalShell";
+import { usePermission } from "@/lib/staffAuth";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePortalSettings } from "@/hooks/usePortalSettings";
 
@@ -24,6 +26,7 @@ function PortalSettingsPageContent() {
   // section) while hospital hasn't loaded yet.
   const canManageAppointmentTypes = !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
   const canManageTests = !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_resources");
+  const canManageLeavePolicy = usePermission("leave_requests", "write");
   const { settings, setSettings, error, saving, saved, handleSave } = usePortalSettings(ready);
 
   return (
@@ -280,6 +283,14 @@ function PortalSettingsPageContent() {
               Manage the tests patients can book under Diagnostic Test / Lab Test, each with its own weekly schedule.
             </p>
             <DiagnosticTestsManager canManage={!!canManageTests} />
+          </Card>
+
+          <Card className="p-space-5">
+            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Leave policy</h2>
+            <p className="mb-space-3 text-[12.5px] text-ink-400">
+              Annual leave allowance the Leave Requests page and Staff/Doctors leave balances are computed against.
+            </p>
+            <LeavePolicyManager canManage={canManageLeavePolicy} />
           </Card>
 
           {canManageAppointmentTypes && (

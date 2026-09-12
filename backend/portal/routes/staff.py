@@ -2,9 +2,7 @@
 """Staff Management admin UI's backend (docs/rbac-redis-plan.md) -- list,
 create, and deactivate/reactivate staff_users rows for the caller's own
 hospital. Distinct from portal/routes/staff_auth.py (login/refresh/logout,
-unauthenticated-caller-facing) -- this is the admin-facing CRUD surface, same
-"auth vs. management are different files" split doctor_auth.py/doctor_portal.py
-already established for doctors.
+unauthenticated-caller-facing) -- this is the admin-facing CRUD surface.
 
 Gated by require_permission(principal, "staff", ...) like every other page,
 not a hardcoded "only role == admin" check -- admin gets view+write on
@@ -26,7 +24,12 @@ _VALID_SHIFTS = {"day", "evening", "night"}
 _VALID_ATTENDANCE_STATUSES = {"present", "on_leave", "half_day"}
 
 
-def _staff_row(staff: dict) -> dict:
+def _staff_row(staff: dict, leave_usage: dict[int, int], leave_policy: dict) -> dict:
+    # Leave balance (migration 20260912065049) is doctor/receptionist only
+    # (confirmed with the user) -- an admin row gets None/None here, shown
+    # as "not tracked" on the frontend, same as this staff list already
+    # does for every field a given role doesn't have.
+    tracked = staff["role"] == "receptionist"
     return {
         "id": staff["id"], "name": staff["name"], "email": staff["email"],
         "role": staff["role"], "doctor_id": staff["doctor_id"], "is_active": staff["is_active"],
@@ -35,11 +38,39 @@ def _staff_row(staff: dict) -> dict:
         "attendance_status": staff.get("attendance_status"),
         "department_id": staff.get("department_id"), "department_name": staff.get("department_name"),
         "reports_to_id": staff.get("reports_to_id"), "reports_to_name": staff.get("reports_to_name"),
+        "leave_balance_total": leave_policy["staff_annual_leave_days"] if tracked else None,
+        "leave_balance_used": leave_usage.get(staff["id"], 0) if tracked else None,
     }
 
 
 @router.get("/api/portal/staff")
 async def list_staff(authorization: str | None = Header(default=None)):
+    """The Staff page's own directory -- doctors excluded at the query
+    level (see list_staff_users_for_hospital()'s own docstring): they have
+    their own dedicated page + "Create login" action there, and aren't
+    meant to also appear as a row in this "hospital staff" list. A caller
+    that genuinely needs every role, doctors included (the Add/Edit Staff
+    dialogs' "reports to" picker), uses GET /api/portal/staff/options
+    instead -- a separate endpoint, not a query flag on this one, so each
+    URL has exactly one, unambiguous meaning."""
+    principal = get_current_staff(authorization)
+    if principal is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_permission(principal, "staff", "view")
+    if forbidden:
+        return forbidden
+    staff = db.list_staff_users_for_hospital(principal.hospital.id, exclude_doctors=True)
+    leave_usage = db.get_leave_usage_by_identity(principal.hospital.id)
+    leave_policy = db.get_leave_policy(principal.hospital.id)
+    return JSONResponse([_staff_row(s, leave_usage, leave_policy) for s in staff])
+
+
+@router.get("/api/portal/staff/options")
+async def list_staff_options(authorization: str | None = Header(default=None)):
+    """Lightweight {id, name} pairs for EVERY staff role, doctors included --
+    used only by the Add/Edit Staff dialogs' "reports to" picker, which
+    needs to be able to name a doctor as another staff member's manager even
+    though doctors don't appear in the main directory above."""
     principal = get_current_staff(authorization)
     if principal is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -47,7 +78,7 @@ async def list_staff(authorization: str | None = Header(default=None)):
     if forbidden:
         return forbidden
     staff = db.list_staff_users_for_hospital(principal.hospital.id)
-    return JSONResponse([_staff_row(s) for s in staff])
+    return JSONResponse([{"id": s["id"], "name": s["name"]} for s in staff])
 
 
 class CreateStaffPayload(BaseModel):
@@ -124,7 +155,10 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
         entity_type="staff_users", entity_id=str(staff["id"]),
         after={"email": email, "role": payload.role},
     )
-    return JSONResponse(_staff_row(staff), status_code=201)
+    # A brand-new staff member has taken zero leave yet -- {} rather than a
+    # real db.get_leave_usage_by_identity() call, same effect without a
+    # query neither this row nor anyone else's balance actually needs here.
+    return JSONResponse(_staff_row(staff, {}, db.get_leave_policy(principal.hospital.id)), status_code=201)
 
 
 class UpdateStaffPayload(BaseModel):
@@ -205,7 +239,9 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
         )
 
     updated = [s for s in db.list_staff_users_for_hospital(principal.hospital.id) if s["id"] == staff_id][0]
-    return JSONResponse(_staff_row(updated))
+    leave_usage = db.get_leave_usage_by_identity(principal.hospital.id)
+    leave_policy = db.get_leave_policy(principal.hospital.id)
+    return JSONResponse(_staff_row(updated, leave_usage, leave_policy))
 
 
 class SetStaffPasswordPayload(BaseModel):

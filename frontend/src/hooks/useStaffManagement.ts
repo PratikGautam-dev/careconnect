@@ -11,8 +11,11 @@ export type Shift = "day" | "evening" | "night";
 // department_name/reports_to_id/reports_to_name/phone/address/shift/
 // attendance_status/created_at were all mocked client-side before; they're
 // now real staff_details/identities columns (migration 20260911174439).
-// Leave balance/leave workflow are NOT part of this -- still unbuilt,
-// see StaffDetailPanel's own note.
+// leave_balance_total/used are real too (migration 20260912065049) --
+// both null for an admin row, since the leave policy is doctor/
+// receptionist only (confirmed with the user, admin approves leave rather
+// than accruing an allowance). Leave request CREATION is still a later
+// page -- see StaffDetailPanel's own note.
 export type StaffMember = {
   id: number;
   name: string;
@@ -29,6 +32,8 @@ export type StaffMember = {
   department_name: string | null;
   reports_to_id: number | null;
   reports_to_name: string | null;
+  leave_balance_total: number | null;
+  leave_balance_used: number | null;
 };
 
 /** Loads + owns every mutation on /portal/settings/staff EXCEPT creating a
@@ -50,6 +55,14 @@ export function useStaffManagement(canView: boolean) {
   const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
+    // GET /api/portal/staff is the Staff page's own directory -- doctors
+    // are excluded server-side (see that route's own docstring): they have
+    // their own dedicated page + "Create login" action there, so a
+    // role="doctor" staff_details row (needed purely so that login can
+    // authenticate through the shared unified staff login) never shows up
+    // as a row in THIS "hospital staff" list. The reports-to picker
+    // (useAddStaff/useEditStaff) needs every role instead, so it calls the
+    // separate GET /api/portal/staff/options endpoint.
     const result = await staffFetch("/api/portal/staff");
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");

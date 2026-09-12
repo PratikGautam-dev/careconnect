@@ -21,18 +21,6 @@ function initials(name: string): string {
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
 
-/** Placeholder only -- there is no Leave module yet (balances/accrual/
- * requests), confirmed with the user as a later follow-up. Deterministic
- * per doctor id purely so it doesn't look like the exact same hardcoded
- * value on every row; it is not backed by any real leave data. */
-export function mockLeaveBalance(doctorId: string): { used: number; total: number } {
-  let hash = 0;
-  for (const ch of doctorId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const total = 12 + (hash % 9); // 12..20 days
-  const used = hash % (total + 1); // 0..total
-  return { used, total };
-}
-
 type CreateDoctorColumnsOptions = {
   onSelect: (doc: Doctor) => void;
   canManage: boolean;
@@ -49,8 +37,9 @@ type CreateDoctorColumnsOptions = {
  * own note). Contact's email row shows this doctor's unified-login email
  * (login_email, null until a login is created -- see the detail panel's own
  * "Create login" action); phone is real too (migration 20260911190007).
- * Leave balance is the one still-mocked column -- see mockLeaveBalance()'s
- * own docstring above. */
+ * Leave Balance is real too (migration 20260912065049) -- "—" for a doctor
+ * with no login yet, since there's no identity to attach a leave request
+ * to. */
 export function createDoctorColumns({
   onSelect,
   canManage,
@@ -107,10 +96,11 @@ export function createDoctorColumns({
       id: "leave_balance",
       header: "Leave Balance",
       cell: ({ row }) => {
-        const { used, total } = mockLeaveBalance(row.original.id);
+        const d = row.original;
+        if (d.leave_balance_total == null) return <span className="text-ink-400">—</span>;
         return (
-          <span className="text-ink-600" title="Placeholder -- the Leave module hasn't shipped yet">
-            {total - used} / {total} days
+          <span className="text-ink-600">
+            {d.leave_balance_total - (d.leave_balance_used ?? 0)} / {d.leave_balance_total} days
           </span>
         );
       },

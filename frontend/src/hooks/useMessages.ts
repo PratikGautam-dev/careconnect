@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { portalFetch } from "@/lib/portalAuth";
+import type { Patient } from "@/hooks/usePatients";
 
 export type Handoff = {
   id: number;
@@ -167,6 +168,42 @@ export function useMessages(ready: boolean) {
 
   const selected = handoffs?.find((h) => h.id === selectedId) || null;
 
+  // Messages page redesign: a handoff only ever carries a phone number, not
+  // a patient_id -- the right-rail "Patient Details" panel resolves the
+  // real patient record (if any) by searching the existing patients list
+  // for this exact phone. Prefers an exact phone match over the (already
+  // narrow) ILIKE search's first result, since a partial digit-substring
+  // match could otherwise surface the wrong patient.
+  const [matchedPatient, setMatchedPatient] = useState<Patient | null>(null);
+  const [matchedPatientLoading, setMatchedPatientLoading] = useState(false);
+
+  useEffect(() => {
+    // Keyed on the phone itself, not the whole `selected` object -- `selected`
+    // is re-derived from `handoffs` on every render (including the 12s list
+    // poll above), so a new object reference would otherwise re-fire this
+    // lookup every poll tick even though nothing about the selection changed.
+    const phone = selected?.phone;
+    if (!phone) {
+      setMatchedPatient(null);
+      return;
+    }
+    let cancelled = false;
+    setMatchedPatientLoading(true);
+    portalFetch(`/api/portal/patients?search=${encodeURIComponent(phone)}`).then((result) => {
+      if (cancelled) return;
+      setMatchedPatientLoading(false);
+      if (!result.ok) {
+        setMatchedPatient(null);
+        return;
+      }
+      const patients = (result.data as { patients: Patient[] }).patients;
+      setMatchedPatient(patients.find((p) => p.phone === phone) || patients[0] || null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.phone]);
+
   const loadThread = useCallback(async (id: number) => {
     const result = await portalFetch(`/api/portal/handoffs/${id}/messages`);
     if (!result.ok) {
@@ -237,5 +274,6 @@ export function useMessages(ready: boolean) {
     deletingId, handleDelete,
     selectedIds, toggleSelected, toggleSelectAll,
     bulkActing, bulkError, handleBulkResolve, handleBulkDelete,
+    matchedPatient, matchedPatientLoading,
   };
 }

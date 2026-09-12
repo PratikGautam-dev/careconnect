@@ -30,7 +30,10 @@ export function useEditStaff(staff: StaffMember | null, onOpenChange: (open: boo
   const [saving, setSaving] = useState(false);
 
   const loadStaffOptions = useCallback(async () => {
-    const result = await staffFetch("/api/portal/staff");
+    // GET /api/portal/staff/options, not GET /api/portal/staff -- see
+    // useAddStaff's own note; this picker needs every role, including
+    // doctors, unlike the Staff page's own directory.
+    const result = await staffFetch("/api/portal/staff/options");
     if (!result.ok) return;
     setStaffOptions((result.data as StaffOption[]) || []);
   }, []);

@@ -14,6 +14,7 @@ from portal.routes.doctors import router as doctors_router
 from portal.routes.documents import router as documents_router
 from portal.routes.handoffs import router as handoffs_router
 from portal.routes.lab_service_areas import router as lab_service_areas_router
+from portal.routes.leave_requests import router as leave_requests_router
 from portal.routes.patients import router as patients_router
 from portal.routes.procedures import router as procedures_router
 from portal.routes.roles import router as roles_router
@@ -46,3 +47,4 @@ router.include_router(doctor_portal_router)
 router.include_router(staff_auth_router)
 router.include_router(staff_router)
 router.include_router(roles_router)
+router.include_router(leave_requests_router)
