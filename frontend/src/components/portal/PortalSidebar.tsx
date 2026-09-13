@@ -146,7 +146,7 @@ const NAV_ITEMS = [
     label: "Report analytics",
     icon: BarChart3,
     href: "/portal/report-review",
-    pageKey: "report-review",
+    pageKey: "report-analytics",
   },
   {
     key: "roles",
@@ -180,7 +180,7 @@ const NAV_ITEMS = [
 // yet -- gating these through hasPermission would hide them for every role
 // (an unrecognized pageKey never matches any role_permissions row), so they
 // skip that check entirely instead.
-const NO_PERMISSION_GATE_KEYS = new Set(["report-review"]);
+const NO_PERMISSION_GATE_KEYS = new Set(["report-review", "report-analytics"]);
 
 type Props = {
   hospital: PortalHospital | null;
