@@ -2,12 +2,15 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import type { Department } from "@/hooks/useDepartments";
 import type { StaffOption } from "@/hooks/useAddStaff";
-import type { StaffRole } from "@/lib/staffAuth";
 import { SectionHeader } from "./SectionHeader";
 import { WorkingScheduleFields, type WorkingScheduleValue } from "./WorkingScheduleFields";
 
 type Props = {
-  role: StaffRole;
+  /** Whether a doctor profile is currently linked (doctor_id set) --
+   * independent of role entirely (dynamic-roles migration: any role can
+   * optionally have a doctor linked). Hides the Department picker in that
+   * case, since the doctor's own profile already supplies it. */
+  hasLinkedDoctor: boolean;
   phone: string;
   setPhone: (v: string) => void;
   address: string;
@@ -33,7 +36,7 @@ type Props = {
  * single day/evening/night Shift dropdown with the same WorkingScheduleFields
  * days+times+breaks picker doctors use. */
 export function StaffContactFields({
-  role, phone, setPhone, address, setAddress, departmentId, setDepartmentId, departments,
+  hasLinkedDoctor, phone, setPhone, address, setAddress, departmentId, setDepartmentId, departments,
   schedule, setSchedule, reportsToId, setReportsToId, staffOptions, excludeStaffId,
 }: Props) {
   return (
@@ -44,7 +47,7 @@ export function StaffContactFields({
       <Field label="Address" htmlFor="staff_address">
         <Input id="staff_address" value={address} onChange={(e) => setAddress(e.target.value)} />
       </Field>
-      {role !== "doctor" && (
+      {!hasLinkedDoctor && (
         <Field label="Department" htmlFor="staff_department" hint="A doctor's department comes from their linked doctor profile instead.">
           <select
             id="staff_department"

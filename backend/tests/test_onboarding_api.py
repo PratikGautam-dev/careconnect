@@ -98,9 +98,9 @@ def test_successful_onboarding_creates_real_rows_and_links_owner(hospital_id, us
     # legacy portal_password_hash.
     staff = db.get_staff_user_by_email("admin@stjude.example")
     assert staff is not None
-    assert staff["role"] == "admin"
+    assert staff["role_name"] == "Admin"
     assert staff["hospital_id"] == hospital.id
-    assert db.get_role_permissions(hospital.id)  # non-empty: every (role, page) seeded
+    assert db.get_role_permissions(hospital.id)  # non-empty: every (role_id, page) seeded
 
 
 def test_requires_signed_in_user(hospital_id, super_admin_token):

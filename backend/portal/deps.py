@@ -70,18 +70,25 @@ def _authenticate(authorization: str | None):
 
 
 def _authenticate_with_role(authorization: str | None):
-    """Like `_authenticate()`, but also returns (role, doctor_id) when the
-    caller is a staff JWT -- both None for the legacy shared-hospital-
-    password session, same "no role concept" gap `_authenticate()` already
-    documents. For routes that need to scope data to "this doctor's own"
-    while still accepting that legacy session."""
+    """Like `_authenticate()`, but also returns doctor_id when the caller is
+    a staff JWT -- None for the legacy shared-hospital-password session,
+    same "no role concept" gap `_authenticate()` already documents. For
+    routes that need to scope data to "this doctor's own" while still
+    accepting that legacy session. Used to also return a bare `role` string
+    alongside doctor_id, but every call site only ever tested `role ==
+    "doctor" and doctor_id is not None` -- redundant with `doctor_id is not
+    None` alone, since doctor-ness is not a role property at all
+    (dynamic-roles migration: any role can optionally have a doctor profile
+    linked), so the name comparison was dropped entirely -- this now
+    survives a renamed role, or a staff member on any role whatsoever being
+    linked to a doctor."""
     principal = get_current_staff(authorization)
     if principal is not None:
-        return principal.hospital, principal.role, principal.doctor_id
+        return principal.hospital, principal.doctor_id
     hospital = _authenticate(authorization)
     if hospital is None:
-        return None, None, None
-    return hospital, None, None
+        return None, None
+    return hospital, None
 
 
 def require_capability(hospital, capability: str) -> JSONResponse | None:
@@ -116,17 +123,24 @@ def require_capability(hospital, capability: str) -> JSONResponse | None:
 class StaffPrincipal:
     """The unified, individually-logged-in identity docs/rbac-redis-plan.md
     introduces -- returned by get_current_staff() below in place of the bare
-    Hospital `_authenticate` returns, since a permission check needs `role`
-    (and a Doctor route needs `doctor_id`) that a Hospital alone can't carry.
-    Deliberately a plain attribute-holding object, not a dataclass/pydantic
-    model -- nothing here is (de)serialized independently of the route that
-    builds the JSON response, so there's no validation/parsing this would
-    buy over a constructor that just assigns."""
+    Hospital `_authenticate` returns, since a permission check needs
+    `role_id` (and a Doctor route needs `doctor_id`) that a Hospital alone
+    can't carry. `role_id`/`role_name` (dynamic-roles migration) replace the
+    old bare `role: str` -- `role_id` is what require_permission() actually
+    checks against, `role_name` is a read-only display string (audit logs,
+    error messages) never itself compared for identity; there is
+    deliberately no bare `.role` left on this object, so a call site can't
+    silently keep comparing against a role NAME the way the old fixed-3
+    system did. Deliberately a plain attribute-holding object, not a
+    dataclass/pydantic model -- nothing here is (de)serialized independently
+    of the route that builds the JSON response, so there's no validation/
+    parsing this would buy over a constructor that just assigns."""
 
-    def __init__(self, hospital, staff_id: int, role: str, name: str, doctor_id: str | None):
+    def __init__(self, hospital, staff_id: int, role_id: int, role_name: str, name: str, doctor_id: str | None):
         self.hospital = hospital
         self.staff_id = staff_id
-        self.role = role
+        self.role_id = role_id
+        self.role_name = role_name
         self.name = name
         self.doctor_id = doctor_id
 
@@ -164,7 +178,9 @@ def get_current_staff(authorization: str | None) -> StaffPrincipal | None:
     hospital = db.get_hospital(staff["hospital_id"])
     if hospital is None:
         return None
-    return StaffPrincipal(hospital, staff["id"], staff["role"], staff["name"], staff["doctor_id"])
+    return StaffPrincipal(
+        hospital, staff["id"], staff["role_id"], staff["role_name"], staff["name"], staff["doctor_id"],
+    )
 
 
 def require_permission(principal: StaffPrincipal, page_key: str, action: str) -> JSONResponse | None:
@@ -181,7 +197,7 @@ def require_permission(principal: StaffPrincipal, page_key: str, action: str) ->
 
     Returns a 403 JSONResponse if this principal's role lacks `action` on
     `page_key` at its own hospital, else None."""
-    if not has_permission(principal.hospital.id, principal.role, page_key, action):
+    if not has_permission(principal.hospital.id, principal.staff_id, principal.role_id, page_key, action):
         return JSONResponse(
             {"error": f"Your role does not have '{action}' access to '{page_key}'."}, status_code=403,
         )

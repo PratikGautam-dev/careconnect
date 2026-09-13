@@ -4,7 +4,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Phone } from "lucide-react";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { cn } from "@/lib/cn";
-import type { StaffRole } from "@/lib/staffAuth";
 import type { AttendanceStatus, StaffMember } from "@/hooks/useStaffManagement";
 import { StaffCellAction } from "./staff-cellaction";
 
@@ -16,12 +15,6 @@ export { AVATAR_TINTS };
 // Only leave balance/leave workflow remain unbuilt (StaffDetailPanel's own
 // note there).
 export type StaffRow = StaffMember;
-
-export const ROLE_LABELS: Record<StaffRole, string> = {
-  admin: "Admin",
-  receptionist: "Receptionist",
-  doctor: "Doctor",
-};
 
 export const ATTENDANCE_LABELS: Record<AttendanceStatus, string> = {
   present: "Present",
@@ -102,7 +95,7 @@ export function createStaffColumns({
       id: "role",
       header: "Role",
       cell: ({ row }) => (
-        <span className="text-ink-600">{ROLE_LABELS[row.original.role]}</span>
+        <span className="text-ink-600">{row.original.role_name}</span>
       ),
     },
     {

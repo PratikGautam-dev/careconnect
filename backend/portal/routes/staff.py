@@ -20,7 +20,6 @@ from portal.deps import get_current_staff, require_permission
 
 router = APIRouter()
 
-_VALID_ROLES = {"admin", "receptionist", "doctor"}
 _VALID_ATTENDANCE_STATUSES = {"present", "on_leave", "half_day"}
 
 
@@ -29,14 +28,20 @@ def _split_csv(value: str | None) -> list[str]:
 
 
 def _staff_row(staff: dict, leave_usage: dict[int, int], leave_policy: dict) -> dict:
-    # Leave balance (migration 20260912065049) is doctor/receptionist only
+    # Leave balance (migration 20260912065049) is receptionist-role only
     # (confirmed with the user) -- an admin row gets None/None here, shown
     # as "not tracked" on the frontend, same as this staff list already
-    # does for every field a given role doesn't have.
-    tracked = staff["role"] == "receptionist"
+    # does for every field a given role doesn't have. Matched by role NAME
+    # (dynamic-roles migration) -- "receptionist-ness" has no structural/FK
+    # flag on roles, so a hospital that renames this role loses leave
+    # tracking for it -- an accepted, pre-existing-shape limitation this
+    # migration doesn't attempt to fix (same posture as
+    # db/repositories/users.py's get_owners_for_hospital()).
+    tracked = staff["role_name"].lower() == "receptionist"
     return {
         "id": staff["id"], "name": staff["name"], "email": staff["email"],
-        "role": staff["role"], "doctor_id": staff["doctor_id"], "is_active": staff["is_active"],
+        "role_id": staff["role_id"], "role_name": staff["role_name"], "is_doctor_role": staff["is_doctor_role"],
+        "doctor_id": staff["doctor_id"], "is_active": staff["is_active"],
         "created_at": staff.get("created_at"),
         "employee_id": staff.get("employee_id"),
         "phone": staff.get("phone"), "address": staff.get("address"),
@@ -98,7 +103,7 @@ class CreateStaffPayload(BaseModel):
     name: str = ""
     email: str = ""
     password: str = ""
-    role: str = ""
+    role_id: int | None = None
     doctor_id: str | None = None
     phone: str | None = None
     address: str | None = None
@@ -127,13 +132,10 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
         errors.append("Email is required.")
     if not payload.password or len(payload.password) < 8:
         errors.append("A password of at least 8 characters is required.")
-    if payload.role not in _VALID_ROLES:
-        errors.append(f'Unrecognized role "{payload.role}".')
-    if payload.role == "doctor" and not (payload.doctor_id or "").strip():
-        errors.append("A doctor must be selected for the Doctor role.")
-    if payload.role != "doctor" and payload.doctor_id:
-        errors.append("doctor_id may only be set for the Doctor role.")
-    if payload.role == "doctor" and payload.department_id:
+    role = db.get_role(principal.hospital.id, payload.role_id) if payload.role_id is not None else None
+    if role is None:
+        errors.append("Unrecognized role.")
+    if (payload.doctor_id or "").strip() and payload.department_id:
         errors.append("A doctor's department comes from their linked doctor profile, not department_id.")
     if payload.department_id and db.find_department(principal.hospital.id, payload.department_id) is None:
         errors.append("Choose a valid department.")
@@ -156,13 +158,13 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
 
     try:
         staff = db.create_staff_user(
-            principal.hospital.id, payload.role, email, hash_portal_password(payload.password),
+            principal.hospital.id, payload.role_id, email, hash_portal_password(payload.password),
             name, doctor_id=payload.doctor_id,
             phone=payload.phone, address=payload.address, department_id=payload.department_id,
             reports_to_id=payload.reports_to_id,
             working_days=schedule["working_days"], working_hours=schedule["working_hours"], breaks=schedule["breaks"],
         )
-    except db.IntegrityError:
+    except (db.IntegrityError, ValueError):
         return JSONResponse(
             {"error": f'"{email}" is already in use by another staff account, or the selected doctor already has a login.'},
             status_code=400,
@@ -171,7 +173,7 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
     db.record_audit_log(
         "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>", "staff.create",
         entity_type="staff_users", entity_id=str(staff["id"]),
-        after={"email": email, "role": payload.role},
+        after={"email": email, "role_id": payload.role_id},
     )
     # A brand-new staff member has taken zero leave yet -- {} rather than a
     # real db.get_leave_usage_by_identity() call, same effect without a
@@ -226,7 +228,7 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
     target = staff[0]
 
     if "department_id" in sent_detail_keys and payload.department_id:
-        if target["role"] == "doctor":
+        if target["doctor_id"]:
             return JSONResponse(
                 {"error": "A doctor's department comes from their linked doctor profile, not this field."},
                 status_code=400,

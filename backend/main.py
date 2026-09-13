@@ -229,7 +229,7 @@ app.include_router(cron_router)
 # matching every other Redis touch in this app's "optional, degrade
 # silently" posture.
 from core.redis_client import get_redis
-from portal.permission_cache import INVALIDATE_CHANNEL, drop_local_cache
+from portal.permission_cache import INVALIDATE_CHANNEL, drop_local_cache, drop_local_staff_cache
 
 
 def _run_perms_invalidate_subscriber() -> None:
@@ -245,10 +245,18 @@ def _run_perms_invalidate_subscriber() -> None:
             if message.get("type") != "message":
                 continue
             try:
-                hospital_id = json.loads(message["data"])["hospital_id"]
+                payload = json.loads(message["data"])
+                hospital_id = payload["hospital_id"]
             except (TypeError, ValueError, KeyError):
                 continue
-            drop_local_cache(hospital_id)
+            # A payload carrying `staff_id` (permission_cache.invalidate_staff())
+            # only drops that one person's override cache; otherwise it's the
+            # whole hospital's role-permission matrix (permission_cache.invalidate()).
+            staff_id = payload.get("staff_id")
+            if staff_id is not None:
+                drop_local_staff_cache(hospital_id, staff_id)
+            else:
+                drop_local_cache(hospital_id)
     except Exception:
         # A subscriber that dies mid-stream (Redis restarted, network blip)
         # simply stops invalidating OTHER processes' local caches early --

@@ -42,13 +42,23 @@ def _staff_login(email: str, password: str) -> dict:
     return resp.json()
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_admin(hospital_id: int, email: str = "admin.leave@example.com", password: str = "hunter22") -> str:
-    db.create_staff_user(hospital_id, "admin", email, hash_portal_password(password), "Test Admin")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "admin"), email, hash_portal_password(password), "Test Admin")
     return _staff_login(email, password)["access_token"]
 
 
 def _make_receptionist(hospital_id: int, email: str, name: str = "Recep", password: str = "hunter22") -> dict:
-    staff = db.create_staff_user(hospital_id, "receptionist", email, hash_portal_password(password), name)
+    staff = db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), email, hash_portal_password(password), name,
+    )
     return {"identity_id": staff["id"], "token": _staff_login(email, password)["access_token"]}
 
 
@@ -57,7 +67,10 @@ def _make_doctor_with_login(hospital_id: int, email: str, name: str = "Dr. Leave
         hospital_id, "cardiology", name,
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri"], working_hours=["09:00-12:00"],
     )
-    staff = db.create_staff_user(hospital_id, "doctor", email, hash_portal_password(password), name, doctor_id=doctor["id"])
+    staff = db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "doctor"), email, hash_portal_password(password), name,
+        doctor_id=doctor["id"],
+    )
     return {"doctor_id": doctor["id"], "identity_id": staff["id"]}
 
 
@@ -114,7 +127,8 @@ def test_seeded_leave_request_appears_pending_with_correct_shape(hospital_id):
     assert len(body["requests"]) == 1
     row = body["requests"][0]
     assert row["applicant_name"] == "Recep"
-    assert row["role"] == "receptionist"
+    assert row["role_name"] == "Receptionist"
+    assert row["is_doctor_role"] is False
     assert row["leave_type"] == "casual"
     assert row["duration_days"] == 3  # 10th, 11th, 12th inclusive
     assert row["status"] == "pending"
@@ -201,7 +215,7 @@ def test_admin_row_has_no_leave_balance_tracked(hospital_id):
     admin_token = _make_admin(hospital_id)
     resp = client.get("/api/portal/staff", headers=_auth(admin_token))
     assert resp.status_code == 200, resp.text
-    admin_row = next(s for s in resp.json() if s["role"] == "admin")
+    admin_row = next(s for s in resp.json() if s["role_name"] == "Admin")
     assert admin_row["leave_balance_total"] is None
     assert admin_row["leave_balance_used"] is None
 

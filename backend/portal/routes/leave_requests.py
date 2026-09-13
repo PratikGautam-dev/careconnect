@@ -27,7 +27,8 @@ _VALID_STATUSES = {"pending", "approved", "rejected"}
 def _leave_request_row(row: dict) -> dict:
     return {
         "id": row["id"], "applicant_id": row["identity_id"], "applicant_name": row["applicant_name"],
-        "role": row["role"], "department_name": row["department_name"], "reports_to_name": row["reports_to_name"],
+        "role_name": row["role_name"], "is_doctor_role": row["is_doctor_role"],
+        "department_name": row["department_name"], "reports_to_name": row["reports_to_name"],
         "leave_type": row["leave_type"], "from_date": row["from_date"], "to_date": row["to_date"],
         "duration_days": row["duration_days"], "reason": row["reason"], "status": row["status"],
         "submitted_at": row["created_at"], "decided_at": row["decided_at"], "decided_by_name": row["decided_by_name"],

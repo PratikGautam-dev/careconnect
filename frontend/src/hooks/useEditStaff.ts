@@ -77,7 +77,7 @@ export function useEditStaff(staff: StaffMember | null, onOpenChange: (open: boo
         name,
         phone: phone || null,
         address: address || null,
-        ...(staff.role !== "doctor" ? { department_id: departmentId || null } : {}),
+        ...(!staff.is_doctor_role ? { department_id: departmentId || null } : {}),
         working_days: schedule.working_days,
         working_hours,
         breaks,

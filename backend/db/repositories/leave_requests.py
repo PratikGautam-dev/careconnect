@@ -25,7 +25,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import aliased
 
 from db.connection import get_session
-from db.orm_models import Department, DoctorRow, HospitalRow, Identity, LeaveRequest, StaffDetail
+from db.orm_models import Department, DoctorRow, HospitalRow, Identity, LeaveRequest, RoleRow, StaffDetail
 
 _VALID_STATUSES = ("pending", "approved", "rejected")
 
@@ -45,12 +45,14 @@ def _leave_request_query():
             LeaveRequest.id, LeaveRequest.identity_id, LeaveRequest.leave_type,
             LeaveRequest.from_date, LeaveRequest.to_date, LeaveRequest.reason, LeaveRequest.status,
             LeaveRequest.created_at, LeaveRequest.decided_at,
-            Identity.name.label("applicant_name"), StaffDetail.role,
+            Identity.name.label("applicant_name"),
+            RoleRow.name.label("role_name"), StaffDetail.doctor_id.is_not(None).label("is_doctor_role"),
             func.coalesce(doctor_department.name, own_department.name).label("department_name"),
             decider.name.label("decided_by_name"), reports_to.name.label("reports_to_name"),
         )
         .join(StaffDetail, StaffDetail.identity_id == LeaveRequest.identity_id)
         .join(Identity, Identity.id == LeaveRequest.identity_id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
         .outerjoin(own_department, own_department.id == StaffDetail.department_id)
         .outerjoin(DoctorRow, DoctorRow.id == StaffDetail.doctor_id)
         .outerjoin(doctor_department, doctor_department.id == DoctorRow.department_id)

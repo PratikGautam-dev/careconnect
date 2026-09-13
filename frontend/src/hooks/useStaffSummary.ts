@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/adminAuth";
 
+export type RoleBreakdownEntry = { role_id: number; role_name: string; count: number };
+
 export type HospitalStaffSummary = {
   id: number;
   name: string;
   is_active: boolean;
   data_tier: string;
-  admin_count: number;
-  doctor_count: number;
-  receptionist_count: number;
+  // Dynamic-roles migration: the old 3 fixed named counts (admin/doctor/
+  // receptionist) don't generalize to a hospital's own admin-named roles --
+  // full per-role breakdown instead.
+  role_breakdown: RoleBreakdownEntry[];
   total_count: number;
 };
 

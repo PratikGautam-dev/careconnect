@@ -41,8 +41,16 @@ def _staff_login(email: str, password: str) -> dict:
     return resp.json()
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_admin(hospital_id: int, email: str = "admin.staffmgmt@example.com", password: str = "hunter22") -> str:
-    db.create_staff_user(hospital_id, "admin", email, hash_portal_password(password), "Test Admin")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "admin"), email, hash_portal_password(password), "Test Admin")
     return _staff_login(email, password)["access_token"]
 
 
@@ -57,18 +65,18 @@ def test_create_doctor_staff_links_to_an_existing_doctor(hospital_id):
         "/api/portal/staff",
         json={
             "name": "Dr. Staff Create", "email": "staff.create.doctor@example.com",
-            "password": "a-real-password", "role": "doctor", "doctor_id": doctor["id"],
+            "password": "a-real-password", "role_id": _role_id(hospital_id, "doctor"), "doctor_id": doctor["id"],
         },
         headers=_auth(admin_token),
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["role"] == "doctor"
+    assert body["is_doctor_role"] is True
     assert body["doctor_id"] == doctor["id"]
 
     # The new login actually works.
     login = _staff_login("staff.create.doctor@example.com", "a-real-password")
-    assert login["staff"]["role"] == "doctor"
+    assert login["staff"]["is_doctor_role"] is True
 
 
 def test_create_staff_validation_error_uses_the_singular_error_shape(hospital_id):
@@ -81,7 +89,7 @@ def test_create_staff_validation_error_uses_the_singular_error_shape(hospital_id
 
     resp = client.post(
         "/api/portal/staff",
-        json={"name": "", "email": "", "password": "", "role": ""},
+        json={"name": "", "email": "", "password": "", "role_id": None},
         headers=_auth(admin_token),
     )
     assert resp.status_code == 400, resp.text
@@ -94,25 +102,56 @@ def test_create_staff_validation_error_uses_the_singular_error_shape(hospital_id
     assert "role" in body["error"].lower()
 
 
-def test_create_staff_doctor_role_without_a_doctor_selected_is_a_clean_error(hospital_id):
+def test_create_staff_on_the_doctor_role_with_no_doctor_linked_is_allowed(hospital_id):
+    """Doctor-ness is no longer a role property (product decision) --
+    linking a doctor profile is a fully independent, optional field, so a
+    staff member on the "Doctor" role with no doctor_id is just an ordinary
+    staff login, not a validation error. See
+    test_create_staff_with_a_linked_doctor_on_any_role_works below for the
+    other half of this decoupling."""
     admin_token = _make_admin(hospital_id)
 
     resp = client.post(
         "/api/portal/staff",
-        json={"name": "Dr. No Doctor", "email": "no.doctor@example.com", "password": "a-real-password", "role": "doctor"},
+        json={"name": "No Doctor Linked", "email": "no.doctor@example.com", "password": "a-real-password", "role_id": _role_id(hospital_id, "doctor")},
         headers=_auth(admin_token),
     )
-    assert resp.status_code == 400, resp.text
-    assert "doctor" in resp.json()["error"].lower()
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_doctor_role"] is False
+
+
+def test_create_staff_with_a_linked_doctor_on_any_role_works(hospital_id):
+    """The other half of the decoupling: a staff member on the Receptionist
+    role (or any role) can optionally be linked to a doctor profile --
+    is_doctor_role (computed as doctor_id IS NOT NULL) flips to True
+    regardless of which role they hold."""
+    admin_token = _make_admin(hospital_id)
+    doctor = db.create_doctor(
+        hospital_id, "cardiology", "Dr. Any Role",
+        working_days=["Mon"], working_hours=["09:00-12:00"],
+    )
+
+    resp = client.post(
+        "/api/portal/staff",
+        json={
+            "name": "Dr. Any Role", "email": "doctor.any.role@example.com",
+            "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist"), "doctor_id": doctor["id"],
+        },
+        headers=_auth(admin_token),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["is_doctor_role"] is True
+    assert body["role_name"].lower() == "receptionist"
 
 
 def test_create_staff_duplicate_email_uses_the_singular_error_shape(hospital_id):
     admin_token = _make_admin(hospital_id)
-    db.create_staff_user(hospital_id, "receptionist", "dupe@example.com", hash_portal_password("x"), "Existing")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "receptionist"), "dupe@example.com", hash_portal_password("x"), "Existing")
 
     resp = client.post(
         "/api/portal/staff",
-        json={"name": "New Person", "email": "dupe@example.com", "password": "a-real-password", "role": "receptionist"},
+        json={"name": "New Person", "email": "dupe@example.com", "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist")},
         headers=_auth(admin_token),
     )
     assert resp.status_code == 400, resp.text
@@ -122,12 +161,12 @@ def test_create_staff_duplicate_email_uses_the_singular_error_shape(hospital_id)
 
 
 def test_create_staff_requires_write_permission(hospital_id):
-    db.create_staff_user(hospital_id, "receptionist", "recep.nowrite@example.com", hash_portal_password("x"), "Recep")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "receptionist"), "recep.nowrite@example.com", hash_portal_password("x"), "Recep")
     token = _staff_login("recep.nowrite@example.com", "x")["access_token"]
 
     resp = client.post(
         "/api/portal/staff",
-        json={"name": "Someone", "email": "someone@example.com", "password": "a-real-password", "role": "receptionist"},
+        json={"name": "Someone", "email": "someone@example.com", "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist")},
         headers=_auth(token),
     )
     assert resp.status_code == 403, resp.text
@@ -139,15 +178,15 @@ def test_create_staff_user_generates_sequential_employee_id_per_hospital_and_ski
     doctors' own EMP-DC (see test_doctor_scheduling.py's sibling test) -- and
     a doctor-role staff login gets "" instead of its own EMP-ST, since that
     login's employee id already lives on its linked doctors row."""
-    first = db.create_staff_user(hospital_id, "receptionist", "staff.emp.1@example.com", hash_portal_password("x"), "Recep One")
-    second = db.create_staff_user(hospital_id, "admin", "staff.emp.2@example.com", hash_portal_password("x"), "Admin Two")
+    first = db.create_staff_user(hospital_id, _role_id(hospital_id, "receptionist"), "staff.emp.1@example.com", hash_portal_password("x"), "Recep One")
+    second = db.create_staff_user(hospital_id, _role_id(hospital_id, "admin"), "staff.emp.2@example.com", hash_portal_password("x"), "Admin Two")
     other_hospital = db.create_staff_user(
-        second_hospital_id, "receptionist", "staff.emp.3@example.com", hash_portal_password("x"), "Recep Other Hospital",
+        second_hospital_id, _role_id(second_hospital_id, "receptionist"), "staff.emp.3@example.com", hash_portal_password("x"), "Recep Other Hospital",
     )
 
     doctor = db.create_doctor(hospital_id, "cardiology", "Dr. Staff Emp Id", working_days=["Mon"], working_hours=["09:00-10:00"])
     doctor_login = db.create_staff_user(
-        hospital_id, "doctor", "staff.emp.4@example.com", hash_portal_password("x"), "Dr. Login", doctor_id=doctor["id"],
+        hospital_id, _role_id(hospital_id, "doctor"), "staff.emp.4@example.com", hash_portal_password("x"), "Dr. Login", doctor_id=doctor["id"],
     )
 
     assert first["employee_id"] == "EMP-ST-00001"
@@ -166,7 +205,7 @@ def test_create_staff_with_working_schedule_round_trips(hospital_id):
         "/api/portal/staff",
         json={
             "name": "Recep Schedule", "email": "recep.schedule@example.com",
-            "password": "a-real-password", "role": "receptionist",
+            "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist"),
             "working_days": ["Mon", "Wed", "Fri"], "working_hours": ["09:00-13:00", "14:00-17:00"],
             "breaks": ["12:00-12:30"],
         },
@@ -186,7 +225,7 @@ def test_create_staff_with_invalid_schedule_is_rejected(hospital_id):
         "/api/portal/staff",
         json={
             "name": "Bad Schedule", "email": "bad.schedule@example.com",
-            "password": "a-real-password", "role": "receptionist",
+            "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist"),
             "working_days": ["Mon"], "working_hours": ["not-a-range"],
         },
         headers=_auth(admin_token),
@@ -202,7 +241,7 @@ def test_create_staff_with_break_outside_shift_is_rejected(hospital_id):
         "/api/portal/staff",
         json={
             "name": "Bad Break", "email": "bad.break@example.com",
-            "password": "a-real-password", "role": "receptionist",
+            "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist"),
             "working_days": ["Mon"], "working_hours": ["09:00-12:00"], "breaks": ["13:00-13:30"],
         },
         headers=_auth(admin_token),
@@ -221,7 +260,7 @@ def test_update_staff_schedule_persists_and_partial_fields_fall_back_to_current(
         "/api/portal/staff",
         json={
             "name": "Recep Update", "email": "recep.update@example.com",
-            "password": "a-real-password", "role": "receptionist",
+            "password": "a-real-password", "role_id": _role_id(hospital_id, "receptionist"),
             "working_days": ["Mon", "Tue"], "working_hours": ["09:00-12:00"],
         },
         headers=_auth(admin_token),

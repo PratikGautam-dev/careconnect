@@ -48,7 +48,7 @@ export default function PortalDashboardPage() {
   // session (and DoctorDashboardView, if applicable) arrives an instant
   // later as a normal client-only update.
   const session = useStaffSession();
-  if (session?.role === "doctor") {
+  if (session?.is_doctor_role) {
     return (
       <PortalShell hospital={session.hospital} active="dashboard">
         <DoctorDashboardView />

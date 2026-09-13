@@ -24,8 +24,8 @@ type Tab = "all" | "doctor" | "staff" | "pending" | "approved" | "rejected";
  * status filters that sit alongside it in the same tab row. */
 function matchesTab(row: LeaveRequestRow, tab: Tab): boolean {
   if (tab === "all") return true;
-  if (tab === "doctor") return row.role === "doctor";
-  if (tab === "staff") return row.role !== "doctor";
+  if (tab === "doctor") return row.is_doctor_role;
+  if (tab === "staff") return !row.is_doctor_role;
   return row.status === tab;
 }
 
@@ -52,8 +52,8 @@ export default function LeaveRequestsPage() {
   }, [rows, tab, searchQuery]);
 
   const selected = rows.find((r) => r.id === selectedId) || null;
-  const doctorCount = rows.filter((r) => r.role === "doctor").length;
-  const staffCount = rows.filter((r) => r.role !== "doctor").length;
+  const doctorCount = rows.filter((r) => r.is_doctor_role).length;
+  const staffCount = rows.filter((r) => !r.is_doctor_role).length;
 
   const columns = createLeaveRequestColumns({
     onSelect: (r) => setSelectedId(r.id),

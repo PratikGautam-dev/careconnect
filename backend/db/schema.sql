@@ -1276,6 +1276,29 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 );
 CREATE INDEX IF NOT EXISTS ix_role_permissions_hospital_role ON role_permissions(hospital_id, role);
 
+-- Migration 144a8eabac9a: dynamic roles -- a hospital's own admin-defined
+-- roles, replacing the old fixed admin/receptionist/doctor vocabulary above.
+-- Roles carry no "is this a doctor role" flag -- doctor-ness is purely
+-- staff_details.doctor_id IS NOT NULL, independent of role (any role can
+-- optionally be linked to a doctor profile). is_protected marks only the
+-- seeded Admin role as undeletable (reserved for a future super-admin
+-- flow) -- every other role, including Receptionist/Doctor/any custom
+-- role, is fully rename/delete-able by a portal admin. role_id columns
+-- below are additive, alongside the old `role` TEXT columns (kept as a
+-- safety net until a later migration drops them once application code
+-- fully cuts over) -- see db/repositories/roles.py and portal/permissions.py.
+CREATE TABLE IF NOT EXISTS roles (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    is_protected BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_roles_hospital_name ON roles(hospital_id, lower(name));
+ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE;
+
 -- Super admin platform layer -- global, not hospital-scoped, replacing the
 -- X-Admin-Secret/ADMIN_SECRET/TENANTS_ADMIN_SECRET shared-secret gates with
 -- real individual accounts and an audit trail -- DROPPED, migration 0017.
@@ -1353,6 +1376,14 @@ ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_department_doctor_role
 ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_reports_to_not_self;
 ALTER TABLE staff_details ADD CONSTRAINT ck_staff_details_reports_to_not_self
     CHECK (reports_to_id IS NULL OR reports_to_id != identity_id);
+-- Migration 144a8eabac9a: dynamic roles -- see the `roles` table's own
+-- comment above `role_permissions`. The doctor-pairing/department-exclusive
+-- CHECKs above are dropped for good (not just kept-but-inert) once role_id
+-- is live -- "doctor" is no longer a fixed role name to CHECK against; the
+-- only remaining pairing rule (a doctor_id implies no separate
+-- department_id) is enforced at the application level in
+-- portal/routes/staff.py, independent of role entirely.
+ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id);
 
 -- Leave Requests admin page (migration 20260912065049) -- doctor/
 -- receptionist leave requests, reviewed by an admin into one of
@@ -1385,6 +1416,28 @@ CREATE INDEX IF NOT EXISTS ix_leave_requests_identity_id ON leave_requests(ident
 CREATE TABLE IF NOT EXISTS super_admin_details (
     identity_id INTEGER PRIMARY KEY REFERENCES identities(id)
 );
+
+-- Migration 4055364a2019: user-level permission overrides -- a second,
+-- finer-grained layer on top of role_permissions. Each of can_view/
+-- can_write/can_delete is nullable (NULL = "no opinion, inherit the
+-- staff member's current role"), so an admin can grant e.g. just `delete`
+-- on Appointments to one specific doctor without touching the rest of
+-- their role. A row only ever exists with at least one non-NULL column --
+-- see db/repositories/staff_permissions.py's upsert, which deletes the row
+-- once every column goes back to NULL.
+CREATE TABLE IF NOT EXISTS staff_permission_overrides (
+    id SERIAL PRIMARY KEY,
+    hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+    staff_id INTEGER NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+    page_key TEXT NOT NULL,
+    can_view BOOLEAN,
+    can_write BOOLEAN,
+    can_delete BOOLEAN,
+    created_at TEXT NOT NULL DEFAULT (now()::text),
+    updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_permission_overrides
+    ON staff_permission_overrides(hospital_id, staff_id, page_key);
 
 -- hospital_owners (Google-OAuth hospital ownership, M:M) -- DROPPED,
 -- migration 0018. Confirmed with the user: no identity actually owns more

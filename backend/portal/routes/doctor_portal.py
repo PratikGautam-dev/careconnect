@@ -40,20 +40,24 @@ def _require_doctor(authorization: str | None):
     FastAPI Depends() factory, matching every existing /api/portal/* route.
 
     Backed entirely by the unified staff login (get_current_staff(): a
-    staff_users row with role='doctor', reading doctor_id off the verified
-    StaffPrincipal) -- the old dedicated doctor-session token
+    staff_details row with a doctor-eligible role, reading doctor_id off
+    the verified StaffPrincipal) -- the old dedicated doctor-session token
     (auth/doctor_session.py, doctors.email/password_hash) this used to fall
     back to has been removed; it was never wired into the frontend, so the
     unified path was already the only one actually reachable. doctor_id is
     read ONLY from the verified StaffPrincipal, never from a request
     parameter -- that's what makes it structurally impossible for a doctor's
     own valid token to be used to ask for a DIFFERENT doctor's data at the
-    same hospital. A StaffPrincipal whose role isn't 'doctor' (an
+    same hospital. A StaffPrincipal with no linked doctor_id (an
     Admin/Receptionist's own staff login) is deliberately rejected here, not
     silently allowed through with doctor_id=None -- these routes are
-    Doctor-scoped by definition."""
+    Doctor-scoped by definition. Checked via doctor_id alone, not a role at
+    all (dynamic-roles migration) -- doctor-ness is a per-staff attribute
+    (any role can optionally have a doctor profile linked), so this survives
+    a renamed role, or a staff member on any role whatsoever being linked to
+    a doctor."""
     principal = get_current_staff(authorization)
-    if principal is None or principal.role != "doctor" or principal.doctor_id is None:
+    if principal is None or principal.doctor_id is None:
         return None, JSONResponse({"error": "Not authenticated."}, status_code=401)
     return (principal.hospital, principal.doctor_id), None
 

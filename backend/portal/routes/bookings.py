@@ -168,19 +168,20 @@ async def portal_bookings(
     when: str | None = Query(default=None),
     search: str | None = Query(default=None),
 ):
-    """Scoped to the caller's own appointments when role=="doctor" -- this
-    route is now shared by the doctor portal too, and a doctor must never
-    see another doctor's patients/appointments through it.
+    """Scoped to the caller's own appointments when the caller is a doctor
+    (doctor_id set) -- this route is now shared by the doctor portal too,
+    and a doctor must never see another doctor's patients/appointments
+    through it.
 
     status/type/lab_status/search/page/limit are all applied server-side
     (see get_appointments_page) -- the portal's appointments/diagnostic-
     appointments list pages send these from their FilterSelect dropdowns
     and search box instead of filtering the old unpaginated 500-row dump
     client-side."""
-    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    hospital, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
+    scoped_doctor_id = doctor_id
     appointments, total = db.get_appointments_page(
         hospital.id, doctor_id=scoped_doctor_id, category=category, status=status, appointment_type_id=type,
         lab_status=lab_status, when=when, search=search, page=page, limit=limit,
@@ -205,10 +206,10 @@ async def portal_bookings_summary(
     10-row page. Same get_appointments_page this reuses, just with no
     status/type/search/when filters and a big limit instead of page=1's
     usual 10."""
-    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    hospital, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
+    scoped_doctor_id = doctor_id
     appointments, _total = db.get_appointments_page(hospital.id, doctor_id=scoped_doctor_id, category=category, limit=500, page=1)
     validity_days = db.get_followup_validity_days(hospital.id)
     return JSONResponse({"appointments": [_appointment_json(a, validity_days) for a in appointments]})
@@ -229,7 +230,7 @@ async def portal_bookings_calendar(
     year/month, same as that route. Cached briefly (see module-level
     comment) -- a hospital-wide month can be hit from 3 pages by multiple
     staff at once, unlike the doctor route's small per-doctor query."""
-    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    hospital, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     now = datetime.now()
@@ -237,7 +238,7 @@ async def portal_bookings_calendar(
     month = month or now.month
     if not 1 <= month <= 12:
         return JSONResponse({"error": "month must be between 1 and 12."}, status_code=400)
-    scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
+    scoped_doctor_id = doctor_id
 
     cache_key = _calendar_cache_key(hospital.id, category, year, month, scoped_doctor_id)
     cached = _calendar_cache_get(cache_key)
@@ -267,26 +268,26 @@ async def portal_bookings_needing_attendance_review(authorization: str | None = 
 async def portal_booking_detail(appointment_id: int, authorization: str | None = Header(default=None)):
     """Single-appointment detail for /portal/appointments/[id]. Same
     existence+ownership folding as patients.py's portal_patient_detail():
-    when role=="doctor", an appointment belonging to another doctor resolves
-    to the same 404 as one that doesn't exist at all, never a 403 that would
-    confirm it exists.
+    when the caller is a doctor, an appointment belonging to another doctor
+    resolves to the same 404 as one that doesn't exist at all, never a 403
+    that would confirm it exists.
 
     Registered AFTER every other literal single-segment /api/portal/bookings/*
     GET route (just needs-attendance-review today) -- FastAPI/Starlette
     matches by path SHAPE before validating {appointment_id} as an int, so a
     literal route registered after this one would 422 instead of matching."""
-    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    hospital, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     appointment = db.get_appointment(hospital.id, appointment_id)
-    if appointment is None or (role == "doctor" and doctor_id is not None and appointment.doctor_id != doctor_id):
+    if appointment is None or (doctor_id is not None and appointment.doctor_id != doctor_id):
         return JSONResponse({"error": "No such appointment."}, status_code=404)
 
     validity_days = db.get_followup_validity_days(hospital.id)
     patient = db.get_patient(hospital.id, appointment.patient_id) if appointment.patient_id else None
     if patient is None:
         notes = []
-    elif role == "doctor" and doctor_id is not None:
+    elif doctor_id is not None:
         notes = db.get_patient_visit_notes_by_doctor(hospital.id, patient["id"], doctor_id)
     else:
         notes = db.get_patient_visit_notes(hospital.id, patient["id"])

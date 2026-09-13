@@ -22,7 +22,7 @@ export function useDoctorGuard() {
       return;
     }
     const session = getStaffSession();
-    if (session?.role !== "doctor") {
+    if (!session?.is_doctor_role) {
       router.push("/portal/dashboard");
       return;
     }

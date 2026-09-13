@@ -623,6 +623,154 @@ def _backfill_staff_employee_ids(conn) -> None:
     conn.commit()
 
 
+# Dynamic RBAC migration -- a literal snapshot of portal/permissions.py's
+# DEFAULT_PERMISSIONS_BY_ROLE_KIND at the time this was written, same "a
+# backfill only needs to match at the moment it runs, that module (not
+# this one) is the actual runtime source of truth" precedent
+# _backfill_admin_capabilities() above already established for
+# DEFAULT_CAPABILITIES_BY_TYPE -- avoids a db/ -> portal/ layering import.
+# (page_key, admin, receptionist, doctor), each a (view, write, delete) triple.
+_DEFAULT_ROLE_PERMISSIONS_SNAPSHOT: list[tuple[str, tuple, tuple, tuple]] = [
+    ("dashboard", (True, True, True), (True, False, False), (True, False, False)),
+    ("appointments", (True, True, True), (True, True, False), (True, True, False)),
+    ("patients", (True, True, True), (True, True, False), (True, True, False)),
+    ("doctors", (True, True, True), (False, False, False), (False, False, False)),
+    ("messages", (True, True, True), (True, True, False), (True, False, False)),
+    ("settings", (True, True, True), (False, False, False), (False, False, False)),
+    ("staff", (True, True, True), (False, False, False), (False, False, False)),
+    ("roles", (True, True, True), (False, False, False), (False, False, False)),
+    ("schedule", (True, True, True), (False, False, False), (True, True, False)),
+    ("diagnostic_tests", (True, True, True), (False, False, False), (False, False, False)),
+    ("leave_requests", (True, True, True), (False, False, False), (False, False, False)),
+]
+
+
+def _seed_default_roles_and_backfill_role_id(conn) -> None:
+    """Dynamic RBAC migration (144a8eabac9a) -- every hospital needs 3 real
+    `roles` rows (Admin/Receptionist/Doctor-equivalent) before any
+    staff_details/role_permissions row can be given a role_id. Gated on
+    "this hospital has zero roles rows yet" so re-running on every startup
+    (this function, like every other one in this file, runs unconditionally
+    at every connection init) never re-seeds or duplicates -- a hospital
+    that already has custom/renamed roles is left completely untouched.
+    Backfilling role_id from the old `role` string is likewise gated on
+    IS NULL, so a row created after this feature shipped (role_id set
+    directly by create_staff_user()/upsert_role_permissions()) is never
+    touched again. Must run AFTER hospitals exist (seed.seed_default_hospital()
+    below), not in the earlier CREATE-TABLE/ADD-COLUMN block -- a fresh test
+    DB has zero hospitals at that point.
+
+    Also seeds default role_permissions rows (from the snapshot above) for
+    any hospital that has ZERO role_permissions rows at all -- a hospital
+    that predates the RBAC feature entirely (never onboarded through
+    submit_onboarding(), which already seeds these explicitly) used to rely
+    on get_permission_matrix()'s own runtime fallback for this; that
+    fallback is gone now (a role with no rows resolves to all-False,
+    fail-closed), so this backfill is what keeps such a hospital's Admin
+    role able to do anything at all. A hospital with ANY existing rows
+    (even old string-keyed ones about to be backfilled below) is left
+    alone -- its real, possibly-customized values are preserved."""
+    new_hospital_ids = [
+        row["id"] for row in conn.execute(
+            "SELECT id FROM hospitals h WHERE NOT EXISTS (SELECT 1 FROM roles r WHERE r.hospital_id = h.id)"
+        ).fetchall()
+    ]
+    for hospital_id in new_hospital_ids:
+        conn.execute(
+            "INSERT INTO roles (hospital_id, name, description, is_protected) VALUES "
+            "(?, 'Admin', 'Full access to every module by default.', TRUE), "
+            "(?, 'Receptionist', 'Front-desk staff: appointments, patients, messages.', FALSE), "
+            "(?, 'Doctor', 'A doctor with a portal login, linked to their own doctor profile.', FALSE)",
+            (hospital_id, hospital_id, hospital_id),
+        )
+    # Backfill role_id, then neuter (not drop) the old `role` TEXT columns --
+    # a custom role's arbitrary name can never satisfy the old
+    # role IN ('admin','receptionist','doctor') CHECK, so that CHECK is
+    # dropped and the column made nullable; the doctor-pairing invariants it
+    # used to enforce move to application-level validation
+    # (db/repositories/staff_users.py::_validate_doctor_role_pairing).
+    # Deliberately NOT dropped outright -- dozens of earlier historical
+    # replay statements above (migration 0013 through 20260913060656)
+    # reference `role` as a column that exists, and DROP COLUMN would break
+    # every one of them on a repeat run against an already-migrated DB (this
+    # whole file replays from the top every startup); dropping just the
+    # CHECK+NOT NULL sidesteps that without retrofitting idempotency-safety
+    # into every earlier statement. `role` is dead weight from here on --
+    # no application code reads or writes it again.
+    # Guarded on "does the column still exist" -- this whole block is
+    # idempotent regardless of whether `role` is still present-but-nullable
+    # (the steady state after this ships) or was ever dropped outright by an
+    # earlier, since-reverted attempt at this same migration.
+    conn.execute(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'staff_details' AND column_name = 'role') THEN "
+        "UPDATE staff_details sd SET role_id = r.id FROM roles r "
+        "WHERE r.hospital_id = sd.hospital_id AND lower(r.name) = sd.role AND sd.role_id IS NULL; "
+        "ALTER TABLE staff_details ALTER COLUMN role DROP NOT NULL; "
+        "ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS staff_details_role_check; "
+        "END IF; "
+        "END $$;"
+    )
+    conn.execute(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'role_permissions' AND column_name = 'role') THEN "
+        "UPDATE role_permissions rp SET role_id = r.id FROM roles r "
+        "WHERE r.hospital_id = rp.hospital_id AND lower(r.name) = rp.role AND rp.role_id IS NULL; "
+        "ALTER TABLE role_permissions ALTER COLUMN role DROP NOT NULL; "
+        "ALTER TABLE role_permissions DROP CONSTRAINT IF EXISTS role_permissions_role_check; "
+        "END IF; "
+        "END $$;"
+    )
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_doctor_role_pairing")
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_department_doctor_role")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_role_permissions_hospital_role_id_page "
+        "ON role_permissions(hospital_id, role_id, page_key)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_role_permissions_hospital_role_id ON role_permissions(hospital_id, role_id)"
+    )
+    conn.commit()
+
+    # Seed default permission rows (from the snapshot above) for any
+    # hospital with ZERO role_permissions rows at all -- a hospital that
+    # predates the RBAC feature entirely (never onboarded through
+    # submit_onboarding(), which already seeds these explicitly) used to
+    # rely on get_permission_matrix()'s own runtime fallback for this; that
+    # fallback is gone now (a role with no rows resolves to all-False,
+    # fail-closed), so this is what keeps such a hospital's Admin role able
+    # to do anything at all. Runs AFTER the backfill/nullable block above
+    # (role_permissions.role must already be nullable for this INSERT,
+    # which never supplies it, to succeed) -- not folded into the
+    # roles-seeding loop earlier, which runs BEFORE that column is nullable.
+    # A hospital with ANY existing rows (even old string-keyed ones the
+    # backfill above just repointed) is left alone -- its real, possibly-
+    # customized values are preserved untouched.
+    hospitals_needing_permissions = [
+        row["id"] for row in conn.execute(
+            "SELECT id FROM hospitals h WHERE NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.hospital_id = h.id)"
+        ).fetchall()
+    ]
+    for hospital_id in hospitals_needing_permissions:
+        role_ids = {
+            row["name"].lower(): row["id"] for row in conn.execute(
+                "SELECT id, name FROM roles WHERE hospital_id = ?", (hospital_id,)
+            ).fetchall()
+        }
+        for page_key, admin_perms, receptionist_perms, doctor_perms in _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT:
+            for kind, (can_view, can_write, can_delete) in (
+                ("admin", admin_perms), ("receptionist", receptionist_perms), ("doctor", doctor_perms),
+            ):
+                conn.execute(
+                    "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (hospital_id, role_ids[kind], page_key, can_view, can_write, can_delete),
+                )
+    conn.commit()
+
+
 def init_db_on_connection(conn) -> int:
     """Apply schema + seed data to an already-open connection. Used directly by
     tests (against an in-memory DB) and internally by init_db() below.
@@ -1620,6 +1768,63 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS working_days TEXT NOT NULL DEFAULT ''")
     conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS working_hours TEXT NOT NULL DEFAULT ''")
     conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT ''")
+    # Migration 144a8eabac9a: dynamic roles -- a hospital's own admin-defined
+    # roles, replacing the old fixed admin/receptionist/doctor vocabulary.
+    # role_id columns start nullable (backfilled below, once hospitals/roles
+    # actually exist) and the old `role` TEXT columns/CHECKs are kept
+    # untouched as a safety net (dropped in a later migration once
+    # application code has fully cut over).
+    #
+    # Roles carry no "is this a doctor role" flag -- doctor-ness is purely
+    # staff_details.doctor_id IS NOT NULL, independent of role (product
+    # decision: any role can optionally be linked to a doctor profile, no
+    # role-level checkbox). Roles also carry no general "built-in" flag --
+    # only the seeded Admin role is is_protected (undeletable, reserved for
+    # a future super-admin flow); every other role is fully manageable by a
+    # portal admin. The ADD/UPDATE/DROP COLUMN trio below migrates an
+    # already-created roles table (from before this product decision) off
+    # its old is_doctor_role/is_system shape -- a no-op on a fresh DB, where
+    # CREATE TABLE below already creates the final shape directly.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS roles (
+            id SERIAL PRIMARY KEY,
+            hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            is_protected BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TEXT NOT NULL DEFAULT (now()::text),
+            updated_at TEXT
+        )
+    """)
+    conn.execute("ALTER TABLE roles ADD COLUMN IF NOT EXISTS is_protected BOOLEAN NOT NULL DEFAULT FALSE")
+    conn.execute("UPDATE roles SET is_protected = TRUE WHERE lower(name) = 'admin' AND is_protected = FALSE")
+    conn.execute("ALTER TABLE roles DROP COLUMN IF EXISTS is_system")
+    conn.execute("ALTER TABLE roles DROP COLUMN IF EXISTS is_doctor_role")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_roles_hospital_name ON roles(hospital_id, lower(name))")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id)")
+    conn.execute(
+        "ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE"
+    )
+    # Migration 4055364a2019: user-level permission overrides -- a second,
+    # finer-grained layer on top of role_permissions (see db/schema.sql's
+    # own comment on this table for the full reasoning).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS staff_permission_overrides (
+            id SERIAL PRIMARY KEY,
+            hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
+            staff_id INTEGER NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            page_key TEXT NOT NULL,
+            can_view BOOLEAN,
+            can_write BOOLEAN,
+            can_delete BOOLEAN,
+            created_at TEXT NOT NULL DEFAULT (now()::text),
+            updated_at TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_permission_overrides "
+        "ON staff_permission_overrides(hospital_id, staff_id, page_key)"
+    )
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
@@ -1634,6 +1839,7 @@ def init_db_on_connection(conn) -> int:
         access_token=access_token, app_secret=app_secret,
     )
     conn.commit()
+    _seed_default_roles_and_backfill_role_id(conn)
     _backfill_enabled_features(conn)
     _backfill_patients(conn)
     _backfill_appointment_patient_denorm(conn)

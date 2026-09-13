@@ -30,9 +30,16 @@ def _staff_summary(staff: dict, hospital) -> dict:
     # dashboard.py already return (PortalHospital on the frontend) -- the
     # staff-portal UI reads hospital.name/tenant_type/etc. off the SAME
     # session object it reads role/permissions off of, rather than needing a
-    # second round-trip keyed by hospital_id alone.
+    # second round-trip keyed by hospital_id alone. role_id/role_name/
+    # role_id/role_name/is_doctor_role/doctor_id (dynamic-roles migration)
+    # replace the old bare "role" string -- is_doctor_role is computed as
+    # doctor_id IS NOT NULL (db/repositories/staff_users.py), independent of
+    # role entirely, and is the signal every frontend `role === "doctor"`
+    # branch switches to.
     return {
-        "id": staff["id"], "name": staff["name"], "role": staff["role"],
+        "id": staff["id"], "name": staff["name"],
+        "role_id": staff["role_id"], "role_name": staff["role_name"], "is_doctor_role": staff["is_doctor_role"],
+        "doctor_id": staff["doctor_id"],
         "hospital_id": staff["hospital_id"], "hospital": _hospital_summary(hospital),
     }
 
@@ -42,15 +49,18 @@ def _issue_tokens(staff: dict) -> dict:
     role/token_version off the fresh `staff` row passed in (never a cached
     one), so a role change or password reset that happened between a
     refresh call and the one before it is reflected in the very next access
-    token issued, not just at the next full login."""
+    token issued, not just at the next full login. The JWT's own `role`
+    claim carries role_name (display-only, dead weight for authorization --
+    see portal/deps.py's get_current_staff() docstring, which never reads
+    it, always re-fetching role_id fresh from Postgres instead)."""
     hospital = db.get_hospital(staff["hospital_id"])
-    access_token = issue_access_token(staff["id"], staff["hospital_id"], staff["role"], staff["token_version"])
-    refresh_token = issue_refresh_token(staff["id"], staff["hospital_id"], staff["role"])
+    access_token = issue_access_token(staff["id"], staff["hospital_id"], staff["role_name"], staff["token_version"])
+    refresh_token = issue_refresh_token(staff["id"], staff["hospital_id"], staff["role_name"])
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "staff": _staff_summary(staff, hospital),
-        "permissions": get_permission_matrix(staff["hospital_id"]).get(staff["role"], {}),
+        "permissions": get_permission_matrix(staff["hospital_id"]).get(staff["role_id"], {}),
     }
 
 
@@ -156,9 +166,11 @@ async def staff_me(authorization: str | None = Header(default=None)):
     if staff is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     return JSONResponse({
-        "id": staff["id"], "name": staff["name"], "email": staff["email"], "role": staff["role"],
+        "id": staff["id"], "name": staff["name"], "email": staff["email"],
+        "role_id": staff["role_id"], "role_name": staff["role_name"], "is_doctor_role": staff["is_doctor_role"],
+        "doctor_id": staff["doctor_id"],
         "hospital": _hospital_summary(principal.hospital),
-        "permissions": get_permission_matrix(principal.hospital.id).get(staff["role"], {}),
+        "permissions": get_permission_matrix(principal.hospital.id).get(staff["role_id"], {}),
     })
 
 

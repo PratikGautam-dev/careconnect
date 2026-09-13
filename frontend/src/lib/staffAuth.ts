@@ -8,13 +8,22 @@ const REFRESH_KEY = "staff_refresh_token";
 // Legacy, (unused-doctor)-only key -- see getStaffSession()'s own docstring.
 const SESSION_KEY = "staff_session";
 
-export type StaffRole = "admin" | "receptionist" | "doctor";
+// Dynamic-roles migration: roles are admin-defined per hospital now, no
+// more fixed "admin"/"receptionist"/"doctor" string union -- see
+// frontend/src/hooks/usePortalRoles.ts's Role type for the fetched shape.
 export type StaffPermissions = Record<string, { view: boolean; write: boolean; delete: boolean }>;
 
 export type StaffSession = {
   id: number;
   name: string;
-  role: StaffRole;
+  role_id: number;
+  role_name: string;
+  // Whether this login is linked to a doctor profile (doctor_id !== null,
+  // computed backend-side) -- a per-staff attribute, not a role property:
+  // any role can optionally have a doctor linked. Every `role === "doctor"`
+  // UI branch switches to this instead of a role-name comparison.
+  is_doctor_role: boolean;
+  doctor_id: string | null;
   hospital: PortalHospital;
   permissions: StaffPermissions;
 };

@@ -94,5 +94,10 @@ def test_backfill_staff_employee_ids_rewrites_legacy_values_and_skips_doctor_rol
 
     # A brand-new admin/receptionist created AFTER the backfill continues
     # the same counter with no gap or collision.
-    new_staff = db.create_staff_user(hospital_id, "receptionist", "new.after.backfill@example.com", "hash", "New Recep")
+    receptionist_role_id = next(
+        r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == "receptionist"
+    )
+    new_staff = db.create_staff_user(
+        hospital_id, receptionist_role_id, "new.after.backfill@example.com", "hash", "New Recep",
+    )
     assert _seq(new_staff["employee_id"]) == legacy_seq + 1

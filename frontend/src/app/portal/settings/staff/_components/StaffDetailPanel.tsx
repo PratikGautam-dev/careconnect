@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/formatDate";
 import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
 import type { AttendanceStatus } from "@/hooks/useStaffManagement";
-import { AVATAR_TINTS, ATTENDANCE_LABELS, ROLE_LABELS, initials, type StaffRow } from "./staff-columns";
+import { AVATAR_TINTS, ATTENDANCE_LABELS, initials, type StaffRow } from "./staff-columns";
 
 function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: React.ReactNode }) {
   return (
@@ -84,7 +84,7 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
         <p className="text-[15px] font-bold text-ink-900">{staff.name}</p>
         <p className="text-[12px] text-ink-400">Staff ID: {staffDisplayId(staff.id)}</p>
         <p className="text-[12px] text-ink-400">
-          {ROLE_LABELS[staff.role]} · {staff.department_name || "No department set"}
+          {staff.role_name} · {staff.department_name || "No department set"}
         </p>
       </div>
 

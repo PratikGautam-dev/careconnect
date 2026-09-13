@@ -19,12 +19,12 @@ verify_portal_password()'s own None-safe handling. get_users_without_hospital()
 below filters on google_id so a staff/super-admin identity created without
 ever signing in via Google never gets swept into this OAuth-specific
 "stalled signup" list."""
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from db.connection import get_session
 from db.models import Hospital, User
-from db.orm_models import HospitalRow, Identity, StaffDetail
+from db.orm_models import HospitalRow, Identity, RoleRow, StaffDetail
 from db.repositories.hospitals import _HOSPITAL_COLUMNS, _row_to_hospital
 
 _USER_COLUMNS = (Identity.id, Identity.google_id, Identity.email, Identity.name, Identity.created_at)
@@ -95,7 +95,7 @@ def get_or_create_user_for_google_login(google_id: str, email: str, name: str | 
     return create_user(email=email, google_id=google_id, name=name)
 
 
-def link_hospital_owner(hospital_id: int, user_id: int, role: str = "admin") -> None:
+def link_hospital_owner(hospital_id: int, user_id: int, role_id: int | None = None) -> None:
     """Idempotent: re-linking an already-owned hospital (e.g. a duplicate
     onboarding submit) is a harmless no-op, not a duplicate row -- same
     reasoning as doctor_leave's UNIQUE(doctor_id, date). Writes StaffDetail
@@ -104,13 +104,18 @@ def link_hospital_owner(hospital_id: int, user_id: int, role: str = "admin") -> 
     ever create ONE row per identity, ever; a second call for a DIFFERENT
     hospital_id on an identity that already has a staff_details row is a
     no-op, not a second link -- consistent with "one identity, one
-    hospital", confirmed with the user. role defaults to 'admin', not a
-    separate 'owner' value -- confirmed with the user, a hospital's role
-    vocabulary stays exactly admin/receptionist/doctor."""
+    hospital", confirmed with the user. `role_id` defaults to this
+    hospital's own "Admin"-named role (resolved by name, same accepted
+    limitation get_owners_for_hospital() documents) -- no caller has ever
+    passed an explicit role, there's still no separate 'owner' role."""
     session = get_session()
+    if role_id is None:
+        role_id = session.execute(
+            select(RoleRow.id).where(RoleRow.hospital_id == hospital_id, func.lower(RoleRow.name) == "admin")
+        ).scalar_one()
     session.execute(
         pg_insert(StaffDetail)
-        .values(identity_id=user_id, hospital_id=hospital_id, role=role, doctor_id=None)
+        .values(identity_id=user_id, hospital_id=hospital_id, role_id=role_id, doctor_id=None)
         .on_conflict_do_nothing(index_elements=["identity_id"])
     )
     session.commit()
@@ -144,15 +149,24 @@ def user_owns_hospital(hospital_id: int, user_id: int) -> bool:
 def get_owners_for_hospital(hospital_id: int) -> list[User]:
     """This hospital's admin-role staff_details identities -- no separate
     'owner' role to filter on (confirmed with the user, centralized on
-    'admin'), so this is every admin at the hospital, whether their account
-    was created by Google sign-in or by another admin through the
-    staff-management UI. admin/tenants_api.py's tenant-detail view uses this
-    to show who has admin access to the hospital's portal."""
+    'admin'), so this is every staff member on this hospital's "Admin"-named
+    role, whether their account was created by Google sign-in or by another
+    admin through the staff-management UI. admin/tenants_api.py's
+    tenant-detail view uses this to show who has admin access to the
+    hospital's portal. Dynamic-roles migration: matched by role NAME
+    (case-insensitive), not a structural flag -- "adminness" has no
+    FK/data-scoping consequence anywhere in the schema (unlike doctor-ness,
+    which lives on doctor_id, a per-staff column, not a role), so a hospital
+    that renames its Admin-equivalent role stops matching here -- an
+    accepted, pre-existing-shape limitation this migration doesn't attempt
+    to fix (same posture as _staff_row()'s own receptionist-name leave-
+    tracking gate, portal/routes/staff.py)."""
     session = get_session()
     rows = session.execute(
         select(*_USER_COLUMNS)
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
-        .where(StaffDetail.hospital_id == hospital_id, StaffDetail.role == "admin")
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
+        .where(StaffDetail.hospital_id == hospital_id, func.lower(RoleRow.name) == "admin")
         .order_by(Identity.id)
     ).all()
     return [_row_to_user(r._mapping) for r in rows]

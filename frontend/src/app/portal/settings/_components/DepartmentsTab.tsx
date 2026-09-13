@@ -27,7 +27,7 @@ const STATUS_OPTIONS = [
 // for). Doctors have no department_id here (see staff.py's own check --
 // a doctor's department comes from their linked doctor profile), so this
 // list is implicitly support-staff-only already.
-type StaffPickOption = { id: number; name: string; role: string; department_name: string | null };
+type StaffPickOption = { id: number; name: string; role_name: string; department_name: string | null };
 
 export function DepartmentsTab() {
   const { departments, error, reload, createDepartment, updateDepartment, setDepartmentActive, setDepartmentVisibility } =
@@ -189,11 +189,12 @@ export function DepartmentsTab() {
   const doctorPeople: PersonOption[] = doctors.map((d) => ({
     id: d.id, label: d.name, sublabel: `${d.specialization || "—"} · currently ${d.department_name}`,
   }));
-  const staffPeople: PersonOption[] = staffOptions
-    .filter((s) => s.role !== "doctor")
-    .map((s) => ({
-      id: String(s.id), label: s.name, sublabel: `${s.role} · currently ${s.department_name || "no department"}`,
-    }));
+  // GET /api/portal/staff already excludes doctors server-side (see
+  // staff.py's own docstring) -- this list is implicitly support-staff-only
+  // already, no client-side role filter needed.
+  const staffPeople: PersonOption[] = staffOptions.map((s) => ({
+    id: String(s.id), label: s.name, sublabel: `${s.role_name} · currently ${s.department_name || "no department"}`,
+  }));
 
   if (error) {
     return (

@@ -16,7 +16,7 @@ import time
 from collections import defaultdict
 
 DEFAULT_MAX_ATTEMPTS = 5
-DEFAULT_WINDOW_SECONDS = 15 * 60  # 15 minutes
+DEFAULT_WINDOW_SECONDS = 3 * 60  # 3 minutes
 
 
 class InMemoryRateLimiter:

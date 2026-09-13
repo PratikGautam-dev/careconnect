@@ -16,8 +16,6 @@ type Props = {
   onSaved?: () => void;
 };
 
-const ROLE_LABELS: Record<string, string> = { admin: "Admin", receptionist: "Receptionist", doctor: "Doctor" };
-
 /** Reusable "Edit staff details" modal -- Name plus the shared
  * StaffContactFields (Phone/Address/Department/Working schedule/Reports-to).
  * Role and the linked doctor aren't editable here -- there's no repository
@@ -45,7 +43,7 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
               <Input id="edit_staff_name" value={name} onChange={(e) => setName(e.target.value)} required />
             </Field>
             <Field label="Role" htmlFor="edit_staff_role" hint="Not editable here.">
-              <Input id="edit_staff_role" value={ROLE_LABELS[staff.role]} disabled />
+              <Input id="edit_staff_role" value={staff.role_name} disabled />
             </Field>
             <div className="mt-space-2 border-t border-line pt-space-4 md:col-span-2">
               <SectionHeader
@@ -54,7 +52,7 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
               />
             </div>
             <StaffContactFields
-              role={staff.role}
+              hasLinkedDoctor={staff.is_doctor_role}
               phone={phone} setPhone={setPhone}
               address={address} setAddress={setAddress}
               departmentId={departmentId} setDepartmentId={setDepartmentId} departments={departments}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Stethoscope, UserCog, Users as UsersIcon } from "lucide-react";
+import { Search, Users as UsersIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -97,20 +97,14 @@ function UsersOverview() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-x-space-4 gap-y-space-2 border-t border-line pt-space-3">
-                <div className="flex items-center gap-space-1.5">
-                  <UserCog size={14} className="text-ink-400" />
-                  <span className="text-[13px] text-ink-700">{h.admin_count} admin{h.admin_count === 1 ? "" : "s"}</span>
-                </div>
-                <div className="flex items-center gap-space-1.5">
-                  <Stethoscope size={14} className="text-ink-400" />
-                  <span className="text-[13px] text-ink-700">{h.doctor_count} doctor{h.doctor_count === 1 ? "" : "s"}</span>
-                </div>
-                <div className="flex items-center gap-space-1.5">
-                  <UsersIcon size={14} className="text-ink-400" />
-                  <span className="text-[13px] text-ink-700">
-                    {h.receptionist_count} receptionist{h.receptionist_count === 1 ? "" : "s"}
-                  </span>
-                </div>
+                {h.role_breakdown.map((r) => (
+                  <div key={r.role_id} className="flex items-center gap-space-1.5">
+                    <UsersIcon size={14} className="text-ink-400" />
+                    <span className="text-[13px] text-ink-700">
+                      {r.count} {r.role_name}{r.count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ))}
                 <span className="ml-auto text-[12px] font-semibold text-ink-400">{h.total_count} total</span>
               </div>
             </Card>

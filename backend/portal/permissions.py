@@ -11,16 +11,23 @@ without MANAGE_DOCTORS capability shows no Doctors nav item to ANY role
 regardless of what role_permissions says, since capabilities.py's gate runs
 first, at the tenant level.
 
-Permissions are per-ROLE only (locked in with the user, docs/rbac-redis-plan.md's
-own "Decisions locked in" section) -- not per-individual overrides. Every
-Admin at a hospital has identical permissions to every other Admin there;
-editing "Admin" changes it for every admin at that hospital at once. This is
-what makes ONE row per (hospital, role, page) (db/schema.sql's
-role_permissions table) sufficient, rather than needing a row per staff
-member.
+Permissions are per-ROLE by default -- every Admin at a hospital has
+identical permissions to every other Admin there; editing "Admin" changes it
+for every admin at that hospital at once, via ONE row per (hospital, role,
+page) (db/schema.sql's role_permissions table). A second, sparse,
+per-INDIVIDUAL layer sits on top of that (db/repositories/staff_permissions.py's
+staff_permission_overrides table, see get_staff_override_matrix() below) --
+an admin can grant or revoke one action on one page for one specific staff
+member (e.g. `delete` on Appointments for one particular doctor) without
+touching the rest of their role; that override, when set, always wins over
+whatever the role itself says.
 """
 from db.repositories.role_permissions import get_role_permissions
-from portal.permission_cache import get_cached_matrix, set_cached_matrix
+from db.repositories.roles import list_roles
+from db.repositories.staff_permissions import get_staff_overrides
+from portal.permission_cache import (
+    get_cached_matrix, get_cached_overrides, set_cached_matrix, set_cached_overrides,
+)
 
 PAGE_DASHBOARD = "dashboard"
 PAGE_APPOINTMENTS = "appointments"
@@ -53,15 +60,19 @@ _VIEW_ONLY = {"view": True, "write": False, "delete": False}
 _VIEW_WRITE = {"view": True, "write": True, "delete": False}
 _NONE = {"view": False, "write": False, "delete": False}
 
-# Single source of truth for both onboarding's explicit seeding write
-# (submit_onboarding() below) and get_permission_matrix()'s runtime fallback
-# for a hospital that predates this feature -- same role
-# DEFAULT_CAPABILITIES_BY_TYPE plays for portal/capabilities.py's
-# get_capabilities(). Admin defaults to all-true on every page (including
-# STAFF/ROLES -- an admin manages other staff and edits this very matrix by
-# default) but, per the plan, is editable like everything else -- this is
-# only ever the STARTING point for a hospital's admin role, not a floor.
-DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
+# Dynamic-roles migration: this is now SEED-TIME-ONLY data, consulted at
+# exactly two moments -- (a) a new hospital's onboarding, seeding its 3
+# default roles' permission rows, and (b) an admin's "Add Role" flow picking
+# a starting-point kind (as opposed to cloning an existing role's actual
+# current permissions). It is NEVER consulted by get_permission_matrix()/
+# has_permission() at request time -- a role with zero role_permissions rows
+# (a brand-new custom role before its first permission edit) resolves to
+# all-False, not to some named-kind default it was never seeded from.
+# Admin defaults to all-true on every page (including STAFF/ROLES -- an
+# admin manages other staff and edits this very matrix by default) but is
+# editable like everything else -- this is only ever a STARTING point, not
+# a floor.
+DEFAULT_PERMISSIONS_BY_ROLE_KIND: dict[str, dict[str, dict[str, bool]]] = {
     "admin": {page: dict(_ALL_TRUE) for page in ALL_PAGES},
     "receptionist": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
@@ -96,47 +107,76 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[str, dict[str, dict[str, bool]]] = {
 }
 
 
-def resolve_default_permissions(role: str) -> dict[str, dict[str, bool]]:
+def resolve_default_permissions(kind: str) -> dict[str, dict[str, bool]]:
     """Onboarding's own explicit-write helper (mirrors
-    capabilities.resolve_default_capabilities()) -- returns a plain dict
-    (not the shared DEFAULT_PERMISSIONS_BY_ROLE reference) so a caller can
-    freely pass it into a DB write without risking a later in-place mutation
-    corrupting the module-level default for every other hospital."""
-    return {page: dict(actions) for page, actions in DEFAULT_PERMISSIONS_BY_ROLE.get(role, {}).items()}
+    capabilities.resolve_default_capabilities()) -- `kind` is one of
+    DEFAULT_PERMISSIONS_BY_ROLE_KIND's 3 keys ("admin"/"receptionist"/
+    "doctor"), NOT a role_id -- returns a plain dict (not the shared
+    DEFAULT_PERMISSIONS_BY_ROLE_KIND reference) so a caller can freely pass
+    it into a DB write without risking a later in-place mutation corrupting
+    the module-level default for every other hospital."""
+    return {page: dict(actions) for page, actions in DEFAULT_PERMISSIONS_BY_ROLE_KIND.get(kind, {}).items()}
 
 
-def get_permission_matrix(hospital_id: int) -> dict[str, dict[str, dict[str, bool]]]:
-    """{role: {page_key: {view, write, delete}}} for every role -- Redis-
-    cached (portal/permission_cache.py) since this is read on every
-    permission-gated request via has_permission() below. Falls back to
-    DEFAULT_PERMISSIONS_BY_ROLE for any (role, page) this hospital has no row
-    for at all -- covers both a hospital that predates this feature entirely
-    (zero rows) and a hospital with rows for some roles/pages but not a
-    newly-added page_key (a future page added after this hospital was
-    onboarded), so a permission check never has to treat "no row" as
-    "access denied" by default."""
+def get_permission_matrix(hospital_id: int) -> dict[int, dict[str, dict[str, bool]]]:
+    """{role_id: {page_key: {view, write, delete}}} for every role this
+    hospital currently has -- Redis-cached (portal/permission_cache.py)
+    since this is read on every permission-gated request via has_permission()
+    below. Base case is every role in db.list_roles(hospital_id), defaulted
+    to all-False, THEN overlaid with actual role_permissions rows -- a role
+    with zero rows (a brand-new custom role before its first permission
+    edit) resolves to all-False by construction, never to some named-kind
+    default it was never seeded from (see DEFAULT_PERMISSIONS_BY_ROLE_KIND's
+    own docstring for why that's a deliberate fail-closed choice)."""
     cached = get_cached_matrix(hospital_id)
     if cached is not None:
-        return cached
+        return {int(role_id): pages for role_id, pages in cached.items()}
 
-    rows = get_role_permissions(hospital_id)
-    matrix: dict[str, dict[str, dict[str, bool]]] = {
-        role: resolve_default_permissions(role) for role in DEFAULT_PERMISSIONS_BY_ROLE
+    role_ids = [r["id"] for r in list_roles(hospital_id)]
+    matrix: dict[int, dict[str, dict[str, bool]]] = {
+        role_id: {page: dict(_NONE) for page in ALL_PAGES} for role_id in role_ids
     }
-    for row in rows:
-        role, page_key = row["role"], row["page_key"]
-        matrix.setdefault(role, {})[page_key] = {
+    for row in get_role_permissions(hospital_id):
+        role_id, page_key = row["role_id"], row["page_key"]
+        matrix.setdefault(role_id, {})[page_key] = {
             "view": row["can_view"], "write": row["can_write"], "delete": row["can_delete"],
         }
     set_cached_matrix(hospital_id, matrix)
     return matrix
 
 
-def has_permission(hospital_id: int, role: str, page_key: str, action: str) -> bool:
+def get_staff_override_matrix(hospital_id: int, staff_id: int) -> dict[str, dict[str, bool | None]]:
+    """{page_key: {view, write, delete}} for one staff member's own
+    overrides -- each action value is True/False (an explicit override) or
+    None (no opinion, inherit the role). Redis-cached (its own key, separate
+    from the per-hospital role matrix above) since has_permission() below
+    reads this on every permission-gated request too. Sparse by
+    construction: a page never touched here simply isn't a key, which
+    has_permission() treats the same as an explicit None on every action."""
+    cached = get_cached_overrides(hospital_id, staff_id)
+    if cached is not None:
+        return cached
+    overrides: dict[str, dict[str, bool | None]] = {}
+    for row in get_staff_overrides(hospital_id, staff_id):
+        overrides[row["page_key"]] = {
+            "view": row["can_view"], "write": row["can_write"], "delete": row["can_delete"],
+        }
+    set_cached_overrides(hospital_id, staff_id, overrides)
+    return overrides
+
+
+def has_permission(hospital_id: int, staff_id: int, role_id: int, page_key: str, action: str) -> bool:
     """The check every route calls (via portal/deps.py's require_permission())
-    -- an unrecognized role or page_key resolves to False (fail closed),
+    -- checks this staff member's own override first (dynamic-roles
+    migration's user-level-overrides follow-up: a non-None value here wins
+    outright, regardless of what the role says), and only falls back to the
+    role matrix when the override is absent/None for that cell. An
+    unrecognized role_id or page_key still resolves to False (fail closed),
     matching this codebase's general "an unrecognized key is simply never
     granted/read" discipline (e.g. capabilities.get_capabilities()'s
     `& ALL_CAPABILITIES` intersection)."""
+    override = get_staff_override_matrix(hospital_id, staff_id).get(page_key, {}).get(action)
+    if override is not None:
+        return override
     matrix = get_permission_matrix(hospital_id)
-    return bool(matrix.get(role, {}).get(page_key, {}).get(action, False))
+    return bool(matrix.get(role_id, {}).get(page_key, {}).get(action, False))

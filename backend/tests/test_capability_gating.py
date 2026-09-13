@@ -164,7 +164,7 @@ def test_hospital_tenant_can_create_a_doctor(hospital_id):
         headers=_auth(token),
         json={
             "department_id": department["id"], "name": "Dr. Allowed", "specialization": "General",
-            "qualification": "MBBS", "years_experience": "5", "working_days": ["Mon"],
+            "qualification": "MBBS", "phone": "5551110001", "years_experience": "5", "working_days": ["Mon"],
             "working_hours": ["09:00-12:00"], "slot_duration_minutes": "30",
         },
     )
@@ -205,7 +205,7 @@ def test_explicit_admin_capabilities_override_lets_a_clinic_manage_doctors(hospi
         headers=_auth(token),
         json={
             "department_id": department["id"], "name": "Dr. Granted", "specialization": "General",
-            "qualification": "MBBS", "years_experience": "5", "working_days": ["Mon"],
+            "qualification": "MBBS", "phone": "5551110002", "years_experience": "5", "working_days": ["Mon"],
             "working_hours": ["09:00-12:00"], "slot_duration_minutes": "30",
         },
     )
@@ -615,7 +615,7 @@ def test_doctor_create_records_a_portal_level_audit_entry(hospital_id):
         headers=_auth(token),
         json={
             "department_id": department["id"], "name": "Dr. Audited", "specialization": "General",
-            "qualification": "MBBS", "years_experience": "5", "working_days": ["Mon"],
+            "qualification": "MBBS", "phone": "5551110003", "years_experience": "5", "working_days": ["Mon"],
             "working_hours": ["09:00-12:00"], "slot_duration_minutes": "30",
         },
     )

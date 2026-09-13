@@ -151,7 +151,7 @@ async def google_callback(request: Request):
         # (staff summary, permissions) the frontend actually needs, so
         # nothing sensitive beyond a single-use-rotating refresh token ever
         # sits in a URL that could end up in browser history or a server log.
-        refresh_token = issue_refresh_token(staff["id"], staff["hospital_id"], staff["role"])
+        refresh_token = issue_refresh_token(staff["id"], staff["hospital_id"], staff["role_name"])
         return RedirectResponse(f"{FRONTEND_ORIGIN}/auth/callback?staff_refresh_token={refresh_token}")
 
     # No staff_details row yet -- a brand new Google sign-in that hasn't

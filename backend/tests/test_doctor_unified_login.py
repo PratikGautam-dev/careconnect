@@ -62,16 +62,27 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_doctor_staff_user(hospital_id: int, name: str, email: str, password: str = "hunter22") -> str:
     """Creates a doctor row + a staff_users login for it, unified-system
-    style -- doctor_id is required on a role="doctor" row (the DB's own
+    style -- doctor_id is required on a Doctor-role row (the DB's own
     ck_staff_users_doctor_role_pairing CHECK enforces this), unlike the old
     doctors.email/password_hash path which lived on the doctor row itself."""
     doctor = db.create_doctor(
         hospital_id, "cardiology", name,
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri"], working_hours=["09:00-12:00"],
     )
-    db.create_staff_user(hospital_id, "doctor", email, hash_portal_password(password), name, doctor_id=doctor["id"])
+    db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "doctor"), email, hash_portal_password(password), name,
+        doctor_id=doctor["id"],
+    )
     return doctor["id"]
 
 
@@ -111,7 +122,7 @@ def _book(hospital_id: int, doctor_id: str, phone: str) -> int:
 def test_unified_staff_login_for_a_doctor_role_reports_role_doctor(hospital_id):
     _make_doctor_staff_user(hospital_id, "Dr. Unified One", "unified.one@example.com")
     body = _staff_login("unified.one@example.com", "hunter22")
-    assert body["staff"]["role"] == "doctor"
+    assert body["staff"]["is_doctor_role"] is True
     assert body["staff"]["hospital_id"] == hospital_id
 
 

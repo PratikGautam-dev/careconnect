@@ -270,6 +270,7 @@ def test_update_doctor_changes_working_hours(two_hospitals):
         f"/api/portal/doctors/{a['doctor_id']}",
         json={
             "department_id": a["department_id"], "name": "Dr. Updated Name", "specialization": "Cardiology",
+            "qualification": "MBBS", "phone": "5550005678",
             "working_days": ["Mon", "Wed", "Fri"], "working_hours": ["09:00-13:00"],
             "slot_duration_minutes": "20",
         },
@@ -998,6 +999,7 @@ def _csv_row(**overrides) -> dict:
         "name": "Dr. CSV Import",
         "specialization": "Imaging",
         "qualification": "MD",
+        "phone": "5550001234",
         "years_experience": "5",
         "working_days": "Mon,Tue,Wed",
         "working_hours": "09:00-12:00",
@@ -1770,6 +1772,7 @@ def test_create_doctor_with_break_and_quota_fields(two_hospitals):
         "/api/portal/doctors",
         json={
             "department_id": a["department_id"], "name": "Dr. Portal Schedule",
+            "specialization": "Cardiology", "qualification": "MBBS", "phone": "5550009012",
             "working_days": ["Mon", "Wed"], "working_hours": ["09:00-12:00"],
             "slot_duration_minutes": "30", "breaks": ["10:00-10:30"],
             "max_bookings_per_slot": "1", "daily_booking_limit": "4",
@@ -1793,6 +1796,7 @@ def test_create_doctor_quota_warning_shown_but_doctor_still_created(two_hospital
         "/api/portal/doctors",
         json={
             "department_id": a["department_id"], "name": "Dr. Quota Warning",
+            "specialization": "Cardiology", "qualification": "MBBS", "phone": "5550009013",
             "working_days": ["Mon"], "working_hours": ["09:00-12:00"],
             "slot_duration_minutes": "30", "daily_booking_limit": "2",
             "online_quota": "2", "walkin_quota": "2",

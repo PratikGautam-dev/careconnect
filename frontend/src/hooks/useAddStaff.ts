@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { staffFetch, type StaffRole } from "@/lib/staffAuth";
+import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { useDepartments } from "@/hooks/useDepartments";
+import type { Role } from "@/hooks/usePortalRoles";
 import type { WorkingScheduleValue } from "@/components/portal/WorkingScheduleFields";
 
 export type Doctor = { id: string; name: string };
@@ -11,16 +12,19 @@ export type StaffOption = { id: number; name: string };
 const EMPTY_SCHEDULE: WorkingScheduleValue = { working_days: [], shifts: [{ start: "", end: "" }], breaks: [] };
 
 /** Owns the "Add staff member" dialog's own form state + submit -- fully
- * self-contained (loads the linked-doctor/department/reports-to pickers
- * itself, resets every field the moment it closes) so the dialog can be
- * dropped in anywhere, same open-driven-fetch/reset shape as
+ * self-contained (loads the linked-doctor/department/reports-to/role
+ * pickers itself, resets every field the moment it closes) so the dialog
+ * can be dropped in anywhere, same open-driven-fetch/reset shape as
  * useNewBooking.ts.
  *
  * presetDoctor (Doctors page's own "Create login" quick action): when set,
- * role/doctorId are locked to "doctor"/this doctor on open instead of
- * defaulting to receptionist+unselected -- the admin lands straight on
- * "create THIS doctor's login" rather than re-picking a role and doctor
- * they already chose by clicking that specific doctor's action. */
+ * doctorId is locked to this specific doctor on open -- the admin lands
+ * straight on "create THIS doctor's login" rather than re-picking a doctor
+ * they already chose by clicking that specific doctor's action. Dynamic-
+ * roles migration: doctor-ness is no longer a role property at all (any
+ * role can optionally have a doctor linked), so roleId always just
+ * defaults to the first fetched role -- the picker itself is immediately
+ * visible/editable regardless, and doctorId is a fully independent field. */
 export function useAddStaff(
   open: boolean, onOpenChange: (open: boolean) => void, onCreated?: () => void, presetDoctor?: Doctor | null,
 ) {
@@ -28,10 +32,11 @@ export function useAddStaff(
   const departments = useDepartments(open);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<StaffRole>(presetDoctor ? "doctor" : "receptionist");
+  const [roleId, setRoleId] = useState<number | null>(null);
   const [doctorId, setDoctorId] = useState(presetDoctor?.id || "");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -61,12 +66,32 @@ export function useAddStaff(
     setStaffOptions((result.data as StaffOption[]) || []);
   }, []);
 
+  const loadRoles = useCallback(async (): Promise<Role[]> => {
+    const result = await staffFetch("/api/portal/roles");
+    if (!result.ok) return [];
+    const fetched = (result.data as { roles: Role[] }).roles;
+    setRoles(fetched);
+    return fetched;
+  }, []);
+
   useEffect(() => {
     if (open) {
       loadDoctors();
       loadStaffOptions();
+      loadRoles().then((fetched) => {
+        // presetDoctor (Doctors page's "Create login" action): default to
+        // whichever role is actually named "Doctor" if this hospital still
+        // has one -- a convenience default only (the picker stays visible
+        // and editable, dynamic-roles migration removed any structural
+        // requirement that a doctor's login sit on a particular role), so
+        // this never silently lands a new doctor's login on the FIRST role
+        // in the list (which sorts Admin first, is_protected DESC).
+        const defaultRole = presetDoctor
+          ? fetched.find((r) => r.name.toLowerCase() === "doctor") || fetched[0]
+          : fetched[0];
+        setRoleId(defaultRole?.id ?? null);
+      });
       if (presetDoctor) {
-        setRole("doctor");
         setDoctorId(presetDoctor.id);
         setName(presetDoctor.name);
       }
@@ -76,7 +101,7 @@ export function useAddStaff(
     setName("");
     setEmail("");
     setPassword("");
-    setRole(presetDoctor ? "doctor" : "receptionist");
+    setRoleId(null);
     setDoctorId(presetDoctor?.id || "");
     setPhone("");
     setAddress("");
@@ -84,12 +109,12 @@ export function useAddStaff(
     setSchedule(EMPTY_SCHEDULE);
     setReportsToId("");
     setFormError(null);
-  }, [open, loadDoctors, loadStaffOptions, presetDoctor]);
+  }, [open, loadDoctors, loadStaffOptions, loadRoles, presetDoctor]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (role === "doctor" && !doctorId) {
-      setFormError("Select which doctor this login belongs to.");
+    if (!roleId) {
+      setFormError("Choose a role.");
       return;
     }
     setSaving(true);
@@ -100,11 +125,11 @@ export function useAddStaff(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name, email, password, role,
-        doctor_id: role === "doctor" ? doctorId : undefined,
+        name, email, password, role_id: roleId,
+        doctor_id: doctorId || undefined,
         phone: phone || undefined,
         address: address || undefined,
-        department_id: role !== "doctor" ? departmentId || undefined : undefined,
+        department_id: !doctorId ? departmentId || undefined : undefined,
         working_days: schedule.working_days,
         working_hours,
         breaks,
@@ -126,8 +151,8 @@ export function useAddStaff(
   }
 
   return {
-    doctors, departments, staffOptions,
-    name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
+    doctors, departments, staffOptions, roles,
+    name, setName, email, setEmail, password, setPassword, roleId, setRoleId, doctorId, setDoctorId,
     phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
     reportsToId, setReportsToId,
     formError, saving, handleCreate,

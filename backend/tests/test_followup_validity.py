@@ -30,8 +30,16 @@ from fastapi.testclient import TestClient  # noqa: E402
 client = TestClient(app)
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _staff_auth(hospital_id: int, role: str, email: str) -> dict:
-    staff = db.create_staff_user(hospital_id, role, email, "x", "Test Staff")
+    staff = db.create_staff_user(hospital_id, _role_id(hospital_id, role), email, "x", "Test Staff")
     token = issue_access_token(staff["id"], hospital_id, role, staff["token_version"])
     return {"Authorization": f"Bearer {token}"}
 

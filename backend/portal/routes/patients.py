@@ -10,12 +10,12 @@ router = APIRouter()
 
 @router.get("/api/portal/patients")
 async def portal_patients(search: str = "", authorization: str | None = Header(default=None)):
-    """Scoped to only patients the caller has actually seen when
-    role=="doctor" -- see portal_bookings()'s own note on why."""
-    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    """Scoped to only patients the caller has actually seen when the caller
+    is a doctor -- see portal_bookings()'s own note on why."""
+    hospital, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    if role == "doctor" and doctor_id is not None:
+    if doctor_id is not None:
         patients = db.get_patients_for_doctor(hospital.id, doctor_id)
         if search:
             q = search.strip().lower()
@@ -71,18 +71,18 @@ def _patient_json(p: dict) -> dict:
 
 @router.get("/api/portal/patients/{patient_id}")
 async def portal_patient_detail(patient_id: int, authorization: str | None = Header(default=None)):
-    """When role=="doctor", both existence AND ownership are folded into one
-    check: a patient this doctor has never treated resolves to the same 404
-    as a patient that doesn't exist at all, never a 403 that would confirm
-    the record exists at this hospital."""
-    hospital, role, doctor_id = _authenticate_with_role(authorization)
+    """When the caller is a doctor, both existence AND ownership are folded
+    into one check: a patient this doctor has never treated resolves to the
+    same 404 as a patient that doesn't exist at all, never a 403 that would
+    confirm the record exists at this hospital."""
+    hospital, doctor_id = _authenticate_with_role(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     patient = db.get_patient(hospital.id, patient_id)
     if patient is None:
         return JSONResponse({"error": "No such patient."}, status_code=404)
 
-    if role == "doctor" and doctor_id is not None:
+    if doctor_id is not None:
         visit_history = db.get_doctor_appointments_for_patient(hospital.id, doctor_id, patient_id)
         if not visit_history:
             return JSONResponse({"error": "No such patient."}, status_code=404)

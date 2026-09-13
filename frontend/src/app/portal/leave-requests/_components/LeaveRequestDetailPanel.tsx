@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { formatDate } from "@/lib/formatDate";
 import type { LeaveRequestRow } from "@/hooks/useLeaveRequests";
-import { LEAVE_TYPE_LABELS, ROLE_LABELS, StatusBadge } from "./leave-request-columns";
+import { LEAVE_TYPE_LABELS, StatusBadge } from "./leave-request-columns";
 
 function DetailRow({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: React.ReactNode }) {
   return (
@@ -44,7 +44,7 @@ export function LeaveRequestDetailPanel({ request, canManage, decidingId, onAppr
     );
   }
 
-  const applicantLabel = request.role === "doctor" ? `Dr. ${request.applicant_name}` : request.applicant_name;
+  const applicantLabel = request.is_doctor_role ? `Dr. ${request.applicant_name}` : request.applicant_name;
 
   return (
     <Card className="p-space-4">
@@ -54,7 +54,7 @@ export function LeaveRequestDetailPanel({ request, canManage, decidingId, onAppr
         </span>
         <p className="text-[15px] font-bold text-ink-900">{applicantLabel}</p>
         <p className="text-[12px] text-ink-400">
-          {ROLE_LABELS[request.role]} {request.department_name ? `· ${request.department_name}` : ""}
+          {request.role_name} {request.department_name ? `· ${request.department_name}` : ""}
         </p>
       </div>
 

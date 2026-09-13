@@ -9,14 +9,11 @@ import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { useHospitalStaff } from "@/hooks/useHospitalStaff";
 
-const ROLE_LABELS: Record<string, string> = { admin: "Admin", receptionist: "Receptionist", doctor: "Doctor" };
-
 function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"" | "admin" | "receptionist" | "doctor">("");
   const [activeFilter, setActiveFilter] = useState<"" | "active" | "inactive">("");
-  const { staff, hospitalName, error } = useHospitalStaff(hospitalId, search, roleFilter, activeFilter);
+  const { staff, hospitalName, error } = useHospitalStaff(hospitalId, search, activeFilter);
 
   return (
     <div>
@@ -43,16 +40,6 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
           />
         </div>
         <div className="flex gap-space-2">
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
-            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
-          >
-            <option value="">All roles</option>
-            <option value="admin">Admin</option>
-            <option value="receptionist">Receptionist</option>
-            <option value="doctor">Doctor</option>
-          </select>
           <select
             value={activeFilter}
             onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
@@ -86,7 +73,7 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
                 </div>
                 <div className="flex items-center gap-space-3">
                   <span className="rounded-full bg-brand-50 px-space-2 py-0.5 text-[11px] font-semibold text-brand-700">
-                    {ROLE_LABELS[s.role] || s.role}
+                    {s.role_name}
                   </span>
                   <span
                     className={cn(

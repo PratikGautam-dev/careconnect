@@ -28,8 +28,16 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_staff(hospital_id: int, email: str, password: str) -> dict:
-    db.create_staff_user(hospital_id, "admin", email, hash_portal_password(password), "Test Staff")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "admin"), email, hash_portal_password(password), "Test Staff")
     resp = client.post("/api/portal/staff/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -107,7 +115,8 @@ def test_staff_me_returns_profile_including_email(hospital_id):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["email"] == "cp.me@example.com"
-    assert data["role"] == "admin"
+    assert data["role_name"] == "Admin"
+    assert data["is_doctor_role"] is False
     assert data["hospital"]["id"] == hospital_id
     assert "permissions" in data and isinstance(data["permissions"], dict)
 

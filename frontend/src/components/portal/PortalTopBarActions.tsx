@@ -11,8 +11,6 @@ import {
 import { clearPortalSession } from "@/lib/portalAuth";
 import { useStaffSession } from "@/lib/staffAuth";
 
-const ROLE_LABEL: Record<string, string> = { admin: "Hospital Administrator", receptionist: "Receptionist", doctor: "Doctor" };
-
 // Shared PageHeader actions cluster for portal pages (dashboard, appointments,
 // ...). Search/notifications are disabled -- no cross-entity search endpoint
 // or notification system exists ("Coming soon", same convention PortalSidebar
@@ -55,7 +53,7 @@ export function PortalTopBarActions() {
           </div>
           <div className="hidden min-w-0 text-left sm:block">
             <div className="truncate text-[12.5px] font-semibold text-ink-900">{session?.name || "Account"}</div>
-            {session && <div className="truncate text-[10.5px] text-ink-400">{ROLE_LABEL[session.role] || session.role}</div>}
+            {session && <div className="truncate text-[10.5px] text-ink-400">{session.role_name}</div>}
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">

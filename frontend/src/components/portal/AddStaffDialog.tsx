@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/Input";
 import { SectionHeader } from "./SectionHeader";
 import { StaffContactFields } from "./StaffContactFields";
 import { useAddStaff, type Doctor } from "@/hooks/useAddStaff";
-import type { StaffRole } from "@/lib/staffAuth";
 
 type Props = {
   open: boolean;
@@ -16,16 +15,13 @@ type Props = {
    * list refresh; the dialog closes itself on success. */
   onCreated?: () => void;
   /** Doctors page's own "Create login" quick action -- locks role/doctor to
-   * this one doctor instead of showing the Role/Doctor pickers, so the form
-   * is just "set this doctor's login email + password". */
+   * this one doctor (both pickers hidden), auto-assigning whichever role is
+   * named "Doctor" at this hospital. Falls back to SHOWING the Role picker
+   * only if no such role exists (renamed/deleted) -- the admin isn't
+   * silently stuck landing on whatever role sorts first (Admin, the one
+   * protected role) in that edge case. */
   presetDoctor?: Doctor | null;
 };
-
-const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
-  { value: "admin", label: "Admin" },
-  { value: "receptionist", label: "Receptionist" },
-  { value: "doctor", label: "Doctor" },
-];
 
 /** Reusable "Add staff member" modal -- same self-contained dialog+hook
  * shape as NewBookingDialog/useNewBooking, so it can open from the Staff
@@ -33,12 +29,13 @@ const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
  * of each place hand-rolling its own inline form. */
 export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: Props) {
   const {
-    doctors, departments, staffOptions,
-    name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
+    doctors, departments, staffOptions, roles,
+    name, setName, email, setEmail, password, setPassword, roleId, setRoleId, doctorId, setDoctorId,
     phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
     reportsToId, setReportsToId,
     formError, saving, handleCreate,
   } = useAddStaff(open, onOpenChange, onCreated, presetDoctor);
+  const hasNamedDoctorRole = roles.some((r) => r.name.toLowerCase() === "doctor");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -64,31 +61,37 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
           <Field label="Password" htmlFor="staff_password">
             <Input id="staff_password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </Field>
-          {!presetDoctor && (
-            <Field label="Role" htmlFor="staff_role">
+          {(!presetDoctor || !hasNamedDoctorRole) && (
+            <Field
+              label="Role" htmlFor="staff_role"
+              hint={presetDoctor ? 'No role named "Doctor" was found -- choose one for this login.' : undefined}
+            >
               <select
                 id="staff_role"
-                value={role}
-                onChange={(e) => setRole(e.target.value as StaffRole)}
+                value={roleId ?? ""}
+                onChange={(e) => setRoleId(e.target.value ? Number(e.target.value) : null)}
                 className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
               >
-                {ROLE_OPTIONS.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
                   </option>
                 ))}
               </select>
             </Field>
           )}
-          {role === "doctor" && !presetDoctor && (
-            <Field label="Doctor" htmlFor="staff_doctor" className="md:col-span-2">
+          {!presetDoctor && (
+            <Field
+              label="Link to existing doctor" htmlFor="staff_doctor" className="md:col-span-2"
+              hint="Optional -- links this login to a doctor profile (their department then comes from there instead)."
+            >
               <select
                 id="staff_doctor"
                 value={doctorId}
                 onChange={(e) => setDoctorId(e.target.value)}
                 className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
               >
-                <option value="">Select a doctor…</option>
+                <option value="">No doctor linked</option>
                 {doctors.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
@@ -104,7 +107,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
             />
           </div>
           <StaffContactFields
-            role={role}
+            hasLinkedDoctor={!!doctorId}
             phone={phone} setPhone={setPhone}
             address={address} setAddress={setAddress}
             departmentId={departmentId} setDepartmentId={setDepartmentId} departments={departments}

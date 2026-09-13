@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { staffFetch, type StaffRole } from "@/lib/staffAuth";
+import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 
@@ -19,7 +19,9 @@ export type StaffMember = {
   id: number;
   name: string;
   email: string;
-  role: StaffRole;
+  role_id: number;
+  role_name: string;
+  is_doctor_role: boolean;
   doctor_id: string | null;
   is_active: boolean;
   created_at: string | null;
@@ -39,7 +41,7 @@ export type StaffMember = {
   leave_balance_total: number | null;
   leave_balance_used: number | null;
   // Employee ID auto-numbering feature -- server-generated (EMP-ST-NNNNN)
-  // for role != 'doctor'; "" for a doctor-role row (its EMP-DC id lives on
+  // for a non-doctor role; "" for a doctor-role row (its EMP-DC id lives on
   // the linked doctors row instead).
   employee_id: string;
 };

@@ -12,7 +12,7 @@ export default function PortalSchedulePage() {
   // roles/staff pages' own hydration-mismatch fix, even though the early
   // `!ready` return below already happened to prevent this value from ever
   // reaching the first (server-matching) render.
-  const isDoctor = useStaffSession()?.role === "doctor";
+  const isDoctor = useStaffSession()?.is_doctor_role ?? false;
 
   if (!ready) return null;
 

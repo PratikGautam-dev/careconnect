@@ -156,6 +156,22 @@ def _fresh_test_db():
     conn.execute("CREATE SCHEMA public")
     seeded_hospital_id = init_db_on_connection(conn)
     second_hospital_id = seed_test_hospital(conn)
+    # Dynamic-roles migration: init_db_on_connection()'s own role-seeding
+    # pass (_seed_default_roles_and_backfill_role_id) already ran and only
+    # covers hospitals that existed at that point -- seed_test_hospital()
+    # creates hospital #2 by raw INSERT right after, so it needs its own 3
+    # roles seeded here too (every test that creates staff/doctors for this
+    # second hospital needs a real role_id to hand create_staff_user()).
+    # Only Admin is is_protected -- Receptionist/Doctor are ordinary roles,
+    # same as init_db.py's own seeding.
+    conn.execute(
+        "INSERT INTO roles (hospital_id, name, description, is_protected) VALUES "
+        "(?, 'Admin', 'Full access to every module by default.', TRUE), "
+        "(?, 'Receptionist', 'Front-desk staff: appointments, patients, messages.', FALSE), "
+        "(?, 'Doctor', 'A doctor with a portal login, linked to their own doctor profile.', FALSE)",
+        (second_hospital_id, second_hospital_id, second_hospital_id),
+    )
+    conn.commit()
     db_connection.set_connection(conn)
     # Groundwork for the SQLAlchemy ORM migration (no repository reads
     # through get_session() yet): discards any session left over from a

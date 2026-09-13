@@ -48,13 +48,23 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_admin(hospital_id: int, email: str = "admin.gcal@example.com", password: str = "hunter22") -> str:
-    db.create_staff_user(hospital_id, "admin", email, hash_portal_password(password), "Test Admin")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "admin"), email, hash_portal_password(password), "Test Admin")
     return _staff_login(email, password)["access_token"]
 
 
 def _make_receptionist(hospital_id: int, email: str = "recep.gcal@example.com", password: str = "hunter22") -> str:
-    db.create_staff_user(hospital_id, "receptionist", email, hash_portal_password(password), "Test Receptionist")
+    db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), email, hash_portal_password(password), "Test Receptionist",
+    )
     return _staff_login(email, password)["access_token"]
 
 

@@ -21,7 +21,7 @@ from db.connection import IntegrityError
 from auth.google_oauth import authenticate_user
 from portal.capabilities import DEFAULT_CAPABILITIES_BY_TYPE, resolve_default_capabilities
 from portal.deps import get_current_super_admin
-from portal.permissions import DEFAULT_PERMISSIONS_BY_ROLE, resolve_default_permissions
+from portal.permissions import DEFAULT_PERMISSIONS_BY_ROLE_KIND, resolve_default_permissions
 
 _VALID_TENANT_TYPES = set(DEFAULT_CAPABILITIES_BY_TYPE.keys())
 
@@ -262,7 +262,13 @@ async def submit_onboarding(
             status_code=400,
         )
 
-    db.link_hospital_owner(hospital.id, user.id)
+    # Dynamic-roles migration: this hospital's 3 real roles (Admin/
+    # Receptionist/Doctor-equivalent) are seeded FIRST, right after
+    # create_hospital() -- link_hospital_owner() below resolves this
+    # hospital's own "Admin" role by name when no role_id is given, so the
+    # role must already exist before it's called.
+    roles = db.seed_default_roles(hospital.id)
+    db.link_hospital_owner(hospital.id, user.id, role_id=roles["admin"]["id"])
 
     # RBAC (docs/rbac-redis-plan.md): this hospital's first staff_users
     # admin row + the default role_permissions matrix, seeded explicitly
@@ -278,13 +284,16 @@ async def submit_onboarding(
     # expected to hit in practice (an operator-run onboarding flow, not
     # self-serve signup).
     db.create_staff_user(
-        hospital.id, role="admin", email=admin_email,
+        hospital.id, role_id=roles["admin"]["id"], email=admin_email,
         password_hash=db.hash_portal_password(payload.admin_password.strip()), name=f"{name} Admin",
     )
     db.seed_default_role_permissions(hospital.id, [
-        {"role": role, "page_key": page_key, "can_view": actions["view"], "can_write": actions["write"], "can_delete": actions["delete"]}
-        for role in DEFAULT_PERMISSIONS_BY_ROLE
-        for page_key, actions in resolve_default_permissions(role).items()
+        {
+            "role_id": roles[kind]["id"], "page_key": page_key,
+            "can_view": actions["view"], "can_write": actions["write"], "can_delete": actions["delete"],
+        }
+        for kind in DEFAULT_PERMISSIONS_BY_ROLE_KIND
+        for page_key, actions in resolve_default_permissions(kind).items()
     ])
 
     created_departments = []

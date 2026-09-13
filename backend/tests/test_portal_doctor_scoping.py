@@ -44,6 +44,14 @@ def _staff_login(email: str, password: str) -> dict:
     return resp.json()
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_doctor(hospital_id: int, name: str, email: str, password: str = "hunter22") -> tuple[str, str]:
     """Returns (doctor_id, access_token). Same cardiology department_id every
     test hospital seeds, same pattern test_doctor_unified_login.py uses."""
@@ -51,14 +59,17 @@ def _make_doctor(hospital_id: int, name: str, email: str, password: str = "hunte
         hospital_id, "cardiology", name,
         working_days=["Mon", "Tue", "Wed", "Thu", "Fri"], working_hours=["09:00-12:00"],
     )
-    db.create_staff_user(hospital_id, "doctor", email, hash_portal_password(password), name, doctor_id=doctor["id"])
+    db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "doctor"), email, hash_portal_password(password), name,
+        doctor_id=doctor["id"],
+    )
     token = _staff_login(email, password)["access_token"]
     return doctor["id"], token
 
 
 def _make_staff(hospital_id: int, role: str, name: str, email: str, password: str = "hunter22") -> str:
     """Returns an access_token for a non-doctor staff role (admin/receptionist)."""
-    db.create_staff_user(hospital_id, role, email, hash_portal_password(password), name)
+    db.create_staff_user(hospital_id, _role_id(hospital_id, role), email, hash_portal_password(password), name)
     return _staff_login(email, password)["access_token"]
 
 
@@ -145,7 +156,10 @@ def test_schedule_page_key_defaults_view_true_for_doctor_false_for_receptionist(
     resp = client.get("/api/portal/roles/permissions", headers=_auth(admin_token))
     assert resp.status_code == 200, resp.text
     matrix = resp.json()["permissions"]
-    assert matrix["doctor"]["schedule"]["view"] is True
-    assert matrix["doctor"]["schedule"]["write"] is True
-    assert matrix["receptionist"]["schedule"]["view"] is False
-    assert matrix["admin"]["schedule"]["view"] is True
+    doctor_role_id = str(_role_id(hospital_id, "doctor"))
+    receptionist_role_id = str(_role_id(hospital_id, "receptionist"))
+    admin_role_id = str(_role_id(hospital_id, "admin"))
+    assert matrix[doctor_role_id]["schedule"]["view"] is True
+    assert matrix[doctor_role_id]["schedule"]["write"] is True
+    assert matrix[receptionist_role_id]["schedule"]["view"] is False
+    assert matrix[admin_role_id]["schedule"]["view"] is True

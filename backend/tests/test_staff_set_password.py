@@ -33,14 +33,25 @@ def _staff_login(email: str, password: str) -> dict:
     return resp.json()
 
 
+def _role_id(hospital_id: int, name: str) -> int:
+    """Dynamic-roles migration: every hospital is seeded with 3 real roles
+    (Admin/Receptionist/Doctor) at fixture setup -- this test file matches
+    them by name (case-insensitive) rather than a fixed string, same as the
+    application code itself does going forward."""
+    return next(r["id"] for r in db.list_roles(hospital_id) if r["name"].lower() == name.lower())
+
+
 def _make_admin(hospital_id: int, email: str, password: str = "hunter22") -> str:
-    db.create_staff_user(hospital_id, "admin", email, hash_portal_password(password), "Test Admin")
+    db.create_staff_user(hospital_id, _role_id(hospital_id, "admin"), email, hash_portal_password(password), "Test Admin")
     return _staff_login(email, password)["access_token"]
 
 
 def test_admin_can_reset_staff_password(hospital_id):
     admin_token = _make_admin(hospital_id, "sp.admin@example.com")
-    staff = db.create_staff_user(hospital_id, "receptionist", "sp.target@example.com", hash_portal_password("old-password-1"), "Target Staff")
+    staff = db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), "sp.target@example.com",
+        hash_portal_password("old-password-1"), "Target Staff",
+    )
 
     resp = client.post(
         f"/api/portal/staff/{staff['id']}/password",
@@ -58,7 +69,10 @@ def test_admin_can_reset_staff_password(hospital_id):
 
 def test_reset_password_rejects_short_password(hospital_id):
     admin_token = _make_admin(hospital_id, "sp.short@example.com")
-    staff = db.create_staff_user(hospital_id, "receptionist", "sp.short.target@example.com", hash_portal_password("old-password-1"), "Target Staff")
+    staff = db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), "sp.short.target@example.com",
+        hash_portal_password("old-password-1"), "Target Staff",
+    )
 
     resp = client.post(
         f"/api/portal/staff/{staff['id']}/password",
@@ -69,17 +83,26 @@ def test_reset_password_rejects_short_password(hospital_id):
 
 
 def test_reset_password_requires_authentication(hospital_id):
-    staff = db.create_staff_user(hospital_id, "receptionist", "sp.noauth@example.com", hash_portal_password("old-password-1"), "Target Staff")
+    staff = db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), "sp.noauth@example.com",
+        hash_portal_password("old-password-1"), "Target Staff",
+    )
     resp = client.post(f"/api/portal/staff/{staff['id']}/password", json={"new_password": "new-password-1"})
     assert resp.status_code == 401, resp.text
 
 
 def test_reset_password_requires_staff_write_permission(hospital_id):
     # Receptionists get no "staff" permission by default (DEFAULT_PERMISSIONS_BY_ROLE).
-    db.create_staff_user(hospital_id, "receptionist", "sp.rec@example.com", hash_portal_password("hunter22"), "Plain Receptionist")
+    db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), "sp.rec@example.com",
+        hash_portal_password("hunter22"), "Plain Receptionist",
+    )
     rec_login = _staff_login("sp.rec@example.com", "hunter22")
 
-    target = db.create_staff_user(hospital_id, "receptionist", "sp.rectarget@example.com", hash_portal_password("old-password-1"), "Target Staff")
+    target = db.create_staff_user(
+        hospital_id, _role_id(hospital_id, "receptionist"), "sp.rectarget@example.com",
+        hash_portal_password("old-password-1"), "Target Staff",
+    )
     resp = client.post(
         f"/api/portal/staff/{target['id']}/password",
         json={"new_password": "new-password-1"},
@@ -91,7 +114,7 @@ def test_reset_password_requires_staff_write_permission(hospital_id):
 def test_reset_password_is_scoped_to_own_hospital(hospital_id, second_hospital_id):
     admin_token = _make_admin(hospital_id, "sp.crosshosp.admin@example.com")
     other_staff = db.create_staff_user(
-        second_hospital_id, "receptionist", "sp.otherhospital@example.com",
+        second_hospital_id, _role_id(second_hospital_id, "receptionist"), "sp.otherhospital@example.com",
         hash_portal_password("old-password-1"), "Other Hospital Staff",
     )
 

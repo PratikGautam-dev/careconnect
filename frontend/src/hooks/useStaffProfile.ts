@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PortalHospital } from "@/lib/portalAuth";
-import { staffFetch, type StaffRole } from "@/lib/staffAuth";
+import { staffFetch } from "@/lib/staffAuth";
 
-export type StaffProfile = { id: number; name: string; email: string; role: StaffRole; hospital: PortalHospital };
+export type StaffProfile = {
+  id: number; name: string; email: string;
+  role_id: number; role_name: string; is_doctor_role: boolean;
+  hospital: PortalHospital;
+};
 
 /** Profile settings page's own "who am I" -- StaffSession (localStorage)
  * has no email (login/refresh never returned it), so this hits the

@@ -8,8 +8,6 @@ import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/formatDate";
 import { useStaffDetail } from "@/hooks/useStaffDetail";
 
-const ROLE_LABELS: Record<string, string> = { admin: "Admin", receptionist: "Receptionist", doctor: "Doctor" };
-
 function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId: number }) {
   const { staff, error } = useStaffDetail(staffId);
 
@@ -35,7 +33,7 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
             </div>
             <div className="flex items-center gap-space-2">
               <span className="rounded-full bg-brand-50 px-space-2 py-0.5 text-[11px] font-semibold text-brand-700">
-                {ROLE_LABELS[staff.role] || staff.role}
+                {staff.role_name}
               </span>
               <span
                 className={cn(
@@ -59,7 +57,7 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
             </div>
           </Card>
 
-          {staff.role === "doctor" && (
+          {staff.is_doctor_role && (
             <Card className="p-space-5">
               <p className="text-eyebrow mb-space-3">Doctor details</p>
               {!staff.doctor_name ? (

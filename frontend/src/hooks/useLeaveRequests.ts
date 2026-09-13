@@ -3,7 +3,6 @@ import { useRouter } from "next/navigation";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 
-export type LeaveRequestRole = "admin" | "receptionist" | "doctor";
 export type LeaveRequestStatus = "pending" | "approved" | "rejected";
 export type LeaveType = "casual" | "sick" | "annual" | "maternity" | "conference" | "personal";
 
@@ -11,7 +10,8 @@ export type LeaveRequestRow = {
   id: number;
   applicant_id: number;
   applicant_name: string;
-  role: LeaveRequestRole;
+  role_name: string;
+  is_doctor_role: boolean;
   department_name: string | null;
   reports_to_name: string | null;
   leave_type: LeaveType;

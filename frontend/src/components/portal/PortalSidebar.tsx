@@ -31,12 +31,6 @@ import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
 import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 
-const ROLE_LABEL: Record<string, string> = {
-  admin: "Admin",
-  receptionist: "Receptionist",
-  doctor: "Doctor",
-};
-
 // Menu list/order matches the reference dashboard mockup (visual pass
 // only, per the conversation -- deeper wiring for the items with no href
 // below is deliberate follow-up work, not done here). Items with no href
@@ -183,7 +177,7 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13px] font-semibold">{session?.name || "Account"}</div>
-              {session && <div className="truncate text-[11.5px] text-white/60">{ROLE_LABEL[session.role] || session.role}</div>}
+              {session && <div className="truncate text-[11.5px] text-white/60">{session.role_name}</div>}
             </div>
             <ChevronsUpDown size={14} strokeWidth={2} className="shrink-0 text-white/50" />
           </DropdownMenuTrigger>

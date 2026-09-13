@@ -1,16 +1,18 @@
 # db/repositories/staff_users.py
-"""Unified per-person staff login -- Admin/Receptionist/Doctor, one login
-per human being (docs/rbac-redis-plan.md). Split out as its own repository
-file, following the doctors.py/hospitals.py precedent, rather than folded
-into either -- this table is read by the auth layer (portal/deps.py) on
-every authenticated request, not just doctor- or hospital-management routes.
+"""Unified per-person staff login -- Admin/Receptionist/Doctor (or any
+custom role a hospital's admin has created, dynamic-roles migration), one
+login per human being (docs/rbac-redis-plan.md). Split out as its own
+repository file, following the doctors.py/hospitals.py precedent, rather
+than folded into either -- this table is read by the auth layer
+(portal/deps.py) on every authenticated request, not just doctor- or
+hospital-management routes.
 
 Migration 0016: reads/writes db.orm_models.Identity + StaffDetail now, not
 the historical StaffUser table (kept, untouched, as a backup -- see that
 migration's own docstring). Every function here keeps the exact same name
-and dict shape ({id, hospital_id, role, email, password_hash, name,
-doctor_id, is_active, token_version}) callers already expect -- only the
-underlying tables changed. "id" here is identities.id."""
+and dict shape ({id, hospital_id, role_id, role_name, is_doctor_role, email,
+password_hash, name, doctor_id, is_active, token_version}) callers already
+expect -- only the underlying tables changed. "id" here is identities.id."""
 from typing import cast
 
 import sqlalchemy.exc
@@ -20,10 +22,12 @@ from sqlalchemy.orm import aliased
 
 from db.connection import get_session, reraise_as_driver_integrity_error
 from db.display_ids import STAFF_EMPLOYEE_ID_PREFIX, generate_employee_id_session
-from db.orm_models import Department, DoctorRow, HospitalRow, Identity, StaffDetail
+from db.orm_models import Department, DoctorRow, HospitalRow, Identity, RoleRow, StaffDetail
 
 _STAFF_COLUMNS = (
-    Identity.id, StaffDetail.hospital_id, StaffDetail.role, Identity.email, Identity.password_hash,
+    Identity.id, StaffDetail.hospital_id, StaffDetail.role_id,
+    RoleRow.name.label("role_name"), StaffDetail.doctor_id.is_not(None).label("is_doctor_role"),
+    Identity.email, Identity.password_hash,
     Identity.name, StaffDetail.doctor_id, Identity.is_active, Identity.token_version,
     StaffDetail.phone, StaffDetail.address, StaffDetail.attendance_status,
     StaffDetail.department_id, StaffDetail.reports_to_id, StaffDetail.employee_id,
@@ -31,15 +35,32 @@ _STAFF_COLUMNS = (
 )
 
 
+def _validate_doctor_department_pairing(doctor_id: str | None, department_id: str | None = None) -> None:
+    """Application-level replacement for the old `ck_staff_details_doctor_
+    role_pairing`/`ck_staff_details_department_doctor_role` CHECK
+    constraints (dynamic-roles migration). Doctor-ness is no longer tied to
+    role at all (any role can optionally be linked to a doctor profile), so
+    the only pairing rule left is: a linked doctor's department already
+    comes from their own doctor profile, not a separately-chosen
+    department_id. Raises ValueError, which callers (portal/routes/staff.py)
+    surface as a 400 -- NOT db.IntegrityError, since this is an
+    application-level business rule check BEFORE the INSERT/UPDATE is even
+    attempted, not a DB constraint violation caught after the fact."""
+    if doctor_id and department_id:
+        raise ValueError("A doctor's department comes from their linked doctor profile, not department_id.")
+
+
 def create_staff_user(
-    hospital_id: int, role: str, email: str, password_hash: str, name: str, doctor_id: str | None = None,
+    hospital_id: int, role_id: int, email: str, password_hash: str, name: str, doctor_id: str | None = None,
     *,
     phone: str | None = None, address: str | None = None, department_id: str | None = None,
     reports_to_id: int | None = None,
     working_days: list[str] | None = None, working_hours: list[str] | None = None, breaks: list[str] | None = None,
 ) -> dict:
-    """Raises db.connection.IntegrityError (via reraise_as_driver_integrity_error)
-    if email is already taken by ANY identity (ux_identities_email is
+    """Raises ValueError (via _validate_doctor_department_pairing()) if
+    doctor_id and department_id are both set, or
+    db.connection.IntegrityError (via reraise_as_driver_integrity_error) if
+    email is already taken by ANY identity (ux_identities_email is
     global -- and now shared across OAuth hospital owners and super admins
     too, not just other staff, per the plan's explicit "no hospital
     selector at login" decision extended to every principal kind) or if
@@ -52,12 +73,15 @@ def create_staff_user(
     login.
 
     employee_id is generated here, server-side (Employee ID auto-numbering
-    feature, confirmed with the user) -- EMP-ST-NNNNN for role != 'doctor',
-    via the same never-resetting per-hospital code_sequences counter
-    create_doctor() uses for EMP-DC. A doctor-role row gets "" instead of its
-    own EMP-ST -- that login's employee id already comes from its linked
-    doctors row (matches list_staff_users_for_hospital(exclude_doctors=True)'s
-    own "doctors belong to the Doctors page, not the Staff directory" split).
+    feature, confirmed with the user) -- EMP-ST-NNNNN for a login with no
+    linked doctor, via the same never-resetting per-hospital code_sequences
+    counter create_doctor() uses for EMP-DC. A login with doctor_id set gets
+    "" instead of its own EMP-ST -- that login's employee id already comes
+    from its linked doctors row (matches
+    list_staff_users_for_hospital(exclude_doctors=True)'s own "doctors
+    belong to the Doctors page, not the Staff directory" split) --
+    independent of role entirely, since doctor-ness is no longer a role
+    property.
 
     working_days/working_hours/breaks (Staff schedule feature, confirmed
     with the user) -- comma-joined here exactly like create_doctor()'s own
@@ -65,14 +89,20 @@ def create_staff_user(
     a doctor's schedule, these are optional -- a staff member with no
     schedule set yet is fine, since no slot-booking system depends on it."""
     session = get_session()
+    role = session.execute(
+        select(RoleRow.id).where(RoleRow.hospital_id == hospital_id, RoleRow.id == role_id)
+    ).first()
+    if role is None:
+        raise ValueError("Unrecognized role.")
+    _validate_doctor_department_pairing(doctor_id, department_id)
     try:
-        employee_id = generate_employee_id_session(session, STAFF_EMPLOYEE_ID_PREFIX, hospital_id) if role != "doctor" else ""
+        employee_id = "" if doctor_id else generate_employee_id_session(session, STAFF_EMPLOYEE_ID_PREFIX, hospital_id)
         new_id = session.execute(
             insert(Identity).values(email=email, password_hash=password_hash, name=name).returning(Identity.id)
         ).scalar_one()
         session.execute(
             insert(StaffDetail).values(
-                identity_id=new_id, hospital_id=hospital_id, role=role, doctor_id=doctor_id,
+                identity_id=new_id, hospital_id=hospital_id, role_id=role_id, doctor_id=doctor_id,
                 phone=phone, address=address, department_id=department_id, reports_to_id=reports_to_id,
                 employee_id=employee_id,
                 working_days=",".join(working_days or []), working_hours=",".join(working_hours or []),
@@ -103,6 +133,7 @@ def get_staff_user_by_email(email: str) -> dict | None:
     row = session.execute(
         select(*_STAFF_COLUMNS)
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
         .where(func.lower(Identity.email) == email.lower())
     ).first()
     return dict(row._mapping) if row is not None else None
@@ -116,6 +147,7 @@ def get_staff_user_by_id(staff_id: int) -> dict | None:
     row = session.execute(
         select(*_STAFF_COLUMNS)
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
         .where(Identity.id == staff_id)
     ).first()
     return dict(row._mapping) if row is not None else None
@@ -132,13 +164,15 @@ def list_staff_users_for_hospital(hospital_id: int, *, exclude_doctors: bool = F
     see the DB's own ck_staff_details_department_doctor_role). reports_to_name
     is the linked staff member's name, if any.
 
-    exclude_doctors=True drops role='doctor' rows at the query level -- the
-    Staff page's own directory (receptionists/nurses/admins, not doctors,
-    who already have their own dedicated page + "Create login" action
-    there) passes this. Defaults to False so every other caller of this same
-    endpoint (the Add/Edit Staff dialogs' "reports to" picker) keeps seeing
-    every role, unchanged -- a receptionist can still legitimately report to
-    a doctor."""
+    exclude_doctors=True drops any row with a linked doctor profile
+    (StaffDetail.doctor_id IS NOT NULL -- doctor-ness is a per-staff
+    attribute, not a role, dynamic-roles migration) -- the Staff page's own
+    directory (receptionists/nurses/admins, not doctors, who already have
+    their own dedicated page + "Create login" action there) passes this.
+    Defaults to False so every other caller of this same endpoint (the
+    Add/Edit Staff dialogs' "reports to" picker) keeps seeing every staff
+    member, unchanged -- a receptionist can still legitimately report to a
+    doctor."""
     session = get_session()
     own_department = aliased(Department)
     doctor_department = aliased(Department)
@@ -150,6 +184,7 @@ def list_staff_users_for_hospital(hospital_id: int, *, exclude_doctors: bool = F
             reports_to.name.label("reports_to_name"),
         )
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
         .outerjoin(own_department, own_department.id == StaffDetail.department_id)
         .outerjoin(DoctorRow, DoctorRow.id == StaffDetail.doctor_id)
         .outerjoin(doctor_department, doctor_department.id == DoctorRow.department_id)
@@ -157,13 +192,13 @@ def list_staff_users_for_hospital(hospital_id: int, *, exclude_doctors: bool = F
         .where(StaffDetail.hospital_id == hospital_id)
     )
     if exclude_doctors:
-        query = query.where(StaffDetail.role != "doctor")
+        query = query.where(StaffDetail.doctor_id.is_(None))
     rows = session.execute(query.order_by(Identity.name)).all()
     return [dict(r._mapping) for r in rows]
 
 
 def list_all_staff_users(
-    hospital_id: int | None = None, role: str | None = None, is_active: bool | None = None,
+    hospital_id: int | None = None, role_name: str | None = None, is_active: bool | None = None,
     search: str | None = None,
 ) -> list[dict]:
     """Cross-tenant staff view for the platform admin's /admin/users page --
@@ -172,17 +207,24 @@ def list_all_staff_users(
     with hospitals.name since that page has no other way to label which
     hospital each row belongs to. All filters optional/combinable. search is
     a case-insensitive partial match on name OR email, same ILIKE pattern
-    db/repositories/patients.py's search_patients() uses."""
+    db/repositories/patients.py's search_patients() uses.
+
+    role_name is matched case-insensitively (dynamic-roles migration --
+    roles are per-hospital now, so this is a convenience name filter across
+    every tenant's own roles, not a lookup against one shared vocabulary;
+    two hospitals' differently-scoped roles that happen to share a name both
+    match, same as before this migration when the 3 names WERE shared)."""
     session = get_session()
     query = (
         select(*_STAFF_COLUMNS, HospitalRow.name.label("hospital_name"))
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
         .join(HospitalRow, HospitalRow.id == StaffDetail.hospital_id)
     )
     if hospital_id is not None:
         query = query.where(StaffDetail.hospital_id == hospital_id)
-    if role is not None:
-        query = query.where(StaffDetail.role == role)
+    if role_name is not None:
+        query = query.where(func.lower(RoleRow.name) == role_name.lower())
     if is_active is not None:
         query = query.where(Identity.is_active == is_active)
     if search:
@@ -195,39 +237,48 @@ def list_all_staff_users(
 
 def get_staff_summary_by_hospital(search: str | None = None) -> list[dict]:
     """Card view for the platform admin's /admin/users overview -- one row
-    per hospital with a per-role headcount (admin/doctor/receptionist),
-    computed in a single grouped query rather than fetching every staff row
-    and counting in Python. LEFT JOIN so a hospital with zero staff still
-    gets a row (all counts 0), not silently dropped. search is a
-    case-insensitive partial match on the hospital's own name."""
+    per hospital with a full per-role headcount breakdown (dynamic-roles
+    migration: the old 3 fixed named counts, admin_count/doctor_count/
+    receptionist_count, can't generalize to a hospital's own admin-named
+    roles as fixed columns). Two queries, merged in Python (same "fetch
+    flat, merge" idiom db/repositories/doctors.py's _with_leave_balance()
+    already uses) rather than one query building a nested array: the
+    hospital list itself (LEFT JOIN-equivalent -- every hospital gets a row,
+    zero-staff ones included) and a flat (hospital_id, role_id, role_name,
+    count) grouping, folded into each hospital's own `role_breakdown` list.
+    search is a case-insensitive partial match on the hospital's own name."""
     session = get_session()
-    admin_count = func.count(StaffDetail.identity_id).filter(StaffDetail.role == "admin")
-    doctor_count = func.count(StaffDetail.identity_id).filter(StaffDetail.role == "doctor")
-    receptionist_count = func.count(StaffDetail.identity_id).filter(StaffDetail.role == "receptionist")
-    query = (
-        select(
-            HospitalRow.id, HospitalRow.name, HospitalRow.is_active, HospitalRow.data_tier,
-            admin_count.label("admin_count"), doctor_count.label("doctor_count"),
-            receptionist_count.label("receptionist_count"),
-            func.count(StaffDetail.identity_id).label("total_count"),
-        )
-        .select_from(HospitalRow)
-        .outerjoin(StaffDetail, StaffDetail.hospital_id == HospitalRow.id)
-        .group_by(HospitalRow.id)
-        .order_by(HospitalRow.name)
-    )
+    hospital_query = select(HospitalRow.id, HospitalRow.name, HospitalRow.is_active, HospitalRow.data_tier)
     if search:
-        query = query.where(HospitalRow.name.ilike(f"%{search.strip()}%"))
-    rows = session.execute(query).all()
-    return [dict(r._mapping) for r in rows]
+        hospital_query = hospital_query.where(HospitalRow.name.ilike(f"%{search.strip()}%"))
+    hospitals = [dict(r._mapping) for r in session.execute(hospital_query.order_by(HospitalRow.name)).all()]
+
+    breakdown_rows = session.execute(
+        select(
+            StaffDetail.hospital_id, RoleRow.id.label("role_id"), RoleRow.name.label("role_name"),
+            func.count(StaffDetail.identity_id).label("count"),
+        )
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
+        .group_by(StaffDetail.hospital_id, RoleRow.id, RoleRow.name)
+    ).all()
+    breakdown_by_hospital: dict[int, list[dict]] = {}
+    for r in breakdown_rows:
+        breakdown_by_hospital.setdefault(r.hospital_id, []).append(
+            {"role_id": r.role_id, "role_name": r.role_name, "count": r.count}
+        )
+
+    for h in hospitals:
+        h["role_breakdown"] = breakdown_by_hospital.get(h["id"], [])
+        h["total_count"] = sum(r["count"] for r in h["role_breakdown"])
+    return hospitals
 
 
 def get_staff_user_detail(staff_id: int) -> dict | None:
     """Single-staff detail view (/admin/users/[hospitalId]/[staffId]) --
     get_staff_user_by_id() plus hospital_name/created_at and, for a
-    role='doctor' row, the linked doctor's department/specialization/
-    qualification/years_experience (all None for admin/receptionist rows,
-    or a doctor StaffDetail whose doctor_id was never linked)."""
+    doctor-role row, the linked doctor's department/specialization/
+    qualification/years_experience (all None for a non-doctor role, or a
+    doctor StaffDetail whose doctor_id was never linked)."""
     session = get_session()
     row = session.execute(
         select(
@@ -236,6 +287,7 @@ def get_staff_user_detail(staff_id: int) -> dict | None:
             DoctorRow.years_experience, Department.name.label("department_name"),
         )
         .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
         .join(HospitalRow, HospitalRow.id == StaffDetail.hospital_id)
         .outerjoin(DoctorRow, DoctorRow.id == StaffDetail.doctor_id)
         .outerjoin(Department, Department.id == DoctorRow.department_id)
@@ -253,16 +305,21 @@ def _bump_token_version(staff_id: int) -> None:
     session.execute(update(Identity).where(Identity.id == staff_id).values(token_version=Identity.token_version + 1))
 
 
-def update_staff_user_role(staff_id: int, role: str, doctor_id: str | None = None) -> bool:
+def update_staff_user_role(hospital_id: int, staff_id: int, role_id: int, doctor_id: str | None = None) -> bool:
     """Admin-only role change (a future staff-management route) -- bumps
     token_version so a demoted/promoted staff member's ALREADY-ISSUED access
-    token (which embeds the OLD role as a claim) stops verifying immediately
-    rather than acting under stale permissions until it expires (up to 15
-    minutes, jwt_session.py's TTL). role/doctor_id live on StaffDetail now;
-    token_version lives on Identity -- two updates, one transaction."""
+    token stops verifying immediately rather than acting under stale
+    permissions until it expires (up to 15 minutes, jwt_session.py's TTL).
+    role_id/doctor_id live on StaffDetail now; token_version lives on
+    Identity -- two updates, one transaction."""
     session = get_session()
+    role = session.execute(
+        select(RoleRow.id).where(RoleRow.hospital_id == hospital_id, RoleRow.id == role_id)
+    ).first()
+    if role is None:
+        raise ValueError("Unrecognized role.")
     result = cast(CursorResult, session.execute(
-        update(StaffDetail).where(StaffDetail.identity_id == staff_id).values(role=role, doctor_id=doctor_id)
+        update(StaffDetail).where(StaffDetail.identity_id == staff_id).values(role_id=role_id, doctor_id=doctor_id)
     ))
     if result.rowcount == 0:
         session.commit()

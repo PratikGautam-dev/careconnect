@@ -1,35 +1,59 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { staffFetch, type StaffRole } from "@/lib/staffAuth";
+import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 
 export type Action = "view" | "write" | "delete";
 export type PagePerms = Record<Action, boolean>;
-export type Matrix = Record<StaffRole, Record<string, PagePerms>>;
+// Dynamic-roles migration: keyed by role_id (int), not a fixed role-name
+// union -- a hospital's own admin-defined roles, unbounded.
+export type Matrix = Record<number, Record<string, PagePerms>>;
 
-/** Roles & Permissions redesign: "Number of Users"/"Total Users"/"Active
- * Roles" stat tiles need real per-role staff counts -- GET /api/portal/staff
- * is the same directory the Staff page reads, just narrowed here to the two
- * fields these tiles actually need (role, is_active), not the full
- * StaffMember shape useStaffManagement owns. */
-type StaffCounts = { total: number; byRole: Record<StaffRole, number>; activeByRole: Record<StaffRole, number> };
-const EMPTY_COUNTS: StaffCounts = {
-  total: 0,
-  byRole: { admin: 0, receptionist: 0, doctor: 0 },
-  activeByRole: { admin: 0, receptionist: 0, doctor: 0 },
+export type Role = {
+  id: number;
+  name: string;
+  description: string;
+  is_protected: boolean;
+  staff_count: number;
+  active_staff_count: number;
 };
 
-/** Loads + owns every mutation on the /portal/settings/roles permission
- * matrix -- one optimistic-update PUT per checkbox toggle, rolled back on
- * failure. */
+// User-level permission overrides -- a second, sparse layer on top of the
+// role matrix above; each action is true/false (an explicit override) or
+// null (no opinion, inherit the role's own value for that cell).
+export type OverrideCell = { view: boolean | null; write: boolean | null; delete: boolean | null };
+export type RoleUserOverride = OverrideCell & { page_key: string };
+export type RoleUser = { staff_id: number; name: string; email: string; is_active: boolean; overrides: RoleUserOverride[] };
+
+/** Loads + owns every mutation on the /portal/settings/roles page -- the
+ * roles list itself (create/rename/delete live in useRoleManagement.ts,
+ * this hook is read + the permission matrix's one optimistic-update PUT per
+ * checkbox toggle, rolled back on failure). Per-role staff counts (for the
+ * stat tiles/Role Management table) come straight off each role's own
+ * staff_count/active_staff_count (db/repositories/roles.py's list_roles())
+ * -- no separate client-side merge against the staff/doctors lists needed,
+ * since role membership is counted server-side regardless of whether a
+ * member happens to be linked to a doctor profile. */
 export function usePortalRoles(canView: boolean) {
   const router = useRouter();
+  const [roles, setRoles] = useState<Role[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [staffCounts, setStaffCounts] = useState<StaffCounts>(EMPTY_COUNTS);
-  // Tracks the single cell currently in flight, e.g. "admin:staff:write", so
+  // Tracks the single cell currently in flight, e.g. "3:staff:write", so
   // only that checkbox shows a pending state while its PUT resolves.
   const [savingCell, setSavingCell] = useState<string | null>(null);
+
+  const loadRoles = useCallback(async (): Promise<Role[]> => {
+    const result = await staffFetch("/api/portal/roles");
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setError(result.error);
+      return [];
+    }
+    const fetched = (result.data as { roles: Role[] }).roles;
+    setRoles(fetched);
+    return fetched;
+  }, [router]);
 
   const load = useCallback(async () => {
     const result = await staffFetch("/api/portal/roles/permissions");
@@ -38,67 +62,26 @@ export function usePortalRoles(canView: boolean) {
       else setError(result.error);
       return;
     }
-    setMatrix((result.data as { permissions: Matrix }).permissions);
+    // JSON object keys are always strings -- re-cast back to number so
+    // matrix[role.id] lookups (role.id is a number) actually hit.
+    const raw = (result.data as { permissions: Record<string, Record<string, PagePerms>> }).permissions;
+    setMatrix(Object.fromEntries(Object.entries(raw).map(([roleId, pages]) => [Number(roleId), pages])));
   }, [router]);
-
-  const loadStaffCounts = useCallback(async () => {
-    // GET /api/portal/staff returns a bare array (see list_staff()'s own
-    // docstring) and deliberately EXCLUDES doctors -- they have their own
-    // directory/page. So the doctor role's count comes from
-    // GET /api/portal/doctors instead, same is_active flag, just a
-    // differently-shaped response ({ doctors: [...] } there, not a bare
-    // array). Both fetched in parallel and fail open independently -- a
-    // role without "staff" or "doctors" view permission still gets to see
-    // the roles page's own matrix, just with that one role's count at 0
-    // (these are stat-tile decoration, not the page's actual read/write
-    // surface).
-    const [staffResult, doctorsResult] = await Promise.all([
-      staffFetch("/api/portal/staff"),
-      staffFetch("/api/portal/doctors"),
-    ]);
-    const byRole: Record<StaffRole, number> = { admin: 0, receptionist: 0, doctor: 0 };
-    const activeByRole: Record<StaffRole, number> = { admin: 0, receptionist: 0, doctor: 0 };
-    let total = 0;
-    if (staffResult.ok) {
-      const staff = staffResult.data as { role: StaffRole; is_active: boolean }[];
-      for (const s of staff) {
-        byRole[s.role] += 1;
-        if (s.is_active) activeByRole[s.role] += 1;
-      }
-      total += staff.length;
-    }
-    if (doctorsResult.ok) {
-      // Only doctors with an actual staff login (login_staff_id set) count
-      // as a "doctor role" user here -- a doctor row with no login yet
-      // (get_all_doctors_for_hospital()'s own outer-joined login_* fields,
-      // null until "Create login" is used) has no role/permissions at all,
-      // so counting it would overstate how many people actually hold this
-      // role today. "Active" here is the LOGIN's own active flag
-      // (login_active) -- deliberately not the doctor row's own is_active
-      // (that's the bookable Available/Unavailable toggle, a different,
-      // unrelated concept from whether this person's account is enabled).
-      const doctors = (doctorsResult.data as { doctors: { login_staff_id: number | null; login_active: boolean | null }[] }).doctors;
-      const withLogin = doctors.filter((d) => d.login_staff_id != null);
-      byRole.doctor = withLogin.length;
-      activeByRole.doctor = withLogin.filter((d) => d.login_active).length;
-      total += withLogin.length;
-    }
-    setStaffCounts({ total, byRole, activeByRole });
-  }, []);
 
   useEffect(() => {
     if (canView) {
       load();
-      loadStaffCounts();
+      loadRoles();
     }
-  }, [canView, load, loadStaffCounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canView, load, loadRoles]);
 
-  async function handleToggle(role: StaffRole, pageKey: string, action: Action, next: boolean) {
+  async function handleToggle(roleId: number, pageKey: string, action: Action, next: boolean) {
     if (!matrix) return;
-    const cellKey = `${role}:${pageKey}:${action}`;
-    const prevCell = matrix[role][pageKey];
+    const cellKey = `${roleId}:${pageKey}:${action}`;
+    const prevCell = matrix[roleId][pageKey];
     const nextCell = { ...prevCell, [action]: next };
-    setMatrix({ ...matrix, [role]: { ...matrix[role], [pageKey]: nextCell } });
+    setMatrix({ ...matrix, [roleId]: { ...matrix[roleId], [pageKey]: nextCell } });
     setSavingCell(cellKey);
     const result = await staffFetch("/api/portal/roles/permissions", {
       method: "PUT",
@@ -111,7 +94,7 @@ export function usePortalRoles(canView: boolean) {
       // an empty list.
       body: JSON.stringify({
         updates: [{
-          role,
+          role_id: roleId,
           page_key: pageKey,
           can_view: nextCell.view,
           can_write: nextCell.write,
@@ -122,9 +105,9 @@ export function usePortalRoles(canView: boolean) {
     setSavingCell(null);
     if (!result.ok) {
       // Roll back on failure -- optimistic update kept the UI responsive
-      // (this can be a lot of clicking through a 8x9 grid) but must not
+      // (this can be a lot of clicking through a wide grid) but must not
       // silently drift from what the backend actually has stored.
-      setMatrix({ ...matrix, [role]: { ...matrix[role], [pageKey]: prevCell } });
+      setMatrix({ ...matrix, [roleId]: { ...matrix[roleId], [pageKey]: prevCell } });
       if (result.unauthorized) {
         router.push("/portal/login");
       } else {
@@ -134,5 +117,93 @@ export function usePortalRoles(canView: boolean) {
     }
   }
 
-  return { matrix, error, savingCell, handleToggle, staffCounts };
+  /** Add Role modal's submit -- optionally cloning an existing role's
+   * actual current permissions (not factory defaults) as a starting point;
+   * a role created with no clone source starts with zero access anywhere
+   * (fail-closed, portal/permissions.py's own documented behavior).
+   * Returns an error string on failure, null on success. */
+  async function createRole(
+    name: string, description: string, cloneFromRoleId: number | null,
+  ): Promise<string | null> {
+    const result = await staffFetch("/api/portal/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description, clone_from_role_id: cloneFromRoleId }),
+    });
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      return result.unauthorized ? null : result.error;
+    }
+    await loadRoles();
+    await load();
+    return null;
+  }
+
+  /** Rename/edit-description for an existing role -- partial update, only
+   * the fields actually changed need to be passed. */
+  async function updateRole(
+    roleId: number, updates: { name?: string; description?: string },
+  ): Promise<string | null> {
+    const result = await staffFetch(`/api/portal/roles/${roleId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      return result.unauthorized ? null : result.error;
+    }
+    await loadRoles();
+    return null;
+  }
+
+  /** Blocked server-side (400) if this role is reserved (the Admin role) or
+   * has active staff assigned -- the error message names the specific
+   * reason/count. */
+  async function deleteRole(roleId: number): Promise<string | null> {
+    const result = await staffFetch(`/api/portal/roles/${roleId}`, { method: "DELETE" });
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      return result.unauthorized ? null : result.error;
+    }
+    await loadRoles();
+    return null;
+  }
+
+  /** "Users on this role" panel's own data source (opened lazily from the
+   * per-role permissions Dialog, not prefetched for every role up front). */
+  const loadRoleUsers = useCallback(async (roleId: number): Promise<RoleUser[]> => {
+    const result = await staffFetch(`/api/portal/roles/${roleId}/users`);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setError(result.error);
+      return [];
+    }
+    return (result.data as { users: RoleUser[] }).users;
+  }, [router]);
+
+  /** Sets/clears one staff member's own override for one page -- `next` is
+   * that page's FULL {view,write,delete} cell (each true/false/null), not
+   * just the one action the admin just clicked, since the backend replaces
+   * the whole triple per page (same "always send the full cell" shape
+   * handleToggle above already uses for role permissions). Returns an
+   * error string on failure, null on success. */
+  async function updateStaffOverride(staffId: number, pageKey: string, next: OverrideCell): Promise<string | null> {
+    const result = await staffFetch(`/api/portal/staff/${staffId}/permissions`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates: [{ page_key: pageKey, ...next }] }),
+    });
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      return result.unauthorized ? null : result.error;
+    }
+    return null;
+  }
+
+  return {
+    roles, loadRoles, matrix, error, savingCell, handleToggle,
+    createRole, updateRole, deleteRole,
+    loadRoleUsers, updateStaffOverride,
+  };
 }

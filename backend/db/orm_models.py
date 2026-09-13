@@ -815,20 +815,61 @@ class CodeSequence(Base):
 # own docstring.
 
 
+class RoleRow(Base):
+    """db/schema.sql's roles table (dynamic-roles migration) -- a hospital's
+    own admin-defined roles, replacing the old fixed admin/receptionist/
+    doctor string vocabulary. Carries no "is this a doctor role" flag --
+    doctor-ness is purely `StaffDetail.doctor_id IS NOT NULL`, independent of
+    which role a staff member holds (any role can optionally be linked to a
+    doctor profile). `is_protected` marks only the seeded Admin role as
+    undeletable (reserved for a future super-admin flow) -- every other
+    role, including Receptionist/Doctor/any custom role, is fully
+    rename/delete-able by a portal admin (see db/repositories/roles.py)."""
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    name: Mapped[str]
+    description: Mapped[str]
+    is_protected: Mapped[bool]
+    created_at: Mapped[str]
+    updated_at: Mapped[str | None]
+
+
 class RolePermission(Base):
-    """db/schema.sql's role_permissions table -- one row per (hospital, role,
-    page), not a JSON blob, since portal/permissions.py reads this on every
-    permission check and the Roles & Permissions admin UI edits it
+    """db/schema.sql's role_permissions table -- one row per (hospital,
+    role_id, page), not a JSON blob, since portal/permissions.py reads this
+    on every permission check and the Roles & Permissions admin UI edits it
     cell-by-cell."""
     __tablename__ = "role_permissions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    role: Mapped[str]
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     page_key: Mapped[str]
     can_view: Mapped[bool]
     can_write: Mapped[bool]
     can_delete: Mapped[bool]
+
+
+class StaffPermissionOverride(Base):
+    """db/schema.sql's staff_permission_overrides table -- a second,
+    finer-grained permission layer on top of RolePermission: one row per
+    (hospital, staff, page) an admin has explicitly touched for THAT staff
+    member specifically. Each of can_view/can_write/can_delete is nullable
+    -- NULL means "no opinion, inherit whatever this person's current role
+    says" -- so a row can override just one action while the other two
+    still follow the role (see portal/permissions.py's has_permission(),
+    which checks this table before falling back to the role matrix)."""
+    __tablename__ = "staff_permission_overrides"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    staff_id: Mapped[int] = mapped_column(ForeignKey("identities.id", ondelete="CASCADE"))
+    page_key: Mapped[str]
+    can_view: Mapped[bool | None]
+    can_write: Mapped[bool | None]
+    can_delete: Mapped[bool | None]
 
 
 # SuperAdmin ("super_admins" table) used to live here -- global,
@@ -877,15 +918,20 @@ class StaffDetail(Base):
     staff member, replacing StaffUser's own columns of the same name.
     identity_id is the primary key (1:1 with Identity, mirroring StaffUser's
     old "one staff_users row per person" cardinality). Since migration 0018,
-    this also covers Google-OAuth hospital owners (role='admin' -- no
-    separate 'owner' role; confirmed with the user, a hospital's role
-    vocabulary stays exactly admin/receptionist/doctor) -- see the comment
-    where HospitalOwner used to be defined, just below."""
+    this also covers Google-OAuth hospital owners (role_id pointing at
+    whichever of this hospital's own roles is admin-equivalent -- no
+    separate 'owner' role) -- see the comment where HospitalOwner used to be
+    defined, just below. role_id -> roles.id (dynamic-roles migration) --
+    a hospital's own admin-defined role, not a fixed string. doctor_id is
+    independent of role_id entirely (any role can optionally be linked to a
+    doctor profile); the only remaining pairing rule (a doctor_id implies no
+    separate department_id) is enforced at the application layer in
+    portal/routes/staff.py."""
     __tablename__ = "staff_details"
 
     identity_id: Mapped[int] = mapped_column(ForeignKey("identities.id"), primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
-    role: Mapped[str]
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id"))
     # Migration 20260911174439 -- see schema.sql's own comment on this table
     # for why department_id is doctor-role-exclusive and attendance_status

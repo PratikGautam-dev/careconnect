@@ -30,7 +30,7 @@ export default function ProfileSettingsPage() {
 
   return (
     <PortalShell hospital={session?.hospital || null} active="profile-settings">
-      <PageHeader title="Profile settings" description={session ? `${session.name} — ${session.role}` : undefined} />
+      <PageHeader title="Profile settings" description={session ? `${session.name} — ${session.role_name}` : undefined} />
 
       <Card className="mb-space-5 max-w-md p-space-5">
         <h2 className="mb-space-3 text-[15px] font-bold text-ink-900">Your details</h2>

@@ -5,7 +5,9 @@ export type StaffDetail = {
   id: number;
   name: string;
   email: string;
-  role: "admin" | "receptionist" | "doctor";
+  role_id: number;
+  role_name: string;
+  is_doctor_role: boolean;
   hospital_id: number;
   hospital_name: string;
   is_active: boolean;

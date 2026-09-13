@@ -5,20 +5,24 @@ export type StaffRow = {
   id: number;
   name: string;
   email: string;
-  role: "admin" | "receptionist" | "doctor";
+  role_id: number;
+  role_name: string;
+  is_doctor_role: boolean;
   hospital_id: number;
   hospital_name: string;
   is_active: boolean;
 };
 
 /** Staff list for /admin/users/[hospitalId] -- scoped to one hospital, with
- * name/email search plus role/active filters. Hospital name is fetched
+ * name/email search plus an active filter. Hospital name is fetched
  * independently of the (filterable) staff list, so the page header doesn't
- * disappear when a filter/search matches zero rows. */
+ * disappear when a filter/search matches zero rows. No role filter --
+ * dynamic-roles migration: roles are unbounded per hospital now, so a fixed
+ * dropdown no longer makes sense here; the row's own role_name is still
+ * shown per-person. */
 export function useHospitalStaff(
   hospitalId: number,
   search: string,
-  roleFilter: "" | "admin" | "receptionist" | "doctor",
   activeFilter: "" | "active" | "inactive",
 ) {
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
@@ -35,7 +39,6 @@ export function useHospitalStaff(
     async (query: string) => {
       const params = new URLSearchParams();
       params.set("hospital_id", String(hospitalId));
-      if (roleFilter) params.set("role", roleFilter);
       if (activeFilter) params.set("is_active", activeFilter === "active" ? "true" : "false");
       if (query) params.set("search", query);
       const result = await adminFetch(`/api/admin/staff-users?${params.toString()}`);
@@ -45,7 +48,7 @@ export function useHospitalStaff(
       }
       setStaff((result.data as { staff: StaffRow[] }).staff);
     },
-    [hospitalId, roleFilter, activeFilter],
+    [hospitalId, activeFilter],
   );
 
   useEffect(() => {
