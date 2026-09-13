@@ -74,19 +74,20 @@ const NAV_ITEMS = [
     pageKey: "appointments",
   },
   {
-    key: "diagnostic",
-    label: "Lab & Diagnostic Appointments",
-    icon: FlaskConical,
-    href: "/portal/appointments/diagnostic",
-    pageKey: "appointments",
-  },
-  {
     key: "daycare",
     label: "Daycare Appointments",
     icon: BedDouble,
     href: "/portal/appointments/daycare",
     pageKey: "appointments",
   },
+  {
+    key: "diagnostic",
+    label: "Lab & Diagnostic Appointments",
+    icon: FlaskConical,
+    href: "/portal/appointments/diagnostic",
+    pageKey: "appointments",
+  },
+
   {
     key: "report-review",
     label: "Report review",
@@ -140,7 +141,13 @@ const NAV_ITEMS = [
     href: "/portal/messages",
     pageKey: "messages",
   },
-  { key: "billing", label: "Billing", icon: Receipt, pageKey: "billing", hidden: true },
+  {
+    key: "billing",
+    label: "Billing",
+    icon: Receipt,
+    pageKey: "billing",
+    hidden: true,
+  },
   {
     key: "report-analytics",
     label: "Report analytics",
