@@ -5,12 +5,14 @@ import {
   BedDouble,
   CalendarCheck,
   CalendarClock,
+  CalendarRange,
   ChevronsUpDown,
   ClipboardCheck,
   FlaskConical,
   LayoutDashboard,
   LogOut,
   MessageCircle,
+  Plane,
   Receipt,
   Settings,
   ShieldCheck,
@@ -35,8 +37,13 @@ import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 // only, per the conversation -- deeper wiring for the items with no href
 // below is deliberate follow-up work, not done here). Items with no href
 // render as disabled "Coming soon" rows (see the .filter/.map below) --
-// there's no backend yet for billing or report analytics. Leave requests
-// (migration 20260912065049) is real now. Doctor appointments, Diagnostic &
+// there's no backend yet for billing. Billing is additionally `hidden`
+// (explicit instruction: hide it, don't delete it -- kept here so
+// re-enabling later is a one-line flip). Report analytics has no backend
+// of its own either, but rather than leave it as a second dead "Coming
+// soon" row it now just reuses the real Report review page/permission
+// (explicit instruction: only touch this sidebar file, no new page).
+// Leave requests (migration 20260912065049) is real now. Doctor appointments, Diagnostic &
 // lab test appointments, and Daycare appointments all share the
 // "appointments" permission -- each is a view over the same underlying
 // appointment list, just scoped to a different appointment_type_id category
@@ -52,20 +59,121 @@ import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 // every signed-in role rather than being hidden by a permission lookup that
 // can never succeed.
 const NAV_ITEMS = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
-  { key: "appointments", label: "Doctor Appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
-  { key: "diagnostic", label: "Lab & Diagnostic Appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
-  { key: "daycare", label: "Daycare Appointments", icon: BedDouble, href: "/portal/appointments/daycare", pageKey: "appointments" },
-  { key: "report-review", label: "Report review", icon: ClipboardCheck, href: "/portal/report-review", pageKey: "report-review" },
-  { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
-  { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },
-  { key: "staff", label: "Staff", icon: UserCog, href: "/portal/settings/staff", pageKey: "staff" },
-  { key: "messages", label: "Messages", icon: MessageCircle, href: "/portal/messages", pageKey: "messages" },
-  { key: "billing", label: "Billing", icon: Receipt, pageKey: "billing" },
-  { key: "report-analytics", label: "Report analytics", icon: BarChart3, pageKey: "report-analytics" },
-  { key: "roles", label: "Roles & permissions", icon: ShieldCheck, href: "/portal/settings/roles", pageKey: "roles" },
-  { key: "settings", label: "Settings", icon: Settings, href: "/portal/settings", pageKey: "settings" },
-  { key: "leave-requests", label: "Leave requests", icon: CalendarClock, href: "/portal/leave-requests", pageKey: "leave_requests" },
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    href: "/portal/dashboard",
+    pageKey: "dashboard",
+  },
+  {
+    key: "appointments",
+    label: "Doctor Appointments",
+    icon: CalendarCheck,
+    href: "/portal/appointments",
+    pageKey: "appointments",
+  },
+  {
+    key: "diagnostic",
+    label: "Lab & Diagnostic Appointments",
+    icon: FlaskConical,
+    href: "/portal/appointments/diagnostic",
+    pageKey: "appointments",
+  },
+  {
+    key: "daycare",
+    label: "Daycare Appointments",
+    icon: BedDouble,
+    href: "/portal/appointments/daycare",
+    pageKey: "appointments",
+  },
+  {
+    key: "report-review",
+    label: "Report review",
+    icon: ClipboardCheck,
+    href: "/portal/report-review",
+    pageKey: "report-review",
+  },
+  {
+    key: "patients",
+    label: "Patients",
+    icon: Users,
+    href: "/portal/patients",
+    pageKey: "patients",
+  },
+  // Real page (/portal/schedule -> DoctorScheduleView), was missing from
+  // this list entirely -- not disabled/hrefless, just never added, so no
+  // role (doctor included) could reach it from the sidebar despite the
+  // route and its own permission gate ("schedule"/"view") already existing.
+  {
+    key: "schedule",
+    label: "Schedule",
+    icon: CalendarRange,
+    href: "/portal/schedule",
+    pageKey: "schedule",
+  },
+  {
+    key: "doctors",
+    label: "Doctors",
+    icon: Stethoscope,
+    href: "/portal/doctors",
+    pageKey: "doctors",
+  },
+  {
+    key: "staff",
+    label: "Staff",
+    icon: UserCog,
+    href: "/portal/settings/staff",
+    pageKey: "staff",
+  },
+  {
+    key: "leave-requests",
+    label: "Leave requests",
+    icon: CalendarClock,
+    href: "/portal/leave-requests",
+    pageKey: "leave_requests",
+  },
+  {
+    key: "messages",
+    label: "Messages",
+    icon: MessageCircle,
+    href: "/portal/messages",
+    pageKey: "messages",
+  },
+  { key: "billing", label: "Billing", icon: Receipt, pageKey: "billing", hidden: true },
+  {
+    key: "report-analytics",
+    label: "Report analytics",
+    icon: BarChart3,
+    href: "/portal/report-review",
+    pageKey: "report-review",
+  },
+  {
+    key: "roles",
+    label: "Roles & permissions",
+    icon: ShieldCheck,
+    href: "/portal/settings/roles",
+    pageKey: "roles",
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    icon: Settings,
+    href: "/portal/settings",
+    pageKey: "settings",
+  },
+
+  // Self-service submission (migration 6eda12041ecf) that feeds the review
+  // queue above -- ANY role, not just doctor (its default permission is
+  // view+write for every role), since any staff member applies for their
+  // own leave.
+  {
+    key: "holiday-application",
+    label: "Holiday Application",
+    icon: Plane,
+    href: "/portal/holiday-application",
+    pageKey: "holiday_application",
+  },
 ];
 
 // Nav items whose href-having route has no real backend permission model
@@ -84,7 +192,12 @@ type Props = {
   onClose?: () => void;
 };
 
-export function PortalSidebar({ hospital, active, open = false, onClose }: Props) {
+export function PortalSidebar({
+  hospital,
+  active,
+  open = false,
+  onClose,
+}: Props) {
   const router = useRouter();
   // Resolved once, here, via the real hook -- hasPermission below is a
   // plain function taking this value, safe to call inside .filter() (a real
@@ -106,7 +219,9 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
         onClick={onClose}
         className={cn(
           "fixed inset-0 z-40 bg-black/40 transition-opacity duration-200 lg:hidden",
-          open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          open
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0",
         )}
       />
 
@@ -121,7 +236,9 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 font-display text-[14px] font-extrabold">
             H
           </div>
-          <span className="truncate text-[14px] font-bold">{hospital?.name || "Hospital"}</span>
+          <span className=" text-[14px] font-bold">
+            {hospital?.name || "Hospital"}
+          </span>
           <button
             type="button"
             onClick={onClose}
@@ -142,25 +259,42 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             // Hrefless rows are visual placeholders, not real gated
             // capabilities, so they skip the permission map entirely --
             // otherwise an unrecognized pageKey would hide them outright.
-            (item) => !item.href || NO_PERMISSION_GATE_KEYS.has(item.key) || hasPermission(session, item.pageKey, "view"),
+            (item) =>
+              !item.hidden &&
+              (!item.href ||
+                NO_PERMISSION_GATE_KEYS.has(item.key) ||
+                hasPermission(session, item.pageKey, "view")),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(
               "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium transition-colors duration-150",
               isActive && "bg-white text-brand-700",
-              !isActive && href && "text-white/85 hover:bg-white/10 hover:text-white",
+              !isActive &&
+                href &&
+                "text-white/85 hover:bg-white/10 hover:text-white",
               !href && "cursor-not-allowed text-white/40",
             );
             if (!href) {
               return (
-                <button key={key} type="button" disabled title="Coming soon" className={itemClasses}>
+                <button
+                  key={key}
+                  type="button"
+                  disabled
+                  title="Coming soon"
+                  className={itemClasses}
+                >
                   <Icon size={16} strokeWidth={2} className="shrink-0" />
                   {label}
                 </button>
               );
             }
             return (
-              <Link key={key} href={href} onClick={onClose} className={itemClasses}>
+              <Link
+                key={key}
+                href={href}
+                onClick={onClose}
+                className={itemClasses}
+              >
                 <Icon size={16} strokeWidth={2} className="shrink-0" />
                 {label}
               </Link>
@@ -169,20 +303,33 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
         </nav>
 
         <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/85 transition-colors duration-150 hover:bg-white/10 hover:text-white"
-          >
+          <DropdownMenuTrigger className="flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/85 transition-colors duration-150 hover:bg-white/10 hover:text-white">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/15 text-[12px] font-bold">
               {(session?.name || "?").charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold">{session?.name || "Account"}</div>
-              {session && <div className="truncate text-[11.5px] text-white/60">{session.role_name}</div>}
+              <div className="truncate text-[13px] font-semibold">
+                {session?.name || "Account"}
+              </div>
+              {session && (
+                <div className="truncate text-[11.5px] text-white/60">
+                  {session.role_name}
+                </div>
+              )}
             </div>
-            <ChevronsUpDown size={14} strokeWidth={2} className="shrink-0 text-white/50" />
+            <ChevronsUpDown
+              size={14}
+              strokeWidth={2}
+              className="shrink-0 text-white/50"
+            />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-60">
-            <DropdownMenuItem onClick={() => { router.push("/portal/settings/profile-settings"); onClose?.(); }}>
+            <DropdownMenuItem
+              onClick={() => {
+                router.push("/portal/settings/profile-settings");
+                onClose?.();
+              }}
+            >
               <Settings size={14} /> Settings
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={handleLogout}>

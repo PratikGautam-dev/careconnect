@@ -154,6 +154,68 @@ def get_doctor_dashboard_stats(hospital_id: int, doctor_id: str, now: datetime |
     }
 
 
+def get_doctor_patient_insights(hospital_id: int, doctor_id: str, now: datetime | None = None) -> dict:
+    """Doctor dashboard's "Patient insights" panel -- this week (last 7 days,
+    today inclusive) vs the 7 days before that, scoped to this doctor's own
+    appointments only. Only two of the panel's four numbers have a real data
+    source in this schema: new patients (derived the same "earliest
+    appointment ever" way as get_dashboard_stats()'s own new_patients, just
+    scoped to doctor_id + a week instead of hospital-wide + a day) and
+    follow-ups (a real appointment_type_id value). Prescriptions and average
+    consult duration have no backing table/field anywhere in this app --
+    returned as None so the frontend renders "—" rather than a fabricated
+    number."""
+    now = now or datetime.now()
+    window_end = datetime.combine(now.date(), datetime.max.time())
+    window_start = datetime.combine(now.date() - timedelta(days=6), datetime.min.time())
+    prev_window_end = window_start - timedelta(microseconds=1)
+    prev_window_start = datetime.combine(now.date() - timedelta(days=13), datetime.min.time())
+    session = get_session()
+    A = AppointmentRow
+
+    def _new_patients(start: datetime, end: datetime) -> int:
+        A2 = aliased(AppointmentRow)
+        exists_earlier = (
+            select(1).select_from(A2)
+            .where(A2.hospital_id == A.hospital_id, A2.phone == A.phone, A2.created_at < start.isoformat())
+            .correlate(A)
+            .exists()
+        )
+        return session.execute(
+            select(func.count(func.distinct(A.phone))).select_from(A)
+            .where(A.hospital_id == hospital_id, A.doctor_id == doctor_id,
+                   A.created_at >= start.isoformat(), A.created_at <= end.isoformat(), ~exists_earlier)
+        ).scalar_one()
+
+    def _follow_ups(start: datetime, end: datetime) -> int:
+        return session.execute(
+            select(func.count()).select_from(A)
+            .where(A.hospital_id == hospital_id, A.doctor_id == doctor_id, A.appointment_type_id == "followup",
+                   A.scheduled_at >= start.isoformat(), A.scheduled_at <= end.isoformat())
+        ).scalar_one()
+
+    def _delta_pct(this_v: int, prev_v: int) -> float | None:
+        if prev_v == 0:
+            return None
+        return round((this_v - prev_v) / prev_v * 100, 1)
+
+    new_patients = _new_patients(window_start, window_end)
+    prev_new_patients = _new_patients(prev_window_start, prev_window_end)
+    follow_ups = _follow_ups(window_start, window_end)
+    prev_follow_ups = _follow_ups(prev_window_start, prev_window_end)
+
+    return {
+        "new_patients_this_week": new_patients,
+        "new_patients_this_week_delta_pct": _delta_pct(new_patients, prev_new_patients),
+        "follow_ups_this_week": follow_ups,
+        "follow_ups_this_week_delta_pct": _delta_pct(follow_ups, prev_follow_ups),
+        # No prescriptions table and no consult-duration capture anywhere in
+        # this schema yet -- these two stay None (frontend renders "—").
+        "prescriptions_issued_this_week": None,
+        "avg_consult_minutes": None,
+    }
+
+
 def get_weekly_appointment_counts(hospital_id: int, now: datetime | None = None) -> list[dict]:
     """One point per day for the last 7 calendar days (today inclusive,
     oldest first) -- counts by scheduled_at (any status), consistent with

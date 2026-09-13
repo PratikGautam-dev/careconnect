@@ -75,7 +75,11 @@ export function createLeaveRequestColumns({
     {
       id: "duration",
       header: "Duration",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.duration_days} day{row.original.duration_days === 1 ? "" : "s"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">
+          {row.original.is_half_day ? "Half day" : `${row.original.duration_days} day${row.original.duration_days === 1 ? "" : "s"}`}
+        </span>
+      ),
     },
     { id: "submitted", header: "Submitted", cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.submitted_at)}</span> },
     { id: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },

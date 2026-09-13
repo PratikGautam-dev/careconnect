@@ -62,7 +62,10 @@ export function LeaveRequestDetailPanel({ request, canManage, decidingId, onAppr
         <DetailRow icon={CalendarDays} label="Leave Type" value={LEAVE_TYPE_LABELS[request.leave_type]} />
         <DetailRow icon={Calendar} label="From Date" value={formatDate(request.from_date)} />
         <DetailRow icon={Calendar} label="To Date" value={formatDate(request.to_date)} />
-        <DetailRow icon={CalendarDays} label="Duration" value={`${request.duration_days} day${request.duration_days === 1 ? "" : "s"}`} />
+        <DetailRow
+          icon={CalendarDays} label="Duration"
+          value={request.is_half_day ? "Half day" : `${request.duration_days} day${request.duration_days === 1 ? "" : "s"}`}
+        />
         <DetailRow icon={Calendar} label="Submitted On" value={formatDate(request.submitted_at)} />
         <div className="flex items-center justify-between text-[13px]">
           <span className="text-ink-400">Status</span>

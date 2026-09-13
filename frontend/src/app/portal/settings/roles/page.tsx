@@ -30,7 +30,7 @@ import { createRoleColumns, createRoleManagementColumns, createStaffOverrideColu
 
 const EMPTY_CELL: OverrideCell = { view: null, write: null, delete: null };
 
-const PAGE_KEYS = ["dashboard", "appointments", "patients", "schedule", "doctors", "diagnostic_tests", "messages", "settings", "staff", "roles", "leave_requests"];
+const PAGE_KEYS = ["dashboard", "appointments", "patients", "schedule", "doctors", "diagnostic_tests", "messages", "settings", "staff", "roles", "leave_requests", "holiday_application"];
 const PAGE_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
   appointments: "Appointments",
@@ -43,6 +43,7 @@ const PAGE_LABEL: Record<string, string> = {
   staff: "Staff",
   roles: "Roles & Permissions",
   leave_requests: "Leave Requests",
+  holiday_application: "Holiday Application",
 };
 
 type RoleFormState = { name: string; description: string; cloneFromRoleId: string };

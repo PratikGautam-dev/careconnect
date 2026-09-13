@@ -646,6 +646,9 @@ class LeaveRequest(Base):
     leave_type: Mapped[str]
     from_date: Mapped[str]
     to_date: Mapped[str]
+    # Migration 6eda12041ecf: Holiday Application's Full day/Half day choice
+    # -- only meaningful (and route-enforced) for a single-day request.
+    is_half_day: Mapped[bool]
     reason: Mapped[str | None]
     status: Mapped[str]
     decided_by: Mapped[int | None] = mapped_column(ForeignKey("identities.id"))

@@ -17,6 +17,7 @@ export type LeaveRequestRow = {
   leave_type: LeaveType;
   from_date: string;
   to_date: string;
+  is_half_day: boolean;
   duration_days: number;
   reason: string | null;
   status: LeaveRequestStatus;
@@ -35,9 +36,9 @@ export type LeaveRequestSummary = {
 
 /** Leave Requests admin page (migration 20260912065049) -- loads the
  * pending/approved/rejected review queue for the caller's own hospital and
- * owns the approve/reject actions. No create action here yet -- doctor/
- * staff self-service is a later page (confirmed with the user); every row
- * shown today was created directly against the backend for testing. */
+ * owns the approve/reject actions. The rows it reviews are now real,
+ * submitted through the Holiday Application page (useHolidayApplication.ts,
+ * migration 6eda12041ecf) -- any staff member, not just a doctor. */
 export function useLeaveRequests(canView: boolean) {
   const router = useRouter();
 

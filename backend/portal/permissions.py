@@ -47,11 +47,16 @@ PAGE_DIAGNOSTIC_TESTS = "diagnostic_tests"
 # weight as PAGE_STAFF/PAGE_ROLES (staff-management-adjacent, not a page a
 # receptionist or doctor manages for others).
 PAGE_LEAVE_REQUESTS = "leave_requests"
+# Holiday Application (migration 6eda12041ecf): the self-service SUBMISSION
+# form this same leave_requests table feeds FROM -- any staff member applies
+# for their own leave here, doctor or not, so unlike every other non-admin
+# page above this defaults to view+write for every role, not just one kind.
+PAGE_HOLIDAY_APPLICATION = "holiday_application"
 
 ALL_PAGES = {
     PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_PATIENTS, PAGE_DOCTORS,
     PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE, PAGE_DIAGNOSTIC_TESTS,
-    PAGE_LEAVE_REQUESTS,
+    PAGE_LEAVE_REQUESTS, PAGE_HOLIDAY_APPLICATION,
 }
 ACTIONS = ("view", "write", "delete")
 
@@ -86,6 +91,8 @@ DEFAULT_PERMISSIONS_BY_ROLE_KIND: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_SCHEDULE: dict(_NONE),
         PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
         PAGE_LEAVE_REQUESTS: dict(_NONE),
+        # Not doctor-only -- a receptionist applies for their own leave too.
+        PAGE_HOLIDAY_APPLICATION: dict(_VIEW_WRITE),
     },
     "doctor": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
@@ -103,6 +110,7 @@ DEFAULT_PERMISSIONS_BY_ROLE_KIND: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_SCHEDULE: dict(_VIEW_WRITE),
         PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
         PAGE_LEAVE_REQUESTS: dict(_NONE),
+        PAGE_HOLIDAY_APPLICATION: dict(_VIEW_WRITE),
     },
 }
 

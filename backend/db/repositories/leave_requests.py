@@ -1,15 +1,18 @@
 # db/repositories/leave_requests.py
 """Leave Requests admin page (migration 20260912065049) -- doctors and
 receptionists can have a leave_requests row, reviewed by an admin into one
-of pending/approved/rejected. Doctor/staff self-service (actually creating
-one) is a later page (confirmed with the user); create_leave_request()
-below exists for that future page and for seeding test data, but is not
-yet wired to any route.
+of pending/approved/rejected. Migration 6eda12041ecf wired up the
+doctor/staff self-service side of this (the Holiday Application page,
+portal/routes/leave_requests.py's my_leave_requests()/submit_leave_request())
+-- create_leave_request() below is what that route calls.
 
 Not the same thing as db/repositories/leave.py's doctor_leave (Section
 14.7) -- that's a simpler "block this doctor's bookable slots on this
 whole day" scheduling mechanism with no approval workflow or balance,
-predates this feature, and is untouched by it.
+predating this feature. The two ARE connected in one direction though:
+approving a full-day leave request auto-creates the matching doctor_leave
+range (see portal/routes/leave_requests.py's _decide()), so an approved
+request actually blocks new bookings, not just changes a status label.
 
 Leave balance = hospitals.doctor_annual_leave_days/staff_annual_leave_days
 (the portal-admin-configurable policy, doctor/receptionist only -- admin
@@ -28,10 +31,20 @@ from db.connection import get_session
 from db.orm_models import Department, DoctorRow, HospitalRow, Identity, LeaveRequest, RoleRow, StaffDetail
 
 _VALID_STATUSES = ("pending", "approved", "rejected")
+_VALID_LEAVE_TYPES = ("casual", "sick", "annual", "maternity", "conference", "personal")
+
+
+def _request_duration_days(from_date_str: str, to_date_str: str, is_half_day: bool) -> float:
+    """A half-day request only ever covers a single date (enforced at the
+    route layer, not the DB) -- 0.5 day, not the inclusive whole-day count
+    every other request uses."""
+    if is_half_day and from_date_str == to_date_str:
+        return 0.5
+    return float((date.fromisoformat(to_date_str) - date.fromisoformat(from_date_str)).days + 1)
 
 
 def _with_duration(row: dict) -> dict:
-    row["duration_days"] = (date.fromisoformat(row["to_date"]) - date.fromisoformat(row["from_date"])).days + 1
+    row["duration_days"] = _request_duration_days(row["from_date"], row["to_date"], row["is_half_day"])
     return row
 
 
@@ -43,7 +56,8 @@ def _leave_request_query():
     return (
         select(
             LeaveRequest.id, LeaveRequest.identity_id, LeaveRequest.leave_type,
-            LeaveRequest.from_date, LeaveRequest.to_date, LeaveRequest.reason, LeaveRequest.status,
+            LeaveRequest.from_date, LeaveRequest.to_date, LeaveRequest.is_half_day,
+            LeaveRequest.reason, LeaveRequest.status,
             LeaveRequest.created_at, LeaveRequest.decided_at,
             Identity.name.label("applicant_name"),
             RoleRow.name.label("role_name"), StaffDetail.doctor_id.is_not(None).label("is_doctor_role"),
@@ -59,6 +73,21 @@ def _leave_request_query():
         .outerjoin(decider, decider.id == LeaveRequest.decided_by)
         .outerjoin(reports_to, reports_to.id == StaffDetail.reports_to_id)
     )
+
+
+def list_leave_requests_for_identity(hospital_id: int, identity_id: int) -> list[dict]:
+    """Holiday Application page's own "Leave Request History" -- this one
+    applicant's requests only, most recent first. Same joined shape
+    list_leave_requests_for_hospital() gives the admin review queue (role/
+    department/decided-by names included, even though the self-service page
+    mostly just needs its own leave_type/dates/status)."""
+    session = get_session()
+    rows = session.execute(
+        _leave_request_query()
+        .where(LeaveRequest.hospital_id == hospital_id, LeaveRequest.identity_id == identity_id)
+        .order_by(LeaveRequest.created_at.desc())
+    ).all()
+    return [_with_duration(dict(r._mapping)) for r in rows]
 
 
 def list_leave_requests_for_hospital(hospital_id: int, *, status: str | None = None) -> list[dict]:
@@ -119,21 +148,27 @@ def decide_leave_request(hospital_id: int, request_id: int, decided_by_identity_
 
 
 def create_leave_request(
-    hospital_id: int, identity_id: int, leave_type: str, from_date: str, to_date: str, reason: str | None = None,
+    hospital_id: int, identity_id: int, leave_type: str, from_date: str, to_date: str,
+    reason: str | None = None, is_half_day: bool = False,
 ) -> dict:
-    """Not yet wired to any route -- see this module's own docstring. Exists
-    now for the later self-service page and for seeding test data."""
+    """Holiday Application page's own submit -- the route layer validates
+    leave_type/date order/is_half_day-implies-same-day before calling this;
+    this function trusts its caller the same way upsert_staff_override()
+    trusts portal/routes/roles.py's own validation. Returns the full joined
+    row (get_leave_request()'s shape), not just the new id, so the route can
+    hand it straight back the same shape every other leave_requests response
+    already uses."""
     session = get_session()
     new_id = session.execute(
         insert(LeaveRequest)
         .values(
             hospital_id=hospital_id, identity_id=identity_id, leave_type=leave_type,
-            from_date=from_date, to_date=to_date, reason=reason,
+            from_date=from_date, to_date=to_date, reason=reason, is_half_day=is_half_day,
         )
         .returning(LeaveRequest.id)
     ).scalar_one()
     session.commit()
-    return {"id": new_id}
+    return get_leave_request(hospital_id, new_id)
 
 
 def get_leave_policy(hospital_id: int) -> dict:
@@ -164,13 +199,18 @@ def get_leave_usage_by_identity(hospital_id: int, year: int | None = None) -> di
     year_start, year_end = date(year, 1, 1), date(year, 12, 31)
     session = get_session()
     rows = session.execute(
-        select(LeaveRequest.identity_id, LeaveRequest.from_date, LeaveRequest.to_date)
+        select(LeaveRequest.identity_id, LeaveRequest.from_date, LeaveRequest.to_date, LeaveRequest.is_half_day)
         .where(LeaveRequest.hospital_id == hospital_id, LeaveRequest.status == "approved")
     ).all()
-    usage: dict[int, int] = {}
-    for identity_id, from_date_str, to_date_str in rows:
+    usage: dict[int, float] = {}
+    for identity_id, from_date_str, to_date_str, is_half_day in rows:
         start = max(date.fromisoformat(from_date_str), year_start)
         end = min(date.fromisoformat(to_date_str), year_end)
         if start <= end:
-            usage[identity_id] = usage.get(identity_id, 0) + (end - start).days + 1
+            # A half-day request is always a single day (route-enforced), so
+            # clipping it to the year boundary above never changes which day
+            # it lands on -- 0.5 applies whenever the request itself was
+            # marked half-day, not just when start == end after clipping.
+            days = 0.5 if is_half_day else float((end - start).days + 1)
+            usage[identity_id] = usage.get(identity_id, 0) + days
     return usage

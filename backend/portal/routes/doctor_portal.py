@@ -19,7 +19,7 @@ is read ONLY from `_require_doctor()`'s verified token, never from a path,
 query, or body parameter -- there is no parameter through which a caller
 could ever ask for "some other doctor's" schedule/leave/delay."""
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
@@ -81,6 +81,7 @@ async def doctor_dashboard(authorization: str | None = Header(default=None)):
     today = db.get_doctor_appointments_today(hospital.id, doctor_id)
     weekly_counts = db.get_doctor_weekly_appointment_counts(hospital.id, doctor_id)
     recent = db.get_doctor_appointments(hospital.id, doctor_id, limit=10)
+    insights = db.get_doctor_patient_insights(hospital.id, doctor_id)
     return JSONResponse({
         "doctor": doctor,
         "hospital": {"id": hospital.id, "name": hospital.name},
@@ -88,6 +89,7 @@ async def doctor_dashboard(authorization: str | None = Header(default=None)):
         "today_appointments": [_appointment_json(a) for a in today],
         "weekly_counts": weekly_counts,
         "recent_appointments": [_appointment_json(a) for a in recent],
+        "insights": insights,
     })
 
 
@@ -111,6 +113,36 @@ async def doctor_appointments_calendar(
     return JSONResponse({
         "year": year,
         "month": month,
+        "appointments": [_appointment_json(a) for a in appointments],
+    })
+
+
+@router.get("/api/doctor/appointments/week")
+async def doctor_appointments_week(start: str | None = None, authorization: str | None = Header(default=None)):
+    """Schedule page's Week view -- every one of this doctor's appointments
+    within a 7-day window starting on `start` (YYYY-MM-DD, defaults to the
+    Monday of the current week). A dedicated range query rather than reusing
+    the month endpoint (doctor_appointments_calendar above): a week almost
+    never lines up with calendar-month boundaries, and re-fetching/merging
+    two months client-side for the rare week that spans one would be more
+    work than one purpose-built query."""
+    ctx, err = _require_doctor(authorization)
+    if err:
+        return err
+    hospital, doctor_id = ctx
+    if start:
+        try:
+            start_date = datetime.strptime(start, "%Y-%m-%d").date()
+        except ValueError:
+            return JSONResponse({"error": "start must be YYYY-MM-DD."}, status_code=400)
+    else:
+        today = datetime.now().date()
+        start_date = today - timedelta(days=today.weekday())
+    end_date = start_date + timedelta(days=6)
+    appointments = db.get_doctor_appointments_for_range(hospital.id, doctor_id, start_date, end_date)
+    return JSONResponse({
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
         "appointments": [_appointment_json(a) for a in appointments],
     })
 
@@ -226,30 +258,17 @@ async def doctor_update_schedule(payload: dict, authorization: str | None = Head
     return JSONResponse({"doctor": updated})
 
 
-@router.post("/api/doctor/leave")
-async def doctor_add_leave(payload: dict, authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    leave_date = (payload or {}).get("date", "").strip()
-    if not leave_date:
-        return JSONResponse({"error": "date is required."}, status_code=400)
-    reason = (payload or {}).get("reason") or None
-    leave = db.create_doctor_leave(hospital.id, doctor_id, leave_date, reason=reason)
-    return JSONResponse({"leave": leave})
-
-
-@router.post("/api/doctor/leave/{leave_id}/delete")
-async def doctor_delete_leave(leave_id: int, authorization: str | None = Header(default=None)):
-    ctx, err = _require_doctor(authorization)
-    if err:
-        return err
-    hospital, doctor_id = ctx
-    ok = db.delete_doctor_leave(hospital.id, doctor_id, leave_id)
-    if not ok:
-        return JSONResponse({"error": "No such leave date."}, status_code=404)
-    return JSONResponse({"ok": True})
+# A doctor no longer self-adds/deletes doctor_leave rows directly here --
+# migration 6eda12041ecf made the Holiday Application page (POST /api/
+# portal/leave-requests/mine) the ONE way any staff member requests leave,
+# subject to admin approval; approving a full-day request is what now
+# populates doctor_leave (portal/routes/leave_requests.py's _decide()), not
+# this route. doctor_schedule() above still returns `leave` read-only, so
+# the Schedule page keeps showing upcoming leave -- it just can't be
+# self-edited from here anymore. Admin can still directly manage a
+# doctor's doctor_leave rows outside the approval workflow via
+# portal/routes/doctors.py's own /api/portal/doctors/{id}/leave(/range)
+# routes, unaffected by this.
 
 # Google Meet integration (Spec.md Section 0): the "Connect Google Calendar"
 # status/disconnect routes used to live here, per-doctor -- moved to

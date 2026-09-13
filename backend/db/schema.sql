@@ -1413,6 +1413,18 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 CREATE INDEX IF NOT EXISTS ix_leave_requests_hospital_id ON leave_requests(hospital_id);
 CREATE INDEX IF NOT EXISTS ix_leave_requests_identity_id ON leave_requests(identity_id);
 
+-- Migration 6eda12041ecf: self-service "Holiday Application" page (ANY
+-- staff member, not just doctors) -- is_half_day (only meaningful for a
+-- single-day request, enforced at the route layer) plus a role_permissions
+-- backfill for the new "holiday_application" page key, true for every role
+-- (see that migration's own docstring for why the backfill is needed, not
+-- just the DEFAULT_PERMISSIONS_BY_ROLE_KIND seed data).
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS is_half_day BOOLEAN NOT NULL DEFAULT FALSE;
+INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete)
+    SELECT r.hospital_id, r.id, 'holiday_application', true, true, false
+    FROM roles r
+    ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS super_admin_details (
     identity_id INTEGER PRIMARY KEY REFERENCES identities(id)
 );

@@ -1231,6 +1231,30 @@ def get_doctor_appointments_for_month(
     return [_row_to_appointment(r._mapping) for r in rows]
 
 
+def get_doctor_appointments_for_range(
+    hospital_id: int, doctor_id: str, start_date: date, end_date: date,
+) -> list[Appointment]:
+    """Doctor-portal follow-up: every one of this doctor's appointments
+    falling within an arbitrary inclusive [start_date, end_date] range (both
+    `date` objects) -- the Schedule page's Week view needs a 7-day window
+    that doesn't line up with calendar-month boundaries the way
+    get_doctor_appointments_for_month() above does, so it takes explicit
+    bounds instead of a year/month pair."""
+    range_start = datetime.combine(start_date, datetime.min.time())
+    range_end = datetime.combine(end_date, datetime.max.time())
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.scheduled_at >= range_start.isoformat(),
+            AppointmentRow.scheduled_at <= range_end.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
 def delay_doctor_remaining_today_appointments(
     hospital_id: int, doctor_id: str, minutes: int, now: datetime | None = None,
 ) -> list[tuple[Appointment, datetime]]:

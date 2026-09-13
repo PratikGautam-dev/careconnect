@@ -642,6 +642,9 @@ _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT: list[tuple[str, tuple, tuple, tuple]] = [
     ("schedule", (True, True, True), (False, False, False), (True, True, False)),
     ("diagnostic_tests", (True, True, True), (False, False, False), (False, False, False)),
     ("leave_requests", (True, True, True), (False, False, False), (False, False, False)),
+    # Not doctor-only -- any staff member applies for their own leave
+    # through this page, so receptionist gets the same view+write as doctor.
+    ("holiday_application", (True, True, True), (True, True, False), (True, True, False)),
 ]
 
 
@@ -1840,6 +1843,27 @@ def init_db_on_connection(conn) -> int:
     )
     conn.commit()
     _seed_default_roles_and_backfill_role_id(conn)
+    # Migration 6eda12041ecf: self-service "Holiday Application" page (ANY
+    # staff member, not just doctors), submitting real leave_requests rows
+    # through the review queue seeded above. is_half_day (only meaningful
+    # for a single-day request, enforced at the route layer). Must run AFTER
+    # _seed_default_roles_and_backfill_role_id() -- roles/role_permissions.
+    # role_id don't exist yet any earlier in this replay. The
+    # role_permissions backfill below is separate from
+    # _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT above -- that snapshot only seeds a
+    # hospital with ZERO role_permissions rows at all; an already-onboarded
+    # hospital (the normal case here) has plenty of rows already, just none
+    # for this brand-new page_key, so it needs its own per-page-key
+    # backfill, same as this migration's own upgrade(). True for every
+    # role -- not conditioned on role name.
+    conn.execute("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS is_half_day BOOLEAN NOT NULL DEFAULT FALSE")
+    conn.execute(
+        "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+        "SELECT r.hospital_id, r.id, 'holiday_application', true, true, false "
+        "FROM roles r "
+        "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
+    )
+    conn.commit()
     _backfill_enabled_features(conn)
     _backfill_patients(conn)
     _backfill_appointment_patient_denorm(conn)
