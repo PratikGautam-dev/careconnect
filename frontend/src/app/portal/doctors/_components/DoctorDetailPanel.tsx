@@ -2,9 +2,9 @@
 
 import {
   Building2,
+  CalendarCheck,
   CalendarClock,
-  CalendarPlus,
-  Eye,
+  Clock,
   IdCard,
   KeyRound,
   Mail,
@@ -18,31 +18,13 @@ import {
 import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
+import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
 import type { Doctor } from "@/hooks/useDoctors";
 import { AVATAR_TINTS } from "./doctors-columns";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
-}
-
-function formatClockTime(hhmm: string): string {
-  const [hStr, mStr = "00"] = hhmm.split(":");
-  const h = Number(hStr);
-  if (Number.isNaN(h)) return hhmm;
-  const period = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 || 12;
-  return `${h12}:${mStr} ${period}`;
-}
-
-/** "Mon - Sat" for a contiguous run starting Monday, else a comma list --
- * working_days is a fixed-order subset of Mon..Sun (doctors.py's
- * _WEEKDAY_ABBREVS), not necessarily contiguous or Monday-starting. */
-function formatWorkingDays(days: string[]): string {
-  const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const sorted = [...days].sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  const isContiguousFromMon = sorted.every((d, i) => d === order[i]);
-  return isContiguousFromMon && sorted.length > 1 ? `${sorted[0]} - ${sorted[sorted.length - 1]}` : sorted.join(", ");
 }
 
 function DetailRow({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: React.ReactNode }) {
@@ -63,12 +45,10 @@ type Props = {
   onEdit: (doc: Doctor) => void;
   togglingId: string | null;
   onToggleActive: (doc: Doctor) => void;
-  scheduleOpen: boolean;
-  onToggleSchedule: () => void;
-  leaveOpen: boolean;
-  onToggleLeave: () => void;
-  onBookAppointment: () => void;
+  onRunningLate: (doc: Doctor) => void;
   onCreateLogin: (doc: Doctor) => void;
+  onResetPassword: (doc: Doctor) => void;
+  onManageLeave: (doc: Doctor) => void;
 };
 
 /** Right-rail "selected doctor" profile card -- every field shown is real,
@@ -84,8 +64,8 @@ type Props = {
  * the same login a doctor uses to sign into the shared portal (see the
  * Staff page's own role="doctor" rows). */
 export function DoctorDetailPanel({
-  doctor, index, canManage, onEdit, togglingId, onToggleActive, scheduleOpen, onToggleSchedule, leaveOpen, onToggleLeave,
-  onBookAppointment, onCreateLogin,
+  doctor, index, canManage, onEdit, togglingId, onToggleActive,
+  onRunningLate, onCreateLogin, onResetPassword, onManageLeave,
 }: Props) {
   if (!doctor) {
     return (
@@ -95,15 +75,11 @@ export function DoctorDetailPanel({
     );
   }
 
-  const hours = doctor.working_hours.length > 0 ? doctor.working_hours.map((r) => {
-    const [start, end] = r.split("-");
-    return start && end ? `${formatClockTime(start)} - ${formatClockTime(end)}` : r;
-  }).join(", ") : null;
+  const hours = formatWorkingHours(doctor.working_hours);
 
   const quickActions: QuickAction[] = [
     ...(canManage ? [{ label: "Edit profile", icon: Pencil, onClick: () => onEdit(doctor) }] : []),
-    { label: "Book appointment", icon: CalendarPlus, onClick: onBookAppointment },
-    { label: "View schedule", icon: Eye, onClick: onToggleSchedule, active: scheduleOpen },
+    { label: "Running late", icon: Clock, onClick: () => onRunningLate(doctor) },
     ...(canManage
       ? [{
           label: doctor.is_active ? "Mark unavailable" : "Mark available",
@@ -114,10 +90,13 @@ export function DoctorDetailPanel({
       : []),
     { label: "Send message", icon: MessageCircle, disabled: true, title: "Coming soon — no doctor-facing internal messaging exists yet" },
     ...(canManage && !doctor.login_staff_id
-      ? [{ label: "Create login", icon: KeyRound, onClick: () => onCreateLogin(doctor), fullWidth: true }]
+      ? [{ label: "Create login", icon: KeyRound, onClick: () => onCreateLogin(doctor) }]
+      : []),
+    ...(canManage && doctor.login_staff_id
+      ? [{ label: "Reset login access", icon: KeyRound, onClick: () => onResetPassword(doctor) }]
       : []),
     ...(canManage
-      ? [{ label: "Manage leave", icon: CalendarClock, onClick: onToggleLeave, active: leaveOpen, fullWidth: true }]
+      ? [{ label: "Manage leave", icon: CalendarClock, onClick: () => onManageLeave(doctor) }]
       : []),
   ];
 
@@ -152,25 +131,49 @@ export function DoctorDetailPanel({
         <DetailRow icon={Phone} label="Phone" value={doctor.phone || "—"} />
         <DetailRow icon={Mail} label="Login email" value={doctor.login_email || "No login yet"} />
         <DetailRow icon={MapPin} label="Location" value={doctor.location || "—"} />
-        <DetailRow
-          icon={CalendarClock}
-          label="Leave balance"
-          value={
-            doctor.leave_balance_total != null
-              ? `${doctor.leave_balance_total - (doctor.leave_balance_used ?? 0)} / ${doctor.leave_balance_total} days`
-              : "—"
-          }
-        />
       </div>
 
-      <div className="mt-space-3 rounded-md border border-line bg-paper p-space-3">
-        <p className="mb-space-1 flex items-center gap-space-2 text-[12px] font-semibold text-ink-600">
-          <CalendarClock size={13} /> Consulting hours
-        </p>
-        <p className="text-[13px] text-ink-900">
-          {doctor.working_days.length > 0 ? formatWorkingDays(doctor.working_days) : "—"}
-          {hours ? ` · ${hours}` : ""}
-        </p>
+      {/* Same 4-tile-card grid StaffDetailPanel.tsx uses (Shift hours/
+          Attendance status/Reports to/Leave balance) -- doctors get the
+          equivalent 4: Working hours, Total appointments, Reports to
+          (same staff_details.reports_to_id every other role already has --
+          a doctor with a login can be assigned one too), Leave balance. */}
+      <div className="mt-space-3 grid grid-cols-2 gap-space-2">
+        <div className="rounded-md border border-line bg-paper p-space-3">
+          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Working hours</p>
+          <p className="text-[13px] font-bold text-ink-900">
+            {doctor.working_days.length > 0 ? formatWorkingDays(doctor.working_days) : "—"}
+          </p>
+          <p className="text-[11.5px] text-ink-600">{hours || ""}</p>
+        </div>
+        <div className="rounded-md border border-line bg-paper p-space-3">
+          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+            <CalendarCheck size={12} /> Total appointments
+          </p>
+          <p className="text-[13px] font-bold text-ink-900">{doctor.total_appointments}</p>
+        </div>
+        <div className="rounded-md border border-line bg-paper p-space-3">
+          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+            <Building2 size={12} /> Reports to
+          </p>
+          <p className="truncate text-[13px] font-bold text-ink-900">{doctor.reports_to_name || "—"}</p>
+        </div>
+        <div className="rounded-md border border-line bg-paper p-space-3">
+          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Leave balance</p>
+          {doctor.leave_balance_total != null ? (
+            <>
+              <p className="text-[13px] font-bold text-ink-900">
+                {doctor.leave_balance_total - (doctor.leave_balance_used ?? 0)} / {doctor.leave_balance_total} days
+              </p>
+              <p className="text-[11.5px] text-ink-600">remaining this year</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] font-bold text-ink-400">—</p>
+              <p className="text-[11.5px] text-ink-400">No login yet</p>
+            </>
+          )}
+        </div>
       </div>
 
       <p className="text-hint mt-space-2">

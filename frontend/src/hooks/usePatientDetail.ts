@@ -68,7 +68,42 @@ export type PatientDocument = {
   document_type: string;
 };
 
-export type DetailData = { patient: Patient; visit_history: Visit[]; notes: Note[]; documents: PatientDocument[] };
+// Patient detail page's Consent management section -- DPDP/Privacy Policy/
+// Marketing, each a plain agree-or-disagree state (false reads as
+// "disagreed", not "not yet asked"). marketing_consent mirrors the
+// existing WhatsApp-togglable patient_links.marketing_consent when this
+// patient has an active link, falling back to its own durable value
+// otherwise -- see backend's db/repositories/patients.py
+// get_patient_consent() for the full reasoning.
+export type ConsentType = "dpdp" | "privacy_policy" | "marketing";
+export type Consent = { dpdp_consent: boolean; privacy_policy_consent: boolean; marketing_consent: boolean };
+export const CONSENT_LABELS: Record<ConsentType, string> = { dpdp: "DPDP", privacy_policy: "Privacy Policy", marketing: "Marketing" };
+export const CONSENT_TYPE_ORDER: ConsentType[] = ["dpdp", "privacy_policy", "marketing"];
+
+export type DetailData = { patient: Patient; visit_history: Visit[]; notes: Note[]; documents: PatientDocument[]; consent: Consent };
+
+// Visit history table's top-level category selector (Doctor appointment /
+// Lab & Diagnostics / Daycare) -- scopes both which visits show AND which
+// of TYPE_TAB_ORDER's sub-type tabs are offered, mirroring how /portal/
+// appointments' Walk-in/Tele mode filter narrows its own Type dropdown.
+export type VisitCategory = "doctor" | "diagnostic_lab" | "daycare";
+export const VISIT_CATEGORY_LABELS: Record<VisitCategory, string> = {
+  doctor: "Doctor Appointments",
+  diagnostic_lab: "Lab & Diagnostics Appointments",
+  daycare: "Daycare Appointments",
+};
+export const VISIT_CATEGORY_ORDER: VisitCategory[] = ["doctor", "diagnostic_lab", "daycare"];
+export const CATEGORY_TYPE_TABS: Record<VisitCategory, string[]> = {
+  doctor: ["all", "new", "followup", "tele", "second_opinion", "other"],
+  diagnostic_lab: ["all", "diagnostic", "lab"],
+  daycare: ["all", "daycare"],
+};
+function visitCategoryOf(v: { appointment_type_id: string | null }): VisitCategory {
+  const bucket = visitTypeBucket(v);
+  if (bucket === "diagnostic" || bucket === "lab") return "diagnostic_lab";
+  if (bucket === "daycare") return "daycare";
+  return "doctor";
+}
 
 /** Loads + owns every mutation on the /portal/patients/[id] detail page:
  * demographics save, active/blocked status, per-visit + general notes, and
@@ -84,6 +119,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   const [savingDemographics, setSavingDemographics] = useState(false);
 
   const [savingStatus, setSavingStatus] = useState(false);
+  const [savingConsent, setSavingConsent] = useState<ConsentType | null>(null);
 
   const [expandedVisit, setExpandedVisit] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
@@ -97,6 +133,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   const [visitTimeFilter, setVisitTimeFilter] = useState<"all" | "upcoming" | "past">("all");
   const [visitStatusFilter, setVisitStatusFilter] = useState("all");
   const [visitTypeFilter, setVisitTypeFilter] = useState("all");
+  const [visitCategory, setVisitCategoryState] = useState<VisitCategory>("doctor");
+  // Changing category invalidates any sub-type tab selection from the
+  // previous category (e.g. "tele" doesn't exist under Daycare).
+  function setVisitCategory(category: VisitCategory) {
+    setVisitCategoryState(category);
+    setVisitTypeFilter("all");
+  }
 
   const [generalNoteDraft, setGeneralNoteDraft] = useState("");
   const [savingGeneralNote, setSavingGeneralNote] = useState(false);
@@ -156,6 +199,23 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     } else if (!result.unauthorized) {
       setError(result.error);
       toast.error("Couldn't update patient status", result.error);
+    }
+  }
+
+  async function handleSetConsent(consentType: ConsentType, agreed: boolean) {
+    setSavingConsent(consentType);
+    const result = await portalFetch(`/api/portal/patients/${patientId}/consent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ consent_type: consentType, agreed }),
+    });
+    setSavingConsent(null);
+    if (result.ok) {
+      toast.success(`${CONSENT_LABELS[consentType]} consent updated`);
+      load();
+    } else if (!result.unauthorized) {
+      setError(result.error);
+      toast.error(`Couldn't update ${CONSENT_LABELS[consentType]} consent`, result.error);
     }
   }
 
@@ -310,14 +370,14 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   }
 
   const visitTypeCounts = useMemo(() => {
-    const visits = data?.visit_history ?? [];
+    const visits = (data?.visit_history ?? []).filter((v) => visitCategoryOf(v) === visitCategory);
     const counts: Record<string, number> = { all: visits.length };
     for (const v of visits) {
       const bucket = visitTypeBucket(v);
       counts[bucket] = (counts[bucket] || 0) + 1;
     }
     return counts;
-  }, [data]);
+  }, [data, visitCategory]);
 
   // Snapshotted on load (not Date.now() inline in the memo below, which
   // would call an impure function during render) -- close enough for an
@@ -328,7 +388,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   }, [data]);
 
   const filteredVisits = useMemo(() => {
-    const visits = data?.visit_history ?? [];
+    const visits = (data?.visit_history ?? []).filter((v) => visitCategoryOf(v) === visitCategory);
     const q = visitSearch.trim().toLowerCase();
     return visits.filter((v) => {
       if (now !== null) {
@@ -344,15 +404,17 @@ export function usePatientDetail(patientId: string, ready: boolean) {
         (v.reference_id || "").toLowerCase().includes(q)
       );
     });
-  }, [data, visitSearch, visitTimeFilter, visitStatusFilter, visitTypeFilter, now]);
+  }, [data, visitCategory, visitSearch, visitTimeFilter, visitStatusFilter, visitTypeFilter, now]);
 
   return {
     data, error,
     dob, setDob, gender, setGender, address, setAddress, savingDemographics, handleSaveDemographics,
     savingStatus, handleSetStatus,
+    savingConsent, handleSetConsent,
     expandedVisit, setExpandedVisit, noteDraft, setNoteDraft, savingNote,
     visitSearch, setVisitSearch, visitTimeFilter, setVisitTimeFilter,
     visitStatusFilter, setVisitStatusFilter, visitTypeFilter, setVisitTypeFilter,
+    visitCategory, setVisitCategory,
     visitTypeCounts, filteredVisits,
     generalNoteDraft, setGeneralNoteDraft, savingGeneralNote,
     handleAddNote,

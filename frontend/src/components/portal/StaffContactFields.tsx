@@ -2,14 +2,9 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import type { Department } from "@/hooks/useDepartments";
 import type { StaffOption } from "@/hooks/useAddStaff";
-import type { Shift } from "@/hooks/useStaffManagement";
 import type { StaffRole } from "@/lib/staffAuth";
-
-const SHIFT_OPTIONS: { value: Shift; label: string }[] = [
-  { value: "day", label: "Day (8AM - 4PM)" },
-  { value: "evening", label: "Evening (4PM - 12AM)" },
-  { value: "night", label: "Night (8PM - 8AM)" },
-];
+import { SectionHeader } from "./SectionHeader";
+import { WorkingScheduleFields, type WorkingScheduleValue } from "./WorkingScheduleFields";
 
 type Props = {
   role: StaffRole;
@@ -20,8 +15,8 @@ type Props = {
   departmentId: string;
   setDepartmentId: (v: string) => void;
   departments: Department[] | null;
-  shift: Shift | "";
-  setShift: (v: Shift | "") => void;
+  schedule: WorkingScheduleValue;
+  setSchedule: (v: WorkingScheduleValue) => void;
   reportsToId: string;
   setReportsToId: (v: string) => void;
   staffOptions: StaffOption[];
@@ -30,13 +25,16 @@ type Props = {
   excludeStaffId?: number;
 };
 
-/** Phone/Address/Department/Shift/Reports-to -- the fields AddStaffDialog
- * and EditStaffDialog share (both create/edit the same staff_details
- * columns); Name/Email/Password/Role/Doctor stay in each dialog since they
- * differ enough (Edit has no password, can't change role/doctor). */
+/** Phone/Address/Department/Working schedule/Reports-to -- the fields
+ * AddStaffDialog and EditStaffDialog share (both create/edit the same
+ * staff_details columns); Name/Email/Password/Role/Doctor stay in each
+ * dialog since they differ enough (Edit has no password, can't change
+ * role/doctor). Working schedule (Staff schedule feature) replaces the old
+ * single day/evening/night Shift dropdown with the same WorkingScheduleFields
+ * days+times+breaks picker doctors use. */
 export function StaffContactFields({
   role, phone, setPhone, address, setAddress, departmentId, setDepartmentId, departments,
-  shift, setShift, reportsToId, setReportsToId, staffOptions, excludeStaffId,
+  schedule, setSchedule, reportsToId, setReportsToId, staffOptions, excludeStaffId,
 }: Props) {
   return (
     <>
@@ -63,21 +61,6 @@ export function StaffContactFields({
           </select>
         </Field>
       )}
-      <Field label="Shift" htmlFor="staff_shift">
-        <select
-          id="staff_shift"
-          value={shift}
-          onChange={(e) => setShift(e.target.value as Shift | "")}
-          className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
-        >
-          <option value="">No shift set</option>
-          {SHIFT_OPTIONS.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-      </Field>
       <Field label="Reports to" htmlFor="staff_reports_to">
         <select
           id="staff_reports_to"
@@ -93,6 +76,13 @@ export function StaffContactFields({
           ))}
         </select>
       </Field>
+      <div className="mt-space-3 border-t border-line pt-space-4 md:col-span-2">
+        <SectionHeader
+          title="Schedule"
+          description="Which days this staff member works, and their shift timings."
+        />
+        <WorkingScheduleFields value={schedule} onChange={setSchedule} />
+      </div>
     </>
   );
 }

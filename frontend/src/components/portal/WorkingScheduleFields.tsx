@@ -1,0 +1,153 @@
+"use client";
+
+import { useState } from "react";
+import { Copy, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { Field } from "@/components/ui/Field";
+import { Input } from "@/components/ui/Input";
+import { cn } from "@/lib/cn";
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+export type TimeRange = { start: string; end: string };
+
+export type WorkingScheduleValue = {
+  working_days: string[];
+  shifts: TimeRange[];
+  breaks: TimeRange[];
+};
+
+type Props = {
+  value: WorkingScheduleValue;
+  onChange: (next: WorkingScheduleValue) => void;
+};
+
+/** "Working days" day-pills + "Shifts" time/break row list -- lifted out of
+ * DoctorScheduleForm.tsx (Staff schedule feature) so both Doctors and Staff
+ * add/edit forms render the exact same picker instead of drifting into two
+ * copies. The "Copy to other days" toggle (previously a separate button in
+ * DoctorScheduleForm's own header row, its hint text living inside the
+ * Working Days field) moves in here too, whole -- it's about this block
+ * specifically, so it travels with it rather than staying split across two
+ * files. Everything else is unchanged from the original. */
+export function WorkingScheduleFields({ value, onChange }: Props) {
+  const [showCopyDays, setShowCopyDays] = useState(false);
+
+  function set<K extends keyof WorkingScheduleValue>(key: K, val: WorkingScheduleValue[K]) {
+    onChange({ ...value, [key]: val });
+  }
+
+  function toggleDay(day: string) {
+    set(
+      "working_days",
+      value.working_days.includes(day) ? value.working_days.filter((d) => d !== day) : [...value.working_days, day],
+    );
+  }
+
+  function selectWeekdays() {
+    const next = new Set(value.working_days);
+    ["Mon", "Tue", "Wed", "Thu", "Fri"].forEach((d) => next.add(d));
+    set("working_days", Array.from(next));
+  }
+
+  function setShift(i: number, range: TimeRange) {
+    const shifts = [...value.shifts];
+    shifts[i] = range;
+    set("shifts", shifts);
+  }
+  function addShift() {
+    set("shifts", [...value.shifts, { start: "", end: "" }]);
+  }
+  function removeShift(i: number) {
+    set("shifts", value.shifts.filter((_, idx) => idx !== i));
+    if (value.breaks[i]) set("breaks", value.breaks.filter((_, idx) => idx !== i));
+  }
+
+  function setBreak(i: number, range: TimeRange) {
+    const breaks = [...value.breaks];
+    breaks[i] = range;
+    set("breaks", breaks);
+  }
+
+  return (
+    <>
+      <div className="mb-space-1 flex items-center justify-between gap-space-3">
+        <p className="text-label">Working days</p>
+        <Button type="button" variant="secondary" size="md" onClick={() => setShowCopyDays((v) => !v)}>
+          <Copy size={14} /> Copy to other days
+        </Button>
+      </div>
+      <Field>
+        <div className="flex flex-wrap items-center gap-space-2">
+          {WEEKDAYS.map((day) => {
+            const on = value.working_days.includes(day);
+            return (
+              <button
+                key={day}
+                type="button"
+                onClick={() => toggleDay(day)}
+                className={cn(
+                  "flex h-9 w-14 items-center justify-center rounded-md border text-[12.5px] font-semibold transition-colors duration-150",
+                  on ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600 hover:border-brand-300",
+                )}
+              >
+                {day}
+              </button>
+            );
+          })}
+          <button type="button" onClick={selectWeekdays} className="ml-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
+            Select weekdays
+          </button>
+        </div>
+        {showCopyDays && (
+          <p className="text-hint mt-space-1">
+            &quot;Copy to other days&quot; just means selecting more day pills above — every shift/break already
+            applies uniformly to every checked day.
+          </p>
+        )}
+      </Field>
+
+      <Field label="Shifts" hint="Break is optional -- leave both times blank if this shift has none.">
+        <div className="space-y-space-2">
+          {value.shifts.map((shift, i) => (
+            <div key={i} className="rounded-lg border border-line bg-paper p-space-3">
+              <div className="mb-space-2 flex items-center justify-between gap-space-2">
+                <span className="text-[12.5px] font-semibold text-ink-600">Shift {i + 1}</span>
+                {value.shifts.length > 1 && (
+                  <button type="button" onClick={() => removeShift(i)} className="shrink-0 text-ink-400 hover:text-error">
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-space-2">
+                <span className="w-12 shrink-0 text-[12.5px] text-ink-400">Working</span>
+                <Input type="time" value={shift.start} onChange={(e) => setShift(i, { ...shift, start: e.target.value })} className="w-32" />
+                <span className="text-[12.5px] text-ink-400">to</span>
+                <Input type="time" value={shift.end} onChange={(e) => setShift(i, { ...shift, end: e.target.value })} className="w-32" />
+              </div>
+              <div className="mt-space-2 flex flex-wrap items-center gap-space-2">
+                <span className="w-12 shrink-0 text-[12.5px] text-ink-400">Break</span>
+                <Input
+                  type="time"
+                  value={value.breaks[i]?.start || ""}
+                  onChange={(e) => setBreak(i, { start: e.target.value, end: value.breaks[i]?.end || "" })}
+                  className="w-32"
+                />
+                <span className="text-[12.5px] text-ink-400">to</span>
+                <Input
+                  type="time"
+                  value={value.breaks[i]?.end || ""}
+                  onChange={(e) => setBreak(i, { start: value.breaks[i]?.start || "", end: e.target.value })}
+                  className="w-32"
+                />
+              </div>
+            </div>
+          ))}
+          <button type="button" onClick={addShift} className="flex items-center gap-1 text-[12.5px] font-semibold text-brand-600 hover:underline">
+            <Plus size={13} /> Add another shift
+          </button>
+        </div>
+      </Field>
+    </>
+  );
+}

@@ -8,7 +8,6 @@ import {
   MessageCircle,
   MoreVertical,
   Paperclip,
-  Phone,
   Search,
   Send,
   Settings,
@@ -16,7 +15,6 @@ import {
   Trash2,
   UserRound,
   Users,
-  Video,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -31,6 +29,7 @@ import {
 import { PageHeader } from "@/components/ui/PageHeader";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { NewTestBookingDialog } from "@/components/portal/NewTestBookingDialog";
+import { NewDaycareBookingDialog } from "@/components/portal/NewDaycareBookingDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -86,6 +85,7 @@ export default function PortalMessagesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [bookingOpen, setBookingOpen] = useState(false);
   const [testBookingOpen, setTestBookingOpen] = useState(false);
+  const [daycareBookingOpen, setDaycareBookingOpen] = useState(false);
 
   const visibleHandoffs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -304,22 +304,6 @@ export default function PortalMessagesPage() {
                       ) : (
                         <Badge tone="success">{selected.resolved_by === "auto" ? "Auto-resolved" : "Resolved"}</Badge>
                       )}
-                      <button
-                        type="button"
-                        disabled
-                        title="Coming soon — no calling integration exists yet"
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-ink-400 disabled:opacity-50"
-                      >
-                        <Phone size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled
-                        title="Coming soon — no calling integration exists yet"
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-ink-400 disabled:opacity-50"
-                      >
-                        <Video size={16} />
-                      </button>
                       <DropdownMenu>
                         <DropdownMenuTrigger className="flex h-9 w-9 items-center justify-center rounded-full text-ink-600 hover:bg-black/[0.04]">
                           <MoreVertical size={16} />
@@ -433,6 +417,7 @@ export default function PortalMessagesPage() {
                 loading={matchedPatientLoading}
                 onBookAppointment={() => setBookingOpen(true)}
                 onOrderTest={() => setTestBookingOpen(true)}
+                onBookDaycare={() => setDaycareBookingOpen(true)}
               />
             ) : (
               <Card className="hidden p-space-4 lg:block">
@@ -453,6 +438,13 @@ export default function PortalMessagesPage() {
           open={testBookingOpen}
           onOpenChange={setTestBookingOpen}
           onBooked={() => setTestBookingOpen(false)}
+          initialPatientName={matchedPatient?.name || undefined}
+          initialPatientPhone={selected?.phone}
+        />
+        <NewDaycareBookingDialog
+          open={daycareBookingOpen}
+          onOpenChange={setDaycareBookingOpen}
+          onBooked={() => setDaycareBookingOpen(false)}
           initialPatientName={matchedPatient?.name || undefined}
           initialPatientPhone={selected?.phone}
         />

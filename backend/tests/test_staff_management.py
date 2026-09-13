@@ -131,3 +131,108 @@ def test_create_staff_requires_write_permission(hospital_id):
         headers=_auth(token),
     )
     assert resp.status_code == 403, resp.text
+
+
+def test_create_staff_user_generates_sequential_employee_id_per_hospital_and_skips_doctor_role(hospital_id, second_hospital_id):
+    """Employee ID auto-numbering feature: create_staff_user() generates
+    EMP-ST-NNNNN for role != 'doctor', scoped per hospital exactly like
+    doctors' own EMP-DC (see test_doctor_scheduling.py's sibling test) -- and
+    a doctor-role staff login gets "" instead of its own EMP-ST, since that
+    login's employee id already lives on its linked doctors row."""
+    first = db.create_staff_user(hospital_id, "receptionist", "staff.emp.1@example.com", hash_portal_password("x"), "Recep One")
+    second = db.create_staff_user(hospital_id, "admin", "staff.emp.2@example.com", hash_portal_password("x"), "Admin Two")
+    other_hospital = db.create_staff_user(
+        second_hospital_id, "receptionist", "staff.emp.3@example.com", hash_portal_password("x"), "Recep Other Hospital",
+    )
+
+    doctor = db.create_doctor(hospital_id, "cardiology", "Dr. Staff Emp Id", working_days=["Mon"], working_hours=["09:00-10:00"])
+    doctor_login = db.create_staff_user(
+        hospital_id, "doctor", "staff.emp.4@example.com", hash_portal_password("x"), "Dr. Login", doctor_id=doctor["id"],
+    )
+
+    assert first["employee_id"] == "EMP-ST-00001"
+    assert second["employee_id"] == "EMP-ST-00002"
+    assert other_hospital["employee_id"] == "EMP-ST-00001"
+    assert doctor_login["employee_id"] == ""
+
+
+def test_create_staff_with_working_schedule_round_trips(hospital_id):
+    """Staff schedule feature: working_days/working_hours/breaks sent on
+    POST /api/portal/staff persist and come back through _staff_row() as
+    lists, same shape create_staff_user()'s repo layer stores them in."""
+    admin_token = _make_admin(hospital_id)
+
+    resp = client.post(
+        "/api/portal/staff",
+        json={
+            "name": "Recep Schedule", "email": "recep.schedule@example.com",
+            "password": "a-real-password", "role": "receptionist",
+            "working_days": ["Mon", "Wed", "Fri"], "working_hours": ["09:00-13:00", "14:00-17:00"],
+            "breaks": ["12:00-12:30"],
+        },
+        headers=_auth(admin_token),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["working_days"] == ["Mon", "Wed", "Fri"]
+    assert body["working_hours"] == ["09:00-13:00", "14:00-17:00"]
+    assert body["breaks"] == ["12:00-12:30"]
+
+
+def test_create_staff_with_invalid_schedule_is_rejected(hospital_id):
+    admin_token = _make_admin(hospital_id)
+
+    resp = client.post(
+        "/api/portal/staff",
+        json={
+            "name": "Bad Schedule", "email": "bad.schedule@example.com",
+            "password": "a-real-password", "role": "receptionist",
+            "working_days": ["Mon"], "working_hours": ["not-a-range"],
+        },
+        headers=_auth(admin_token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "working hour range" in resp.json()["error"].lower()
+
+
+def test_create_staff_with_break_outside_shift_is_rejected(hospital_id):
+    admin_token = _make_admin(hospital_id)
+
+    resp = client.post(
+        "/api/portal/staff",
+        json={
+            "name": "Bad Break", "email": "bad.break@example.com",
+            "password": "a-real-password", "role": "receptionist",
+            "working_days": ["Mon"], "working_hours": ["09:00-12:00"], "breaks": ["13:00-13:30"],
+        },
+        headers=_auth(admin_token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "working-hours shift" in resp.json()["error"].lower()
+
+
+def test_update_staff_schedule_persists_and_partial_fields_fall_back_to_current(hospital_id):
+    """PATCH /api/portal/staff/{id} with a schedule change persists it, and
+    sending only ONE of the three schedule keys still keeps the other two
+    (merged from the staff member's current values, not blanked out) --
+    see update_staff()'s own schedule_keys_sent handling."""
+    admin_token = _make_admin(hospital_id)
+    created = client.post(
+        "/api/portal/staff",
+        json={
+            "name": "Recep Update", "email": "recep.update@example.com",
+            "password": "a-real-password", "role": "receptionist",
+            "working_days": ["Mon", "Tue"], "working_hours": ["09:00-12:00"],
+        },
+        headers=_auth(admin_token),
+    ).json()
+
+    resp = client.patch(
+        f"/api/portal/staff/{created['id']}",
+        json={"working_hours": ["10:00-13:00"]},
+        headers=_auth(admin_token),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["working_hours"] == ["10:00-13:00"]
+    assert body["working_days"] == ["Mon", "Tue"]

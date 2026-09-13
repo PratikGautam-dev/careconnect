@@ -19,13 +19,15 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import aliased
 
 from db.connection import get_session, reraise_as_driver_integrity_error
+from db.display_ids import STAFF_EMPLOYEE_ID_PREFIX, generate_employee_id_session
 from db.orm_models import Department, DoctorRow, HospitalRow, Identity, StaffDetail
 
 _STAFF_COLUMNS = (
     Identity.id, StaffDetail.hospital_id, StaffDetail.role, Identity.email, Identity.password_hash,
     Identity.name, StaffDetail.doctor_id, Identity.is_active, Identity.token_version,
-    StaffDetail.phone, StaffDetail.address, StaffDetail.shift, StaffDetail.attendance_status,
-    StaffDetail.department_id, StaffDetail.reports_to_id,
+    StaffDetail.phone, StaffDetail.address, StaffDetail.attendance_status,
+    StaffDetail.department_id, StaffDetail.reports_to_id, StaffDetail.employee_id,
+    StaffDetail.working_days, StaffDetail.working_hours, StaffDetail.breaks,
 )
 
 
@@ -33,7 +35,8 @@ def create_staff_user(
     hospital_id: int, role: str, email: str, password_hash: str, name: str, doctor_id: str | None = None,
     *,
     phone: str | None = None, address: str | None = None, department_id: str | None = None,
-    shift: str | None = None, reports_to_id: int | None = None,
+    reports_to_id: int | None = None,
+    working_days: list[str] | None = None, working_hours: list[str] | None = None, breaks: list[str] | None = None,
 ) -> dict:
     """Raises db.connection.IntegrityError (via reraise_as_driver_integrity_error)
     if email is already taken by ANY identity (ux_identities_email is
@@ -46,16 +49,34 @@ def create_staff_user(
     create_hospital()'s own phone_number_id conflict. Two inserts, in one
     transaction: the Identity row (the credential), then the StaffDetail row
     (the hospital/role/doctor_id extension) that actually makes it a staff
-    login."""
+    login.
+
+    employee_id is generated here, server-side (Employee ID auto-numbering
+    feature, confirmed with the user) -- EMP-ST-NNNNN for role != 'doctor',
+    via the same never-resetting per-hospital code_sequences counter
+    create_doctor() uses for EMP-DC. A doctor-role row gets "" instead of its
+    own EMP-ST -- that login's employee id already comes from its linked
+    doctors row (matches list_staff_users_for_hospital(exclude_doctors=True)'s
+    own "doctors belong to the Doctors page, not the Staff directory" split).
+
+    working_days/working_hours/breaks (Staff schedule feature, confirmed
+    with the user) -- comma-joined here exactly like create_doctor()'s own
+    working_days/working_hours/breaks, replacing the old shift enum. Unlike
+    a doctor's schedule, these are optional -- a staff member with no
+    schedule set yet is fine, since no slot-booking system depends on it."""
     session = get_session()
     try:
+        employee_id = generate_employee_id_session(session, STAFF_EMPLOYEE_ID_PREFIX, hospital_id) if role != "doctor" else ""
         new_id = session.execute(
             insert(Identity).values(email=email, password_hash=password_hash, name=name).returning(Identity.id)
         ).scalar_one()
         session.execute(
             insert(StaffDetail).values(
                 identity_id=new_id, hospital_id=hospital_id, role=role, doctor_id=doctor_id,
-                phone=phone, address=address, department_id=department_id, shift=shift, reports_to_id=reports_to_id,
+                phone=phone, address=address, department_id=department_id, reports_to_id=reports_to_id,
+                employee_id=employee_id,
+                working_days=",".join(working_days or []), working_hours=",".join(working_hours or []),
+                breaks=",".join(breaks or []),
             )
         )
         session.commit()
@@ -274,8 +295,9 @@ def set_staff_user_active(staff_id: int, is_active: bool) -> bool:
 
 def update_staff_user_details(staff_id: int, *, identity_fields: dict | None = None, staff_fields: dict | None = None) -> None:
     """The Staff page's "Edit staff details" action -- name lives on
-    Identity (identity_fields), phone/address/department_id/shift/
-    reports_to_id/attendance_status on StaffDetail (staff_fields).
+    Identity (identity_fields), phone/address/department_id/working_days/
+    working_hours/breaks/reports_to_id/attendance_status on StaffDetail
+    (staff_fields).
     Deliberately separate from update_staff_user_role()/
     set_staff_user_active() (neither role/doctor_id nor is_active change
     here) and does NOT bump token_version -- none of these fields affect

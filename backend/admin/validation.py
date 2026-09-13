@@ -38,7 +38,7 @@ def _validate_doctor_fields(
     breaks_raw: str = "", max_bookings_raw: str = "1", daily_limit_raw: str = "",
     online_quota_raw: str = "", walkin_quota_raw: str = "",
     followup_duration_raw: str = "", effective_from_raw: str = "",
-    phone: str = "", employee_id: str = "", location: str = "",
+    phone: str = "", location: str = "",
     require_contact_fields: bool = True,
 ) -> tuple[dict | None, list[str], list[str]]:
     """Returns (doctor_dict_or_None, errors, warnings). errors block
@@ -47,14 +47,19 @@ def _validate_doctor_fields(
     still gets a doctor dict back alongside them.
 
     Migration 20260911190007 (confirmed with the user): specialization/
-    qualification/phone/employee_id are mandatory on the Doctors page's own
-    Add/Edit form and CSV import (portal/routes/doctors.py, the two callers
-    that leave require_contact_fields at its True default) -- location stays
+    qualification/phone are mandatory on the Doctors page's own Add/Edit
+    form and CSV import (portal/routes/doctors.py, the two callers that
+    leave require_contact_fields at its True default) -- location stays
     optional regardless. The tenant onboarding wizard (admin/onboarding.py,
     admin/onboarding_api.py) explicitly passes require_contact_fields=False:
-    it's a lighter-weight initial-setup flow that never collected phone/
-    employee_id and doesn't force specialization/qualification either, so
-    this migration doesn't retroactively block hospital onboarding."""
+    it's a lighter-weight initial-setup flow that never collected phone and
+    doesn't force specialization/qualification either, so this migration
+    doesn't retroactively block hospital onboarding.
+
+    employee_id is NOT validated here (Employee ID auto-numbering feature,
+    confirmed with the user) -- it's generated server-side at create_doctor()
+    time, never collected from any form/CSV row, so there's nothing left to
+    require or parse."""
     errors = []
     warnings = []
     name = name.strip()
@@ -65,7 +70,6 @@ def _validate_doctor_fields(
     specialization = specialization.strip()
     qualification = qualification.strip()
     phone = phone.strip()
-    employee_id = employee_id.strip()
     if require_contact_fields:
         if not specialization:
             errors.append(f"{label}: specialization is required.")
@@ -73,8 +77,6 @@ def _validate_doctor_fields(
             errors.append(f"{label}: qualification is required.")
         if not phone:
             errors.append(f"{label}: phone is required.")
-        if not employee_id:
-            errors.append(f"{label}: employee ID is required.")
 
     location = location.strip()
 
@@ -225,9 +227,64 @@ def _validate_doctor_fields(
         "followup_duration_minutes": followup_duration_minutes,
         "effective_from": effective_from,
         "phone": phone,
-        "employee_id": employee_id,
         "location": location or None,
     }, [], warnings
+
+
+def _validate_staff_schedule_fields(name: str, days_raw: str, hours_raw: str, breaks_raw: str) -> tuple[dict | None, list[str]]:
+    """Staff schedule feature (confirmed with the user): staff get the same
+    working_days/HH:MM-HH:MM working_hours/breaks model doctors already use
+    (same format checks, same break-inside-shift/break-overlap rules as
+    _validate_doctor_fields above) -- but as its OWN function, not an
+    extraction shared with that one, because: (1) there's no
+    slot_duration_minutes for staff (no slot-booking system depends on a
+    staff schedule), so the "breaks leave no bookable time" check simply
+    doesn't apply; (2) it keeps _validate_doctor_fields's already-tested
+    internals untouched for an unrelated entity. Unlike doctors, every field
+    here is OPTIONAL -- a staff member with no schedule set yet is fine, so
+    empty days_raw/hours_raw is valid; only non-empty-but-malformed input
+    errors."""
+    errors = []
+    label = f"Staff ({name})" if name else "Staff"
+
+    working_days = [d.strip() for d in days_raw.split(",") if d.strip()]
+    bad_days = [d for d in working_days if d not in _WEEKDAY_SET]
+    if bad_days:
+        errors.append(f"{label}: invalid working day(s) {bad_days} — use Mon,Tue,Wed,Thu,Fri,Sat,Sun.")
+
+    working_hours = [h.strip() for h in hours_raw.split(",") if h.strip()]
+    bad_ranges = [h for h in working_hours if not _TIME_RANGE_RE.match(h)]
+    if bad_ranges:
+        errors.append(f"{label}: invalid working hour range(s) {bad_ranges} — use HH:MM-HH:MM.")
+
+    breaks = [b.strip() for b in breaks_raw.split(",") if b.strip()]
+    if breaks:
+        bad_break_ranges = [b for b in breaks if not _TIME_RANGE_RE.match(b)]
+        if bad_break_ranges:
+            errors.append(f"{label}: invalid break range(s) {bad_break_ranges} — use HH:MM-HH:MM.")
+        elif not working_hours or bad_ranges:
+            errors.append(f"{label}: break times require at least one valid working hour range.")
+        else:
+            parsed_shifts = [_split_time_range(h) for h in working_hours]
+            parsed_breaks = [_split_time_range(b) for b in breaks]
+
+            outside_shift = [
+                breaks[i] for i, pb in enumerate(parsed_breaks)
+                if not any(s[0] <= pb[0] and pb[1] <= s[1] for s in parsed_shifts)
+            ]
+            if outside_shift:
+                errors.append(f"{label}: break(s) {outside_shift} must fall entirely within a working-hours shift.")
+
+            sorted_breaks = sorted(parsed_breaks)
+            for a, b in zip(sorted_breaks, sorted_breaks[1:]):
+                if a[1] > b[0]:
+                    errors.append(f"{label}: break windows must not overlap each other.")
+                    break
+
+    if errors:
+        return None, errors
+
+    return {"working_days": working_days, "working_hours": working_hours, "breaks": breaks}, []
 
 
 def _parse_offsets(text: str) -> list[float]:

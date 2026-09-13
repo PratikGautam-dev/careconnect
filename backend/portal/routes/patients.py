@@ -98,6 +98,7 @@ async def portal_patient_detail(patient_id: int, authorization: str | None = Hea
         "visit_history": [_appointment_json(a, validity_days) for a in visit_history],
         "notes": notes,
         "documents": documents,
+        "consent": db.get_patient_consent(hospital.id, patient_id),
     })
 
 
@@ -146,6 +147,31 @@ async def portal_set_patient_status(patient_id: int, payload: dict, authorizatio
         entity_type="patient", entity_id=str(patient_id), after={"status": status},
     )
     return JSONResponse({"patient": _patient_json(updated)})
+
+
+@router.post("/api/portal/patients/{patient_id}/consent")
+async def portal_set_patient_consent(patient_id: int, payload: dict, authorization: str | None = Header(default=None)):
+    """Patient detail page's Consent management section -- DPDP/Privacy
+    Policy/Marketing, each a plain agree-or-disagree toggle. Every change
+    (either direction) gets its own audit_logs row, same as status changes
+    above, so staff can see who last touched a patient's consent and when."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    consent_type = (payload or {}).get("consent_type")
+    if consent_type not in db.CONSENT_TYPES:
+        return JSONResponse({"error": f"consent_type must be one of {db.CONSENT_TYPES}."}, status_code=400)
+    agreed = bool((payload or {}).get("agreed"))
+    before = db.get_patient_consent(hospital.id, patient_id)
+    if before is None:
+        return JSONResponse({"error": "No such patient."}, status_code=404)
+    updated = db.set_patient_consent(hospital.id, patient_id, consent_type, agreed)
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "patient.consent_update",
+        entity_type="patient", entity_id=str(patient_id),
+        before={consent_type: before[f"{consent_type}_consent"]}, after={consent_type: agreed},
+    )
+    return JSONResponse({"consent": updated})
 
 
 @router.post("/api/portal/patients/{patient_id}/notes")

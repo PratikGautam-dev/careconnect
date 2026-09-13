@@ -1,35 +1,34 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Building2, CalendarX, Plus, Search, SlidersHorizontal, Upload, UserRound, UserRoundCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
-import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { DoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
 import { DoctorLeaveManager } from "@/components/portal/DoctorLeaveManager";
-import { DoctorSlotManager } from "@/components/portal/DoctorSlotManager";
-import { DoctorTodayAppointments } from "@/components/portal/DoctorTodayAppointments";
 import { DoctorCsvImport } from "@/components/portal/DoctorCsvImport";
-import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { AddStaffDialog } from "@/components/portal/AddStaffDialog";
+import { RunningLateDialog } from "@/components/portal/RunningLateDialog";
+import { ResetDoctorPasswordDialog } from "@/components/portal/ResetDoctorPasswordDialog";
 import { type Doctor, useDoctors } from "@/hooks/useDoctors";
 import { createDoctorColumns } from "./_components/doctors-columns";
 import { DoctorDetailPanel } from "./_components/DoctorDetailPanel";
 
 export default function PortalDoctorsPage() {
   const { hospital, ready } = usePortalGuard();
-  const [activeTab, setActiveTab] = useState<"doctors" | "departments">("doctors");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
-  const [bookingOpen, setBookingOpen] = useState(false);
   const [createLoginFor, setCreateLoginFor] = useState<Doctor | null>(null);
+  const [runningLateFor, setRunningLateFor] = useState<Doctor | null>(null);
+  const [resetPasswordFor, setResetPasswordFor] = useState<Doctor | null>(null);
+  const [leaveManagerFor, setLeaveManagerFor] = useState<Doctor | null>(null);
   // Backend route guards already 403 the actual mutations for clinic tenants
   // lacking manage_doctors -- this is just a UI convenience so those staff
   // don't hit an error after filling out a form. Fails open (keeps the
@@ -37,7 +36,6 @@ export default function PortalDoctorsPage() {
   const canManageDoctors = !hospital || hospital.admin_capabilities?.includes("manage_doctors");
   const {
     departments, doctors, onLeaveTodayCount, error, load,
-    newDeptName, setNewDeptName, addingDept, handleAddDepartment,
     showDoctorForm, showCsvImport, doctorForm, setDoctorForm, doctorErrors, savingDoctor,
     editingDoctorId, loadingDoctorForEdit,
     openAddDoctorForm, toggleCsvImport, cancelDoctorForm, handleSaveDoctor, handleEditDoctor, handleToggleActive,
@@ -50,8 +48,6 @@ export default function PortalDoctorsPage() {
 
   function selectDoctor(doc: Doctor) {
     setSelectedDoctorId(doc.id);
-    setScheduleOpen(false);
-    setLeaveOpen(false);
   }
 
   const columns = createDoctorColumns({
@@ -70,10 +66,7 @@ export default function PortalDoctorsPage() {
           description="Manage doctors, view profiles, availability and department information."
           actions={
             <>
-              <Button variant="secondary" size="md" onClick={() => setActiveTab((t) => (t === "departments" ? "doctors" : "departments"))}>
-                {activeTab === "departments" ? "Back to doctors" : "Departments"}
-              </Button>
-              {canManageDoctors && activeTab === "doctors" && (
+              {canManageDoctors && (
                 <>
                   <Button variant="secondary" size="md" onClick={toggleCsvImport}>
                     <Upload size={14} /> Bulk import
@@ -89,38 +82,14 @@ export default function PortalDoctorsPage() {
         />
 
         {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
-        {!canManageDoctors && activeTab === "doctors" && (
+        {!canManageDoctors && (
           <p className="mb-space-4 text-[13px] text-ink-400">
-            Doctor and department management isn&apos;t available for your account type. Contact support if you need
-            changes made.
+            Doctor management isn&apos;t available for your account type. Contact support if you need changes made.
           </p>
         )}
 
         {!departments ? (
           <p className="text-[13px] text-ink-400">Loading…</p>
-        ) : activeTab === "departments" ? (
-          <Card className="h-fit p-space-4">
-            <h3 className="text-label mb-space-3 font-bold text-ink-900">Departments</h3>
-            {canManageDoctors && (
-              <form onSubmit={handleAddDepartment} className="mb-space-3 flex gap-space-2">
-                <Input placeholder="New department" value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} />
-                <Button type="submit" size="md" disabled={addingDept || !newDeptName.trim()}>
-                  <Plus size={14} />
-                </Button>
-              </form>
-            )}
-            {departments.length === 0 ? (
-              <p className="text-[12.5px] text-ink-400">No departments yet.</p>
-            ) : (
-              <ul className="space-y-space-1">
-                {departments.map((d) => (
-                  <li key={d.id} className="rounded-md bg-paper px-space-3 py-space-2 text-[13px] text-ink-900">
-                    {d.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
         ) : (
           <>
             <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -138,33 +107,22 @@ export default function PortalDoctorsPage() {
 
             {departments.length === 0 && (
               <Card className="mb-space-4 p-space-4">
-                <p className="text-[12.5px] text-ink-400">Add a department first, then you can add doctors to it.</p>
+                <p className="text-[12.5px] text-ink-400">
+                  No departments yet -- add one from{" "}
+                  <Link href="/portal/settings" className="font-semibold text-brand-600 hover:underline">
+                    Settings &rarr; Departments
+                  </Link>{" "}
+                  first, then you can add doctors to it.
+                </p>
               </Card>
             )}
 
             {showCsvImport && <div className="mb-space-4"><DoctorCsvImport onImported={() => { load(); }} /></div>}
 
-            {showDoctorForm && (
-              <div className="mb-space-4">
-                <p className="text-label -mb-space-2 font-bold text-ink-900">
-                  {editingDoctorId ? "Edit doctor" : "Add doctor"}
-                </p>
-                <DoctorScheduleForm
-                  departments={departments}
-                  value={doctorForm}
-                  onChange={setDoctorForm}
-                  onSave={handleSaveDoctor}
-                  onCancel={cancelDoctorForm}
-                  saving={savingDoctor}
-                  errors={doctorErrors}
-                />
-              </div>
-            )}
-
             <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
                 <Card className="p-space-4">
-                  <h3 className="text-label mb-space-3 font-bold text-ink-900">All doctors ({doctors.length})</h3>
+                  <h3 className="text-label mb-space-3 font-bold text-ink-900">All doctors</h3>
                   {doctors.length > 0 && (
                     <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
                       <div className="relative min-w-[200px] flex-1">
@@ -210,40 +168,54 @@ export default function PortalDoctorsPage() {
                   onEdit={handleEditDoctor}
                   togglingId={togglingId}
                   onToggleActive={handleToggleActive}
-                  scheduleOpen={scheduleOpen}
-                  onToggleSchedule={() => { setScheduleOpen((v) => !v); setLeaveOpen(false); }}
-                  leaveOpen={leaveOpen}
-                  onToggleLeave={() => { setLeaveOpen((v) => !v); setScheduleOpen(false); }}
-                  onBookAppointment={() => setBookingOpen(true)}
+                  onRunningLate={setRunningLateFor}
                   onCreateLogin={setCreateLoginFor}
+                  onResetPassword={setResetPasswordFor}
+                  onManageLeave={setLeaveManagerFor}
                 />
               </div>
             </div>
-
-            {selectedDoctor && scheduleOpen && (
-              <Card className="mt-space-4 space-y-space-3 p-space-4">
-                <h3 className="text-label font-bold text-ink-900">Dr. {selectedDoctor.name} — schedule</h3>
-                <DoctorTodayAppointments doctorId={selectedDoctor.id} />
-                <DoctorSlotManager doctorId={selectedDoctor.id} />
-              </Card>
-            )}
-
-            {selectedDoctor && leaveOpen && (
-              <Card className="mt-space-4 p-space-4">
-                <h3 className="text-label mb-space-3 font-bold text-ink-900">Dr. {selectedDoctor.name} — leave</h3>
-                <DoctorLeaveManager doctorId={selectedDoctor.id} />
-              </Card>
-            )}
           </>
         )}
 
-        <NewBookingDialog open={bookingOpen} onOpenChange={setBookingOpen} onBooked={load} />
+        <Dialog open={showDoctorForm} onOpenChange={(open) => { if (!open) cancelDoctorForm(); }}>
+          <DialogContent className="max-w-3xl">
+            <DialogTitle>{editingDoctorId ? "Edit doctor" : "Add doctor"}</DialogTitle>
+            {departments && (
+              <DoctorScheduleForm
+                departments={departments}
+                value={doctorForm}
+                onChange={setDoctorForm}
+                onSave={handleSaveDoctor}
+                onCancel={cancelDoctorForm}
+                saving={savingDoctor}
+                errors={doctorErrors}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+
         <AddStaffDialog
           open={createLoginFor !== null}
           onOpenChange={(open) => { if (!open) setCreateLoginFor(null); }}
           onCreated={load}
           presetDoctor={createLoginFor}
         />
+        <RunningLateDialog
+          doctor={runningLateFor}
+          onOpenChange={(open) => { if (!open) setRunningLateFor(null); }}
+        />
+        <ResetDoctorPasswordDialog
+          doctor={resetPasswordFor}
+          onOpenChange={(open) => { if (!open) setResetPasswordFor(null); }}
+        />
+
+        <Dialog open={leaveManagerFor !== null} onOpenChange={(open) => { if (!open) setLeaveManagerFor(null); }}>
+          <DialogContent className="max-w-2xl">
+            <DialogTitle>{leaveManagerFor ? `Dr. ${leaveManagerFor.name} — leave` : "Leave"}</DialogTitle>
+            {leaveManagerFor && <DoctorLeaveManager doctorId={leaveManagerFor.id} />}
+          </DialogContent>
+        </Dialog>
     </PortalShell>
   );
 }

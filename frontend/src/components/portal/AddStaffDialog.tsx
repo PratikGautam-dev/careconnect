@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
+import { SectionHeader } from "./SectionHeader";
 import { StaffContactFields } from "./StaffContactFields";
 import { useAddStaff, type Doctor } from "@/hooks/useAddStaff";
 import type { StaffRole } from "@/lib/staffAuth";
@@ -34,7 +35,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
   const {
     doctors, departments, staffOptions,
     name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
-    phone, setPhone, address, setAddress, departmentId, setDepartmentId, shift, setShift,
+    phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
     reportsToId, setReportsToId,
     formError, saving, handleCreate,
   } = useAddStaff(open, onOpenChange, onCreated, presetDoctor);
@@ -44,6 +45,16 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
       <DialogContent>
         <DialogTitle>{presetDoctor ? `Create login for Dr. ${presetDoctor.name}` : "Add staff member"}</DialogTitle>
         <form onSubmit={handleCreate} className="mt-space-3 grid grid-cols-1 gap-space-3 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <SectionHeader
+              title="Login details"
+              description={
+                presetDoctor
+                  ? "The email and password this doctor will use to sign into the portal."
+                  : "Who this staff member is and the email/password they'll sign in with."
+              }
+            />
+          </div>
           <Field label="Name" htmlFor="staff_name">
             <Input id="staff_name" value={name} onChange={(e) => setName(e.target.value)} required />
           </Field>
@@ -86,12 +97,18 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
               </select>
             </Field>
           )}
+          <div className="mt-space-2 border-t border-line pt-space-4 md:col-span-2">
+            <SectionHeader
+              title="Profile information"
+              description="Contact details, department and who they report to -- shown on their staff profile."
+            />
+          </div>
           <StaffContactFields
             role={role}
             phone={phone} setPhone={setPhone}
             address={address} setAddress={setAddress}
             departmentId={departmentId} setDepartmentId={setDepartmentId} departments={departments}
-            shift={shift} setShift={setShift}
+            schedule={schedule} setSchedule={setSchedule}
             reportsToId={reportsToId} setReportsToId={setReportsToId} staffOptions={staffOptions}
           />
           {formError && <p className="text-[12.5px] font-medium text-error md:col-span-2">{formError}</p>}

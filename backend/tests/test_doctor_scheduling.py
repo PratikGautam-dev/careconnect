@@ -364,30 +364,62 @@ def test_defaults_when_no_section_14_7_fields_given():
 
 def test_doctor_contact_fields_are_mandatory_by_default():
     """Migration 20260911190007 (confirmed with the user): specialization/
-    qualification/phone/employee_id block submission on the Doctors page's
-    own Add/Edit form and CSV import (both leave require_contact_fields at
-    its True default) -- location has no such check."""
+    qualification/phone block submission on the Doctors page's own Add/Edit
+    form and CSV import (both leave require_contact_fields at its True
+    default) -- location has no such check. employee_id is no longer part of
+    this check at all (Employee ID auto-numbering feature): it's generated
+    server-side by create_doctor(), never collected from this form."""
     doctor, errors, warnings = _validate_doctor_fields(**_base_args(require_contact_fields=True))
     assert doctor is None
     assert any("specialization is required" in e for e in errors)
     assert any("qualification is required" in e for e in errors)
     assert any("phone is required" in e for e in errors)
-    assert any("employee ID is required" in e for e in errors)
 
 
 def test_doctor_contact_fields_accepted_when_all_given():
     doctor, errors, warnings = _validate_doctor_fields(**_base_args(
         require_contact_fields=True, specialization="Cardiologist", qualification="MD",
-        phone="9876543210", employee_id="EMP-001", location="Room 204",
+        phone="9876543210", location="Room 204",
     ))
     assert errors == []
     assert doctor["specialization"] == "Cardiologist"
     assert doctor["qualification"] == "MD"
     assert doctor["phone"] == "9876543210"
-    assert doctor["employee_id"] == "EMP-001"
     assert doctor["location"] == "Room 204"
     assert doctor["online_quota"] is None
     assert doctor["walkin_quota"] is None
     assert doctor["followup_duration_minutes"] is None
     assert doctor["effective_from"] is None
+
+
+def test_create_doctor_generates_sequential_employee_id_per_hospital(hospital_id, second_hospital_id):
+    """Employee ID auto-numbering feature: create_doctor() generates
+    EMP-DC-NNNNN itself (no caller-supplied value accepted at all anymore),
+    via the shared, never-resetting code_sequences counter, scoped per
+    hospital -- two doctors at the SAME hospital get sequential numbers,
+    while a doctor at a DIFFERENT hospital starts its own count rather than
+    continuing the first hospital's. Doesn't assert a literal "EMP-DC-00001"
+    -- the seeded test hospital already has real doctors (db/seed.py's
+    DOCTORS_BY_DEPARTMENT) that the same init_db_on_connection() call already
+    backfilled onto this scheme (see test_employee_id_backfill.py), so the
+    exact starting number isn't 1; only that it's sequential and per-hospital."""
+    first = db.create_doctor(hospital_id, "cardiology", "Dr. First")
+    second = db.create_doctor(hospital_id, "cardiology", "Dr. Second")
+    other_first = db.create_doctor(second_hospital_id, "t2_neurology", "Dr. Other Hospital First")
+    other_second = db.create_doctor(second_hospital_id, "t2_neurology", "Dr. Other Hospital Second")
+
+    first_full = db.get_doctor_full(hospital_id, first["id"])
+    second_full = db.get_doctor_full(hospital_id, second["id"])
+    other_first_full = db.get_doctor_full(second_hospital_id, other_first["id"])
+    other_second_full = db.get_doctor_full(second_hospital_id, other_second["id"])
+
+    first_seq = int(first_full["employee_id"].removeprefix("EMP-DC-"))
+    second_seq = int(second_full["employee_id"].removeprefix("EMP-DC-"))
+    other_first_seq = int(other_first_full["employee_id"].removeprefix("EMP-DC-"))
+    other_second_seq = int(other_second_full["employee_id"].removeprefix("EMP-DC-"))
+
+    assert second_seq == first_seq + 1
+    # second_hospital_id's own count is sequential too, but independent of
+    # hospital_id's -- not necessarily starting at the same number as first_seq.
+    assert other_second_seq == other_first_seq + 1
 

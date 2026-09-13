@@ -235,6 +235,7 @@ _PATIENT_COLUMNS = (
     PatientRow.id, PatientRow.hospital_id, PatientRow.phone, PatientRow.name, PatientRow.date_of_birth,
     PatientRow.gender, PatientRow.address, PatientRow.patient_display_id, PatientRow.mrn,
     PatientRow.status, PatientRow.created_at,
+    PatientRow.dpdp_consent, PatientRow.privacy_policy_consent, PatientRow.marketing_consent,
 )
 
 
@@ -768,7 +769,12 @@ def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consent
     db/schema.sql's own comment on why it's not a separate WhatsApp-facing
     toggle); marketing_consent is independent, opt-in, and freely
     reversible either direction. Returns False if there's no active link to
-    update."""
+    update.
+
+    Also mirrors the new value onto patients.marketing_consent (migration
+    d2a67f3d2e09) -- the portal's Consent management section's durable,
+    always-present fallback/read for a patient with zero active links, kept
+    in sync here so it never goes stale for a patient who DOES have one."""
     session = get_session()
     result = cast(CursorResult, session.execute(
         update(PatientLink)
@@ -778,8 +784,85 @@ def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consent
         )
         .values(marketing_consent=consented)
     ))
+    if result.rowcount > 0:
+        session.execute(
+            update(PatientRow)
+            .where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)
+            .values(marketing_consent=consented)
+        )
     session.commit()
     return result.rowcount > 0
+
+
+# The 3 consent types the portal's patient detail page manages (Consent
+# management section, migration d2a67f3d2e09) -- each a plain agree/disagree
+# boolean. Mapped to their patients-table column name; "marketing" is the
+# one exception with extra read/write logic (get_patient_consent()/
+# set_patient_consent() below), since it also mirrors patient_links'
+# per-link column.
+CONSENT_TYPES = ("dpdp", "privacy_policy", "marketing")
+_CONSENT_COLUMNS = {"dpdp": "dpdp_consent", "privacy_policy": "privacy_policy_consent", "marketing": "marketing_consent"}
+
+
+def get_patient_consent(hospital_id: int, patient_id: int) -> dict | None:
+    """Returns {"dpdp_consent", "privacy_policy_consent", "marketing_consent"}
+    (all bool), or None if patient_id doesn't belong to this hospital.
+    dpdp_consent/privacy_policy_consent read straight off `patients`.
+    marketing_consent prefers the most-recently-linked ACTIVE patient_links
+    row's own value when one exists (so this always matches what a linked
+    patient currently sees/can toggle on WhatsApp), falling back to
+    patients.marketing_consent for a patient with no active link at all --
+    see migration d2a67f3d2e09's docstring."""
+    patient = get_patient(hospital_id, patient_id)
+    if patient is None:
+        return None
+    session = get_session()
+    active_link = session.execute(
+        select(PatientLink.marketing_consent)
+        .where(
+            PatientLink.hospital_id == hospital_id, PatientLink.patient_id == patient_id,
+            PatientLink.unlinked_at.is_(None),
+        )
+        .order_by(PatientLink.linked_at.desc())
+        .limit(1)
+    ).first()
+    return {
+        "dpdp_consent": patient["dpdp_consent"],
+        "privacy_policy_consent": patient["privacy_policy_consent"],
+        "marketing_consent": active_link.marketing_consent if active_link is not None else patient["marketing_consent"],
+    }
+
+
+def set_patient_consent(hospital_id: int, patient_id: int, consent_type: str, agreed: bool) -> dict | None:
+    """Portal-driven consent edit (the patient detail page's Consent
+    management section) -- always writes patients.<consent_type>_consent;
+    for "marketing" specifically, ALSO writes every currently-active
+    patient_links row for this patient, so an admin edit immediately changes
+    what a linked patient sees on WhatsApp too, not just this durable
+    fallback column (get_patient_consent()'s own docstring). Raises
+    ValueError for an unrecognized consent_type; returns None if patient_id
+    doesn't belong to this hospital. Callers are responsible for their own
+    before/after audit_logs entry (this function doesn't have access to the
+    authenticated staff session that record_audit_log()'s actor_label
+    needs)."""
+    if consent_type not in CONSENT_TYPES:
+        raise ValueError(f"consent_type must be one of {CONSENT_TYPES}, got {consent_type!r}")
+    column = _CONSENT_COLUMNS[consent_type]
+    session = get_session()
+    result = cast(CursorResult, session.execute(
+        update(PatientRow).where(PatientRow.hospital_id == hospital_id, PatientRow.id == patient_id)
+        .values(**{column: agreed})
+    ))
+    if result.rowcount > 0 and consent_type == "marketing":
+        session.execute(
+            update(PatientLink)
+            .where(PatientLink.hospital_id == hospital_id, PatientLink.patient_id == patient_id, PatientLink.unlinked_at.is_(None))
+            .values(marketing_consent=agreed)
+        )
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    return get_patient_consent(hospital_id, patient_id)
 
 
 def delete_patient_hard(hospital_id: int, patient_id: int) -> bool:

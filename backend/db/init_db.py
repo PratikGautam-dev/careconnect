@@ -21,7 +21,10 @@ from alembic.config import Config
 from core.config import get_settings
 from db import seed
 from db.connection import get_connection, get_database_url
-from db.display_ids import CARE_CONNECT_ACCOUNT_PREFIX, GLOBAL_SCOPE_KEY, generate_yearly_display_id_conn
+from db.display_ids import (
+    CARE_CONNECT_ACCOUNT_PREFIX, DOCTOR_EMPLOYEE_ID_PREFIX, GLOBAL_SCOPE_KEY, STAFF_EMPLOYEE_ID_PREFIX,
+    generate_employee_id_conn, generate_yearly_display_id_conn,
+)
 from db.repositories.accounts import _get_or_create_account_in_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES, default_is_active
 from db.repositories.diagnostic_tests import CATEGORY_DIAGNOSTIC, CATEGORY_LAB, DEFAULT_DIAGNOSTIC_TESTS, DEFAULT_LAB_TESTS
@@ -554,6 +557,69 @@ def _backfill_handoff_messages(conn) -> None:
         "WHERE hr.message_text IS NOT NULL "
         "AND NOT EXISTS (SELECT 1 FROM handoff_messages hm WHERE hm.handoff_request_id = hr.id)"
     )
+    conn.commit()
+
+
+def _backfill_doctor_employee_ids(conn) -> None:
+    """Employee ID auto-numbering feature (confirmed with the user): EVERY
+    pre-existing doctor's free-text employee_id is rewritten into the new
+    EMP-DC-NNNNN scheme, not just filled in where missing -- a deliberate
+    exception to this file's usual "only touch rows still missing a value"
+    convention (_backfill_patient_display_ids() above, gated on IS NULL).
+    Gated instead on "doesn't already look like the new format"
+    (employee_id !~ '^EMP-DC-\\d+$'), which is false for every row this
+    backfill (or normal create_doctor()) has already touched -- so re-running
+    this on every startup is still a safe no-op, just a different gate since
+    employee_id has no NULL state to check (NOT NULL DEFAULT '').
+
+    Ordering caveat: unlike patients, doctors has no created_at column, so
+    true historical creation order can't be reconstructed here -- ordered by
+    id instead (stable/deterministic, just not actually chronological)."""
+    hospital_ids = [
+        row["hospital_id"] for row in conn.execute(
+            "SELECT DISTINCT hospital_id FROM doctors WHERE employee_id !~ '^EMP-DC-\\d+$' ORDER BY hospital_id"
+        ).fetchall()
+    ]
+    for hospital_id in hospital_ids:
+        doctor_ids = [
+            row["id"] for row in conn.execute(
+                "SELECT id FROM doctors WHERE hospital_id = ? AND employee_id !~ '^EMP-DC-\\d+$' ORDER BY id",
+                (hospital_id,),
+            ).fetchall()
+        ]
+        for doctor_id in doctor_ids:
+            employee_id = generate_employee_id_conn(conn, DOCTOR_EMPLOYEE_ID_PREFIX, hospital_id)
+            conn.execute("UPDATE doctors SET employee_id = ? WHERE id = ?", (employee_id, doctor_id))
+    conn.commit()
+
+
+def _backfill_staff_employee_ids(conn) -> None:
+    """Staff counterpart of _backfill_doctor_employee_ids() above -- same
+    unconditional rewrite (not just fill-missing), same reasoning. Scoped to
+    role != 'doctor' -- a doctor-role staff_details row's login already gets
+    an EMP-DC id via its linked doctors row, not its own EMP-ST (same scoping
+    create_staff_user() itself uses going forward, and list_staff_users_for_
+    hospital(exclude_doctors=True) already uses for the Staff directory).
+    Ordered by identities.created_at/id -- unlike doctors, a staff_details
+    row DOES have a reliable creation timestamp via its identities row."""
+    hospital_ids = [
+        row["hospital_id"] for row in conn.execute(
+            "SELECT DISTINCT hospital_id FROM staff_details "
+            "WHERE role != 'doctor' AND employee_id !~ '^EMP-ST-\\d+$' ORDER BY hospital_id"
+        ).fetchall()
+    ]
+    for hospital_id in hospital_ids:
+        identity_ids = [
+            row["identity_id"] for row in conn.execute(
+                "SELECT sd.identity_id FROM staff_details sd JOIN identities i ON i.id = sd.identity_id "
+                "WHERE sd.hospital_id = ? AND sd.role != 'doctor' AND sd.employee_id !~ '^EMP-ST-\\d+$' "
+                "ORDER BY i.created_at, i.id",
+                (hospital_id,),
+            ).fetchall()
+        ]
+        for identity_id in identity_ids:
+            employee_id = generate_employee_id_conn(conn, STAFF_EMPLOYEE_ID_PREFIX, hospital_id)
+            conn.execute("UPDATE staff_details SET employee_id = ? WHERE identity_id = ?", (employee_id, identity_id))
     conn.commit()
 
 
@@ -1530,6 +1596,30 @@ def init_db_on_connection(conn) -> int:
         "REFERENCES patients(id) ON DELETE SET NULL"
     )
     conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_flag_reason TEXT")
+    # Migration d2a67f3d2e09: patient detail page's Consent management
+    # section (DPDP/Privacy Policy/Marketing, each a plain agree-or-
+    # disagree state) -- see that migration's own docstring for the full
+    # reasoning on marketing_consent's relationship to the pre-existing
+    # patient_links.marketing_consent.
+    conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS dpdp_consent BOOLEAN NOT NULL DEFAULT FALSE")
+    conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS privacy_policy_consent BOOLEAN NOT NULL DEFAULT FALSE")
+    conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS marketing_consent BOOLEAN NOT NULL DEFAULT FALSE")
+    # Migration 20260913052126: Employee ID auto-numbering feature --
+    # staff_details gains its own employee_id, mirroring doctors.employee_id
+    # (see that column's own migration above). "" for a doctor-role row
+    # (its EMP-DC id lives on the linked doctors row instead) -- generated
+    # server-side by create_staff_user(), never user-entered.
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS employee_id TEXT NOT NULL DEFAULT ''")
+    # Migration 20260913060656: Staff schedule feature -- replaces the old
+    # shift enum (day/evening/night) with the exact same comma-stored
+    # working_days/working_hours/breaks model doctors already have. No
+    # cross-cutting code depended on shift (confirmed) -- clean drop, not
+    # kept alongside the new columns.
+    conn.execute("ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_shift")
+    conn.execute("ALTER TABLE staff_details DROP COLUMN IF EXISTS shift")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS working_days TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS working_hours TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE staff_details ADD COLUMN IF NOT EXISTS breaks TEXT NOT NULL DEFAULT ''")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME
@@ -1560,6 +1650,8 @@ def init_db_on_connection(conn) -> int:
     _backfill_diagnostic_resources_capability(conn)
     _backfill_procedures_capability(conn)
     _backfill_handoff_messages(conn)
+    _backfill_doctor_employee_ids(conn)
+    _backfill_staff_employee_ids(conn)
     return hospital_id
 
 

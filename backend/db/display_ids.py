@@ -67,11 +67,26 @@ PATIENT_MRN_PREFIX = "MRN"  # followed by the hospital's own short code, not thi
 # deliberately NOT moved onto code_sequences (see module docstring).
 APPOINTMENT_REFERENCE_ID_PREFIX = "APT"
 
+# Doctor/staff employee ids (db/repositories/doctors.py's create_doctor,
+# db/repositories/staff_users.py's create_staff_user) -- per-hospital, but
+# unlike every prefix above, NEVER resets: period_key is a constant instead
+# of str(year), so every call keys onto the same code_sequences row and just
+# keeps incrementing for the life of the hospital (confirmed with the user).
+DOCTOR_EMPLOYEE_ID_PREFIX = "EMP-DC"
+STAFF_EMPLOYEE_ID_PREFIX = "EMP-ST"
+_EMPLOYEE_ID_LIFETIME_PERIOD_KEY = "lifetime"
+
 # scope_key for every global (not per-hospital) prefix above.
 GLOBAL_SCOPE_KEY = "global"
 
 # Zero-padding width shared by every code_sequences-backed prefix.
 _SEQUENCE_WIDTH = 5
+
+# Employee id's own padding width -- deliberately separate from
+# _SEQUENCE_WIDTH above (confirmed with the user: they'll widen this to 6/7
+# digits later if a hospital's headcount ever needs it, without that
+# touching DCCG/DCCH/DCCC/DCCP/MRN's own width).
+_EMPLOYEE_ID_WIDTH = 5
 
 
 # Summary table:
@@ -123,6 +138,23 @@ def _next_sequence_session(session, prefix: str, scope_key: str, period_key: str
         .returning(CodeSequence.last_value)
     )
     return result.scalar_one()
+
+
+def generate_employee_id_conn(conn, prefix: str, hospital_id: int) -> str:
+    """DOCTOR_EMPLOYEE_ID_PREFIX/STAFF_EMPLOYEE_ID_PREFIX's own generator
+    (raw-connection callers, e.g. db/init_db.py's backfill) -- same shared
+    code_sequences table as the yearly-resetting prefixes above, just keyed
+    on a constant period_key so it never resets."""
+    seq = _next_sequence_conn(conn, prefix, str(hospital_id), _EMPLOYEE_ID_LIFETIME_PERIOD_KEY)
+    return f"{prefix}-{seq:0{_EMPLOYEE_ID_WIDTH}d}"
+
+
+def generate_employee_id_session(session, prefix: str, hospital_id: int) -> str:
+    """Same as generate_employee_id_conn() above, for ORM-session callers
+    (db/repositories/doctors.py's create_doctor, db/repositories/
+    staff_users.py's create_staff_user)."""
+    seq = _next_sequence_session(session, prefix, str(hospital_id), _EMPLOYEE_ID_LIFETIME_PERIOD_KEY)
+    return f"{prefix}-{seq:0{_EMPLOYEE_ID_WIDTH}d}"
 
 
 def generate_yearly_display_id_conn(conn, prefix: str, scope_key: str, now: datetime | None = None) -> str:

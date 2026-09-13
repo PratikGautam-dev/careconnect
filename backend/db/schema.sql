@@ -467,6 +467,23 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_of_patient_id INTEGER
     REFERENCES patients(id) ON DELETE SET NULL;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_flag_reason TEXT;
 
+-- Patient detail page's Consent management section (migration
+-- d2a67f3d2e09): DPDP / Privacy Policy / Marketing, each a plain agree-or-
+-- disagree state (FALSE reads as "disagreed", not "not yet asked" --
+-- confirmed with the user), admin-editable in the portal and audited via
+-- audit_logs ("patient.consent_update"). dpdp_consent/privacy_policy_consent
+-- are brand-new and deliberately NOT linked to the existing phone-scoped,
+-- agree-only dpdp_consents table (that one-time WhatsApp gate is
+-- unaffected). marketing_consent duplicates patient_links.marketing_consent
+-- (the existing WhatsApp-togglable per-link flag) as a durable, always-
+-- present fallback for a patient with zero active links (a staff-created/
+-- walk-in patient never linked to any phone) -- see
+-- db/repositories/patients.py's get_patient_consent()/set_patient_consent()/
+-- set_marketing_consent() for how the two stay in sync.
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS dpdp_consent BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS privacy_policy_consent BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS marketing_consent BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Patient identity SEPARATION (Spec.md Section 0, confirmed with the user via a
 -- reviewed plan before this touched production data): one WhatsApp number can
 -- now link up to 5 patient profiles (a shared family phone), so `patients` is no
@@ -1297,22 +1314,34 @@ CREATE TABLE IF NOT EXISTS staff_details (
     hospital_id INTEGER NOT NULL REFERENCES hospitals(id),
     role TEXT NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')),
     doctor_id TEXT REFERENCES doctors(id),
-    -- Migration 20260911174439: department_id/phone/address/shift/
-    -- reports_to_id/attendance_status -- the Staff page's mocked columns
-    -- becoming real. department_id is only ever set for a non-doctor
-    -- (admin/receptionist) row -- a doctor row's department already comes
-    -- from doctor_id -> doctors.department_id, so storing it twice here
-    -- would let the two drift. attendance_status is a manually-set current
-    -- status (no check-in/out timestamps, no history table -- confirmed
-    -- with the user, that's a separate future attendance module) with a
-    -- default of 'present' so an existing/newly-created row always has one.
+    -- Migration 20260911174439: department_id/phone/address/reports_to_id/
+    -- attendance_status -- the Staff page's mocked columns becoming real.
+    -- department_id is only ever set for a non-doctor (admin/receptionist)
+    -- row -- a doctor row's department already comes from doctor_id ->
+    -- doctors.department_id, so storing it twice here would let the two
+    -- drift. attendance_status is a manually-set current status (no
+    -- check-in/out timestamps, no history table -- confirmed with the
+    -- user, that's a separate future attendance module) with a default of
+    -- 'present' so an existing/newly-created row always has one.
     department_id TEXT REFERENCES departments(id),
     phone TEXT,
     address TEXT,
-    shift TEXT CHECK (shift IS NULL OR shift IN ('day', 'evening', 'night')),
     reports_to_id INTEGER REFERENCES identities(id),
     attendance_status TEXT NOT NULL DEFAULT 'present'
-        CHECK (attendance_status IN ('present', 'on_leave', 'half_day'))
+        CHECK (attendance_status IN ('present', 'on_leave', 'half_day')),
+    -- Migration 20260913052126: Employee ID auto-numbering feature --
+    -- server-generated EMP-ST-NNNNN for every admin/receptionist row
+    -- (create_staff_user()); "" for a doctor-role row, which already gets
+    -- an EMP-DC id via its linked doctors row instead.
+    employee_id TEXT NOT NULL DEFAULT '',
+    -- Migration 20260913060656: Staff schedule feature -- replaces the old
+    -- shift enum (day/evening/night) with the exact same comma-stored
+    -- working_days/working_hours/breaks model doctors already have
+    -- (doctors.working_days/working_hours/breaks), no CHECK constraint
+    -- (validated in the application layer only, same as doctors').
+    working_days TEXT NOT NULL DEFAULT '',
+    working_hours TEXT NOT NULL DEFAULT '',
+    breaks TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_details_doctor_id ON staff_details(doctor_id) WHERE doctor_id IS NOT NULL;
 ALTER TABLE staff_details DROP CONSTRAINT IF EXISTS ck_staff_details_doctor_role_pairing;

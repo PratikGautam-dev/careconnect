@@ -719,6 +719,13 @@ class PatientRow(Base):
     # exactly when duplicate_of_patient_id is None.
     duplicate_of_patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"))
     duplicate_flag_reason: Mapped[str | None]
+    # Patient detail page's Consent management section (migration
+    # d2a67f3d2e09) -- see that migration's own docstring for the full
+    # reasoning, especially marketing_consent's relationship to
+    # patient_links.marketing_consent (not a replacement for it).
+    dpdp_consent: Mapped[bool]
+    privacy_policy_consent: Mapped[bool]
+    marketing_consent: Mapped[bool]
 
 
 class PatientLink(Base):
@@ -886,9 +893,18 @@ class StaffDetail(Base):
     department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
     phone: Mapped[str | None]
     address: Mapped[str | None]
-    shift: Mapped[str | None]
     reports_to_id: Mapped[int | None] = mapped_column(ForeignKey("identities.id"))
     attendance_status: Mapped[str]
+    # Migration 20260913052126: Employee ID auto-numbering feature --
+    # server-generated EMP-ST-NNNNN for role != 'doctor'; "" for a
+    # doctor-role row (its EMP-DC id lives on the linked doctors row).
+    employee_id: Mapped[str]
+    # Migration 20260913060656: Staff schedule feature -- replaces the old
+    # shift enum with the same comma-stored working_days/working_hours/
+    # breaks model doctors already have (DoctorRow's own columns).
+    working_days: Mapped[str]
+    working_hours: Mapped[str]
+    breaks: Mapped[str]
 
 
 class SuperAdminDetail(Base):

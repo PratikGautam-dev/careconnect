@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { useNewDaycareBooking } from "@/hooks/useNewDaycareBooking";
 import { GENDER_VALUES } from "@/lib/validation/patientInfo";
+import { SectionHeader } from "./SectionHeader";
 
 type NewDaycareBookingDialogProps = {
   open: boolean;
@@ -16,6 +17,11 @@ type NewDaycareBookingDialogProps = {
    * Daycare appointments list) refresh in the background rather than
    * waiting on "Done". */
   onBooked: () => void;
+  /** Pre-fills the patient fields when opened from a specific patient's
+   * context (e.g. the Messages page's patient panel) -- omit for the generic
+   * "pick any patient" entry points. */
+  initialPatientName?: string;
+  initialPatientPhone?: string;
 };
 
 /** Daycare/Procedure sibling of NewTestBookingDialog -- same dialog-on-top-
@@ -26,7 +32,9 @@ type NewDaycareBookingDialogProps = {
  * useNewDaycareBooking slots fetch NewTestBookingDialog uses);
  * "approval_required" skips straight to submit -- there's no slot to pick
  * yet, only a request that lands in the approval queue. */
-export function NewDaycareBookingDialog({ open, onOpenChange, onBooked }: NewDaycareBookingDialogProps) {
+export function NewDaycareBookingDialog({
+  open, onOpenChange, onBooked, initialPatientName, initialPatientPhone,
+}: NewDaycareBookingDialogProps) {
   const {
     ctx, error, errors, submitting, success, procedureStatus,
     patientName, setPatientName, patientPhone, setPatientPhone,
@@ -35,7 +43,7 @@ export function NewDaycareBookingDialog({ open, onOpenChange, onBooked }: NewDay
     date, setDate, slotId, setSlotId,
     datesForProcedure, slotsForDate, slotsLoading,
     handleSubmit,
-  } = useNewDaycareBooking(open, onBooked);
+  } = useNewDaycareBooking(open, onBooked, initialPatientName, initialPatientPhone);
 
   const procedures = ctx?.procedures ?? [];
 
@@ -57,6 +65,10 @@ export function NewDaycareBookingDialog({ open, onOpenChange, onBooked }: NewDay
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
+            <SectionHeader
+              title="Patient information"
+              description="Who this booking is for -- an existing patient is matched by phone number, otherwise a new one is created."
+            />
             <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
               <Field label="Patient name" htmlFor="patient_name" required>
                 <Input id="patient_name" required value={patientName} onChange={(e) => setPatientName(e.target.value)} />
@@ -104,6 +116,12 @@ export function NewDaycareBookingDialog({ open, onOpenChange, onBooked }: NewDay
               </Field>
             </div>
 
+            <div className="mt-space-3 border-t border-line pt-space-4">
+              <SectionHeader
+                title="Procedure & schedule"
+                description="Which procedure, and, if it doesn't need approval first, an available date and time slot."
+              />
+            </div>
             <Field label="Procedure" htmlFor="procedures">
               <div id="procedures" className="flex flex-wrap gap-space-2">
                 {procedures.map((p) => (

@@ -2,7 +2,7 @@
 """Appointment booking, cancellation, rescheduling, and lookups -- the core
 booking data path both the WhatsApp flow and the staff portal go through.
 Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import cast
 
 import sqlalchemy.exc
@@ -1263,6 +1263,45 @@ def delay_doctor_remaining_today_appointments(
             AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
             AppointmentRow.status == STATUS_BOOKED,
             AppointmentRow.scheduled_at > now.isoformat(), AppointmentRow.scheduled_at <= day_end.isoformat(),
+        )
+        .order_by(AppointmentRow.scheduled_at.desc())
+    ).all()
+    appointments = [_row_to_appointment(r._mapping) for r in rows]
+
+    shifted: list[tuple[Appointment, datetime]] = []
+    for appointment in appointments:
+        new_time = appointment.scheduled_at + timedelta(minutes=minutes)
+        try:
+            session.execute(
+                update(AppointmentRow).where(AppointmentRow.id == appointment.id)
+                .values(scheduled_at=new_time.isoformat())
+            )
+            session.commit()
+            shifted.append((appointment, new_time))
+        except sqlalchemy.exc.IntegrityError:
+            session.rollback()
+            continue
+    return shifted
+
+
+def delay_doctor_appointments_from(
+    hospital_id: int, doctor_id: str, on_date: date, from_time: time, minutes: int,
+) -> list[tuple[Appointment, datetime]]:
+    """Admin-side "Running late" generalization of
+    delay_doctor_remaining_today_appointments() above: same shift-only-
+    still-'booked'-rows, latest-first, skip-on-collision behavior, but for a
+    staff-picked date and cutoff time instead of always "today, from right
+    now" -- lets a receptionist log a delay a doctor phoned in about for
+    later today from a specific time, or for a future day's list."""
+    cutoff = datetime.combine(on_date, from_time)
+    day_end = datetime.combine(on_date, datetime.max.time())
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id == doctor_id,
+            AppointmentRow.status == STATUS_BOOKED,
+            AppointmentRow.scheduled_at >= cutoff.isoformat(), AppointmentRow.scheduled_at <= day_end.isoformat(),
         )
         .order_by(AppointmentRow.scheduled_at.desc())
     ).all()

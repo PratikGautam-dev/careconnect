@@ -22,10 +22,12 @@ export type Doctor = {
   years_experience: number | null;
   working_days: string[];
   working_hours: string[];
-  // Migration 20260911190007: phone/employee_id are mandatory (confirmed
-  // with the user, alongside specialization/qualification above); location
-  // stays optional.
+  // Migration 20260911190007: phone is mandatory (confirmed with the user,
+  // alongside specialization/qualification above); location stays optional.
   phone: string;
+  // Employee ID auto-numbering feature -- server-generated (EMP-DC-NNNNN),
+  // never part of the editable Add/Edit form; read-only display only
+  // (doctors-columns.tsx, DoctorDetailPanel.tsx).
   employee_id: string;
   location: string | null;
   login_staff_id: number | null;
@@ -35,19 +37,30 @@ export type Doctor = {
   // with no login yet (no identity to attach a leave request to).
   leave_balance_total: number | null;
   leave_balance_used: number | null;
+  // Every appointment ever booked against this doctor, any status --
+  // db.get_appointment_counts_by_doctor().
+  total_appointments: number;
+  // Same staff_details.reports_to_id -> identities join every other role
+  // already gets on the Staff page -- null if this doctor has no login yet,
+  // or has one but no reports-to set.
+  reports_to_name: string | null;
 };
 
-/** Loads + owns every mutation on the /portal/doctors page: department
- * creation, doctor add/edit (shared DoctorScheduleForm), active toggle, plus
- * the name/specialization search and active/inactive filter. */
+/** Loads + owns every mutation on the /portal/doctors page: doctor add/edit
+ * (shared DoctorScheduleForm), active toggle, plus the name/specialization
+ * search and active/inactive filter. Department CREATION/editing lives
+ * entirely under /portal/settings' own Departments tab now (confirmed with
+ * the user) -- this hook only ever READS departments (still bundled off
+ * GET /api/portal/doctors, same db.get_all_departments_for_hospital() data
+ * Settings' own GET /api/portal/departments reads, so the two are always
+ * the same underlying records), to populate the doctor list's own
+ * department column and the Add/Edit Doctor form's department picker. */
 export function useDoctors(ready: boolean) {
   const router = useRouter();
   const [departments, setDepartments] = useState<Department[] | null>(null);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [onLeaveTodayCount, setOnLeaveTodayCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [newDeptName, setNewDeptName] = useState("");
-  const [addingDept, setAddingDept] = useState(false);
 
   const [showDoctorForm, setShowDoctorForm] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
@@ -89,29 +102,8 @@ export function useDoctors(ready: boolean) {
     if (ready) load();
   }, [ready, load]);
 
-  async function handleAddDepartment(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newDeptName.trim()) return;
-    setAddingDept(true);
-    const result = await portalFetch("/api/portal/departments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newDeptName.trim() }),
-    });
-    setAddingDept(false);
-    if (result.ok) {
-      setNewDeptName("");
-      toast.success("Department added");
-      load();
-    } else if (result.unauthorized) {
-      router.push("/portal/login");
-    } else {
-      toast.error("Couldn't add department", result.error);
-    }
-  }
-
   function openAddDoctorForm() {
-    setShowDoctorForm((v) => !v);
+    setShowDoctorForm(true);
     setShowCsvImport(false);
     setDoctorForm(emptyDoctorScheduleForm());
     setDoctorErrors([]);
@@ -158,7 +150,6 @@ export function useDoctors(ready: boolean) {
         followup_duration_minutes: doctorForm.followup_duration_minutes,
         effective_from: doctorForm.effective_from,
         phone: doctorForm.phone,
-        employee_id: doctorForm.employee_id,
         location: doctorForm.location,
       }),
     });
@@ -221,7 +212,6 @@ export function useDoctors(ready: boolean) {
       followup_duration_minutes: full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
       effective_from: (full.effective_from as string) || "",
       phone: (full.phone as string) || "",
-      employee_id: (full.employee_id as string) || "",
       location: (full.location as string) || "",
     });
     setEditingDoctorId(doc.id);
@@ -260,7 +250,6 @@ export function useDoctors(ready: boolean) {
 
   return {
     departments, doctors, onLeaveTodayCount, error, load,
-    newDeptName, setNewDeptName, addingDept, handleAddDepartment,
     showDoctorForm, showCsvImport, doctorForm, setDoctorForm, doctorErrors, savingDoctor,
     editingDoctorId, loadingDoctorForEdit,
     openAddDoctorForm, toggleCsvImport, cancelDoctorForm, handleSaveDoctor, handleEditDoctor, handleToggleActive,

@@ -3,10 +3,12 @@ import { useRouter } from "next/navigation";
 import { staffFetch, type StaffRole } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { useDepartments } from "@/hooks/useDepartments";
-import type { Shift } from "@/hooks/useStaffManagement";
+import type { WorkingScheduleValue } from "@/components/portal/WorkingScheduleFields";
 
 export type Doctor = { id: string; name: string };
 export type StaffOption = { id: number; name: string };
+
+const EMPTY_SCHEDULE: WorkingScheduleValue = { working_days: [], shifts: [{ start: "", end: "" }], breaks: [] };
 
 /** Owns the "Add staff member" dialog's own form state + submit -- fully
  * self-contained (loads the linked-doctor/department/reports-to pickers
@@ -34,7 +36,7 @@ export function useAddStaff(
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [departmentId, setDepartmentId] = useState("");
-  const [shift, setShift] = useState<Shift | "">("");
+  const [schedule, setSchedule] = useState<WorkingScheduleValue>(EMPTY_SCHEDULE);
   const [reportsToId, setReportsToId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -79,7 +81,7 @@ export function useAddStaff(
     setPhone("");
     setAddress("");
     setDepartmentId("");
-    setShift("");
+    setSchedule(EMPTY_SCHEDULE);
     setReportsToId("");
     setFormError(null);
   }, [open, loadDoctors, loadStaffOptions, presetDoctor]);
@@ -92,6 +94,8 @@ export function useAddStaff(
     }
     setSaving(true);
     setFormError(null);
+    const working_hours = schedule.shifts.filter((s) => s.start && s.end).map((s) => `${s.start}-${s.end}`);
+    const breaks = schedule.breaks.filter((b) => b && b.start && b.end).map((b) => `${b.start}-${b.end}`);
     const result = await staffFetch("/api/portal/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -101,7 +105,9 @@ export function useAddStaff(
         phone: phone || undefined,
         address: address || undefined,
         department_id: role !== "doctor" ? departmentId || undefined : undefined,
-        shift: shift || undefined,
+        working_days: schedule.working_days,
+        working_hours,
+        breaks,
         reports_to_id: reportsToId ? Number(reportsToId) : undefined,
       }),
     });
@@ -122,7 +128,7 @@ export function useAddStaff(
   return {
     doctors, departments, staffOptions,
     name, setName, email, setEmail, password, setPassword, role, setRole, doctorId, setDoctorId,
-    phone, setPhone, address, setAddress, departmentId, setDepartmentId, shift, setShift,
+    phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
     reportsToId, setReportsToId,
     formError, saving, handleCreate,
   };

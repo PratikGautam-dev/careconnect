@@ -1,13 +1,14 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Building2, Calendar, CalendarPlus, History, KeyRound, Mail, MapPin, Pencil, Phone } from "lucide-react";
+import { Building2, Calendar, CalendarClock, CalendarPlus, History, IdCard, KeyRound, Mail, MapPin, Pencil, Phone } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/formatDate";
+import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
 import type { AttendanceStatus } from "@/hooks/useStaffManagement";
-import { AVATAR_TINTS, ATTENDANCE_LABELS, ROLE_LABELS, SHIFT_LABELS, initials, type StaffRow } from "./staff-columns";
+import { AVATAR_TINTS, ATTENDANCE_LABELS, ROLE_LABELS, initials, type StaffRow } from "./staff-columns";
 
 function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: React.ReactNode }) {
   return (
@@ -53,9 +54,10 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
     );
   }
 
-  const shiftLabel = staff.shift ? SHIFT_LABELS[staff.shift] : null;
-  const shiftName = shiftLabel?.split(" (")[0] ?? "—";
-  const shiftHours = shiftLabel?.match(/\((.+)\)/)?.[1] ?? "";
+  // Staff schedule feature -- same formatWorkingDays/formatWorkingHours
+  // display DoctorDetailPanel's own "Consulting hours" box uses.
+  const scheduleDays = staff.working_days.length > 0 ? formatWorkingDays(staff.working_days) : null;
+  const scheduleHours = formatWorkingHours(staff.working_hours);
 
   const quickActions: QuickAction[] = [
     { label: "Apply leave", icon: CalendarPlus, disabled: true, title: "Coming soon — no leave workflow exists yet" },
@@ -91,13 +93,23 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
         <DetailRow icon={Phone} label="Phone" value={staff.phone || "—"} />
         <DetailRow icon={MapPin} label="Location" value={staff.address || "—"} />
         <DetailRow icon={Calendar} label="Joined" value={staff.created_at ? formatDate(staff.created_at) : "—"} />
+        {/* Employee ID auto-numbering feature -- "—" for a doctor-role row,
+            whose employee id lives on its linked doctors row instead. */}
+        <DetailRow icon={IdCard} label="Employee ID" value={staff.employee_id || "—"} />
       </div>
 
+      {/* One uniform 2x2 tile grid -- Shift hours used to be its own
+          full-width box above this grid; folded in as a same-size tile so
+          all four (Shift hours/Attendance status/Reports to/Leave balance)
+          read as one consistent set, matching DoctorDetailPanel.tsx's own
+          4-tile grid. */}
       <div className="mt-space-3 grid grid-cols-2 gap-space-2">
         <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Current shift</p>
-          <p className="text-[13px] font-bold text-ink-900">{shiftName}</p>
-          <p className="text-[11.5px] text-ink-600">{shiftHours}</p>
+          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+            <CalendarClock size={12} /> Shift hours
+          </p>
+          <p className="text-[13px] font-bold text-ink-900">{scheduleDays || "—"}</p>
+          <p className="text-[11.5px] text-ink-600">{scheduleHours || ""}</p>
         </div>
         <div className="rounded-md border border-line bg-paper p-space-3">
           <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Attendance status</p>
@@ -119,9 +131,12 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
             </div>
           )}
         </div>
-      </div>
-
-      <div className="mt-space-2 grid grid-cols-2 gap-space-2">
+        <div className="rounded-md border border-line bg-paper p-space-3">
+          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+            <Building2 size={12} /> Reports to
+          </p>
+          <p className="truncate text-[13px] font-bold text-ink-900">{staff.reports_to_name || "—"}</p>
+        </div>
         <div className="rounded-md border border-line bg-paper p-space-3">
           <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Leave balance</p>
           {staff.leave_balance_total != null ? (
@@ -137,12 +152,6 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
               <p className="text-[11.5px] text-ink-400">Not tracked for this role</p>
             </>
           )}
-        </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
-            <Building2 size={12} /> Reports to
-          </p>
-          <p className="truncate text-[13px] font-bold text-ink-900">{staff.reports_to_name || "—"}</p>
         </div>
       </div>
 

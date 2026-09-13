@@ -11,17 +11,21 @@ but a hospital could in principle grant a receptionist read-only visibility
 into the staff list."""
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import db.repository as db
+from admin.validation import _validate_staff_schedule_fields
 from db.repositories.hospitals import hash_portal_password
 from portal.deps import get_current_staff, require_permission
 
 router = APIRouter()
 
 _VALID_ROLES = {"admin", "receptionist", "doctor"}
-_VALID_SHIFTS = {"day", "evening", "night"}
 _VALID_ATTENDANCE_STATUSES = {"present", "on_leave", "half_day"}
+
+
+def _split_csv(value: str | None) -> list[str]:
+    return [x for x in (value or "").split(",") if x]
 
 
 def _staff_row(staff: dict, leave_usage: dict[int, int], leave_policy: dict) -> dict:
@@ -34,7 +38,16 @@ def _staff_row(staff: dict, leave_usage: dict[int, int], leave_policy: dict) -> 
         "id": staff["id"], "name": staff["name"], "email": staff["email"],
         "role": staff["role"], "doctor_id": staff["doctor_id"], "is_active": staff["is_active"],
         "created_at": staff.get("created_at"),
-        "phone": staff.get("phone"), "address": staff.get("address"), "shift": staff.get("shift"),
+        "employee_id": staff.get("employee_id"),
+        "phone": staff.get("phone"), "address": staff.get("address"),
+        # Staff schedule feature -- replaces the old shift enum with the
+        # same comma-stored working_days/working_hours/breaks model doctors
+        # already have; split back into lists here, same as
+        # db/repositories/doctors.py does at its own layer (this is the one
+        # shared serialization point every staff response funnels through).
+        "working_days": _split_csv(staff.get("working_days")),
+        "working_hours": _split_csv(staff.get("working_hours")),
+        "breaks": _split_csv(staff.get("breaks")),
         "attendance_status": staff.get("attendance_status"),
         "department_id": staff.get("department_id"), "department_name": staff.get("department_name"),
         "reports_to_id": staff.get("reports_to_id"), "reports_to_name": staff.get("reports_to_name"),
@@ -90,7 +103,9 @@ class CreateStaffPayload(BaseModel):
     phone: str | None = None
     address: str | None = None
     department_id: str | None = None
-    shift: str | None = None
+    working_days: list[str] = Field(default_factory=list)
+    working_hours: list[str] = Field(default_factory=list)
+    breaks: list[str] = Field(default_factory=list)
     reports_to_id: int | None = None
 
 
@@ -122,8 +137,10 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
         errors.append("A doctor's department comes from their linked doctor profile, not department_id.")
     if payload.department_id and db.find_department(principal.hospital.id, payload.department_id) is None:
         errors.append("Choose a valid department.")
-    if payload.shift and payload.shift not in _VALID_SHIFTS:
-        errors.append(f'Unrecognized shift "{payload.shift}".')
+    schedule, schedule_errors = _validate_staff_schedule_fields(
+        name, ",".join(payload.working_days), ",".join(payload.working_hours), ",".join(payload.breaks),
+    )
+    errors.extend(schedule_errors)
     if payload.reports_to_id and payload.reports_to_id not in {
         s["id"] for s in db.list_staff_users_for_hospital(principal.hospital.id)
     }:
@@ -142,7 +159,8 @@ async def create_staff(payload: CreateStaffPayload, authorization: str | None = 
             principal.hospital.id, payload.role, email, hash_portal_password(payload.password),
             name, doctor_id=payload.doctor_id,
             phone=payload.phone, address=payload.address, department_id=payload.department_id,
-            shift=payload.shift, reports_to_id=payload.reports_to_id,
+            reports_to_id=payload.reports_to_id,
+            working_days=schedule["working_days"], working_hours=schedule["working_hours"], breaks=schedule["breaks"],
         )
     except db.IntegrityError:
         return JSONResponse(
@@ -173,7 +191,9 @@ class UpdateStaffPayload(BaseModel):
     phone: str | None = None
     address: str | None = None
     department_id: str | None = None
-    shift: str | None = None
+    working_days: list[str] = Field(default_factory=list)
+    working_hours: list[str] = Field(default_factory=list)
+    breaks: list[str] = Field(default_factory=list)
     reports_to_id: int | None = None
     attendance_status: str | None = None
 
@@ -187,7 +207,11 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
     if forbidden:
         return forbidden
 
-    detail_keys = {"name", "phone", "address", "department_id", "shift", "reports_to_id", "attendance_status"}
+    detail_keys = {
+        "name", "phone", "address", "department_id",
+        "working_days", "working_hours", "breaks",
+        "reports_to_id", "attendance_status",
+    }
     sent_detail_keys = payload.model_fields_set & detail_keys
     if payload.is_active is None and not sent_detail_keys:
         return JSONResponse({"error": "Nothing to update."}, status_code=400)
@@ -209,8 +233,21 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
             )
         if db.find_department(principal.hospital.id, payload.department_id) is None:
             return JSONResponse({"error": "Choose a valid department."}, status_code=400)
-    if "shift" in sent_detail_keys and payload.shift and payload.shift not in _VALID_SHIFTS:
-        return JSONResponse({"error": f'Unrecognized shift "{payload.shift}".'}, status_code=400)
+    # working_days/working_hours/breaks are one logical unit (a schedule) --
+    # only ever partially sent if the frontend genuinely means to touch just
+    # one of them (rare; EditStaffDialog always sends all three together),
+    # so a not-sent one falls back to this staff member's CURRENT value
+    # (the raw comma-string `target` already carries, pre-`_staff_row()`
+    # split) rather than being silently blanked out.
+    schedule = None
+    schedule_keys_sent = sent_detail_keys & {"working_days", "working_hours", "breaks"}
+    if schedule_keys_sent:
+        days_raw = ",".join(payload.working_days) if "working_days" in sent_detail_keys else (target.get("working_days") or "")
+        hours_raw = ",".join(payload.working_hours) if "working_hours" in sent_detail_keys else (target.get("working_hours") or "")
+        breaks_raw = ",".join(payload.breaks) if "breaks" in sent_detail_keys else (target.get("breaks") or "")
+        schedule, schedule_errors = _validate_staff_schedule_fields(target["name"], days_raw, hours_raw, breaks_raw)
+        if schedule_errors:
+            return JSONResponse({"error": " ".join(schedule_errors)}, status_code=400)
     if "attendance_status" in sent_detail_keys and payload.attendance_status not in _VALID_ATTENDANCE_STATUSES:
         return JSONResponse(
             {"error": f'Unrecognized attendance status "{payload.attendance_status}".'}, status_code=400,
@@ -231,7 +268,18 @@ async def update_staff(staff_id: int, payload: UpdateStaffPayload, authorization
 
     if sent_detail_keys:
         identity_fields = {"name": payload.name} if "name" in sent_detail_keys else {}
-        staff_fields = {k: getattr(payload, k) for k in sent_detail_keys if k != "name"}
+        staff_fields = {
+            k: getattr(payload, k) for k in sent_detail_keys if k != "name" and k not in schedule_keys_sent
+        }
+        # working_days/working_hours/breaks are comma-stored TEXT columns
+        # (Staff schedule feature) -- staff_fields must hold the joined
+        # strings validation returned, not the raw list(s) the payload
+        # carries, since update_staff_user_details() writes these values
+        # straight into the DB.
+        if schedule is not None:
+            staff_fields["working_days"] = ",".join(schedule["working_days"])
+            staff_fields["working_hours"] = ",".join(schedule["working_hours"])
+            staff_fields["breaks"] = ",".join(schedule["breaks"])
         db.update_staff_user_details(staff_id, identity_fields=identity_fields, staff_fields=staff_fields)
         db.record_audit_log(
             "portal", principal.hospital.id, f"{principal.name} <staff:{principal.staff_id}>", "staff.update_details",

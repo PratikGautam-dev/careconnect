@@ -28,7 +28,9 @@ export type NewDaycareBookingContext = { procedures: Procedure[] };
  * entirely -- submitting creates a bare request (procedure_status
  * REQUESTED) that shows up in the Daycare appointments page's own approval
  * queue, and a slot only gets picked later, after staff approves it. */
-export function useNewDaycareBooking(open: boolean, onBooked?: () => void) {
+export function useNewDaycareBooking(
+  open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
+) {
   const router = useRouter();
   const [ctx, setCtx] = useState<NewDaycareBookingContext | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +60,8 @@ export function useNewDaycareBooking(open: boolean, onBooked?: () => void) {
 
   useEffect(() => {
     if (open) {
+      setPatientName(initialPatientName ?? "");
+      setPatientPhone(initialPatientPhone ?? "");
       load();
       return;
     }
@@ -75,7 +79,7 @@ export function useNewDaycareBooking(open: boolean, onBooked?: () => void) {
     setDateRaw("");
     setSlotId("");
     setSlotsByDate(null);
-  }, [open, load]);
+  }, [open, load, initialPatientName, initialPatientPhone]);
 
   const procedure = useMemo(
     () => ctx?.procedures.find((p) => p.id === procedureId) ?? null,

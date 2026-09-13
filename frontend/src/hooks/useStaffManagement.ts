@@ -5,10 +5,9 @@ import { toast } from "@/lib/toast";
 import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 
 export type AttendanceStatus = "present" | "on_leave" | "half_day";
-export type Shift = "day" | "evening" | "night";
 
 // Matches portal/routes/staff.py's _staff_row() -- department_id/
-// department_name/reports_to_id/reports_to_name/phone/address/shift/
+// department_name/reports_to_id/reports_to_name/phone/address/
 // attendance_status/created_at were all mocked client-side before; they're
 // now real staff_details/identities columns (migration 20260911174439).
 // leave_balance_total/used are real too (migration 20260912065049) --
@@ -26,7 +25,12 @@ export type StaffMember = {
   created_at: string | null;
   phone: string | null;
   address: string | null;
-  shift: Shift | null;
+  // Staff schedule feature -- replaces the old shift enum with the same
+  // comma-stored (already split into lists by _staff_row()) working_days/
+  // working_hours/breaks model doctors already have.
+  working_days: string[];
+  working_hours: string[];
+  breaks: string[];
   attendance_status: AttendanceStatus;
   department_id: string | null;
   department_name: string | null;
@@ -34,6 +38,10 @@ export type StaffMember = {
   reports_to_name: string | null;
   leave_balance_total: number | null;
   leave_balance_used: number | null;
+  // Employee ID auto-numbering feature -- server-generated (EMP-ST-NNNNN)
+  // for role != 'doctor'; "" for a doctor-role row (its EMP-DC id lives on
+  // the linked doctors row instead).
+  employee_id: string;
 };
 
 /** Loads + owns every mutation on /portal/settings/staff EXCEPT creating a

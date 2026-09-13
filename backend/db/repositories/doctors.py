@@ -20,7 +20,8 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import aliased
 
 from db.connection import get_session
-from db.orm_models import Department, DoctorLeave, DoctorRow, Identity, StaffDetail
+from db.display_ids import DOCTOR_EMPLOYEE_ID_PREFIX, generate_employee_id_session
+from db.orm_models import AppointmentRow, Department, DoctorLeave, DoctorRow, Identity, StaffDetail
 from core.redis_client import cache_delete
 
 _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -262,7 +263,6 @@ def create_doctor(
     followup_duration_minutes: int | None = None,
     effective_from: str | None = None,
     phone: str = "",
-    employee_id: str = "",
     location: str | None = None,
 ) -> dict:
     """working_days (e.g. ["Mon", "Wed", "Fri"]) and working_hours (e.g.
@@ -277,14 +277,22 @@ def create_doctor(
     day, not per-specific-day. effective_from has no effect on a brand-new
     doctor (nothing to preserve yet) -- it only matters on update_doctor().
 
-    specialization/qualification/phone/employee_id default to "" (not None)
-    since migration 20260911190007 made all four NOT NULL -- the Doctors
-    page's own Add/Edit form (admin/validation.py's _validate_doctor_fields)
-    is what actually requires a real value; callers that don't collect these
-    at all (CSV import defaults aside, onboarding, tests) still work
-    unchanged, just persisting an empty string instead of NULL."""
+    specialization/qualification/phone default to "" (not None) since
+    migration 20260911190007 made all of them NOT NULL -- the Doctors page's
+    own Add/Edit form (admin/validation.py's _validate_doctor_fields) is what
+    actually requires a real value; callers that don't collect these at all
+    (CSV import defaults aside, onboarding, tests) still work unchanged, just
+    persisting an empty string instead of NULL.
+
+    employee_id is NOT a caller-supplied argument (Employee ID auto-numbering
+    feature, confirmed with the user) -- generated here, server-side, via
+    the shared per-hospital, never-resetting code_sequences counter
+    (db/display_ids.py's generate_employee_id_session), same
+    "EMP-DC-00001, EMP-DC-00002, ..." scheme update_doctor() below never
+    touches (assigned once, like patient_display_id)."""
     doctor_id = f"h{hospital_id}_{uuid.uuid4().hex[:8]}"
     session = get_session()
+    employee_id = generate_employee_id_session(session, DOCTOR_EMPLOYEE_ID_PREFIX, hospital_id)
     session.execute(
         insert(DoctorRow).values(
             id=doctor_id, hospital_id=hospital_id, department_id=department_id, name=name,
@@ -363,8 +371,14 @@ def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
     identities, doctor_id-linked) -- login_staff_id/login_email/login_active
     are all None when this doctor has no staff login yet. See
     get_doctor_full()'s own docstring for why (replaces the old dedicated
-    doctors.email/password_hash columns)."""
+    doctors.email/password_hash columns). reports_to_name is the same
+    staff_details.reports_to_id -> identities join list_staff_users_for_
+    hospital() (staff_users.py) already does for every other role -- a
+    doctor with a login can be given a reports-to just like any other staff
+    member (the Reports to picker in Add/Edit Staff shows for every role,
+    doctors included), it just wasn't surfaced back on this page yet."""
     session = get_session()
+    reports_to = aliased(Identity)
     rows = session.execute(
         select(
             DoctorRow.id, DoctorRow.department_id, Department.name.label("department_name"),
@@ -374,10 +388,12 @@ def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
             DoctorRow.phone, DoctorRow.employee_id, DoctorRow.location,
             Identity.id.label("login_staff_id"), Identity.email.label("login_email"),
             Identity.is_active.label("login_active"),
+            reports_to.name.label("reports_to_name"),
         )
         .join(Department, Department.id == DoctorRow.department_id)
         .outerjoin(StaffDetail, StaffDetail.doctor_id == DoctorRow.id)
         .outerjoin(Identity, Identity.id == StaffDetail.identity_id)
+        .outerjoin(reports_to, reports_to.id == StaffDetail.reports_to_id)
         .where(DoctorRow.hospital_id == hospital_id)
         .order_by(Department.name, DoctorRow.name)
     ).all()
@@ -397,6 +413,21 @@ def get_doctors_on_leave_today_count(hospital_id: int, today: date | None = None
         select(func.count(func.distinct(DoctorLeave.doctor_id)))
         .where(DoctorLeave.hospital_id == hospital_id, DoctorLeave.date == today.isoformat())
     ).scalar_one()
+
+
+def get_appointment_counts_by_doctor(hospital_id: int) -> dict[str, int]:
+    """Doctor detail panel's "Total appointments" row -- every appointment
+    ever booked against this doctor (every status, not just still-'booked'),
+    same "one grouped query instead of one COUNT per doctor" shape as
+    get_leave_usage_by_identity(). Doctors with zero appointments simply
+    have no key here -- callers default to 0 (DoctorDetailPanel.tsx)."""
+    session = get_session()
+    rows = session.execute(
+        select(AppointmentRow.doctor_id, func.count(AppointmentRow.id))
+        .where(AppointmentRow.hospital_id == hospital_id, AppointmentRow.doctor_id.is_not(None))
+        .group_by(AppointmentRow.doctor_id)
+    ).all()
+    return {doctor_id: count for doctor_id, count in rows}
 
 
 def set_doctor_active(hospital_id: int, doctor_id: str, is_active: bool) -> bool:
@@ -430,10 +461,12 @@ def update_doctor(
     followup_duration_minutes: int | None = None,
     effective_from: str | None = None,
     phone: str = "",
-    employee_id: str = "",
     location: str | None = None,
 ) -> dict | None:
-    """portal.py's doctor-edit form. Returns None if no such doctor exists at
+    """portal.py's doctor-edit form. employee_id is deliberately NOT a
+    parameter here -- it's assigned once at create_doctor() time and never
+    changes on edit (Employee ID auto-numbering feature, same "assigned
+    once" rule patient_display_id already follows). Returns None if no such doctor exists at
     this hospital (nothing updated), same "hospital_id in the WHERE clause is
     the actual guard, not application logic" discipline as every other
     hospital-scoped write here.
@@ -455,7 +488,7 @@ def update_doctor(
         "years_experience": years_experience, "max_bookings_per_slot": max_bookings_per_slot,
         "online_quota": online_quota, "walkin_quota": walkin_quota,
         "followup_duration_minutes": followup_duration_minutes,
-        "phone": phone, "employee_id": employee_id, "location": location,
+        "phone": phone, "location": location,
     }
     if is_future_change:
         values.update(

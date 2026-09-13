@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { useNewTestBooking } from "@/hooks/useNewTestBooking";
 import { GENDER_VALUES } from "@/lib/validation/patientInfo";
+import { SectionHeader } from "./SectionHeader";
 
 type NewTestBookingDialogProps = {
   open: boolean;
@@ -64,6 +65,10 @@ export function NewTestBookingDialog({
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
+            <SectionHeader
+              title="Patient information"
+              description="Who this booking is for -- an existing patient is matched by phone number, otherwise a new one is created."
+            />
             <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
               <Field label="Patient name" htmlFor="patient_name" required>
                 <Input id="patient_name" required value={patientName} onChange={(e) => setPatientName(e.target.value)} />
@@ -111,6 +116,12 @@ export function NewTestBookingDialog({
               </Field>
             </div>
 
+            <div className="mt-space-3 border-t border-line pt-space-4">
+              <SectionHeader
+                title="Test selection"
+                description="Pick a diagnostic test or one or more lab tests -- these are mutually exclusive per booking."
+              />
+            </div>
             <Field label="Diagnostic test" htmlFor="diagnostic-tests">
               <div id="diagnostic-tests" className="flex flex-wrap gap-space-2">
                 {diagnosticTests.map((t) => (
@@ -171,6 +182,12 @@ export function NewTestBookingDialog({
 
             {category === "lab" && (
               <>
+                <div className="mt-space-3 border-t border-line pt-space-4">
+                  <SectionHeader
+                    title="Collection details"
+                    description="Whether the sample is collected at the hospital/lab or picked up from the patient's home."
+                  />
+                </div>
                 <Field label="Collection method" required>
                   <div className="flex gap-space-2">
                     {(["visit", "home"] as const).map((m) => (
@@ -207,6 +224,11 @@ export function NewTestBookingDialog({
               </>
             )}
 
+            {selectedTestIds.length > 0 && (
+              <div className="mt-space-3 border-t border-line pt-space-4">
+                <SectionHeader title="Date & time" description="An available date and time slot for this test." />
+              </div>
+            )}
             {selectedTestIds.length > 0 && (
               <Field label="Date">
                 {slotsLoading ? (

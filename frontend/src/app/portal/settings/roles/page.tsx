@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   Building2,
   Check,
-  ClipboardList,
   KeyRound,
   Minus,
   Plus,
@@ -140,13 +139,6 @@ export default function RolesPermissionsPage() {
                     disabled: true,
                     title: "Roles are fixed in this app — Admin, Receptionist and Doctor only, no custom roles yet.",
                   },
-                  { label: "Manage Users", icon: Users, href: "/portal/settings/staff" },
-                  {
-                    label: "Permission Templates",
-                    icon: ClipboardList,
-                    disabled: true,
-                    title: "Coming soon — bulk permission templates aren't built yet.",
-                  },
                   { label: "Audit Logs", icon: ScrollText, href: "/portal/settings/activity" },
                 ]}
               />
@@ -188,29 +180,6 @@ export default function RolesPermissionsPage() {
                   ))}
                 </tbody>
               </table>
-            </Card>
-
-            <Card className="p-space-4">
-              <h3 className="text-label font-bold text-ink-900">Permission Templates</h3>
-              <p className="text-hint mb-space-3">Jump straight to a role&apos;s own permission editor.</p>
-              <div className="space-y-space-1">
-                {ROLES.map((role) => {
-                  const Icon = ROLE_ICON[role];
-                  return (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => setEditingRole(role)}
-                      className="flex w-full items-center justify-between rounded-md px-space-2 py-space-2 text-left text-[13px] font-semibold text-ink-900 hover:bg-black/[0.03]"
-                    >
-                      <span className="flex items-center gap-space-2">
-                        <Icon size={15} className="text-brand-600" /> {ROLE_LABEL[role]} Template
-                      </span>
-                      <span className="text-ink-400">›</span>
-                    </button>
-                  );
-                })}
-              </div>
             </Card>
           </div>
         </div>

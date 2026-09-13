@@ -1,4 +1,5 @@
-from datetime import datetime
+import logging
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
@@ -6,9 +7,12 @@ from pydantic import BaseModel, Field
 
 import db.repository as db
 from admin.validation import _validate_doctor_fields
+from db.repositories.hospitals import hash_portal_password
 from portal.deps import _authenticate, require_capability
 from portal.routes.bookings import _appointment_json
+from webhook.dispatch import _get_whatsapp_client
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -39,7 +43,10 @@ async def portal_doctors(authorization: str | None = Header(default=None)):
     on_leave_today_count = db.get_doctors_on_leave_today_count(hospital.id)
     leave_usage = db.get_leave_usage_by_identity(hospital.id)
     leave_policy = db.get_leave_policy(hospital.id)
+    appointment_counts = db.get_appointment_counts_by_doctor(hospital.id)
     doctors = [_with_leave_balance(d, leave_usage, leave_policy) for d in doctors]
+    for d in doctors:
+        d["total_appointments"] = appointment_counts.get(d["id"], 0)
     return JSONResponse({"departments": departments, "doctors": doctors, "on_leave_today_count": on_leave_today_count})
 
 
@@ -60,7 +67,6 @@ class DoctorPayload(BaseModel):
     followup_duration_minutes: str = ""
     effective_from: str = ""
     phone: str = ""
-    employee_id: str = ""
     location: str = ""
 
 
@@ -82,7 +88,7 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
         ",".join(payload.working_days), ",".join(payload.working_hours), payload.slot_duration_minutes,
         ",".join(payload.breaks), payload.max_bookings_per_slot, payload.daily_booking_limit,
         payload.online_quota, payload.walkin_quota, payload.followup_duration_minutes, payload.effective_from,
-        phone=payload.phone, employee_id=payload.employee_id, location=payload.location,
+        phone=payload.phone, location=payload.location,
     )
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
@@ -103,7 +109,6 @@ async def portal_create_doctor(payload: DoctorPayload, authorization: str | None
         followup_duration_minutes=doctor_data["followup_duration_minutes"],
         effective_from=doctor_data["effective_from"],
         phone=doctor_data["phone"],
-        employee_id=doctor_data["employee_id"],
         location=doctor_data["location"],
     )
     db.record_audit_log(
@@ -130,6 +135,100 @@ async def portal_set_doctor_active(doctor_id: str, payload: dict, authorization:
         entity_type="doctor", entity_id=doctor_id, after={"is_active": is_active},
     )
     return JSONResponse({"ok": True, "is_active": is_active})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/password")
+async def portal_reset_doctor_password(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
+    """Doctors page's "Reset login access" quick action -- a doctor's login
+    IS a staff_details row under the unified-login system (login_staff_id),
+    so this is the same admin-initiated reset as staff.py's
+    set_staff_password(), just scoped/gated by doctor_id + manage_doctors
+    instead of staff_id + the "staff" RBAC permission (this file's own
+    established auth convention, not that one). update_staff_user_password()
+    still bumps the target's token_version, forcing their other sessions to
+    re-auth, same as the staff-side reset."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
+    doctor = db.get_doctor_full(hospital.id, doctor_id)
+    if doctor is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+    staff_id = doctor.get("login_staff_id")
+    if not staff_id:
+        return JSONResponse({"error": "This doctor doesn't have a login yet."}, status_code=400)
+
+    new_password = (payload or {}).get("new_password") or ""
+    if len(new_password) < 8:
+        return JSONResponse({"error": "New password must be at least 8 characters."}, status_code=400)
+
+    db.update_staff_user_password(staff_id, hash_portal_password(new_password))
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.reset_password",
+        entity_type="doctor", entity_id=doctor_id,
+    )
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/portal/doctors/{doctor_id}/delay")
+async def portal_delay_doctor_appointments(
+    doctor_id: str, payload: dict, authorization: str | None = Header(default=None)
+):
+    """Admin-triggered "Running late" -- staff-side equivalent of
+    doctor_portal.py's self-service /api/doctor/appointments/delay, for a
+    doctor who calls/messages in running behind instead of opening their own
+    login. Unlike the self-service version (always "today, from right
+    now"), staff pick the date, the cutoff time appointments must be at or
+    after, and the shift itself -- e.g. "today, from 3:20 PM, push back 1h
+    10m" -- reusing db.delay_doctor_appointments_from()."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    forbidden = require_capability(hospital, "manage_doctors")
+    if forbidden:
+        return forbidden
+    if db.get_doctor_full(hospital.id, doctor_id) is None:
+        return JSONResponse({"error": "No such doctor."}, status_code=404)
+
+    date_str = (payload or {}).get("date", "").strip()
+    from_time_str = (payload or {}).get("from_time", "").strip()
+    try:
+        on_date = date.fromisoformat(date_str)
+        from_time = time.fromisoformat(from_time_str)
+    except ValueError:
+        return JSONResponse({"error": "A valid date and from_time (HH:MM) are required."}, status_code=400)
+    try:
+        minutes = int((payload or {}).get("minutes"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "minutes (a whole number) is required."}, status_code=400)
+    if not (1 <= minutes <= 240):
+        return JSONResponse({"error": "minutes must be between 1 and 240."}, status_code=400)
+
+    shifted = db.delay_doctor_appointments_from(hospital.id, doctor_id, on_date, from_time, minutes)
+    if shifted and hospital.whatsapp_phone_number_id and hospital.access_token:
+        doctor = db.get_doctor_full(hospital.id, doctor_id)
+        doctor_name = doctor["name"] if doctor else "your doctor"
+        wa = _get_whatsapp_client(hospital)
+        for appointment, new_time in shifted:
+            try:
+                await wa.send_text(
+                    appointment.phone,
+                    f"Update: {doctor_name} is running a little behind schedule. Your appointment has been "
+                    f"moved to {new_time.strftime('%I:%M %p on %d %b').lstrip('0')}. Sorry for the inconvenience.",
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify %s about a running-late shift for appointment %s",
+                    appointment.phone, appointment.id,
+                )
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "doctor.running_late",
+        entity_type="doctor", entity_id=doctor_id,
+        after={"date": date_str, "from_time": from_time_str, "minutes": minutes, "appointments_shifted": len(shifted)},
+    )
+    return JSONResponse({"ok": True, "notified": len(shifted)})
 
 
 @router.get("/api/portal/doctors/{doctor_id}/leave")
@@ -324,7 +423,6 @@ class DoctorCsvRow(BaseModel):
     followup_duration_minutes: str = ""
     effective_from: str = ""
     phone: str = ""
-    employee_id: str = ""
     location: str = ""
 
 
@@ -377,7 +475,7 @@ async def portal_csv_import_doctors(
             row.working_days, row.working_hours, row.slot_duration_minutes, row.breaks,
             row.max_bookings_per_slot, row.daily_booking_limit, row.online_quota, row.walkin_quota,
             row.followup_duration_minutes, row.effective_from,
-            phone=row.phone, employee_id=row.employee_id, location=row.location,
+            phone=row.phone, location=row.location,
         )
         if errors:
             row_errors.extend(f"{label}: {e}" for e in errors)
@@ -399,7 +497,6 @@ async def portal_csv_import_doctors(
             followup_duration_minutes=doctor_data["followup_duration_minutes"],
             effective_from=doctor_data["effective_from"],
             phone=doctor_data["phone"],
-            employee_id=doctor_data["employee_id"],
             location=doctor_data["location"],
         )
         created_count += 1
@@ -451,7 +548,7 @@ async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authoriza
         ",".join(payload.working_days), ",".join(payload.working_hours), payload.slot_duration_minutes,
         ",".join(payload.breaks), payload.max_bookings_per_slot, payload.daily_booking_limit,
         payload.online_quota, payload.walkin_quota, payload.followup_duration_minutes, payload.effective_from,
-        phone=payload.phone, employee_id=payload.employee_id, location=payload.location,
+        phone=payload.phone, location=payload.location,
     )
     if errors:
         return JSONResponse({"errors": errors}, status_code=400)
@@ -472,7 +569,6 @@ async def portal_update_doctor(doctor_id: str, payload: DoctorPayload, authoriza
         followup_duration_minutes=doctor_data["followup_duration_minutes"],
         effective_from=doctor_data["effective_from"],
         phone=doctor_data["phone"],
-        employee_id=doctor_data["employee_id"],
         location=doctor_data["location"],
     )
     if doctor is None:

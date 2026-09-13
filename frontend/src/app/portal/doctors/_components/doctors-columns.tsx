@@ -50,9 +50,9 @@ export function createDoctorColumns({
 }: CreateDoctorColumnsOptions): ColumnDef<Doctor>[] {
   return [
     {
-      id: "index",
-      header: "#",
-      cell: ({ row }) => <span className="text-ink-400">{row.index + 1}</span>,
+      id: "employee_id",
+      header: "Employee ID",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.employee_id || "—"}</span>,
     },
     {
       id: "doctor",
@@ -87,11 +87,7 @@ export function createDoctorColumns({
       header: "Department",
       cell: ({ row }) => <span className="text-ink-600">{row.original.department_name}</span>,
     },
-    {
-      id: "employee_id",
-      header: "Employee ID",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.employee_id || "—"}</span>,
-    },
+  
     {
       id: "leave_balance",
       header: "Leave Balance",

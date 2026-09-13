@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { useNewBooking } from "@/hooks/useNewBooking";
 import { GENDER_VALUES } from "@/lib/validation/patientInfo";
+import { SectionHeader } from "./SectionHeader";
 
 type NewBookingDialogProps = {
   open: boolean;
@@ -53,6 +54,10 @@ export function NewBookingDialog({
           <p className="text-[13px] text-ink-400">Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
+            <SectionHeader
+              title="Patient information"
+              description="Who this appointment is for -- an existing patient is matched by phone number, otherwise a new one is created."
+            />
             <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
               <Field label="Patient name" htmlFor="patient_name" required>
                 <Input id="patient_name" required value={patientName} onChange={(e) => setPatientName(e.target.value)} />
@@ -100,6 +105,12 @@ export function NewBookingDialog({
               </Field>
             </div>
 
+            <div className="mt-space-3 border-t border-line pt-space-4">
+              <SectionHeader
+                title="Appointment details"
+                description="Department, doctor, and an available date and time slot for this booking."
+              />
+            </div>
             <Field label="Department" htmlFor="department" required>
               <select
                 id="department"

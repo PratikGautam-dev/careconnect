@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  BedDouble,
   CalendarPlus,
   FlaskConical,
   Mail,
@@ -9,7 +10,6 @@ import {
   Phone,
   Send,
   UserRound,
-  Video,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -23,6 +23,7 @@ type Props = {
   loading: boolean;
   onBookAppointment: () => void;
   onOrderTest: () => void;
+  onBookDaycare: () => void;
 };
 
 /** Right-rail "Patient Details" panel for /portal/messages -- matches the
@@ -30,14 +31,15 @@ type Props = {
  * own instruction). Every field shown is real (resolved by phone via
  * useMessages' matchedPatient, the same patients directory /portal/patients
  * itself reads) except Email, which this schema has no column for anywhere
- * -- shown as "—" rather than invented. Share Report/Start Video Call/
- * Start Voice Call/Send Email have no backing integration yet, so they're
- * disabled with a "Coming soon" title, same convention as every other
+ * -- shown as "—" rather than invented. Share Report/Send Email have no
+ * backing integration yet, so they're disabled with a "Coming soon" title,
+ * same convention as every other
  * not-yet-built action elsewhere in the portal (e.g. the Doctors page's
- * "Send message"). Book Appointment/Order Diagnostic Test are real --
- * they open the same dialogs the Appointments/Diagnostic pages use,
- * pre-filled with this conversation's phone (and name, once matched). */
-export function MessagePatientPanel({ patient, loading, onBookAppointment, onOrderTest }: Props) {
+ * "Send message"). Book Appointment/Order Diagnostic Test/Book Daycare are
+ * real -- they open the same dialogs the Appointments/Diagnostic/Daycare
+ * pages use, pre-filled with this conversation's phone (and name, once
+ * matched). */
+export function MessagePatientPanel({ patient, loading, onBookAppointment, onOrderTest, onBookDaycare }: Props) {
   if (loading) {
     return (
       <Card className="p-space-4">
@@ -120,10 +122,8 @@ export function MessagePatientPanel({ patient, loading, onBookAppointment, onOrd
         actions={[
           { label: "Book Appointment", icon: CalendarPlus, onClick: onBookAppointment },
           { label: "Order Diagnostic Test", icon: FlaskConical, onClick: onOrderTest },
+          { label: "Book Daycare Appointment", icon: BedDouble, onClick: onBookDaycare },
           { label: "Share Report", icon: Send, disabled: true, title: "Coming soon — no report-sharing integration exists yet" },
-          { label: "Start Video Call", icon: Video, disabled: true, title: "Coming soon — no calling integration exists yet" },
-          { label: "Start Voice Call", icon: Phone, disabled: true, title: "Coming soon — no calling integration exists yet" },
-          { label: "Send Email", icon: Mail, disabled: true, title: "Coming soon — no email integration exists yet" },
         ]}
       />
     </div>
