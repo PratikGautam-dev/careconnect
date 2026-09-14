@@ -178,9 +178,13 @@ STRINGS: dict[str, dict[Language, str]] = {
     # (overriding _send_menu_list's generic patient-header + "How can we
     # assist you today?" body) -- the patient is already active by the time
     # this is shown, so the list itself both names them and offers the menu.
+    # welcome_line: the hospital's own name/greeting (resolution.py builds
+    # this -- either hospitals.welcome_message_text verbatim if the hospital
+    # set one, or a "🏥 Welcome to {hospital_name}" default) -- never a
+    # hardcoded platform brand name.
     SINGLE_PATIENT_CONFIRM: {
-        "en": "🏥 Welcome to CareConnect\n\nCurrent Patient: {patient_name}\nPatient ID: {patient_code}\n\nHow can we assist you today?",
-        "hi": "🏥 CareConnect में आपका स्वागत है\n\nवर्तमान मरीज़: {patient_name}\nपेशेंट आईडी: {patient_code}\n\nहम आज आपकी कैसे सहायता कर सकते हैं?",
+        "en": "{welcome_line}\n\nCurrent Patient: {patient_name}\nPatient ID: {patient_code}\n\nHow can we assist you today?",
+        "hi": "{welcome_line}\n\nवर्तमान मरीज़: {patient_name}\nपेशेंट आईडी: {patient_code}\n\nहम आज आपकी कैसे सहायता कर सकते हैं?",
     },
     # Sent as a separate follow-up buttons message right under that list --
     # an offer to switch patient, not a gate blocking the menu.
@@ -192,9 +196,10 @@ STRINGS: dict[str, dict[Language, str]] = {
     # 2+ linked patients: no default candidate is picked (unlike
     # single_patient_confirm above), so the welcome text is folded directly
     # into the list prompt itself instead of a separate "Continue as X?" card.
+    # welcome_line: same convention as SINGLE_PATIENT_CONFIRM above.
     MULTI_PATIENT_SELECTOR_PROMPT: {
-        "en": "Welcome to CareConnect.\n\nPlease select the patient.",
-        "hi": "CareConnect में आपका स्वागत है।\n\nकृपया मरीज़ का चयन करें।",
+        "en": "{welcome_line}\n\nPlease select the patient.",
+        "hi": "{welcome_line}\n\nकृपया मरीज़ का चयन करें।",
     },
 
     # Prepended onto the main menu list's own body (flows/router.py's

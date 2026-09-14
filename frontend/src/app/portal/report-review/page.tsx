@@ -12,6 +12,7 @@ import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatHeaderDate } from "@/lib/formatDate";
+import { usePermission } from "@/lib/staffAuth";
 import {
   INITIAL_MOCK_REPORTS,
   RECENT_REPORT_ACTIVITY,
@@ -41,9 +42,17 @@ const PRIORITY_OPTIONS = [
  * approve/return/delete/flag -- refreshing the page resets everything. Built
  * from the reference screenshot in full, minus nothing, since the whole
  * page is mock by design here (not a case of a real page missing a few
- * fields). */
+ * fields).
+ *
+ * Reached via two separate sidebar nav items -- "Report review" and
+ * "Report analytics" -- pointing at this same route with their own
+ * independent page_keys (migration 20260914150000); this page renders for
+ * whichever one the signed-in role actually has view access to (a role
+ * could plausibly have just one, not both). */
 export default function ReportReviewPage() {
   const { hospital, ready } = usePortalGuard();
+  const canViewReview = usePermission("report-review", "view");
+  const canViewAnalytics = usePermission("report-analytics", "view");
   const [reports, setReports] = useState<MockReport[]>(INITIAL_MOCK_REPORTS);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -90,6 +99,14 @@ export default function ReportReviewPage() {
   }
   function handleToggleUrgent(report: MockReport) {
     updateReport(report.id, { priority: report.priority === "Urgent" ? "Normal" : "Urgent" });
+  }
+
+  if (ready && !canViewReview && !canViewAnalytics) {
+    return (
+      <PortalShell hospital={hospital} active="report-review">
+        <p className="text-[13px] text-ink-400">You don&apos;t have access to Report Review.</p>
+      </PortalShell>
+    );
   }
 
   return (

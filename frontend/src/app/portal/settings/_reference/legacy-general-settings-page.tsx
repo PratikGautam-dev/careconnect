@@ -86,8 +86,8 @@ function LegacyPortalSettingsPageContent() {
               <Card className="p-space-5">
                 <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Messaging</h2>
                 <p className="mb-space-3 text-[12.5px] text-ink-400">
-                  Extra text patients see: appended after a booking/cancellation/reschedule completes, shown as an informational
-                  line in the &quot;Hospital Information&quot; reply, and shown on the &quot;Consent &amp; Privacy&quot; menu item.
+                  Extra text patients see: appended after a booking/cancellation/reschedule completes, and shown as an
+                  informational line in the &quot;Hospital Information&quot; reply.
                 </p>
                 <Field label="Closing / thank-you message" htmlFor="closing_message_text" hint='e.g. "Thank you for choosing City Hospital. For emergencies, call 102."'>
                   <Textarea
@@ -97,19 +97,11 @@ function LegacyPortalSettingsPageContent() {
                     onChange={(e) => setSettings({ ...settings, closing_message_text: e.target.value })}
                   />
                 </Field>
-                <Field label="Business hours" htmlFor="business_hours_text" hint="e.g. Mon-Sat, 9am-8pm">
+                <Field label="Business hours" htmlFor="business_hours_text" hint="e.g. Mon-Sat, 9am-8pm" className="mb-0">
                   <Input
                     id="business_hours_text"
                     value={settings.business_hours_text}
                     onChange={(e) => setSettings({ ...settings, business_hours_text: e.target.value })}
-                  />
-                </Field>
-                <Field label="Privacy notice text" htmlFor="privacy_notice_text" hint="Leave blank to show a generic default notice.">
-                  <Textarea
-                    id="privacy_notice_text"
-                    rows={4}
-                    value={settings.privacy_notice_text}
-                    onChange={(e) => setSettings({ ...settings, privacy_notice_text: e.target.value })}
                   />
                 </Field>
               </Card>

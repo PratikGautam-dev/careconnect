@@ -66,6 +66,59 @@ def test_break_partially_overlapping_a_candidate_slot_excludes_it(hospital_id):
     assert "09:45" not in times
 
 
+# --- Appointment Settings card (migration 20260914120000): hospital-wide
+# default_appointment_duration_minutes/buffer_minutes ---
+
+def test_buffer_minutes_adds_gap_between_consecutive_slots(hospital_id):
+    db.update_hospital_settings(
+        hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=None,
+        buffer_minutes=10,
+    )
+    doctor = db.create_doctor(
+        hospital_id, "cardiology", "Dr. Buffer Test",
+        working_days=["Mon"], working_hours=["09:00-10:00"], slot_duration_minutes=20,
+    )
+    slots = db.get_slots(hospital_id, doctor["id"])
+    times = sorted(s["time"] for s in slots if s["date"] == slots[0]["date"])
+    # 20-minute slots with a 10-minute buffer -> 09:00, 09:30 (next 09:20 pushed to
+    # 09:20+10=09:30), 10:00 would need slot to end by 10:00 (09:30+20=09:50, fits;
+    # next start 10:00 has no room left in the 09:00-10:00 shift).
+    assert times == ["09:00", "09:30"]
+
+
+def test_no_buffer_configured_packs_slots_back_to_back(hospital_id):
+    doctor = db.create_doctor(
+        hospital_id, "cardiology", "Dr. No Buffer Test",
+        working_days=["Mon"], working_hours=["09:00-10:00"], slot_duration_minutes=20,
+    )
+    slots = db.get_slots(hospital_id, doctor["id"])
+    times = sorted(s["time"] for s in slots if s["date"] == slots[0]["date"])
+    assert times == ["09:00", "09:20", "09:40"]
+
+
+def test_doctor_with_no_slot_duration_uses_hospital_default(hospital_id):
+    db.update_hospital_settings(
+        hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=None,
+        default_appointment_duration_minutes=15,
+    )
+    doctor = db.create_doctor(
+        hospital_id, "cardiology", "Dr. No Duration Test",
+        working_days=["Mon"], working_hours=["09:00-09:45"], slot_duration_minutes=None,
+    )
+    slots = db.get_slots(hospital_id, doctor["id"])
+    times = sorted(s["time"] for s in slots if s["date"] == slots[0]["date"])
+    assert times == ["09:00", "09:15", "09:30"]
+
+
+def test_validate_doctor_fields_allows_blank_slot_duration():
+    doctor_data, errors, _warnings = _validate_doctor_fields(
+        0, "Dr. Blank Duration", "Cardiology", "MBBS", "5", "Mon,Tue", "09:00-11:00", "",
+        phone="9999999999",
+    )
+    assert errors == []
+    assert doctor_data["slot_duration_minutes"] is None
+
+
 def test_doctor_leave_date_skipped_entirely(hospital_id):
     doctor = db.create_doctor(
         hospital_id, "cardiology", "Dr. Leave Test",

@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BedDouble, CalendarPlus, CheckCircle2, Hourglass, IndianRupee } from "lucide-react";
+import { Bed, BedDouble, CalendarPlus, CheckCircle2, Hourglass, IndianRupee } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ManageBedsDialog } from "@/components/portal/ManageBedsDialog";
 import { NewDaycareBookingDialog } from "@/components/portal/NewDaycareBookingDialog";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
@@ -15,6 +17,7 @@ import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate } from "@/lib/formatDate";
+import { usePermission } from "@/lib/staffAuth";
 import { type Appointment, useAppointments } from "@/hooks/useAppointments";
 import { createDaycareAppointmentColumns, PROCEDURE_STATUS_LABELS } from "../_components/daycare-appointments-columns";
 
@@ -75,6 +78,7 @@ function matchesTab(a: Appointment, tab: Tab, now: Date): boolean {
  * DataTable's own built-in client pagination under it. */
 export default function PortalDaycareAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
+  const canView = usePermission("daycare_appointments", "view");
   const [tab, setTab] = useState<Tab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -86,6 +90,7 @@ export default function PortalDaycareAppointmentsPage() {
     handleAdvanceProcedureStatus, handleApproveProcedureReschedule, handleRejectProcedureReschedule,
   } = useAppointments(ready, "daycare");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
+  const [manageBedsOpen, setManageBedsOpen] = useState(false);
 
   const today = new Date();
 
@@ -170,12 +175,27 @@ export default function PortalDaycareAppointmentsPage() {
     },
   ];
 
+  if (!canView) {
+    return (
+      <PortalShell hospital={hospital} active="daycare">
+        <p className="text-[13px] text-ink-400">You don&apos;t have access to Daycare Appointments.</p>
+      </PortalShell>
+    );
+  }
+
   return (
     <PortalShell hospital={hospital} active="daycare">
       <PageHeader
         title="Daycare appointments"
         description={formatHeaderDate(today)}
-        actions={<PortalTopBarActions />}
+        actions={
+          <div className="flex items-center gap-space-2">
+            <Button type="button" variant="secondary" size="md" onClick={() => setManageBedsOpen(true)}>
+              <Bed size={14} /> Manage Beds
+            </Button>
+            <PortalTopBarActions />
+          </div>
+        }
       />
 
       {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
@@ -294,6 +314,7 @@ export default function PortalDaycareAppointmentsPage() {
       </div>
 
       <NewDaycareBookingDialog open={newBookingOpen} onOpenChange={setNewBookingOpen} onBooked={load} />
+      <ManageBedsDialog open={manageBedsOpen} onOpenChange={setManageBedsOpen} />
     </PortalShell>
   );
 }

@@ -10,7 +10,15 @@ import { StaffSessionContext, staffFetch, type StaffSession } from "@/lib/staffA
  * already owns that; a session-less render here just means every consumer
  * sees `session: null` (usePermission/hasPermission both fail open in that
  * state) until either the fetch resolves or the page itself bounces to
- * /portal/login. */
+ * /portal/login.
+ *
+ * Also exposes `setSession` (see useSetStaffSession) so the login page can
+ * seed this context SYNCHRONOUSLY from its own login response -- that
+ * response already carries the full staff+permissions shape (issue_tokens()
+ * on the backend, shared by login/refresh), so there's no need to wait on a
+ * second /me round-trip (and the "sidebar/dashboard render ungated, then
+ * pop into their real per-role state a moment later" flash that caused)
+ * before navigating into the portal. */
 export function StaffSessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<StaffSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +37,7 @@ export function StaffSessionProvider({ children }: { children: React.ReactNode }
   }, [load]);
 
   return (
-    <StaffSessionContext.Provider value={{ session, error, reload: load }}>
+    <StaffSessionContext.Provider value={{ session, error, reload: load, setSession }}>
       {children}
     </StaffSessionContext.Provider>
   );

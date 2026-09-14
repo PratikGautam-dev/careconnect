@@ -23,6 +23,15 @@ DEFAULT_FOLLOWUP_VALIDITY_DAYS = 30
 # a hospital that never touches this setting sees no behavior change.
 DEFAULT_FUTURE_BOOKING_DAYS = 14
 
+# Appointment Settings card (migration 20260914120000): the code-level
+# default when a hospital's own default_appointment_duration_minutes is
+# NULL (never configured) -- applied to any doctor whose own
+# slot_duration_minutes is also unset (db/repositories/doctors.py).
+DEFAULT_APPOINTMENT_DURATION_MINUTES = 30
+# Same convention for buffer_minutes -- NULL means no gap between slots,
+# unchanged from the behavior before this setting existed.
+DEFAULT_BUFFER_MINUTES = 0
+
 
 def get_hospital_settings(hospital_id: int) -> dict:
     """Always returns a row (upserting a blank one first if this hospital has
@@ -47,6 +56,9 @@ def get_hospital_settings(hospital_id: int) -> dict:
             float(row.home_collection_charge) if row.home_collection_charge is not None else None
         ),
         "future_booking_days": row.future_booking_days,
+        "default_appointment_duration_minutes": row.default_appointment_duration_minutes,
+        "buffer_minutes": row.buffer_minutes,
+        "max_appointments_per_day": row.max_appointments_per_day,
     }
 
 
@@ -66,10 +78,39 @@ def get_future_booking_days(hospital_id: int) -> int:
     return get_hospital_settings(hospital_id)["future_booking_days"] or DEFAULT_FUTURE_BOOKING_DAYS
 
 
+def get_default_appointment_duration_minutes(hospital_id: int) -> int:
+    """The one value db/repositories/doctors.py's compute_doctor_candidate_
+    slots() actually reads, applied only to a doctor whose own
+    slot_duration_minutes is NULL -- falls back to
+    DEFAULT_APPOINTMENT_DURATION_MINUTES on a NULL (never configured)
+    setting, same convention get_future_booking_days() above uses."""
+    return (
+        get_hospital_settings(hospital_id)["default_appointment_duration_minutes"]
+        or DEFAULT_APPOINTMENT_DURATION_MINUTES
+    )
+
+
+def get_buffer_minutes(hospital_id: int) -> int:
+    """The gap compute_doctor_candidate_slots() adds between every
+    consecutive candidate slot, for every doctor at this hospital --
+    falls back to DEFAULT_BUFFER_MINUTES (0, no gap) on a NULL (never
+    configured) setting."""
+    return get_hospital_settings(hospital_id)["buffer_minutes"] or DEFAULT_BUFFER_MINUTES
+
+
+def get_max_appointments_per_day(hospital_id: int) -> int | None:
+    """Unlike the two getters above, no code-level default to fall back to
+    -- NULL genuinely means "no hospital-wide cap," the same as today
+    before this setting existed. db/repositories/appointments.py's
+    create_appointment() is the one enforcement point."""
+    return get_hospital_settings(hospital_id)["max_appointments_per_day"]
+
+
 def update_hospital_settings(
     hospital_id: int, followup_validity_days: int | None, followup_fee: float | None,
     new_consultation_fee: float | None, home_collection_charge: float | None = None,
-    future_booking_days: int | None = None,
+    future_booking_days: int | None = None, default_appointment_duration_minutes: int | None = None,
+    buffer_minutes: int | None = None, max_appointments_per_day: int | None = None,
 ) -> dict:
     """portal/routes/settings.py's own write path -- always a full-object
     save (like every other settings form in this codebase), not a partial
@@ -84,6 +125,8 @@ def update_hospital_settings(
             hospital_id=hospital_id, followup_validity_days=followup_validity_days,
             followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
             home_collection_charge=home_collection_charge, future_booking_days=future_booking_days,
+            default_appointment_duration_minutes=default_appointment_duration_minutes,
+            buffer_minutes=buffer_minutes, max_appointments_per_day=max_appointments_per_day,
         )
         .on_conflict_do_update(
             index_elements=["hospital_id"],
@@ -91,6 +134,8 @@ def update_hospital_settings(
                 "followup_validity_days": followup_validity_days, "followup_fee": followup_fee,
                 "new_consultation_fee": new_consultation_fee, "home_collection_charge": home_collection_charge,
                 "future_booking_days": future_booking_days,
+                "default_appointment_duration_minutes": default_appointment_duration_minutes,
+                "buffer_minutes": buffer_minutes, "max_appointments_per_day": max_appointments_per_day,
             },
         )
     )

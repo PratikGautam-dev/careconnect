@@ -8,13 +8,14 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
-import { saveStaffTokens } from "@/lib/staffAuth";
+import { saveStaffTokens, staffSessionFromAuthResponse, useSetStaffSession, type StaffAuthResponse } from "@/lib/staffAuth";
 import { googleLoginUrl } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function PortalLoginPage() {
   const router = useRouter();
+  const setStaffSession = useSetStaffSession();
 
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPassword, setStaffPassword] = useState("");
@@ -32,12 +33,19 @@ export default function PortalLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: staffEmail, password: staffPassword }),
       });
-      const data = await res.json();
+      const data: StaffAuthResponse & { error?: string } = await res.json();
       if (!res.ok) {
         setStaffError(data.error || "Couldn't sign in. Please try again.");
         return;
       }
       saveStaffTokens(data.access_token, data.refresh_token);
+      // Seed StaffSessionContext straight from this response instead of
+      // letting the dashboard render ungated for a moment and then pop into
+      // its real per-role state once a separate /me fetch resolves -- the
+      // login response already carries the exact same staff+permissions
+      // shape /me does (see staffSessionFromAuthResponse's own docstring),
+      // so there's nothing to wait on.
+      setStaffSession(staffSessionFromAuthResponse(data));
       // Every role (including doctor) lands in the same shared portal now --
       // what they see there is driven by the RBAC permission matrix, not by
       // which door they logged in through.

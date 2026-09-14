@@ -5,7 +5,10 @@ from admin.validation import _parse_offsets
 import db.repository as db
 from core.translations import SUPPORTED_LANGUAGES
 from db.repositories.handoffs import DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS
-from db.repositories.hospital_settings import DEFAULT_FOLLOWUP_VALIDITY_DAYS, DEFAULT_FUTURE_BOOKING_DAYS
+from db.repositories.hospital_settings import (
+    DEFAULT_APPOINTMENT_DURATION_MINUTES, DEFAULT_BUFFER_MINUTES, DEFAULT_FOLLOWUP_VALIDITY_DAYS,
+    DEFAULT_FUTURE_BOOKING_DAYS,
+)
 from modules.google_calendar import is_calendar_integration_configured
 from portal.deps import _authenticate, get_current_staff, require_capability, require_permission
 
@@ -45,6 +48,15 @@ _MAX_FEE = 1_000_000
 _MIN_FUTURE_BOOKING_DAYS = 1
 _MAX_FUTURE_BOOKING_DAYS = 60
 
+# Appointment Settings card (migration 20260914120000): same "validate here
+# for a clean 400" reasoning as the bounds above.
+_MIN_APPOINTMENT_DURATION_MINUTES = 5
+_MAX_APPOINTMENT_DURATION_MINUTES = 240
+_MIN_BUFFER_MINUTES = 0
+_MAX_BUFFER_MINUTES = 120
+_MIN_MAX_APPOINTMENTS_PER_DAY = 1
+_MAX_MAX_APPOINTMENTS_PER_DAY = 100_000
+
 
 @router.get("/api/portal/settings")
 async def portal_get_settings(authorization: str | None = Header(default=None)):
@@ -71,7 +83,6 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             # these two ARE genuine self-serve bot customization -- same
             # category as closing_message_text/business_hours_text above.
             "require_patient_confirmation": hospital.require_patient_confirmation,
-            "privacy_notice_text": hospital.privacy_notice_text or "",
             # docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up:
             # per-hospital Follow-up settings (db/repositories/hospital_settings.py),
             # not columns on `hospitals` itself.
@@ -86,6 +97,17 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             # 14-day default that silently ran dry wherever nothing was
             # actually hitting the external-cron-only top-up endpoint.
             "future_booking_days": hospital_settings["future_booking_days"] or DEFAULT_FUTURE_BOOKING_DAYS,
+            # Appointment Settings card (migration 20260914120000): the
+            # first two are self-serve settings (writable via POST below);
+            # appointments_today_count is read-only, live data for the
+            # "X out of Y" progress bar next to max_appointments_per_day --
+            # not stored anywhere, not part of the POST body.
+            "default_appointment_duration_minutes": (
+                hospital_settings["default_appointment_duration_minutes"] or DEFAULT_APPOINTMENT_DURATION_MINUTES
+            ),
+            "buffer_minutes": hospital_settings["buffer_minutes"] or DEFAULT_BUFFER_MINUTES,
+            "max_appointments_per_day": hospital_settings["max_appointments_per_day"],
+            "appointments_today_count": db.get_hospital_booked_appointments_today_count(hospital.id),
         },
         # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
         # -- rules out any browser/CDN-level HTTP caching of this
@@ -160,6 +182,35 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
                 "error": f"future_booking_days must be between {_MIN_FUTURE_BOOKING_DAYS} and {_MAX_FUTURE_BOOKING_DAYS}.",
             }, status_code=400)
 
+    def _parse_bounded_int(raw, field_name, unit, lo, hi):
+        if raw in (None, ""):
+            return None, None
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None, JSONResponse({"error": f"{field_name} must be a whole number of {unit}."}, status_code=400)
+        if not (lo <= value <= hi):
+            return None, JSONResponse({"error": f"{field_name} must be between {lo} and {hi}."}, status_code=400)
+        return value, None
+
+    default_appointment_duration_minutes, error = _parse_bounded_int(
+        payload.get("default_appointment_duration_minutes"), "default_appointment_duration_minutes", "minutes",
+        _MIN_APPOINTMENT_DURATION_MINUTES, _MAX_APPOINTMENT_DURATION_MINUTES,
+    )
+    if error:
+        return error
+    buffer_minutes, error = _parse_bounded_int(
+        payload.get("buffer_minutes"), "buffer_minutes", "minutes", _MIN_BUFFER_MINUTES, _MAX_BUFFER_MINUTES,
+    )
+    if error:
+        return error
+    max_appointments_per_day, error = _parse_bounded_int(
+        payload.get("max_appointments_per_day"), "max_appointments_per_day", "appointments",
+        _MIN_MAX_APPOINTMENTS_PER_DAY, _MAX_MAX_APPOINTMENTS_PER_DAY,
+    )
+    if error:
+        return error
+
     def _parse_fee(raw, field_name):
         if raw in (None, ""):
             return None, None
@@ -213,7 +264,6 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         session_timeout_minutes=session_timeout_minutes,
         handoff_auto_resolve_hours=handoff_auto_resolve_hours,
         require_patient_confirmation=bool(payload.get("require_patient_confirmation", False)),
-        privacy_notice_text=(payload.get("privacy_notice_text") or "").strip() or None,
         # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
         # not self-serve -- passed straight through unchanged, same
         # discipline every other operator-only field on this call already
@@ -229,6 +279,8 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         hospital.id, followup_validity_days=followup_validity_days,
         followup_fee=followup_fee, new_consultation_fee=new_consultation_fee,
         home_collection_charge=home_collection_charge, future_booking_days=future_booking_days,
+        default_appointment_duration_minutes=default_appointment_duration_minutes, buffer_minutes=buffer_minutes,
+        max_appointments_per_day=max_appointments_per_day,
     )
     db.record_audit_log(
         "portal", hospital.id, "tenant portal", "settings.update",

@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   FlaskConical,
   LayoutDashboard,
+  LogIn,
   LogOut,
   MessageCircle,
   Plane,
@@ -17,7 +18,9 @@ import {
   Settings,
   ShieldCheck,
   Stethoscope,
+  UserCheck,
   UserCog,
+  UserRound,
   Users,
   X,
 } from "lucide-react";
@@ -39,25 +42,16 @@ import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 // render as disabled "Coming soon" rows (see the .filter/.map below) --
 // there's no backend yet for billing. Billing is additionally `hidden`
 // (explicit instruction: hide it, don't delete it -- kept here so
-// re-enabling later is a one-line flip). Report analytics has no backend
-// of its own either, but rather than leave it as a second dead "Coming
-// soon" row it now just reuses the real Report review page/permission
-// (explicit instruction: only touch this sidebar file, no new page).
-// Leave requests (migration 20260912065049) is real now. Doctor appointments, Diagnostic &
-// lab test appointments, and Daycare appointments all share the
-// "appointments" permission -- each is a view over the same underlying
-// appointment list, just scoped to a different appointment_type_id category
-// (useAppointments' `category` param). Daycare (its own sidebar section,
-// pulled out of what used to be lumped under "diagnostic" -- see
-// _apply_category_filter's own comment) is real, backed by the Daycare/
-// Procedure rebuild's already-existing approve/reject/advance-status/
-// reschedule-approval routes, which had no portal page wired to them until
-// now. Report review (/portal/report-review) is a real route now too, but
-// frontend-only mock data by explicit instruction -- there's no
-// role_permissions row for "report-review" (no backend page-key exists for
-// it), so it's listed in NO_PERMISSION_GATE_KEYS below to stay visible to
-// every signed-in role rather than being hidden by a permission lookup that
-// can never succeed.
+// re-enabling later is a one-line flip). Leave requests (migration
+// 20260912065049) is real now. Doctor/Daycare/Lab & Diagnostic Appointments
+// each have their OWN real page_key now (migration 20260914140000 --
+// confirmed with the user a role might get one category without the other
+// two, so they can no longer share one "appointments" permission). Report
+// review AND Report analytics (both still frontend-only mock data, sharing
+// /portal/report-review as their href -- "Report analytics" was never a
+// second page, just a second nav label) are likewise real, independent
+// page_keys now (migration 20260914150000), gated by hasPermission below
+// like every other real nav item.
 const NAV_ITEMS = [
   {
     key: "dashboard",
@@ -66,6 +60,14 @@ const NAV_ITEMS = [
     href: "/portal/dashboard",
     pageKey: "dashboard",
   },
+
+  // Doctor/Daycare/Lab & Diagnostic Appointments used to all share ONE
+  // pageKey ("appointments") -- confirmed with the user this was wrong,
+  // since a role might reasonably get one category without the other two.
+  // Each now has its own real page_key (migration 20260914140000), cloned
+  // from "appointments"' existing values per hospital/role so nothing any
+  // hospital already granted changes on its own -- only a future edit via
+  // Roles & Permissions can diverge them.
   {
     key: "appointments",
     label: "Doctor Appointments",
@@ -78,14 +80,14 @@ const NAV_ITEMS = [
     label: "Daycare Appointments",
     icon: BedDouble,
     href: "/portal/appointments/daycare",
-    pageKey: "appointments",
+    pageKey: "daycare_appointments",
   },
   {
     key: "diagnostic",
     label: "Lab & Diagnostic Appointments",
     icon: FlaskConical,
     href: "/portal/appointments/diagnostic",
-    pageKey: "appointments",
+    pageKey: "diagnostic_appointments",
   },
 
   {
@@ -169,6 +171,30 @@ const NAV_ITEMS = [
     href: "/portal/settings",
     pageKey: "settings",
   },
+  // Both pages themselves are still frontend-only mock data (explicit
+  // instruction) -- only the Leave slice of Attendance's own "Attendance
+  // status" donut comes from anything real eventually (Leave requests),
+  // Check-in/Check-out wiring is a deliberate later follow-up. The
+  // page_keys ("attendance"/"check_in_out") ARE real now though (migration
+  // 20260914130000, portal/permissions.py) -- gated by hasPermission below
+  // like every other real nav item, not a NO_PERMISSION_GATE_KEYS bypass.
+  // Default permissions: view+write for every role except the seeded Admin
+  // role (confirmed with the user -- an admin doesn't check themselves in/
+  // out day to day), same as that migration's own backfill.
+  {
+    key: "attendance",
+    label: "Attendance",
+    icon: UserCheck,
+    href: "/portal/attendance",
+    pageKey: "attendance",
+  },
+  {
+    key: "check-in-out",
+    label: "Check-in / Check-out",
+    icon: LogIn,
+    href: "/portal/check-in-out",
+    pageKey: "check_in_out",
+  },
 
   // Self-service submission (migration 6eda12041ecf) that feeds the review
   // queue above -- ANY role, not just doctor (its default permission is
@@ -181,13 +207,26 @@ const NAV_ITEMS = [
     href: "/portal/holiday-application",
     pageKey: "holiday_application",
   },
+  // Personal account page (name/contact/schedule/change password) --
+  // reachable from the account dropdown too, but every signed-in role
+  // should be able to find it in the main nav directly, same as the
+  // reference dashboard mockup shows. No role_permissions row exists for
+  // it (it's per-person, not gated by any page-key permission), so it's
+  // also listed in NO_PERMISSION_GATE_KEYS below.
+  {
+    key: "profile-settings",
+    label: "Profile",
+    icon: UserRound,
+    href: "/portal/settings/profile-settings",
+    pageKey: "profile-settings",
+  },
 ];
 
 // Nav items whose href-having route has no real backend permission model
 // yet -- gating these through hasPermission would hide them for every role
 // (an unrecognized pageKey never matches any role_permissions row), so they
 // skip that check entirely instead.
-const NO_PERMISSION_GATE_KEYS = new Set(["report-review", "report-analytics"]);
+const NO_PERMISSION_GATE_KEYS = new Set(["profile-settings"]);
 
 type Props = {
   hospital: PortalHospital | null;
@@ -337,7 +376,7 @@ export function PortalSidebar({
                 onClose?.();
               }}
             >
-              <Settings size={14} /> Settings
+              <UserRound size={14} /> Profile
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={handleLogout}>
               <LogOut size={14} /> Log out

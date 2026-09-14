@@ -130,7 +130,16 @@ export default function AppointmentDetailPage() {
                 )}
 
                 {appointment.status !== "booked" && (
-                  <PermissionGate page="appointments" action="delete">
+                  <PermissionGate
+                    page={
+                      appointment.procedure_id != null
+                        ? "daycare_appointments"
+                        : appointment.diagnostic_test_id != null
+                          ? "diagnostic_appointments"
+                          : "appointments"
+                    }
+                    action="delete"
+                  >
                     <div className="mt-space-4 border-t border-line pt-space-4">
                       <Button
                         variant="secondary"

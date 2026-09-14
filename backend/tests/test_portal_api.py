@@ -1580,6 +1580,13 @@ def test_settings_get_includes_new_customization_fields_with_safe_defaults(two_h
     # Live-found bug follow-up: 14-day code default, matching the old
     # hardcoded _SLOT_DAYS_AHEAD every generate_slots_for_*() used to have.
     assert data["future_booking_days"] == 14
+    # Appointment Settings card (migration 20260914120000): 30-minute/
+    # 0-minute code defaults, no cap configured, live today-count starts at 0
+    # in a fresh test hospital.
+    assert data["default_appointment_duration_minutes"] == 30
+    assert data["buffer_minutes"] == 0
+    assert data["max_appointments_per_day"] is None
+    assert data["appointments_today_count"] == 0
 
 
 def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
@@ -1596,6 +1603,9 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
         "followup_validity_days": 14,
         "followup_fee": 500,
         "new_consultation_fee": 300,
+        "default_appointment_duration_minutes": 20,
+        "buffer_minutes": 10,
+        "max_appointments_per_day": 40,
     }
     resp = client.post("/api/portal/settings", json=payload, headers=_auth(a["token"]))
     assert resp.status_code == 200
@@ -1610,6 +1620,31 @@ def test_settings_post_saves_and_get_reflects_new_fields(two_hospitals):
     assert data["followup_validity_days"] == 14
     assert data["followup_fee"] == 500
     assert data["new_consultation_fee"] == 300
+    assert data["default_appointment_duration_minutes"] == 20
+    assert data["buffer_minutes"] == 10
+    assert data["max_appointments_per_day"] == 40
+
+
+def test_settings_post_rejects_appointment_capacity_fields_out_of_bounds(two_hospitals):
+    a = two_hospitals["a"]
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "default_appointment_duration_minutes": 0},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "buffer_minutes": -5},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
+    resp = client.post(
+        "/api/portal/settings",
+        json={"reminder_offsets_hours": "24", "max_appointments_per_day": 0},
+        headers=_auth(a["token"]),
+    )
+    assert resp.status_code == 400
 
 
 def test_settings_post_rejects_followup_validity_days_out_of_bounds(two_hospitals):

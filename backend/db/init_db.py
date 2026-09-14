@@ -633,6 +633,16 @@ def _backfill_staff_employee_ids(conn) -> None:
 _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT: list[tuple[str, tuple, tuple, tuple]] = [
     ("dashboard", (True, True, True), (True, False, False), (True, False, False)),
     ("appointments", (True, True, True), (True, True, False), (True, True, False)),
+    # Migration 20260914140000: Daycare and Lab & Diagnostic Appointments
+    # used to share the "appointments" page_key above -- split into their
+    # own so a hospital can grant one category without the other two.
+    # Same default triples as "appointments" (a brand-new hospital seeded
+    # from this snapshot never had them bundled together in the first
+    # place, so there's nothing to preserve -- unlike the per-hospital
+    # backfill below, which clones each hospital's EXISTING "appointments"
+    # values instead of this fixed triple).
+    ("daycare_appointments", (True, True, True), (True, True, False), (True, True, False)),
+    ("diagnostic_appointments", (True, True, True), (True, True, False), (True, True, False)),
     ("patients", (True, True, True), (True, True, False), (True, True, False)),
     ("doctors", (True, True, True), (False, False, False), (False, False, False)),
     ("messages", (True, True, True), (True, True, False), (True, False, False)),
@@ -645,6 +655,18 @@ _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT: list[tuple[str, tuple, tuple, tuple]] = [
     # Not doctor-only -- any staff member applies for their own leave
     # through this page, so receptionist gets the same view+write as doctor.
     ("holiday_application", (True, True, True), (True, True, False), (True, True, False)),
+    # Migration 20260914130000: Attendance + Check-in/Check-out -- same
+    # "any role, not just one kind" reasoning as holiday_application above,
+    # but deliberately (False, False, False) for admin (see portal/
+    # permissions.py's own PAGE_ATTENDANCE/PAGE_CHECK_IN_OUT comment).
+    ("attendance", (False, False, False), (True, True, False), (True, True, False)),
+    ("check_in_out", (False, False, False), (True, True, False), (True, True, False)),
+    # Migration 20260914150000: Report Review + Report Analytics (both still
+    # frontend-only mock pages -- see portal/permissions.py's own
+    # PAGE_REPORT_REVIEW/PAGE_REPORT_ANALYTICS comment). Analytics is
+    # view-only for receptionist, off entirely for doctor.
+    ("report-review", (True, True, True), (True, True, False), (True, True, False)),
+    ("report-analytics", (True, True, True), (True, False, False), (False, False, False)),
 ]
 
 
@@ -1469,6 +1491,38 @@ def init_db_on_connection(conn) -> int:
         "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_future_booking_days_check "
         "CHECK (future_booking_days IS NULL OR future_booking_days > 0)"
     )
+    # Migration 20260914120000: Appointment Settings card becoming real --
+    # see that migration's own docstring for the full rationale. doctors.
+    # slot_duration_minutes is relaxed to nullable here too (a doctor left
+    # blank now uses default_appointment_duration_minutes at compute time,
+    # db/repositories/doctors.py).
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS default_appointment_duration_minutes INTEGER"
+    )
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS buffer_minutes INTEGER")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS max_appointments_per_day INTEGER")
+    conn.execute(
+        "ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS "
+        "hospital_settings_default_appointment_duration_minutes_check"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_default_appointment_duration_minutes_check "
+        "CHECK (default_appointment_duration_minutes IS NULL OR default_appointment_duration_minutes > 0)"
+    )
+    conn.execute("ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_buffer_minutes_check")
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_buffer_minutes_check "
+        "CHECK (buffer_minutes IS NULL OR buffer_minutes >= 0)"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_max_appointments_per_day_check"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_max_appointments_per_day_check "
+        "CHECK (max_appointments_per_day IS NULL OR max_appointments_per_day > 0)"
+    )
+    conn.execute("ALTER TABLE doctors ALTER COLUMN slot_duration_minutes DROP NOT NULL")
+    conn.execute("ALTER TABLE doctors ALTER COLUMN slot_duration_minutes DROP DEFAULT")
     # Migration 0032: doctor_slot_overrides replaces bulk-pre-generated
     # doctor_slots -- a doctor's normal grid is computed live now, this table
     # only ever holds a row for a slot staff has actually blocked or
@@ -1863,6 +1917,77 @@ def init_db_on_connection(conn) -> int:
         "FROM roles r "
         "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
     )
+    conn.commit()
+    # Migration 20260914130000: Attendance + Check-in/Check-out (frontend-
+    # mock pages for now, real wiring a later follow-up) -- same per-page-
+    # key backfill shape as holiday_application above, EXCEPT scoped to
+    # r.is_protected = FALSE: the seeded Admin role deliberately gets no
+    # row here at all (get_permission_matrix()'s own all-False default for
+    # an untouched page_key does the rest), confirmed with the user --
+    # every other role (including custom ones) gets view+write.
+    conn.execute(
+        "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+        "SELECT r.hospital_id, r.id, 'attendance', true, true, false "
+        "FROM roles r WHERE r.is_protected = FALSE "
+        "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
+    )
+    conn.execute(
+        "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+        "SELECT r.hospital_id, r.id, 'check_in_out', true, true, false "
+        "FROM roles r WHERE r.is_protected = FALSE "
+        "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
+    )
+    conn.commit()
+    # Migration 20260914140000: Daycare and Lab & Diagnostic Appointments
+    # split out of the shared "appointments" page_key (see portal/
+    # permissions.py's own PAGE_DAYCARE_APPOINTMENTS/PAGE_DIAGNOSTIC_
+    # APPOINTMENTS comment) -- CLONES each hospital's existing "appointments"
+    # role_permissions rows onto the two new page_keys, not a fixed default,
+    # so nothing any hospital already granted (or denied) per role changes
+    # on the day this ships. Only going forward can an admin diverge them.
+    conn.execute(
+        "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+        "SELECT hospital_id, role_id, 'daycare_appointments', can_view, can_write, can_delete "
+        "FROM role_permissions WHERE page_key = 'appointments' "
+        "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
+    )
+    conn.execute(
+        "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+        "SELECT hospital_id, role_id, 'diagnostic_appointments', can_view, can_write, can_delete "
+        "FROM role_permissions WHERE page_key = 'appointments' "
+        "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
+    )
+    conn.commit()
+    # Migration 20260914150000: Report Review + Report Analytics, both
+    # brand-new page_keys with no existing "appointments"-style row to clone
+    # -- unlike attendance/check_in_out (flat true/true for every non-admin
+    # role), these two have DIFFERENT defaults per role kind (see portal/
+    # permissions.py's own DEFAULT_PERMISSIONS_BY_ROLE_KIND), so the backfill
+    # is scoped by role NAME, same lookup precedent _seed_default_roles_and_
+    # backfill_role_id()'s own consumer of _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT
+    # uses for a brand-new hospital. A custom (non-Admin/Receptionist/Doctor)
+    # role gets no row here -- resolves to all-False, same fail-closed
+    # default any untouched page_key already has; an admin can grant it
+    # explicitly via Roles & Permissions.
+    for page_key, admin_perms, receptionist_perms, doctor_perms in (
+        ("report-review", (True, True, False), (True, True, False), (True, True, False)),
+        ("report-analytics", (True, True, False), (True, False, False), (False, False, False)),
+    ):
+        for role_name, (can_view, can_write, can_delete) in (
+            ("admin", admin_perms), ("receptionist", receptionist_perms), ("doctor", doctor_perms),
+        ):
+            conn.execute(
+                "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+                "SELECT r.hospital_id, r.id, ?, ?, ?, ? "
+                "FROM roles r WHERE LOWER(r.name) = ? "
+                "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING",
+                (page_key, can_view, can_write, can_delete, role_name),
+            )
+    conn.commit()
+    # Migration 20260914105902: per-hospital custom privacy notice text was
+    # removed entirely (consent handling is being redesigned separately) --
+    # every hospital just shows the generic default notice now.
+    conn.execute("ALTER TABLE hospitals DROP COLUMN IF EXISTS privacy_notice_text")
     conn.commit()
     _backfill_enabled_features(conn)
     _backfill_patients(conn)

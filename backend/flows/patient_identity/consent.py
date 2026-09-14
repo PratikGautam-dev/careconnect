@@ -20,11 +20,13 @@ from flows.patient_identity.state import CONSENT_TOGGLE_MARKETING_ID, GOTO_MAIN_
 
 async def start_consent_privacy(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector,
-    active_patient_id: int, privacy_notice_text: str | None = None, language: str = "en",
+    active_patient_id: int, language: str = "en",
 ) -> None:
     """Shows the active patient's consent status and a marketing-consent
     toggle. Service consent has no separate toggle here -- withdrawing it
-    maps to Manage Patients' unlink instead."""
+    maps to Manage Patients' unlink instead. Always shows the generic
+    default privacy notice -- per-hospital custom notice text was removed
+    (no admin UI for it any more, see NotificationsTab.tsx)."""
     consent = connector.get_patient_link_consent(hospital_id, phone, active_patient_id)
     if consent is None:
         # Stale active_patient_id (shouldn't normally happen -- resolution
@@ -32,7 +34,7 @@ async def start_consent_privacy(
         sessions.clear_active_patient(hospital_id, phone)
         sessions.reset(hospital_id, phone)
         return
-    notice = privacy_notice_text or t(PRIVACY_NOTICE_DEFAULT, language)
+    notice = t(PRIVACY_NOTICE_DEFAULT, language)
     marketing_status = t(CONSENT_ON, language) if consent["marketing_consent"] else t(CONSENT_OFF, language)
     body = t(CONSENT_PRIVACY_BODY, language, notice=notice,
         marketing_status=marketing_status,
@@ -53,7 +55,7 @@ async def start_consent_privacy(
 
 async def handle_awaiting_consent_action(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict,
-    connector: Connector, active_patient_id: int, privacy_notice_text: str | None = None, language: str = "en",
+    connector: Connector, active_patient_id: int, language: str = "en",
 ) -> None:
     """Toggles marketing consent if that button was tapped, then re-shows
     the consent screen either way."""
@@ -62,6 +64,5 @@ async def handle_awaiting_consent_action(
         if consent is not None:
             connector.set_marketing_consent(hospital_id, phone, active_patient_id, not consent["marketing_consent"])
     await start_consent_privacy(
-        wa, sessions, phone, hospital_id, connector, active_patient_id,
-        privacy_notice_text=privacy_notice_text, language=language,
+        wa, sessions, phone, hospital_id, connector, active_patient_id, language=language,
     )

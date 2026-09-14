@@ -128,6 +128,35 @@ def test_quota_rejection_also_leaves_connection_clean(hospital_id):
     assert row["c"] >= 1
 
 
+def test_hospital_wide_max_appointments_per_day_blocks_booking_across_doctors(hospital_id):
+    """Appointment Settings card (migration 20260914120000): unlike
+    daily_booking_limit (per-doctor), max_appointments_per_day caps BOOKED
+    appointments across the WHOLE hospital for one day -- two different
+    doctors both count against the same cap."""
+    db.update_hospital_settings(
+        hospital_id, followup_validity_days=None, followup_fee=None, new_consultation_fee=None,
+        max_appointments_per_day=1,
+    )
+    department_id = db.get_departments(hospital_id)[0]["id"]
+    doctor_a = db.create_doctor(
+        hospital_id, department_id, "Dr. Cap A",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], working_hours=["09:00-11:00"],
+        slot_duration_minutes=30,
+    )
+    doctor_b = db.create_doctor(
+        hospital_id, department_id, "Dr. Cap B",
+        working_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], working_hours=["09:00-11:00"],
+        slot_duration_minutes=30,
+    )
+    scheduled_at = datetime.now() + timedelta(days=1)
+
+    appt = db.create_appointment(hospital_id, "5490004444", department_id, doctor_a["id"], scheduled_at)
+    assert appt.id is not None
+
+    with pytest.raises(db.QuotaExceededError):
+        db.create_appointment(hospital_id, "5490005555", department_id, doctor_b["id"], scheduled_at)
+
+
 def test_ordinal_reassigned_correctly_after_cancellation_leaves_a_gap(hospital_id):
     """Regression test for the bug this investigation found: booking_ordinal
     used to be assigned as COUNT(*) of currently-booked rows at a slot, which

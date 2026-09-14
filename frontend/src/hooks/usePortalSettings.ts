@@ -17,7 +17,6 @@ export type Settings = {
   session_timeout_minutes: number;
   // CareConnect architecture doc alignment (Spec.md Section 0).
   require_patient_confirmation: boolean;
-  privacy_notice_text: string;
 
   handoff_auto_resolve_hours: number;
 
@@ -34,6 +33,17 @@ export type Settings = {
   // slots are generated -- always has a value (defaults server-side), same
   // "plain number" convention as followup_validity_days above.
   future_booking_days: number;
+
+  // Appointment Settings card (migration 20260914120000): the first two
+  // always have a value (30/0 code defaults, same "plain number" convention
+  // as future_booking_days above). max_appointments_per_day uses the ""
+  // (unset) convention like the fees above -- no cap configured is a real,
+  // common state, not something to default away. appointments_today_count
+  // is read-only, live data for the progress bar -- never sent back on save.
+  default_appointment_duration_minutes: number;
+  buffer_minutes: number;
+  max_appointments_per_day: number | "";
+  appointments_today_count: number;
 };
 
 /** Loads + saves the /portal/settings form. */
@@ -56,10 +66,12 @@ export function usePortalSettings(ready: boolean) {
     // coerced to "" here so the numeric <Input> below never renders "null".
     const data = result.data as Settings & {
       followup_fee: number | null; new_consultation_fee: number | null; home_collection_charge: number | null;
+      max_appointments_per_day: number | null;
     };
     setSettings({
       ...data, followup_fee: data.followup_fee ?? "", new_consultation_fee: data.new_consultation_fee ?? "",
       home_collection_charge: data.home_collection_charge ?? "",
+      max_appointments_per_day: data.max_appointments_per_day ?? "",
     });
   }, [router]);
 

@@ -371,7 +371,6 @@ class Hospital:
     # CareConnect architecture doc alignment (Spec.md Section 0): see
     # db/schema.sql's own column comments for what each controls.
     require_patient_confirmation: bool
-    privacy_notice_text: str | None
     # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
     # tenant_type is descriptive/default-seeding metadata only, never read
     # directly by feature routes; admin_capabilities (parsed JSON list, via

@@ -37,7 +37,7 @@ async def get_or_prompt_for_active_patient(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector,
     language: str = "en", require_patient_confirmation: bool = False,
     hospital_name: str = "the hospital", enabled_features: list[str] | None = None,
-    feature_labels: dict[str, str] | None = None,
+    feature_labels: dict[str, str] | None = None, welcome_message_text: str | None = None,
 ) -> dict | None:
     """Called once per conversation, before the main menu is ever shown.
     Returns the resolved active patient immediately for the already-resolved
@@ -62,7 +62,10 @@ async def get_or_prompt_for_active_patient(
             match = next((p for p in patients if p["id"] == active_patient_id), None)
             if match is not None:
                 if len(patients) > 1 and not just_confirmed:
-                    await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
+                    await _send_patient_selector_for_resolution(
+                        wa, sessions, phone, hospital_id, connector, language,
+                        hospital_name=hospital_name, welcome_message_text=welcome_message_text,
+                    )
                     return None
                 sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=match["id"])
                 return match
@@ -79,10 +82,13 @@ async def get_or_prompt_for_active_patient(
     if len(patients) == 1:
         await _send_single_patient_confirm(
             wa, sessions, phone, hospital_id, connector, patients[0], language,
-            hospital_name, enabled_features or [], feature_labels,
+            hospital_name, enabled_features or [], feature_labels, welcome_message_text,
         )
     else:
-        await _send_patient_selector_for_resolution(wa, sessions, phone, hospital_id, connector, language)
+        await _send_patient_selector_for_resolution(
+            wa, sessions, phone, hospital_id, connector, language,
+            hospital_name=hospital_name, welcome_message_text=welcome_message_text,
+        )
     return None
 
 
@@ -95,6 +101,7 @@ async def get_or_prompt_for_active_patient(
 async def _send_single_patient_confirm(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, patient: dict, language: str,
     hospital_name: str, enabled_features: list[str], feature_labels: dict[str, str] | None = None,
+    welcome_message_text: str | None = None,
 ) -> None:
     """Exactly one linked patient with hospitals.require_patient_confirmation
     on: the patient becomes active immediately (no separate "Confirm" tap --
@@ -106,14 +113,22 @@ async def _send_single_patient_confirm(
     just a nudge alongside it. "Back" re-opens the language picker, the only
     earlier screen this point in the conversation can follow.
 
+    welcome_message_text (hospitals.welcome_message_text, set via /portal/
+    settings' Notifications tab): the hospital's own custom greeting line,
+    if set. Falls back to "🏥 Welcome to {hospital_name}" -- never a
+    hardcoded platform brand name (a real bug this replaced: this line used
+    to hardcode "Welcome to CareConnect" regardless of which hospital's bot
+    a patient was messaging).
+
     The 2+ patient case goes through _send_patient_selector_for_resolution
     below instead, which has no single candidate to auto-activate."""
     sessions.set(hospital_id, phone, "IDLE", {}, language=language, active_patient_id=patient["id"])
+    welcome_line = welcome_message_text or f"🏥 Welcome to {hospital_name}"
     await _send_menu_list(
         wa, phone, hospital_name, enabled_features, language=language,
         feature_labels=feature_labels, active_patient=patient,
         body_text_override=t(
-            SINGLE_PATIENT_CONFIRM, language,
+            SINGLE_PATIENT_CONFIRM, language, welcome_line=welcome_line,
             patient_name=patient["name"], patient_code=patient["patient_display_id"] or "—",
         ),
     )
@@ -129,6 +144,7 @@ async def _send_single_patient_confirm(
 
 async def _send_patient_selector_for_resolution(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str,
+    hospital_name: str | None = None, welcome_message_text: str | None = None,
 ) -> None:
     """2+ linked patients: no default/candidate patient is auto-picked, so
     there's no single name for a "Continue as X?" card -- the list itself
@@ -141,6 +157,16 @@ async def _send_patient_selector_for_resolution(
     "Add Patient" follow-up button matches _send_single_patient_confirm's own,
     minus the "Confirm" option it has no candidate to confirm.
 
+    hospital_name/welcome_message_text: same "custom text, or a '🏥 Welcome
+    to {hospital_name}' default, never a hardcoded platform brand" treatment
+    as _send_single_patient_confirm's own welcome_line. Both are optional
+    here (unlike that function) because one caller --
+    _handle_awaiting_single_patient_confirm's own stale-tap re-send fallback
+    below -- genuinely doesn't have either value available (flows/
+    patient_identity/'s architectural boundary forbids importing db/
+    repository.py directly to look them up); that one rare path falls back
+    to a brand-neutral "🏥 Welcome!" instead.
+
     Deliberately no "Manage Patients" row in this sheet (confirmed with the
     user) -- this list is purely "which patient is this conversation for,"
     Manage Patients is its own separate main-menu feature, reached only from
@@ -151,9 +177,10 @@ async def _send_patient_selector_for_resolution(
     patients = connector.list_active_patients(hospital_id, phone)
     rows = [{"id": _patient_row_id(p["id"]), "title": _patient_row_title(p)} for p in patients]
     rows = cap_rows(rows, "patient selector")
+    welcome_line = welcome_message_text or (f"🏥 Welcome to {hospital_name}" if hospital_name else "🏥 Welcome!")
     await wa.send_list(
         to=phone,
-        body_text=t(MULTI_PATIENT_SELECTOR_PROMPT, language),
+        body_text=t(MULTI_PATIENT_SELECTOR_PROMPT, language, welcome_line=welcome_line),
         button_text=t(PATIENT_SELECTOR_BUTTON, language),
         sections=[{"title": t(PATIENT_SELECTOR_SECTION_TITLE, language), "rows": rows}],
     )

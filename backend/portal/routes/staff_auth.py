@@ -148,21 +148,32 @@ async def staff_change_password(payload: ChangePasswordPayload, authorization: s
     return JSONResponse(_issue_tokens(db.get_staff_user_by_id(staff["id"])))
 
 
+def _split_csv(value: str | None) -> list[str]:
+    return [x for x in (value or "").split(",") if x]
+
+
 @router.get("/api/portal/staff/me")
 async def staff_me(authorization: str | None = Header(default=None)):
     """Self profile (name/email/role/permissions/hospital) -- serves two
-    frontend consumers: the profile-settings page's "Your details" card, and
+    frontend consumers: the Profile page's own cards, and
     StaffSessionProvider's in-memory StaffSessionContext (replaces the old
     localStorage-cached staff_session; see staffAuth.ts). StaffSession on the
     frontend has no email today (login/refresh never returned it), and
     staff.py's GET /api/portal/staff is gated on the "staff" permission (a
     receptionist/doctor viewing their OWN profile shouldn't need staff-
     management access), so this is its own authenticated-only route rather
-    than reusing either."""
+    than reusing either.
+
+    Uses get_own_profile() (not get_staff_user_by_id()) so a doctor-role
+    login gets its real profile data -- specialization/qualification/
+    years_experience/location plus phone/employee_id/department/schedule
+    all sourced from the linked doctors row, not this login's own separate,
+    usually-blank staff_details copies (same coalescing join
+    list_staff_users_for_hospital() already uses for the Staff page)."""
     principal = get_current_staff(authorization)
     if principal is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    staff = db.get_staff_user_by_id(principal.staff_id)
+    staff = db.get_own_profile(principal.staff_id)
     if staff is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
     return JSONResponse({
@@ -171,6 +182,20 @@ async def staff_me(authorization: str | None = Header(default=None)):
         "doctor_id": staff["doctor_id"],
         "hospital": _hospital_summary(principal.hospital),
         "permissions": get_permission_matrix(principal.hospital.id).get(staff["role_id"], {}),
+        "employee_id": staff["employee_id"],
+        "phone": staff["phone"],
+        "address": staff["address"],
+        "department_id": staff["department_id"],
+        "department_name": staff["department_name"],
+        "reports_to_name": staff["reports_to_name"],
+        "working_days": _split_csv(staff["working_days"]),
+        "working_hours": _split_csv(staff["working_hours"]),
+        "breaks": _split_csv(staff["breaks"]),
+        "created_at": staff["created_at"],
+        "specialization": staff["specialization"],
+        "qualification": staff["qualification"],
+        "years_experience": staff["years_experience"],
+        "location": staff["location"],
     })
 
 

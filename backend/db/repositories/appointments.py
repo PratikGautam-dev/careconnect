@@ -13,6 +13,7 @@ from sqlalchemy.engine import CursorResult
 from db.connection import IntegrityError, get_connection, get_session
 from db.display_ids import _generate_reference_id
 from db.repositories.appointment_types import BOOK_DOCTOR_APPOINTMENT_CATEGORY, TESTS_DIAGNOSTICS_CATEGORY
+from db.repositories.hospital_settings import get_max_appointments_per_day
 from db.repositories.patients import _flag_duplicate_if_matches
 from db.models import (
     Appointment, DuplicateBookingError, QuotaExceededError,
@@ -279,6 +280,21 @@ def create_appointment(
             if source_count_row["c"] >= source_quota:
                 kind = "Online booking" if source == SOURCE_WHATSAPP else "Walk-in"
                 raise QuotaExceededError(f"{kind} quota full for this doctor today.")
+
+        # Appointment Settings card (migration 20260914120000): a hospital-
+        # wide daily cap, checked alongside (not instead of) the per-doctor/
+        # per-resource daily_booking_limit above -- whichever check fails
+        # first blocks the booking.
+        max_appointments_per_day = get_max_appointments_per_day(hospital_id)
+        if max_appointments_per_day is not None:
+            hospital_day_count_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM appointments WHERE hospital_id = ? "
+                "AND scheduled_at >= ? AND scheduled_at <= ? AND status = ?",
+                (hospital_id, day_start, day_end, STATUS_BOOKED),
+            ).fetchone()
+            assert hospital_day_count_row is not None
+            if hospital_day_count_row["c"] >= max_appointments_per_day:
+                raise QuotaExceededError("This hospital has reached today's appointment booking limit.")
 
         # Smallest booking_ordinal in [0, max_bookings_per_slot) not already
         # taken by a booked row -- not a plain COUNT(*), since cancellations
@@ -965,6 +981,27 @@ def get_todays_appointments_for_hospital(hospital_id: int, now: datetime | None 
         .order_by(AppointmentRow.scheduled_at.asc())
     ).all()
     return [_row_to_appointment(r._mapping) for r in rows]
+
+
+def get_hospital_booked_appointments_today_count(hospital_id: int, now: datetime | None = None) -> int:
+    """Appointment Settings card (migration 20260914120000): backs the
+    "X out of Y" progress bar next to max_appointments_per_day on Settings
+    -> General. A lightweight COUNT(*), not get_todays_appointments_for_
+    hospital() -- that one fetches every full row across every status,
+    more than this needs. Counts BOOKED only, same status create_appointment()'s
+    own hospital-wide cap check (db/repositories/appointments.py) enforces
+    against, so the two always agree."""
+    now = now or datetime.now()
+    day_start = datetime.combine(now.date(), datetime.min.time()).isoformat()
+    day_end = datetime.combine(now.date(), datetime.max.time()).isoformat()
+    session = get_session()
+    return session.execute(
+        select(func.count(AppointmentRow.id)).where(
+            AppointmentRow.hospital_id == hospital_id,
+            AppointmentRow.scheduled_at >= day_start, AppointmentRow.scheduled_at <= day_end,
+            AppointmentRow.status == STATUS_BOOKED,
+        )
+    ).scalar_one()
 
 
 def _apply_category_filter(stmt, category: str | None):

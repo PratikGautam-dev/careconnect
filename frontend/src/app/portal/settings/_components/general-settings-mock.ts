@@ -1,17 +1,3 @@
-// Language and Business Hours aren't here -- they're the real
-// `default_language`/`language_prompt_enabled`/`business_hours_text`
-// settings fields (usePortalSettings), wired directly in GeneralSettingsTab
-// instead of duplicated as mock state (same reason as advanceBookingDays/
-// sessionTimeoutMinutes below).
-export type HospitalInfo = {
-  name: string;
-  address: string;
-  phone: string;
-  email: string;
-  timezone: string;
-  dateFormat: string;
-};
-
 export type HospitalBranding = {
   primaryColor: string;
   secondaryColor: string;
@@ -28,13 +14,13 @@ export type WhatsAppConfig = {
 
 // "Advance Booking Limit" isn't here -- it's the real `future_booking_days`
 // settings field (usePortalSettings), wired directly in GeneralSettingsTab
-// instead of duplicated as mock state.
+// instead of duplicated as mock state. Same for "Default Appointment
+// Duration" / "Buffer Time Between Appointments" / "Maximum Appointments
+// Per Day" (migration 20260914120000) -- all three are now real,
+// backend-enforced settings (default_appointment_duration_minutes/
+// buffer_minutes/max_appointments_per_day), not mock state either.
 export type AppointmentSettingsMock = {
-  defaultDurationMinutes: number;
-  bufferMinutes: number;
-  maxAppointmentsPerDay: number;
   allowOnlineAppointments: boolean;
-  requireApproval: boolean;
   sendReminders: boolean;
 };
 
@@ -52,14 +38,11 @@ export type NotificationPreferencesMock = {
 // duplicated as mock state (same reason as advanceBookingDays above).
 export type SecuritySettingsMock = {
   passwordExpiryDays: number;
-  requireTwoFactor: boolean;
-  enforceStrongPassword: boolean;
   allowMultipleSessions: boolean;
   logUserActivities: boolean;
 };
 
 export type GeneralSettingsState = {
-  hospitalInfo: HospitalInfo;
   branding: HospitalBranding;
   whatsapp: WhatsAppConfig;
   appointments: AppointmentSettingsMock;
@@ -74,14 +57,6 @@ export type GeneralSettingsState = {
  * this object, they don't call the API. */
 export function initialGeneralSettings(): GeneralSettingsState {
   return {
-    hospitalInfo: {
-      name: "DAAP CareConnect Hospital",
-      address: "123 Health Avenue, Medical District\nNew Delhi, Delhi 110001, India",
-      phone: "+91 11 2345 6789",
-      email: "admin@daapcareconnect.com",
-      timezone: "(GMT+05:30) Asia/Kolkata",
-      dateFormat: "DD/MM/YYYY",
-    },
     branding: {
       primaryColor: "#0D7C86",
       secondaryColor: "#0F2D5B",
@@ -95,11 +70,7 @@ export function initialGeneralSettings(): GeneralSettingsState {
       lastSyncedAt: "9 Sep 2026, 10:24 AM",
     },
     appointments: {
-      defaultDurationMinutes: 30,
-      bufferMinutes: 10,
-      maxAppointmentsPerDay: 50,
       allowOnlineAppointments: true,
-      requireApproval: false,
       sendReminders: true,
     },
     notifications: {
@@ -112,28 +83,21 @@ export function initialGeneralSettings(): GeneralSettingsState {
     },
     security: {
       passwordExpiryDays: 90,
-      requireTwoFactor: true,
-      enforceStrongPassword: true,
       allowMultipleSessions: false,
       logUserActivities: true,
     },
   };
 }
 
-export const TIMEZONE_OPTIONS = [
-  "(GMT+05:30) Asia/Kolkata",
-  "(GMT+00:00) UTC",
-  "(GMT-05:00) America/New_York",
-  "(GMT+01:00) Europe/London",
-];
-
-export const DATE_FORMAT_OPTIONS = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
-
+// Both now drive the real default_appointment_duration_minutes/
+// buffer_minutes settings fields (migration 20260914120000) -- kept as
+// preset dropdown options, same "not exhaustive, withValue() adds the
+// current real value in if it's not one of these" convention as
+// ADVANCE_BOOKING_DAYS_OPTIONS/SESSION_TIMEOUT_OPTIONS below.
 export const DURATION_MINUTES_OPTIONS = [15, 30, 45, 60];
 export const BUFFER_MINUTES_OPTIONS = [0, 5, 10, 15, 30];
 // Capped at 90 -- the real `future_booking_days` field this drives
 // enforces "between 1 and 90 days ahead" server-side.
 export const ADVANCE_BOOKING_DAYS_OPTIONS = [30, 60, 90];
-export const MAX_PER_DAY_OPTIONS = [20, 50, 100, 200];
 export const SESSION_TIMEOUT_OPTIONS = [15, 30, 60, 120];
 export const PASSWORD_EXPIRY_OPTIONS = [30, 60, 90, 180];

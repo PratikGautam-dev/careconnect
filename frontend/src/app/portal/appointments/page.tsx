@@ -33,6 +33,7 @@ import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
+import { usePermission } from "@/lib/staffAuth";
 import {
   type Appointment,
   TYPE_LABELS,
@@ -105,6 +106,7 @@ function pctDelta(current: number, previous: number): number | null {
 
 export default function PortalAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
+  const canView = usePermission("appointments", "view");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
   const {
@@ -328,6 +330,14 @@ export default function PortalAppointmentsPage() {
       title: "Coming soon",
     },
   ];
+
+  if (!canView) {
+    return (
+      <PortalShell hospital={hospital} active="appointments">
+        <p className="text-[13px] text-ink-400">You don&apos;t have access to Doctor Appointments.</p>
+      </PortalShell>
+    );
+  }
 
   return (
     <PortalShell hospital={hospital} active="appointments">

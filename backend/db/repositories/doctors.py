@@ -22,6 +22,7 @@ from sqlalchemy.orm import aliased
 from db.connection import get_session
 from db.display_ids import DOCTOR_EMPLOYEE_ID_PREFIX, generate_employee_id_session
 from db.orm_models import AppointmentRow, Department, DoctorLeave, DoctorRow, Identity, StaffDetail
+from db.repositories.hospital_settings import get_buffer_minutes, get_default_appointment_duration_minutes
 from core.redis_client import cache_delete
 
 _WEEKDAY_ABBREVS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -254,7 +255,7 @@ def create_doctor(
     years_experience: int | None = None,
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
-    slot_duration_minutes: int = 30,
+    slot_duration_minutes: int | None = None,
     breaks: list[str] | None = None,
     max_bookings_per_slot: int = 1,
     daily_booking_limit: int | None = None,
@@ -452,7 +453,7 @@ def update_doctor(
     years_experience: int | None = None,
     working_days: list[str] | None = None,
     working_hours: list[str] | None = None,
-    slot_duration_minutes: int = 30,
+    slot_duration_minutes: int | None = None,
     breaks: list[str] | None = None,
     max_bookings_per_slot: int = 1,
     daily_booking_limit: int | None = None,
@@ -529,14 +530,20 @@ def _overlaps_break(slot_start: datetime, slot_end: datetime, breaks: list[tuple
     return False
 
 
-def _pattern_for_date(doctor_row: DoctorRow, d: date):
+def _pattern_for_date(doctor_row: DoctorRow, d: date, default_duration_minutes: int):
     """Picks whichever of this doctor's CURRENT or PENDING pattern (Section
     14.7's queued-future-schedule-change columns) applies to date `d` -- the
     pending one once its own pending_effective_from has arrived, the current
     one otherwise (gated by the current pattern's own effective_from, if
     set). Returns None if no pattern is active for `d` at all (e.g. a
     brand-new doctor whose effective_from hasn't arrived yet, or an
-    incompletely-configured doctor)."""
+    incompletely-configured doctor).
+
+    `default_duration_minutes` (migration 20260914120000, this hospital's
+    default_appointment_duration_minutes) fills in for a doctor's own
+    slot_duration_minutes/pending_slot_duration_minutes when that's NULL --
+    "this doctor hasn't explicitly set their own slot duration" -- rather
+    than making the doctor un-bookable."""
     if doctor_row.pending_effective_from and d >= date.fromisoformat(doctor_row.pending_effective_from):
         working_days_raw, working_hours_raw = doctor_row.pending_working_days, doctor_row.pending_working_hours
         slot_duration = doctor_row.pending_slot_duration_minutes
@@ -548,6 +555,7 @@ def _pattern_for_date(doctor_row: DoctorRow, d: date):
         slot_duration = doctor_row.slot_duration_minutes
         breaks_raw, daily_booking_limit = doctor_row.breaks, doctor_row.daily_booking_limit
 
+    slot_duration = slot_duration or default_duration_minutes
     working_days = {x.strip() for x in (working_days_raw or "").split(",") if x.strip()}
     working_hours = [x.strip() for x in (working_hours_raw or "").split(",") if x.strip()]
     if not working_days or not working_hours or not slot_duration:
@@ -575,7 +583,13 @@ def compute_doctor_candidate_slots(
     - doctor_leave: any date present there is skipped entirely.
     - daily_booking_limit: caps candidates per date (soonest-in-the-day
       first, since candidates are built in ascending time order) -- doesn't
-      affect other dates."""
+      affect other dates.
+
+    Appointment Settings card (migration 20260914120000): `step` between
+    consecutive candidates is slot_duration + this hospital's buffer_minutes
+    (default 0, unchanged behavior), and a doctor with no explicit
+    slot_duration_minutes of their own uses this hospital's
+    default_appointment_duration_minutes instead (_pattern_for_date)."""
     session = get_session()
     doctor_row = session.execute(
         select(DoctorRow).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
@@ -583,6 +597,8 @@ def compute_doctor_candidate_slots(
     if doctor_row is None:
         return []
 
+    default_duration_minutes = get_default_appointment_duration_minutes(hospital_id)
+    buffer_minutes = get_buffer_minutes(hospital_id)
     today = now or date.today()
     leave_dates = set(session.execute(
         select(DoctorLeave.date).where(DoctorLeave.hospital_id == hospital_id, DoctorLeave.doctor_id == doctor_id)
@@ -593,7 +609,7 @@ def compute_doctor_candidate_slots(
         d = today + timedelta(days=i)
         if d.isoformat() in leave_dates:
             continue
-        pattern = _pattern_for_date(doctor_row, d)
+        pattern = _pattern_for_date(doctor_row, d, default_duration_minutes)
         if pattern is None:
             continue
         working_days, working_hours, slot_duration, breaks, daily_booking_limit = pattern
@@ -604,11 +620,12 @@ def compute_doctor_candidate_slots(
             start_str, end_str = _parse_time_range(time_range)
             current = datetime.combine(d, datetime.strptime(start_str, "%H:%M").time())
             end = datetime.combine(d, datetime.strptime(end_str, "%H:%M").time())
-            step = timedelta(minutes=slot_duration)
-            while current + step <= end:
+            slot_span = timedelta(minutes=slot_duration)
+            step = timedelta(minutes=slot_duration + buffer_minutes)
+            while current + slot_span <= end:
                 if daily_booking_limit is not None and day_count >= daily_booking_limit:
                     break
-                if not _overlaps_break(current, current + step, breaks, d):
+                if not _overlaps_break(current, current + slot_span, breaks, d):
                     candidates.append(current.isoformat())
                     day_count += 1
                 current += step

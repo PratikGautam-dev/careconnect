@@ -106,9 +106,10 @@ def _validate_doctor_fields(
 
     slot_duration_minutes = None
     duration_raw = duration_raw.strip()
-    if not duration_raw:
-        errors.append(f"{label}: slot duration (minutes) is required.")
-    else:
+    # Migration 20260914120000: left blank, this doctor uses the hospital's
+    # own default_appointment_duration_minutes (Settings -> General ->
+    # Appointment Settings) instead of a hard requirement here.
+    if duration_raw:
         try:
             slot_duration_minutes = int(duration_raw)
             if slot_duration_minutes <= 0:

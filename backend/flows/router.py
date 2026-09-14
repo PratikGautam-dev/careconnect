@@ -189,6 +189,7 @@ async def _enter_idle(
     default_language: str = "en", language_prompt_enabled: bool = True,
     require_patient_confirmation: bool = False,
     dpdp_consent_required: bool = False,
+    welcome_message_text: str | None = None,
 ) -> None:
     """The one place that decides "does this session need the language
     picker, or does it already know what to show." Called everywhere the
@@ -255,6 +256,7 @@ async def _enter_idle(
         wa, sessions, phone, hospital_id, connector, language=resolved_language,
         require_patient_confirmation=require_patient_confirmation,
         hospital_name=hospital_name, enabled_features=enabled_features, feature_labels=feature_labels,
+        welcome_message_text=welcome_message_text,
     )
     if active_patient is None:
         return
@@ -270,7 +272,7 @@ async def _handle_awaiting_language(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, hospital_name: str,
     enabled_features: list[str], connector: Connector, feature_labels: dict[str, str] | None = None,
     default_language: str = "en", require_patient_confirmation: bool = False,
-    dpdp_consent_required: bool = False,
+    dpdp_consent_required: bool = False, welcome_message_text: str | None = None,
 ) -> None:
     chosen = _LANGUAGE_ROW_TO_CODE.get(reply["id"]) if reply["type"] == "interactive_reply" else None
     if chosen is None:
@@ -295,7 +297,7 @@ async def _handle_awaiting_language(
         wa, sessions, phone, hospital_id, hospital_name, enabled_features, chosen, connector,
         feature_labels=feature_labels, default_language=default_language, language_prompt_enabled=True,
         require_patient_confirmation=require_patient_confirmation,
-        dpdp_consent_required=dpdp_consent_required,
+        dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
     )
 
 
@@ -304,6 +306,7 @@ async def _handle_awaiting_dpdp_consent(
     enabled_features: list[str], connector: Connector, language: str, feature_labels: dict[str, str] | None = None,
     default_language: str = "en", language_prompt_enabled: bool = True,
     require_patient_confirmation: bool = False, dpdp_consent_required: bool = False,
+    welcome_message_text: str | None = None,
 ) -> None:
     if reply["type"] == "interactive_reply" and reply["id"] == DPDP_DECLINE_ID:
         await wa.send_text(phone, t(DPDP_DECLINED_MESSAGE, language, hospital_name=hospital_name))
@@ -318,7 +321,7 @@ async def _handle_awaiting_dpdp_consent(
             feature_labels=feature_labels, default_language=default_language,
             language_prompt_enabled=language_prompt_enabled,
             require_patient_confirmation=require_patient_confirmation,
-            dpdp_consent_required=dpdp_consent_required,
+            dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
         )
         return
     if reply["type"] == "interactive_reply" and reply["id"] == DPDP_AGREE_ID:
@@ -334,7 +337,7 @@ async def _handle_awaiting_dpdp_consent(
         feature_labels=feature_labels, default_language=default_language,
         language_prompt_enabled=language_prompt_enabled,
         require_patient_confirmation=require_patient_confirmation,
-        dpdp_consent_required=dpdp_consent_required,
+        dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
     )
 
 
@@ -502,7 +505,6 @@ async def _start_feature(
     active_patient_id: int | None,
     language: str = "en",
     business_hours_text: str | None = None,
-    privacy_notice_text: str | None = None,
 ) -> None:
     """Hands the conversation off to whichever feature was tapped from the
     unified menu. Real features either transition into an existing sub-flow's
@@ -574,8 +576,7 @@ async def _start_feature(
             )
             return
         await patient_identity.start_consent_privacy(
-            wa, sessions, phone, hospital_id, connector, active_patient_id,
-            privacy_notice_text=privacy_notice_text, language=language,
+            wa, sessions, phone, hospital_id, connector, active_patient_id, language=language,
         )
         return
     if key == "hospital_info":
@@ -618,11 +619,11 @@ async def handle_incoming(
     feature_labels: dict[str, str] | None = None,
     closing_message_text: str | None = None,
     business_hours_text: str | None = None,
+    welcome_message_text: str | None = None,
     default_language: str = "en",
     language_prompt_enabled: bool = True,
     session_timeout_minutes: int | None = None,
     require_patient_confirmation: bool = False,
-    privacy_notice_text: str | None = None,
     provider_user_id: str | None = None,
     username: str | None = None,
     dpdp_consent_required: bool = False,
@@ -635,15 +636,19 @@ async def handle_incoming(
     guessed one -- matching db.create_hospital()'s own default.
 
     Section 12.13: feature_labels/closing_message_text/business_hours_text/
-    default_language/language_prompt_enabled are all self-serve bot
-    customization (hospitals.<field>, set via /portal/settings) -- every one
-    defaults to "no customization" (None/{}/en/True) so a caller that doesn't
-    pass them (including the whole pre-Section-12.13 test suite) gets
-    byte-for-byte the same fixed behavior as before this section.
+    welcome_message_text/default_language/language_prompt_enabled are all
+    self-serve bot customization (hospitals.<field>, set via /portal/
+    settings) -- every one defaults to "no customization" (None/{}/en/True)
+    so a caller that doesn't pass them (including the whole
+    pre-Section-12.13 test suite) gets byte-for-byte the same fixed behavior
+    as before this section. welcome_message_text specifically drives the
+    greeting line patient_identity's single/multi-patient-confirm screens
+    show (falling back to "🏥 Welcome to {hospital_name}" when unset, never
+    a hardcoded platform brand name).
 
-    require_patient_confirmation/privacy_notice_text (CareConnect
-    architecture doc alignment, Spec.md Section 0): same "self-serve bot
-    customization, defaults to off/unset" treatment.
+    require_patient_confirmation (CareConnect architecture doc alignment,
+    Spec.md Section 0): same "self-serve bot customization, defaults to
+    off/unset" treatment.
 
     provider_user_id/username (CareConnect account/identity layer,
     db/schema.sql's own comment on care_connect_accounts): CONTACT
@@ -701,7 +706,7 @@ async def handle_incoming(
             feature_labels=feature_labels, default_language=default_language,
             language_prompt_enabled=language_prompt_enabled,
             require_patient_confirmation=require_patient_confirmation,
-            dpdp_consent_required=dpdp_consent_required,
+            dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
         )
 
     # Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a specific
@@ -750,7 +755,7 @@ async def handle_incoming(
             wa, sessions, phone, hospital_id, reply, hospital_name, enabled_features, connector,
             feature_labels=feature_labels, default_language=default_language,
             require_patient_confirmation=require_patient_confirmation,
-            dpdp_consent_required=dpdp_consent_required,
+            dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
         )
         return
 
@@ -760,7 +765,7 @@ async def handle_incoming(
             language=language or "en", feature_labels=feature_labels, default_language=default_language,
             language_prompt_enabled=language_prompt_enabled,
             require_patient_confirmation=require_patient_confirmation,
-            dpdp_consent_required=dpdp_consent_required,
+            dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
         )
         return
 
@@ -779,7 +784,7 @@ async def handle_incoming(
     if state == patient_identity.STATE_AWAITING_CONSENT_ACTION:
         await patient_identity.handle_awaiting_consent_action(
             wa, sessions, phone, hospital_id, reply, context, connector, active_patient_id,
-            privacy_notice_text=privacy_notice_text, language=language or "en",
+            language=language or "en",
         )
         return
 
@@ -840,7 +845,7 @@ async def handle_incoming(
         if feature_key is not None and feature_key in enabled_features and language is not None:
             await _start_feature(
                 feature_key, wa, sessions, phone, hospital_id, hospital_name, connector, active_patient_id,
-                language=language, business_hours_text=business_hours_text, privacy_notice_text=privacy_notice_text,
+                language=language, business_hours_text=business_hours_text,
             )
             return
 

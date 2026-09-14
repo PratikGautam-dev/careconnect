@@ -138,11 +138,10 @@ ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS patient_id_prefix TEXT;
 -- into an explicit "You are accessing services for: {name} -- Continue?"
 -- confirmation even for exactly one linked patient.
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS require_patient_confirmation BOOLEAN NOT NULL DEFAULT FALSE;
--- Section 20 (Consent & Privacy menu item): static, hospital-configurable
--- privacy notice text shown on that screen. NULL means "not configured yet"
--- -- the Consent & Privacy screen falls back to a fixed generic notice
--- rather than showing nothing.
-ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS privacy_notice_text TEXT;
+-- privacy_notice_text (Section 20's Consent & Privacy menu item) was removed
+-- (migration 20260914105902) -- consent handling is being redesigned
+-- separately, so every hospital just shows the fixed generic default notice
+-- now, with no per-hospital override.
 -- DPDP Act consent gate (default off, same "self-serve, opt-in" convention
 -- as require_patient_confirmation above): when TRUE, a fresh conversation
 -- must tap "I Agree" on a fixed DPDP notice (core/translations.py's
@@ -249,7 +248,10 @@ CREATE TABLE IF NOT EXISTS doctors (
     years_experience INTEGER,
     working_days TEXT NOT NULL DEFAULT '',
     working_hours TEXT NOT NULL DEFAULT '',
-    slot_duration_minutes INTEGER NOT NULL DEFAULT 30,
+    -- Migration 20260914120000: relaxed to nullable -- NULL means "use this
+    -- hospital's hospital_settings.default_appointment_duration_minutes"
+    -- (db/repositories/doctors.py's compute_doctor_candidate_slots()).
+    slot_duration_minutes INTEGER,
     -- Comma-separated "HH:MM-HH:MM" ranges excluded from slot generation
     -- within whichever shift each one falls inside (e.g. a lunch break).
     breaks TEXT NOT NULL DEFAULT '',

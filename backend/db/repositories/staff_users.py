@@ -153,6 +153,46 @@ def get_staff_user_by_id(staff_id: int) -> dict | None:
     return dict(row._mapping) if row is not None else None
 
 
+def get_own_profile(staff_id: int) -> dict | None:
+    """Profile settings page's own "my profile" view -- same department-
+    coalescing join list_staff_users_for_hospital() already does (a
+    doctor-role row's department/phone/employee_id/schedule come from its
+    linked doctors row, not this login's own separate, usually-blank
+    staff_details copies), extended with the doctor-only columns
+    (specialization/qualification/years_experience/location) that page also
+    shows for a doctor login. NULL for every one of those on a non-doctor
+    row, same "no such data" convention every other detail panel here
+    already uses."""
+    session = get_session()
+    own_department = aliased(Department)
+    doctor_department = aliased(Department)
+    reports_to = aliased(Identity)
+    row = session.execute(
+        select(
+            Identity.id, Identity.name, Identity.email, Identity.created_at,
+            StaffDetail.hospital_id, StaffDetail.role_id, RoleRow.name.label("role_name"),
+            StaffDetail.doctor_id.is_not(None).label("is_doctor_role"), StaffDetail.doctor_id,
+            StaffDetail.address, reports_to.name.label("reports_to_name"),
+            func.coalesce(DoctorRow.phone, StaffDetail.phone).label("phone"),
+            func.coalesce(DoctorRow.employee_id, StaffDetail.employee_id).label("employee_id"),
+            func.coalesce(doctor_department.id, own_department.id).label("department_id"),
+            func.coalesce(doctor_department.name, own_department.name).label("department_name"),
+            func.coalesce(DoctorRow.working_days, StaffDetail.working_days).label("working_days"),
+            func.coalesce(DoctorRow.working_hours, StaffDetail.working_hours).label("working_hours"),
+            func.coalesce(DoctorRow.breaks, StaffDetail.breaks).label("breaks"),
+            DoctorRow.specialization, DoctorRow.qualification, DoctorRow.years_experience, DoctorRow.location,
+        )
+        .join(StaffDetail, StaffDetail.identity_id == Identity.id)
+        .join(RoleRow, RoleRow.id == StaffDetail.role_id)
+        .outerjoin(own_department, own_department.id == StaffDetail.department_id)
+        .outerjoin(DoctorRow, DoctorRow.id == StaffDetail.doctor_id)
+        .outerjoin(doctor_department, doctor_department.id == DoctorRow.department_id)
+        .outerjoin(reports_to, reports_to.id == StaffDetail.reports_to_id)
+        .where(Identity.id == staff_id)
+    ).first()
+    return dict(row._mapping) if row is not None else None
+
+
 def list_staff_users_for_hospital(hospital_id: int, *, exclude_doctors: bool = False) -> list[dict]:
     """Staff management page's list view -- included since it's a trivial
     read and every other domain's repository file ships its own "list for

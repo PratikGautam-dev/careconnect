@@ -93,7 +93,7 @@ export function createDiagnosticAppointmentColumns({
       id: "select",
       enableHiding: false,
       header: () => (
-        <PermissionGate page="appointments" action="delete">
+        <PermissionGate page="diagnostic_appointments" action="delete">
           <input
             type="checkbox"
             checked={allSelected}
@@ -108,7 +108,7 @@ export function createDiagnosticAppointmentColumns({
         const a = row.original;
         if (a.status === "booked") return null;
         return (
-          <PermissionGate page="appointments" action="delete">
+          <PermissionGate page="diagnostic_appointments" action="delete">
             <input
               type="checkbox"
               checked={selected.has(a.id)}
@@ -265,6 +265,7 @@ export function createDiagnosticAppointmentColumns({
       cell: ({ row }) => (
         <AppointmentCellAction
           appointment={row.original}
+          permissionPage="diagnostic_appointments"
           cancelPanelId={cancelPanelId}
           reschedulePanelId={reschedulePanelId}
           onOpenReschedule={onOpenReschedule}

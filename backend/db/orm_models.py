@@ -397,7 +397,11 @@ class DoctorRow(Base):
     years_experience: Mapped[int | None]
     working_days: Mapped[str]
     working_hours: Mapped[str]
-    slot_duration_minutes: Mapped[int]
+    # Migration 20260914120000: relaxed from NOT NULL DEFAULT 30 to
+    # nullable -- NULL means "use this hospital's default_appointment_
+    # duration_minutes" (db/repositories/hospital_settings.py), read at
+    # compute_doctor_candidate_slots() time.
+    slot_duration_minutes: Mapped[int | None]
     breaks: Mapped[str]
     max_bookings_per_slot: Mapped[int]
     daily_booking_limit: Mapped[int | None]
@@ -608,7 +612,6 @@ class HospitalRow(Base):
     created_at: Mapped[str]
     patient_id_prefix: Mapped[str | None]
     require_patient_confirmation: Mapped[bool]
-    privacy_notice_text: Mapped[str | None]
     dpdp_consent_required: Mapped[bool]
     tenant_type: Mapped[str]
     admin_capabilities: Mapped[str | None]
@@ -1037,6 +1040,19 @@ class HospitalSettings(Base):
     # the code-level DEFAULT_FUTURE_BOOKING_DAYS default" (db/repositories/
     # hospital_settings.py), same convention as followup_validity_days above.
     future_booking_days: Mapped[int | None]
+    # Migration 20260914120000: Appointment Settings card becoming real
+    # (General settings). default_appointment_duration_minutes falls back
+    # to code-level DEFAULT_APPOINTMENT_DURATION_MINUTES when unset, applied
+    # to a doctor whose own slot_duration_minutes is NULL
+    # (db/repositories/doctors.py). buffer_minutes falls back to 0 (no gap)
+    # and is added between every consecutive candidate slot for every
+    # doctor, hospital-wide. max_appointments_per_day is a hospital-wide
+    # cap on BOOKED appointments per day -- NULL means no cap, enforced in
+    # db/repositories/appointments.py's create_appointment() alongside the
+    # existing per-doctor daily_booking_limit.
+    default_appointment_duration_minutes: Mapped[int | None]
+    buffer_minutes: Mapped[int | None]
+    max_appointments_per_day: Mapped[int | None]
 
 
 class GoogleCalendarConnection(Base):

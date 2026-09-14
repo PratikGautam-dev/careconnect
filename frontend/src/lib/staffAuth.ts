@@ -152,7 +152,12 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
   return { ok: true, data: res.data };
 }
 
-export type StaffSessionContextValue = { session: StaffSession | null; error: string | null; reload: () => void };
+export type StaffSessionContextValue = {
+  session: StaffSession | null;
+  error: string | null;
+  reload: () => void;
+  setSession: (session: StaffSession) => void;
+};
 
 /** Populated by StaffSessionProvider (wraps every /portal/* page via
  * app/portal/layout.tsx), which fetches GET /api/portal/staff/me into this
@@ -165,6 +170,7 @@ export const StaffSessionContext = createContext<StaffSessionContextValue>({
   session: null,
   error: null,
   reload: () => {},
+  setSession: () => {},
 });
 
 /** SSR-hydration-safe read of the current staff session: `null` on the
@@ -175,6 +181,55 @@ export const StaffSessionContext = createContext<StaffSessionContextValue>({
  * level `session?.hospital` reads) needed no changes. */
 export function useStaffSession(): StaffSession | null {
   return useContext(StaffSessionContext).session;
+}
+
+/** The session context's own refetch -- call right after a successful
+ * login so the already-mounted StaffSessionProvider (shared across every
+ * /portal/* page via app/portal/layout.tsx, including /portal/login
+ * itself) picks up the just-saved token immediately. A plain client-side
+ * router.push() into /portal/dashboard does NOT remount that provider
+ * (same layout subtree, so its mount-time fetch doesn't re-run) -- without
+ * this, session stays stuck at the unauthenticated `null` its very first
+ * mount (before login even happened) already resolved to, until a manual
+ * full page refresh forces a fresh mount with the token already present. */
+export function useStaffSessionReload(): () => void {
+  return useContext(StaffSessionContext).reload;
+}
+
+/** Login/refresh response shape (backend's portal/routes/staff_auth.py::
+ * _issue_tokens, shared by both /api/portal/staff/login and /api/portal/
+ * staff/refresh) -- already carries everything StaffSession needs, no
+ * separate /me fetch required to populate it. */
+export type StaffAuthResponse = {
+  access_token: string;
+  refresh_token: string;
+  staff: {
+    id: number; name: string; role_id: number; role_name: string;
+    is_doctor_role: boolean; doctor_id: string | null;
+    hospital: PortalHospital;
+  };
+  permissions: StaffPermissions;
+};
+
+export function staffSessionFromAuthResponse(data: StaffAuthResponse): StaffSession {
+  return {
+    id: data.staff.id, name: data.staff.name, role_id: data.staff.role_id, role_name: data.staff.role_name,
+    is_doctor_role: data.staff.is_doctor_role, doctor_id: data.staff.doctor_id,
+    hospital: data.staff.hospital, permissions: data.permissions,
+  };
+}
+
+/** Seeds StaffSessionContext synchronously -- call right after a login/
+ * refresh response comes back (via staffSessionFromAuthResponse above), so
+ * the already-mounted StaffSessionProvider (shared across every /portal/*
+ * page via app/portal/layout.tsx, including /portal/login itself) has the
+ * real session BEFORE navigating into the portal, instead of racing a
+ * second /me round-trip after the navigation (the "dashboard/sidebar
+ * render ungated, then pop into their real per-role state a moment later"
+ * flash this replaces -- see useStaffSessionReload's own docstring for why
+ * a plain client-side router.push() alone never re-fetches it). */
+export function useSetStaffSession(): (session: StaffSession) => void {
+  return useContext(StaffSessionContext).setSession;
 }
 
 /** Reads permissions off the cached session (refreshed on every staff

@@ -30,7 +30,18 @@ from portal.permission_cache import (
 )
 
 PAGE_DASHBOARD = "dashboard"
+# Doctor Appointments only (/portal/appointments) -- Daycare and Lab &
+# Diagnostic Appointments used to share this same page_key (confirmed with
+# the user: wrong, since a hospital may want to grant one category to a
+# role without the other two) and now have their own, PAGE_DAYCARE_
+# APPOINTMENTS/PAGE_DIAGNOSTIC_APPOINTMENTS below (migration
+# 20260914140000). That migration clones each existing hospital's current
+# "appointments" role_permissions rows onto both new page_keys, so nothing
+# a hospital already granted changes on the day this ships -- only going
+# forward can an admin diverge them via Roles & Permissions.
 PAGE_APPOINTMENTS = "appointments"
+PAGE_DAYCARE_APPOINTMENTS = "daycare_appointments"
+PAGE_DIAGNOSTIC_APPOINTMENTS = "diagnostic_appointments"
 PAGE_PATIENTS = "patients"
 PAGE_DOCTORS = "doctors"
 PAGE_MESSAGES = "messages"
@@ -52,11 +63,34 @@ PAGE_LEAVE_REQUESTS = "leave_requests"
 # for their own leave here, doctor or not, so unlike every other non-admin
 # page above this defaults to view+write for every role, not just one kind.
 PAGE_HOLIDAY_APPLICATION = "holiday_application"
+# Attendance + Check-in/Check-out (frontend-mock pages for now, real wiring
+# a later follow-up): personal, self-service pages every staff member has a
+# reason to open for THEIR OWN attendance, same "any role, not just one
+# kind" reasoning as PAGE_HOLIDAY_APPLICATION -- but unlike that one,
+# deliberately OFF for Admin by default (confirmed with the user: an admin
+# doesn't check themselves in/out day to day, so it's not a page they need
+# open by default -- still just a starting point, an admin can flip it on
+# for their own role via Roles & Permissions like anything else).
+PAGE_ATTENDANCE = "attendance"
+PAGE_CHECK_IN_OUT = "check_in_out"
+# Report Review + Report Analytics (migration 20260914150000): both are
+# still frontend-only mock pages (no backend of their own -- confirmed with
+# the user, see report-review/page.tsx's own doc comment), and both
+# literally reuse /portal/report-review as their href (PortalSidebar.tsx --
+# "Report analytics" was never a second page, just a second nav label
+# pointing at the same route/permission-adjacent concept). Kept as two
+# separate page_keys anyway (not one shared with "report-review") so an
+# admin can show/hide the "Report analytics" nav entry independently of
+# "Report review" itself, same reasoning as the Doctor/Daycare/Diagnostic
+# Appointments split above.
+PAGE_REPORT_REVIEW = "report-review"
+PAGE_REPORT_ANALYTICS = "report-analytics"
 
 ALL_PAGES = {
-    PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_PATIENTS, PAGE_DOCTORS,
-    PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE, PAGE_DIAGNOSTIC_TESTS,
-    PAGE_LEAVE_REQUESTS, PAGE_HOLIDAY_APPLICATION,
+    PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_DAYCARE_APPOINTMENTS, PAGE_DIAGNOSTIC_APPOINTMENTS, PAGE_PATIENTS,
+    PAGE_DOCTORS, PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE, PAGE_DIAGNOSTIC_TESTS,
+    PAGE_LEAVE_REQUESTS, PAGE_HOLIDAY_APPLICATION, PAGE_ATTENDANCE, PAGE_CHECK_IN_OUT,
+    PAGE_REPORT_REVIEW, PAGE_REPORT_ANALYTICS,
 }
 ACTIONS = ("view", "write", "delete")
 
@@ -78,10 +112,18 @@ _NONE = {"view": False, "write": False, "delete": False}
 # editable like everything else -- this is only ever a STARTING point, not
 # a floor.
 DEFAULT_PERMISSIONS_BY_ROLE_KIND: dict[str, dict[str, dict[str, bool]]] = {
-    "admin": {page: dict(_ALL_TRUE) for page in ALL_PAGES},
+    "admin": {
+        **{page: dict(_ALL_TRUE) for page in ALL_PAGES},
+        # See PAGE_ATTENDANCE/PAGE_CHECK_IN_OUT's own comment above -- the
+        # one deliberate carve-out from admin's usual all-true default.
+        PAGE_ATTENDANCE: dict(_NONE),
+        PAGE_CHECK_IN_OUT: dict(_NONE),
+    },
     "receptionist": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
         PAGE_APPOINTMENTS: dict(_VIEW_WRITE),
+        PAGE_DAYCARE_APPOINTMENTS: dict(_VIEW_WRITE),
+        PAGE_DIAGNOSTIC_APPOINTMENTS: dict(_VIEW_WRITE),
         PAGE_PATIENTS: dict(_VIEW_WRITE),
         PAGE_MESSAGES: dict(_VIEW_WRITE),
         PAGE_DOCTORS: dict(_NONE),
@@ -93,10 +135,19 @@ DEFAULT_PERMISSIONS_BY_ROLE_KIND: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_LEAVE_REQUESTS: dict(_NONE),
         # Not doctor-only -- a receptionist applies for their own leave too.
         PAGE_HOLIDAY_APPLICATION: dict(_VIEW_WRITE),
+        PAGE_ATTENDANCE: dict(_VIEW_WRITE),
+        PAGE_CHECK_IN_OUT: dict(_VIEW_WRITE),
+        # Report intake/approval is reception-adjacent day-to-day work;
+        # aggregate analytics is view-only (nothing here is ever edited from
+        # that nav item, just read).
+        PAGE_REPORT_REVIEW: dict(_VIEW_WRITE),
+        PAGE_REPORT_ANALYTICS: dict(_VIEW_ONLY),
     },
     "doctor": {
         PAGE_DASHBOARD: dict(_VIEW_ONLY),
         PAGE_APPOINTMENTS: dict(_VIEW_WRITE),
+        PAGE_DAYCARE_APPOINTMENTS: dict(_VIEW_WRITE),
+        PAGE_DIAGNOSTIC_APPOINTMENTS: dict(_VIEW_WRITE),
         PAGE_PATIENTS: dict(_VIEW_WRITE),
         PAGE_MESSAGES: dict(_VIEW_ONLY),
         PAGE_DOCTORS: dict(_NONE),
@@ -111,6 +162,13 @@ DEFAULT_PERMISSIONS_BY_ROLE_KIND: dict[str, dict[str, dict[str, bool]]] = {
         PAGE_DIAGNOSTIC_TESTS: dict(_NONE),
         PAGE_LEAVE_REQUESTS: dict(_NONE),
         PAGE_HOLIDAY_APPLICATION: dict(_VIEW_WRITE),
+        PAGE_ATTENDANCE: dict(_VIEW_WRITE),
+        PAGE_CHECK_IN_OUT: dict(_VIEW_WRITE),
+        # A doctor reviews reports for their own patients -- view+write, same
+        # as receptionist; analytics is the hospital-wide aggregate view, off
+        # by default (same weight as PAGE_DIAGNOSTIC_TESTS/PAGE_STAFF).
+        PAGE_REPORT_REVIEW: dict(_VIEW_WRITE),
+        PAGE_REPORT_ANALYTICS: dict(_NONE),
     },
 }
 

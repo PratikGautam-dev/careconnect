@@ -276,6 +276,7 @@ export function createAppointmentColumns({
       cell: ({ row }) => (
         <AppointmentCellAction
           appointment={row.original}
+          permissionPage="appointments"
           cancelPanelId={cancelPanelId}
           reschedulePanelId={reschedulePanelId}
           onOpenReschedule={onOpenReschedule}

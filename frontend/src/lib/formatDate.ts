@@ -68,6 +68,13 @@ export function formatHeaderDateNoYear(d: Date): string {
   return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
+/** "Wednesday, 9 September" -- day-before-month like formatHeaderDate()
+ * above, but without the year (Attendance page's own header date, matching
+ * its reference screenshot's exact word order). */
+export function formatHeaderDateDayMonth(d: Date): string {
+  return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
 /** "September 2026" -- a calendar widget's month heading, same
  * server/client determinism reasoning as the two formatters above. */
 export function formatMonthYear(d: Date): string {

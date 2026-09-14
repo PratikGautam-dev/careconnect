@@ -30,6 +30,7 @@ import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate } from "@/lib/formatDate";
+import { usePermission } from "@/lib/staffAuth";
 import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
 import { STATUS_LABELS } from "../_components/appointments-columns";
 import { createDiagnosticAppointmentColumns, LAB_STAGE_LABELS } from "../_components/diagnostic-appointments-columns";
@@ -85,6 +86,7 @@ function pctDelta(current: number, previous: number): number | null {
 
 export default function PortalDiagnosticAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
+  const canView = usePermission("diagnostic_appointments", "view");
   const [tab, setTab] = useState<Tab>("all");
   const [newTestBookingOpen, setNewTestBookingOpen] = useState(false);
   const {
@@ -236,6 +238,14 @@ export default function PortalDiagnosticAppointmentsPage() {
     { label: "Generate test report", icon: FileText, disabled: true, title: "Coming soon" },
   ];
 
+  if (!canView) {
+    return (
+      <PortalShell hospital={hospital} active="diagnostic">
+        <p className="text-[13px] text-ink-400">You don&apos;t have access to Lab & Diagnostic Appointments.</p>
+      </PortalShell>
+    );
+  }
+
   return (
     <PortalShell hospital={hospital} active="diagnostic">
         <PageHeader
@@ -297,7 +307,7 @@ export default function PortalDiagnosticAppointmentsPage() {
 
             <div className="flex flex-wrap items-center gap-space-3">
               {selectedAppointments.length > 0 && (
-                <PermissionGate page="appointments" action="delete">
+                <PermissionGate page="diagnostic_appointments" action="delete">
                   <Button
                     variant="secondary"
                     size="md"

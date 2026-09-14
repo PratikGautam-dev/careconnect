@@ -21,6 +21,7 @@ import db.repository as db  # noqa: E402
 from db.repositories.hospitals import hash_portal_password  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from main import app  # noqa: E402
+from portal.permission_cache import invalidate  # noqa: E402
 from portal.permissions import has_permission  # noqa: E402
 
 client = TestClient(app)
@@ -164,3 +165,88 @@ def test_put_staff_permissions_rejects_an_unrecognized_page(hospital_id):
         headers=_auth(admin_token),
     )
     assert resp.status_code == 400, resp.text
+
+
+def test_attendance_and_check_in_out_default_to_every_role_except_admin(hospital_id):
+    """Migration 20260914130000: unlike every other role_permissions
+    backfill in this codebase (which apply to every role, admin included,
+    e.g. holiday_application), these two pages deliberately give the seeded
+    Admin role NO row at all -- confirmed with the user, an admin doesn't
+    check themselves in/out day to day. Every other role gets view+write."""
+    admin_role_id = _role_id(hospital_id, "admin")
+    receptionist_role_id = _role_id(hospital_id, "receptionist")
+    doctor_role_id = _role_id(hospital_id, "doctor")
+
+    for page_key in ("attendance", "check_in_out"):
+        assert has_permission(hospital_id, staff_id=-1, role_id=admin_role_id, page_key=page_key, action="view") is False
+        assert has_permission(hospital_id, staff_id=-1, role_id=admin_role_id, page_key=page_key, action="write") is False
+        assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key=page_key, action="view") is True
+        assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key=page_key, action="write") is True
+        assert has_permission(hospital_id, staff_id=-1, role_id=doctor_role_id, page_key=page_key, action="view") is True
+        assert has_permission(hospital_id, staff_id=-1, role_id=doctor_role_id, page_key=page_key, action="write") is True
+
+
+def test_daycare_and_diagnostic_appointments_start_cloned_from_appointments_then_diverge(hospital_id):
+    """Migration 20260914140000: Doctor/Daycare/Lab & Diagnostic
+    Appointments used to share one page_key ("appointments") -- confirmed
+    with the user this was wrong, a role might reasonably get one category
+    without the other two. The backfill CLONES each role's existing
+    "appointments" permissions onto the two new page_keys, so nothing
+    changes for any existing role on the day this ships (checked here via
+    the seeded Receptionist role, which has real view+write on
+    "appointments"); a later edit to just one of the three must NOT affect
+    the other two, proving they're genuinely independent going forward."""
+    receptionist_role_id = _role_id(hospital_id, "receptionist")
+    # Defensive: tests/conftest.py's autouse _fresh_rbac_caches fixture only
+    # resets the process-LOCAL cache between tests, not real Redis -- a
+    # fresh hospital here can reuse a low integer id (id sequences reset
+    # with the schema), so a still-TTL-alive Redis entry from an earlier,
+    # separate pytest run that happened to mutate the SAME id could
+    # otherwise leak in. Self-heals that rather than relying on it never
+    # happening.
+    invalidate(hospital_id)
+
+    for page_key in ("appointments", "daycare_appointments", "diagnostic_appointments"):
+        assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key=page_key, action="view") is True
+        assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key=page_key, action="write") is True
+
+    db.upsert_role_permissions(hospital_id, [
+        {"role_id": receptionist_role_id, "page_key": "daycare_appointments", "can_view": False, "can_write": False, "can_delete": False},
+    ])
+    invalidate(hospital_id)
+
+    assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key="daycare_appointments", action="view") is False
+    # The other two are untouched by that one edit.
+    assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key="appointments", action="view") is True
+    assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key="diagnostic_appointments", action="view") is True
+
+    # Cleanup: the fixture-reset _LOCAL_CACHE (tests/conftest.py's
+    # _fresh_rbac_caches) doesn't touch real Redis, so without this, the
+    # mutated matrix above would survive in Redis (5-minute TTL) past this
+    # test and leak into a LATER, separate test run that reuses this same
+    # hospital_id (fresh_test_db resets the id sequence every time).
+    invalidate(hospital_id)
+
+
+def test_report_review_and_analytics_default_permissions_differ_by_role(hospital_id):
+    """Migration 20260914150000: unlike attendance/check_in_out (flat
+    true/true for every non-admin role) or daycare/diagnostic appointments
+    (cloned from an existing page), Report review and Report analytics are
+    brand new with genuinely DIFFERENT per-role-kind defaults -- confirmed
+    with the user. Admin gets both; Receptionist gets Report review
+    (view+write) but only VIEW on Report analytics; Doctor gets Report
+    review (view+write) but nothing at all on Report analytics."""
+    admin_role_id = _role_id(hospital_id, "admin")
+    receptionist_role_id = _role_id(hospital_id, "receptionist")
+    doctor_role_id = _role_id(hospital_id, "doctor")
+
+    for role_id in (admin_role_id, receptionist_role_id, doctor_role_id):
+        assert has_permission(hospital_id, staff_id=-1, role_id=role_id, page_key="report-review", action="view") is True
+        assert has_permission(hospital_id, staff_id=-1, role_id=role_id, page_key="report-review", action="write") is True
+
+    assert has_permission(hospital_id, staff_id=-1, role_id=admin_role_id, page_key="report-analytics", action="view") is True
+    assert has_permission(hospital_id, staff_id=-1, role_id=admin_role_id, page_key="report-analytics", action="write") is True
+    assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key="report-analytics", action="view") is True
+    assert has_permission(hospital_id, staff_id=-1, role_id=receptionist_role_id, page_key="report-analytics", action="write") is False
+    assert has_permission(hospital_id, staff_id=-1, role_id=doctor_role_id, page_key="report-analytics", action="view") is False
+    assert has_permission(hospital_id, staff_id=-1, role_id=doctor_role_id, page_key="report-analytics", action="write") is False

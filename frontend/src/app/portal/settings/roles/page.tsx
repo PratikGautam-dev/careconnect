@@ -30,10 +30,16 @@ import { createRoleColumns, createRoleManagementColumns, createStaffOverrideColu
 
 const EMPTY_CELL: OverrideCell = { view: null, write: null, delete: null };
 
-const PAGE_KEYS = ["dashboard", "appointments", "patients", "schedule", "doctors", "diagnostic_tests", "messages", "settings", "staff", "roles", "leave_requests", "holiday_application"];
+const PAGE_KEYS = [
+  "dashboard", "appointments", "daycare_appointments", "diagnostic_appointments", "patients", "schedule", "doctors",
+  "diagnostic_tests", "messages", "settings", "staff", "roles", "leave_requests", "holiday_application",
+  "attendance", "check_in_out", "report-review", "report-analytics",
+];
 const PAGE_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
-  appointments: "Appointments",
+  appointments: "Doctor Appointments",
+  daycare_appointments: "Daycare Appointments",
+  diagnostic_appointments: "Lab & Diagnostic Appointments",
   patients: "Patients",
   schedule: "Schedule",
   doctors: "Doctors",
@@ -44,6 +50,10 @@ const PAGE_LABEL: Record<string, string> = {
   roles: "Roles & Permissions",
   leave_requests: "Leave Requests",
   holiday_application: "Holiday Application",
+  attendance: "Attendance",
+  check_in_out: "Check-in / Check-out",
+  "report-review": "Report Review",
+  "report-analytics": "Report Analytics",
 };
 
 type RoleFormState = { name: string; description: string; cloneFromRoleId: string };

@@ -455,7 +455,9 @@ async def test_multi_patient_resolution_shows_list_directly_with_no_default(hosp
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
     list_kwargs = _last_list(wa)
-    assert "Welcome to CareConnect" in list_kwargs["body_text"]
+    # No hospital_name passed above -- handle_incoming's own default ("the
+    # hospital") is what should show here, never a hardcoded platform brand.
+    assert "Welcome to the hospital" in list_kwargs["body_text"]
     assert "Please select the patient." in list_kwargs["body_text"]
     row_ids = {row["id"] for row in list_kwargs["sections"][0]["rows"]}
     assert patient_identity._patient_row_id(abhi["id"]) in row_ids
@@ -505,7 +507,47 @@ async def test_multi_patient_returning_to_menu_reprompts_instead_of_defaulting(h
 
     assert sessions.get(hospital_id, PHONE)["state"] == patient_identity.STATE_AWAITING_SINGLE_PATIENT_CONFIRM
     list_kwargs = _last_list(wa)
-    assert "Welcome to CareConnect" in list_kwargs["body_text"]
+    assert "Welcome to the hospital" in list_kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_multi_patient_welcome_shows_real_hospital_name_not_careconnect_brand(hospital_id):
+    """Real bug fix: this screen used to hardcode "Welcome to CareConnect"
+    regardless of which hospital's bot a patient was messaging."""
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Abhi", 30, relationship_label="Self")
+    db.create_patient_profile(hospital_id, PHONE, "Raj", 28, relationship_label="Son")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector,
+        enabled_features=["book_doctor_appointment"], hospital_name="Apollo Hospital",
+    )
+    list_kwargs = _last_list(wa)
+    assert "Welcome to Apollo Hospital" in list_kwargs["body_text"]
+    assert "CareConnect" not in list_kwargs["body_text"]
+
+
+@pytest.mark.asyncio
+async def test_multi_patient_welcome_uses_custom_welcome_message_text_when_set(hospital_id):
+    """hospitals.welcome_message_text (Notifications tab's "Welcome message"
+    field) now genuinely drives this screen's greeting line instead of being
+    silently ignored."""
+    connector = flows._DEFAULT_CONNECTOR
+    db.create_patient_profile(hospital_id, PHONE, "Abhi", 30, relationship_label="Self")
+    db.create_patient_profile(hospital_id, PHONE, "Raj", 28, relationship_label="Son")
+    wa = FakeWhatsAppClient()
+    sessions = _sessions_en(hospital_id)
+
+    await flows.handle_incoming(
+        wa, sessions, PHONE, hospital_id, text_reply("hi"), connector=connector,
+        enabled_features=["book_doctor_appointment"], hospital_name="Apollo Hospital",
+        welcome_message_text="Hi! Thanks for messaging Apollo Hospital, we're here to help.",
+    )
+    list_kwargs = _last_list(wa)
+    assert "Hi! Thanks for messaging Apollo Hospital, we're here to help." in list_kwargs["body_text"]
+    assert "Welcome to Apollo Hospital" not in list_kwargs["body_text"]
 
 
 # --- 5. Patient status BLOCKED ---
@@ -616,35 +658,24 @@ def test_marketing_consent_toggle_is_independent_of_service_consent(hospital_id)
 
 @pytest.mark.asyncio
 async def test_consent_privacy_screen_shows_notice_and_toggles_marketing(hospital_id):
+    """Per-hospital custom privacy notice text was removed entirely (no
+    admin UI for it, see NotificationsTab.tsx) -- every hospital now shows
+    the same generic default notice."""
     connector = flows._DEFAULT_CONNECTOR
-    h = db.get_hospital(hospital_id)
-    db.update_hospital(
-        hospital_id, name=h.name, whatsapp_phone_number_id=h.whatsapp_phone_number_id,
-        access_token=h.access_token, app_secret=h.app_secret, timezone=h.timezone,
-        welcome_message_text=h.welcome_message_text, reminder_offsets_hours=h.reminder_offsets_hours,
-        reminder_template_name=h.reminder_template_name, data_tier=h.data_tier,
-        external_api_base_url=h.external_api_base_url, external_api_key=h.external_api_key,
-        portal_password_hash=h.portal_password_hash, enabled_features=["consent_privacy"],
-        feature_labels=h.feature_labels, closing_message_text=h.closing_message_text,
-        business_hours_text=h.business_hours_text, default_language=h.default_language,
-        language_prompt_enabled=h.language_prompt_enabled, session_timeout_minutes=h.session_timeout_minutes,
-        privacy_notice_text="Custom hospital privacy notice.",
-    )
     patient = db.create_patient_profile(hospital_id, PHONE, "Ravi Kumar", 34, relationship_label="Self")
     wa = FakeWhatsAppClient()
     sessions = _sessions_en(hospital_id, active_patient_id=patient["id"])
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap("menu_consent_privacy"), connector=connector, enabled_features=["consent_privacy"],
-        privacy_notice_text="Custom hospital privacy notice.",
     )
     kwargs = _last_buttons(wa)
-    assert "Custom hospital privacy notice." in kwargs["body_text"]
+    assert "We use WhatsApp to help manage your appointments" in kwargs["body_text"]
     assert "Disabled" in kwargs["body_text"]  # marketing off by default
 
     await flows.handle_incoming(
         wa, sessions, PHONE, hospital_id, tap(patient_identity.CONSENT_TOGGLE_MARKETING_ID),
-        connector=connector, enabled_features=["consent_privacy"], privacy_notice_text="Custom hospital privacy notice.",
+        connector=connector, enabled_features=["consent_privacy"],
     )
     kwargs = _last_buttons(wa)
     assert "Enabled" in kwargs["body_text"]

@@ -15,6 +15,12 @@ import type { Appointment } from "@/hooks/useAppointments";
 
 type AppointmentCellActionProps = {
   appointment: Appointment;
+  /** "appointments" (doctor) or "diagnostic_appointments" (Lab &
+   * Diagnostic) -- this menu is shared by both categories' own columns
+   * file, and each now has its own independently-permissioned page_key
+   * (migration 20260914140000), so the Delete gate below can't hardcode
+   * one string for both callers. */
+  permissionPage: "appointments" | "diagnostic_appointments";
   cancelPanelId: number | null;
   reschedulePanelId: number | null;
   onOpenReschedule: (id: number) => void;
@@ -53,6 +59,7 @@ const LAB_STATUS_NEXT_LABEL: Record<string, Record<string, string>> = {
  * guard). */
 export function AppointmentCellAction({
   appointment: a,
+  permissionPage,
   cancelPanelId,
   reschedulePanelId,
   onOpenReschedule,
@@ -121,7 +128,7 @@ export function AppointmentCellAction({
                 </DropdownMenuItem>
               </>
             ) : (
-              <PermissionGate page="appointments" action="delete">
+              <PermissionGate page={permissionPage} action="delete">
                 <DropdownMenuItem variant="destructive" disabled={deletingId === a.id} onClick={() => onDelete(a.id)}>
                   <Trash2 size={14} /> {deletingId === a.id ? "Deleting…" : "Delete"}
                 </DropdownMenuItem>
