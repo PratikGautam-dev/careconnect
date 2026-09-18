@@ -23,6 +23,7 @@ dependencies = [
     "pytz==2024.2",
     "alembic>=1.19.1",
     "sqlalchemy>=2.0.52",
+    "geopy==2.4.1",  # Settings -> Attendance geofence check-in/out (db/repositories/attendance.py): geodesic distance, no hand-rolled Haversine
 ]
 
 [dependency-groups]

@@ -73,6 +73,13 @@ PAGE_HOLIDAY_APPLICATION = "holiday_application"
 # for their own role via Roles & Permissions like anything else).
 PAGE_ATTENDANCE = "attendance"
 PAGE_CHECK_IN_OUT = "check_in_out"
+# Settings -> Attendance tab (migration 20260918090200): the geofence/IP/
+# shift-window CONFIGURATION for the two personal pages above -- admin-
+# sensitive (an unlocked geofence radius would let anyone check in from
+# anywhere), same weight as PAGE_STAFF/PAGE_ROLES, so seeded ONLY for Admin
+# (unlike PAGE_ATTENDANCE/PAGE_CHECK_IN_OUT's own "every role except Admin"
+# backfill above).
+PAGE_ATTENDANCE_SETTINGS = "attendance_settings"
 # Report Review + Report Analytics (migration 20260914150000): both are
 # still frontend-only mock pages (no backend of their own -- confirmed with
 # the user, see report-review/page.tsx's own doc comment), and both
@@ -89,7 +96,7 @@ PAGE_REPORT_ANALYTICS = "report-analytics"
 ALL_PAGES = {
     PAGE_DASHBOARD, PAGE_APPOINTMENTS, PAGE_DAYCARE_APPOINTMENTS, PAGE_DIAGNOSTIC_APPOINTMENTS, PAGE_PATIENTS,
     PAGE_DOCTORS, PAGE_MESSAGES, PAGE_SETTINGS, PAGE_STAFF, PAGE_ROLES, PAGE_SCHEDULE, PAGE_DIAGNOSTIC_TESTS,
-    PAGE_LEAVE_REQUESTS, PAGE_HOLIDAY_APPLICATION, PAGE_ATTENDANCE, PAGE_CHECK_IN_OUT,
+    PAGE_LEAVE_REQUESTS, PAGE_HOLIDAY_APPLICATION, PAGE_ATTENDANCE, PAGE_CHECK_IN_OUT, PAGE_ATTENDANCE_SETTINGS,
     PAGE_REPORT_REVIEW, PAGE_REPORT_ANALYTICS,
 }
 ACTIONS = ("view", "write", "delete")

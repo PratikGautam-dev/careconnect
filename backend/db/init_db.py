@@ -667,6 +667,11 @@ _DEFAULT_ROLE_PERMISSIONS_SNAPSHOT: list[tuple[str, tuple, tuple, tuple]] = [
     # view-only for receptionist, off entirely for doctor.
     ("report-review", (True, True, True), (True, True, False), (True, True, False)),
     ("report-analytics", (True, True, True), (True, False, False), (False, False, False)),
+    # Migration 20260918090200: Settings -> Attendance tab (geofence/IP/
+    # shift-window configuration) -- admin-only, same weight as staff/roles
+    # above, unlike attendance/check_in_out's own "every role except admin"
+    # default just above.
+    ("attendance_settings", (True, True, False), (False, False, False), (False, False, False)),
 ]
 
 
@@ -1523,6 +1528,79 @@ def init_db_on_connection(conn) -> int:
     )
     conn.execute("ALTER TABLE doctors ALTER COLUMN slot_duration_minutes DROP NOT NULL")
     conn.execute("ALTER TABLE doctors ALTER COLUMN slot_duration_minutes DROP DEFAULT")
+    # Migration 20260918090000: Settings -> Attendance tab (geofence + shift-
+    # window policy) -- see that migration's own docstring for the full
+    # rationale. All nullable, same "NULL means not configured" convention
+    # as every column above.
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_latitude NUMERIC(9, 6)")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_longitude NUMERIC(9, 6)")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_allowed_radius_meters INTEGER")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_allowed_ip_cidrs TEXT")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_shift_start TEXT")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_shift_end TEXT")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_early_checkin_minutes INTEGER")
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_late_threshold_minutes INTEGER")
+    # Migration 20260919080000: replaces the original fixed "HH:MM" cutoff
+    # (which can't correctly serve two staff on different shifts) with a
+    # GRACE PERIOD applied on top of each staff member's own shift end --
+    # see db/repositories/attendance.py's auto_checkout_overdue(). Since
+    # init_db_on_connection() builds a fresh schema from scratch every time
+    # (not a historical diff), this declares the final column directly
+    # rather than replaying "add the old column, then drop it."
+    conn.execute("ALTER TABLE hospital_settings ADD COLUMN IF NOT EXISTS attendance_auto_checkout_grace_minutes INTEGER")
+    conn.execute(
+        "ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_attendance_allowed_radius_meters_check"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_attendance_allowed_radius_meters_check "
+        "CHECK (attendance_allowed_radius_meters IS NULL OR attendance_allowed_radius_meters > 0)"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_attendance_early_checkin_minutes_check"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_attendance_early_checkin_minutes_check "
+        "CHECK (attendance_early_checkin_minutes IS NULL OR attendance_early_checkin_minutes >= 0)"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS hospital_settings_attendance_late_threshold_minutes_check"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_attendance_late_threshold_minutes_check "
+        "CHECK (attendance_late_threshold_minutes IS NULL OR attendance_late_threshold_minutes >= 0)"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings DROP CONSTRAINT IF EXISTS "
+        "hospital_settings_attendance_auto_checkout_grace_minutes_check"
+    )
+    conn.execute(
+        "ALTER TABLE hospital_settings ADD CONSTRAINT hospital_settings_attendance_auto_checkout_grace_minutes_check "
+        "CHECK (attendance_auto_checkout_grace_minutes IS NULL OR attendance_auto_checkout_grace_minutes >= 0)"
+    )
+    # Migration 20260918090100: attendance_records -- one row per (staff,
+    # date), the real backend behind /portal/check-in-out + /portal/
+    # attendance (db/repositories/attendance.py).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS attendance_records ("
+        "id SERIAL PRIMARY KEY, hospital_id INTEGER NOT NULL REFERENCES hospitals(id), "
+        "staff_id INTEGER NOT NULL REFERENCES identities(id), date DATE NOT NULL, "
+        "check_in_at TIMESTAMPTZ, check_in_latitude NUMERIC(9, 6), check_in_longitude NUMERIC(9, 6), "
+        "check_in_ip TEXT, check_in_verified_method TEXT, "
+        "check_out_at TIMESTAMPTZ, check_out_latitude NUMERIC(9, 6), check_out_longitude NUMERIC(9, 6), check_out_ip TEXT, "
+        "break_started_at TIMESTAMPTZ, break_minutes INTEGER NOT NULL DEFAULT 0, "
+        "status TEXT NOT NULL DEFAULT 'on_time', late_minutes INTEGER NOT NULL DEFAULT 0, "
+        "working_minutes INTEGER NOT NULL DEFAULT 0, overtime_minutes INTEGER NOT NULL DEFAULT 0, "
+        "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ, "
+        "CONSTRAINT ux_attendance_records_staff_date UNIQUE (staff_id, date), "
+        "CONSTRAINT attendance_records_check_in_verified_method_check "
+        "CHECK (check_in_verified_method IS NULL OR check_in_verified_method IN ('gps', 'ip', 'both', 'none')), "
+        "CONSTRAINT attendance_records_status_check "
+        "CHECK (status IN ('on_time', 'late', 'absent', 'leave', 'half_day'))"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_attendance_records_hospital_date ON attendance_records(hospital_id, date)"
+    )
     # Migration 0032: doctor_slot_overrides replaces bulk-pre-generated
     # doctor_slots -- a doctor's normal grid is computed live now, this table
     # only ever holds a row for a slot staff has actually blocked or
@@ -1983,6 +2061,18 @@ def init_db_on_connection(conn) -> int:
                 "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING",
                 (page_key, can_view, can_write, can_delete, role_name),
             )
+    conn.commit()
+    # Migration 20260918090200: Settings -> Attendance tab -- admin-sensitive
+    # (an unlocked geofence radius would let anyone check in from anywhere),
+    # so scoped to the seeded Admin role only (r.is_protected = TRUE AND
+    # r.name = 'Admin'), unlike attendance/check_in_out's own "every role
+    # except Admin" backfill above.
+    conn.execute(
+        "INSERT INTO role_permissions (hospital_id, role_id, page_key, can_view, can_write, can_delete) "
+        "SELECT r.hospital_id, r.id, 'attendance_settings', true, true, false "
+        "FROM roles r WHERE r.is_protected = TRUE AND r.name = 'Admin' "
+        "ON CONFLICT (hospital_id, role_id, page_key) DO NOTHING"
+    )
     conn.commit()
     # Migration 20260914105902: per-hospital custom privacy notice text was
     # removed entirely (consent handling is being redesigned separately) --

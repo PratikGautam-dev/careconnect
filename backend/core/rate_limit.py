@@ -102,10 +102,21 @@ def reset_all_for_tests() -> None:
     _LIMITER = InMemoryRateLimiter()
 
 
+def client_ip(request) -> str | None:
+    """The one place a caller's IP is resolved from a FastAPI Request --
+    `request.client.host`, None when unavailable (some test/ASGI-transport
+    setups). No X-Forwarded-For handling: this deployment has no documented
+    trusted-proxy layer to strip/verify it first, and trusting an unvetted
+    header would let a caller spoof their own IP. Shared by client_key()
+    below (rate-limit keying) and portal/routes/attendance.py (geofence IP
+    verification + the Settings -> Attendance tab's own "detected IP"
+    display) so there's exactly one definition of "the caller's IP" in this
+    codebase, not one per call site."""
+    return request.client.host if request is not None and request.client else None
+
+
 def client_key(scope: str, request) -> str:
     """A rate-limit key for one FastAPI Request, namespaced by `scope` (e.g.
     "portal_login", "admin_secret") so unrelated endpoints don't share a
-    lockout counter. `request.client` is None in some test/ASGI-transport
-    setups, hence the fallback."""
-    ip = request.client.host if request is not None and request.client else "unknown"
-    return f"{scope}:{ip}"
+    lockout counter."""
+    return f"{scope}:{client_ip(request) or 'unknown'}"

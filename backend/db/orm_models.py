@@ -1053,6 +1053,69 @@ class HospitalSettings(Base):
     default_appointment_duration_minutes: Mapped[int | None]
     buffer_minutes: Mapped[int | None]
     max_appointments_per_day: Mapped[int | None]
+    # Migration 20260918090000: Settings -> Attendance tab, the geofence +
+    # shift-window policy check_in()/check_out() (db/repositories/
+    # attendance.py) validate every check-in/out attempt against. NULL on
+    # attendance_latitude/longitude/attendance_allowed_ip_cidrs means "not
+    # configured" -- that half of the check is simply skipped, not treated
+    # as a failure, so a hospital that never opens this tab keeps today's
+    # behavior (no geofence/IP gate at all).
+    attendance_latitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    attendance_longitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    attendance_allowed_radius_meters: Mapped[int | None]
+    # Comma-separated exact IPs and/or CIDR ranges, e.g.
+    # "103.45.67.89,103.45.68.0/24" -- same plain-comma-stored-string
+    # convention as hospitals.reminder_offsets_hours.
+    attendance_allowed_ip_cidrs: Mapped[str | None]
+    attendance_shift_start: Mapped[str | None]
+    attendance_shift_end: Mapped[str | None]
+    attendance_early_checkin_minutes: Mapped[int | None]
+    attendance_late_threshold_minutes: Mapped[int | None]
+    # Migration 20260919080000: replaces the original attendance_auto_
+    # checkout_time ("HH:MM", one fixed clock time for the whole hospital)
+    # -- that shape can't correctly serve two staff on different shifts (an
+    # early cutoff wrongly cuts a later shift short; a late cutoff leaves an
+    # early shift's forgotten check-out open for hours). This is instead a
+    # GRACE PERIOD applied on top of each STAFF MEMBER'S OWN shift end
+    # (StaffDetail.working_hours, falling back to attendance_shift_end when
+    # a staff member has none configured) -- see db/repositories/
+    # attendance.py's auto_checkout_overdue() for where that's computed.
+    attendance_auto_checkout_grace_minutes: Mapped[int | None]
+
+
+class AttendanceRecord(Base):
+    """db/schema.sql's attendance_records table (migration 20260918090100)
+    -- one row per (staff, date), the real backend behind the previously
+    frontend-mock /portal/check-in-out (self) and /portal/attendance
+    (hospital roll-up) pages. See db/repositories/attendance.py for the
+    check_in()/check_out()/start_break()/end_break() writers."""
+    __tablename__ = "attendance_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
+    staff_id: Mapped[int] = mapped_column(ForeignKey("identities.id"))
+    date: Mapped[str]
+    check_in_at: Mapped[str | None]
+    check_in_latitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    check_in_longitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    check_in_ip: Mapped[str | None]
+    check_in_verified_method: Mapped[str | None]
+    check_out_at: Mapped[str | None]
+    check_out_latitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    check_out_longitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    check_out_ip: Mapped[str | None]
+    # The one currently-OPEN break's start time (NULL when not on a break);
+    # break_minutes is the running total of every CLOSED break today --
+    # end_break() accumulates into it rather than this table tracking each
+    # individual break interval as its own row.
+    break_started_at: Mapped[str | None]
+    break_minutes: Mapped[int]
+    status: Mapped[str]
+    late_minutes: Mapped[int]
+    working_minutes: Mapped[int]
+    overtime_minutes: Mapped[int]
+    created_at: Mapped[str]
+    updated_at: Mapped[str | None]
 
 
 class GoogleCalendarConnection(Base):

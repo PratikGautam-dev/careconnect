@@ -5,6 +5,7 @@
 from fastapi import APIRouter
 
 from portal.routes.appointment_types import router as appointment_types_router
+from portal.routes.attendance import router as attendance_router
 from portal.routes.auth import router as auth_router
 from portal.routes.bookings import router as bookings_router
 from portal.routes.dashboard import router as dashboard_router
@@ -50,3 +51,6 @@ router.include_router(staff_auth_router)
 router.include_router(staff_router)
 router.include_router(roles_router)
 router.include_router(leave_requests_router)
+# Real check-in/check-out, backing the previously frontend-mock
+# /portal/check-in-out + /portal/attendance pages.
+router.include_router(attendance_router)

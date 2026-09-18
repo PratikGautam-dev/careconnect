@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Network, Settings as SettingsIcon } from "lucide-react";
+import { Bell, Clock, Network, Settings as SettingsIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
+import { AttendanceSettingsTab } from "./_components/AttendanceSettingsTab";
 import { DepartmentsTab } from "./_components/DepartmentsTab";
 import { GeneralSettingsTab } from "./_components/GeneralSettingsTab";
 import { NotificationsTab } from "./_components/NotificationsTab";
@@ -15,9 +16,10 @@ const TABS: SettingsTabDef[] = [
   { key: "general", label: "General", icon: SettingsIcon },
   { key: "departments", label: "Departments", icon: Network },
   { key: "notifications", label: "Notifications", icon: Bell },
+  { key: "attendance", label: "Attendance", icon: Clock },
 ];
 
-const BUILT_TABS: SettingsTabKey[] = ["general", "departments", "notifications"];
+const BUILT_TABS: SettingsTabKey[] = ["general", "departments", "notifications", "attendance"];
 
 /** /portal/settings -- being rebuilt tab-by-tab to match a reference
  * mockup. "General" is mostly frontend-mock (a handful of fields wired to
@@ -58,6 +60,7 @@ export default function PortalSettingsPage() {
           {tab === "general" && <GeneralSettingsTab hospital={hospital} />}
           {tab === "departments" && <DepartmentsTab />}
           {tab === "notifications" && <NotificationsTab />}
+          {tab === "attendance" && <AttendanceSettingsTab />}
           {!BUILT_TABS.includes(tab) && (
             <Card className="p-space-6">
               <p className="text-center text-[13px] text-ink-400">

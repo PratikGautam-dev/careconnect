@@ -32,6 +32,16 @@ DEFAULT_APPOINTMENT_DURATION_MINUTES = 30
 # unchanged from the behavior before this setting existed.
 DEFAULT_BUFFER_MINUTES = 0
 
+# Settings -> Attendance tab (migration 20260918090000): code-level defaults
+# applied only once a hospital HAS set attendance_latitude/longitude (the
+# radius/window default in when just the location was configured) -- unlike
+# the fields above, there's no meaningful default for the geofence/IP
+# checks themselves being "on" (see db/repositories/attendance.py's
+# check_in(), which skips a check entirely when its own setting is NULL).
+DEFAULT_ATTENDANCE_ALLOWED_RADIUS_METERS = 150
+DEFAULT_ATTENDANCE_EARLY_CHECKIN_MINUTES = 30
+DEFAULT_ATTENDANCE_LATE_THRESHOLD_MINUTES = 10
+
 
 def get_hospital_settings(hospital_id: int) -> dict:
     """Always returns a row (upserting a blank one first if this hospital has
@@ -59,6 +69,15 @@ def get_hospital_settings(hospital_id: int) -> dict:
         "default_appointment_duration_minutes": row.default_appointment_duration_minutes,
         "buffer_minutes": row.buffer_minutes,
         "max_appointments_per_day": row.max_appointments_per_day,
+        "attendance_latitude": float(row.attendance_latitude) if row.attendance_latitude is not None else None,
+        "attendance_longitude": float(row.attendance_longitude) if row.attendance_longitude is not None else None,
+        "attendance_allowed_radius_meters": row.attendance_allowed_radius_meters,
+        "attendance_allowed_ip_cidrs": row.attendance_allowed_ip_cidrs,
+        "attendance_shift_start": row.attendance_shift_start,
+        "attendance_shift_end": row.attendance_shift_end,
+        "attendance_early_checkin_minutes": row.attendance_early_checkin_minutes,
+        "attendance_late_threshold_minutes": row.attendance_late_threshold_minutes,
+        "attendance_auto_checkout_grace_minutes": row.attendance_auto_checkout_grace_minutes,
     }
 
 
@@ -106,11 +125,47 @@ def get_max_appointments_per_day(hospital_id: int) -> int | None:
     return get_hospital_settings(hospital_id)["max_appointments_per_day"]
 
 
+def get_attendance_allowed_radius_meters(hospital_id: int) -> int:
+    """The distance (meters) check_in()/check_out() (db/repositories/
+    attendance.py) allow between a staff member's reported GPS position and
+    attendance_latitude/longitude -- falls back to
+    DEFAULT_ATTENDANCE_ALLOWED_RADIUS_METERS on a NULL (never configured)
+    setting, same convention get_buffer_minutes() above uses."""
+    return (
+        get_hospital_settings(hospital_id)["attendance_allowed_radius_meters"]
+        or DEFAULT_ATTENDANCE_ALLOWED_RADIUS_METERS
+    )
+
+
+def get_attendance_early_checkin_minutes(hospital_id: int) -> int:
+    """Minutes before attendance_shift_start a check-in is allowed --
+    falls back to DEFAULT_ATTENDANCE_EARLY_CHECKIN_MINUTES on NULL."""
+    return (
+        get_hospital_settings(hospital_id)["attendance_early_checkin_minutes"]
+        or DEFAULT_ATTENDANCE_EARLY_CHECKIN_MINUTES
+    )
+
+
+def get_attendance_late_threshold_minutes(hospital_id: int) -> int:
+    """Minutes after attendance_shift_start before a check-in is marked
+    late -- falls back to DEFAULT_ATTENDANCE_LATE_THRESHOLD_MINUTES on
+    NULL."""
+    return (
+        get_hospital_settings(hospital_id)["attendance_late_threshold_minutes"]
+        or DEFAULT_ATTENDANCE_LATE_THRESHOLD_MINUTES
+    )
+
+
 def update_hospital_settings(
     hospital_id: int, followup_validity_days: int | None, followup_fee: float | None,
     new_consultation_fee: float | None, home_collection_charge: float | None = None,
     future_booking_days: int | None = None, default_appointment_duration_minutes: int | None = None,
     buffer_minutes: int | None = None, max_appointments_per_day: int | None = None,
+    attendance_latitude: float | None = None, attendance_longitude: float | None = None,
+    attendance_allowed_radius_meters: int | None = None, attendance_allowed_ip_cidrs: str | None = None,
+    attendance_shift_start: str | None = None, attendance_shift_end: str | None = None,
+    attendance_early_checkin_minutes: int | None = None, attendance_late_threshold_minutes: int | None = None,
+    attendance_auto_checkout_grace_minutes: int | None = None,
 ) -> dict:
     """portal/routes/settings.py's own write path -- always a full-object
     save (like every other settings form in this codebase), not a partial
@@ -127,6 +182,13 @@ def update_hospital_settings(
             home_collection_charge=home_collection_charge, future_booking_days=future_booking_days,
             default_appointment_duration_minutes=default_appointment_duration_minutes,
             buffer_minutes=buffer_minutes, max_appointments_per_day=max_appointments_per_day,
+            attendance_latitude=attendance_latitude, attendance_longitude=attendance_longitude,
+            attendance_allowed_radius_meters=attendance_allowed_radius_meters,
+            attendance_allowed_ip_cidrs=attendance_allowed_ip_cidrs,
+            attendance_shift_start=attendance_shift_start, attendance_shift_end=attendance_shift_end,
+            attendance_early_checkin_minutes=attendance_early_checkin_minutes,
+            attendance_late_threshold_minutes=attendance_late_threshold_minutes,
+            attendance_auto_checkout_grace_minutes=attendance_auto_checkout_grace_minutes,
         )
         .on_conflict_do_update(
             index_elements=["hospital_id"],
@@ -136,6 +198,13 @@ def update_hospital_settings(
                 "future_booking_days": future_booking_days,
                 "default_appointment_duration_minutes": default_appointment_duration_minutes,
                 "buffer_minutes": buffer_minutes, "max_appointments_per_day": max_appointments_per_day,
+                "attendance_latitude": attendance_latitude, "attendance_longitude": attendance_longitude,
+                "attendance_allowed_radius_meters": attendance_allowed_radius_meters,
+                "attendance_allowed_ip_cidrs": attendance_allowed_ip_cidrs,
+                "attendance_shift_start": attendance_shift_start, "attendance_shift_end": attendance_shift_end,
+                "attendance_early_checkin_minutes": attendance_early_checkin_minutes,
+                "attendance_late_threshold_minutes": attendance_late_threshold_minutes,
+                "attendance_auto_checkout_grace_minutes": attendance_auto_checkout_grace_minutes,
             },
         )
     )

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, CalendarClock, CalendarDays, FlaskConical, ListChecks, MapPin, Phone, ShieldCheck } from "lucide-react";
+import { Banknote, Building2, CalendarClock, CalendarDays, FlaskConical, ListChecks, MapPin, Phone, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
@@ -79,7 +79,14 @@ function withValue(options: number[], value: number): number[] {
  * Per Day" (`max_appointments_per_day` -- a hospital-wide daily booking
  * cap, enforced in create_appointment(); blank means no cap). The last one
  * also shows a live "X out of Y booked today" progress bar, from the same
- * GET response's read-only `appointments_today_count`.
+ * GET response's read-only `appointments_today_count`. "Follow-up & Fees"
+ * (own card, docs/per-appointment-type-flow-plan.md Phase 2 follow-up) was
+ * missing entirely from this rebuild until now -- `followup_validity_days`/
+ * `followup_fee`/`new_consultation_fee`/`home_collection_charge` round-
+ * tripped through usePortalSettings the whole time, just with no UI home in
+ * any tab (confirmed against ../_reference/legacy-general-settings-page.tsx,
+ * which still had it). Same "" (unset, no fee line shown) convention as
+ * `max_appointments_per_day` for the three fee fields.
  * Notification Preferences and message content (welcome/closing messages,
  * reminders) moved to the Notifications tab (see NotificationsTab.tsx).
  * Contact Information + Emergency Contact (frontend-only mock, combined
@@ -380,6 +387,78 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
           </div>
         </Card>
       </div>
+
+      <Card className="p-space-4">
+        <SectionHeader
+          icon={Banknote}
+          tint="success"
+          title="Follow-up & Fees"
+          subtitle="How long a Follow-up stays bookable after a visit, and the fees shown on booking confirmations"
+        />
+        <p className="mb-space-3 text-[12.5px] text-ink-400">
+          Leave a fee blank to omit that line entirely from the confirmation message, rather than showing ₹0.
+        </p>
+        <div className="grid grid-cols-1 gap-x-space-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Field
+            label="Follow-up Eligibility Window"
+            hint={!portalSettings ? "Loading…" : "Days after the visit a Follow-up can still be booked"}
+          >
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={portalSettings?.followup_validity_days ?? 30}
+              onChange={(e) =>
+                portalSettings && setPortalSettings({ ...portalSettings, followup_validity_days: Number(e.target.value) })
+              }
+              disabled={!portalSettings}
+            />
+          </Field>
+          <Field label="Follow-up Fee (₹)" hint={!portalSettings ? "Loading…" : "Blank = no fee line shown"}>
+            <Input
+              type="number"
+              min={0}
+              placeholder="No fee"
+              value={portalSettings?.followup_fee ?? ""}
+              onChange={(e) =>
+                portalSettings &&
+                setPortalSettings({ ...portalSettings, followup_fee: e.target.value === "" ? "" : Number(e.target.value) })
+              }
+              disabled={!portalSettings}
+            />
+          </Field>
+          <Field label="New Consultation Fee (₹)" hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}>
+            <Input
+              type="number"
+              min={0}
+              placeholder="No fee"
+              value={portalSettings?.new_consultation_fee ?? ""}
+              onChange={(e) =>
+                portalSettings &&
+                setPortalSettings({ ...portalSettings, new_consultation_fee: e.target.value === "" ? "" : Number(e.target.value) })
+              }
+              disabled={!portalSettings}
+            />
+          </Field>
+          <Field
+            label="Home Sample Collection Charge (₹)"
+            hint={!portalSettings ? "Loading…" : "Added for home sample collection Lab Test bookings"}
+            className="mb-0"
+          >
+            <Input
+              type="number"
+              min={0}
+              placeholder="No charge"
+              value={portalSettings?.home_collection_charge ?? ""}
+              onChange={(e) =>
+                portalSettings &&
+                setPortalSettings({ ...portalSettings, home_collection_charge: e.target.value === "" ? "" : Number(e.target.value) })
+              }
+              disabled={!portalSettings}
+            />
+          </Field>
+        </div>
+      </Card>
 
       <div className="flex flex-wrap items-center justify-end gap-space-2">
         {error && <p className="mr-auto text-[12.5px] font-medium text-error">{error}</p>}
