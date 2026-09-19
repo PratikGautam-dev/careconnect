@@ -8,7 +8,12 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
-import { saveStaffTokens, staffSessionFromAuthResponse, useSetStaffSession, type StaffAuthResponse } from "@/lib/staffAuth";
+import {
+  saveStaffTokens,
+  staffSessionFromAuthResponse,
+  useSetStaffSession,
+  type StaffAuthResponse,
+} from "@/lib/staffAuth";
 import { googleLoginUrl } from "@/lib/userAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -58,33 +63,35 @@ export default function PortalLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-paper px-space-4">
-      <Card className="w-full max-w-sm p-space-6">
-        <div className="mb-space-5 flex items-end gap-space-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-[16px] font-extrabold text-white">
+    <div className="bg-paper px-space-4 flex min-h-screen items-center justify-center">
+      <Card className="p-space-6 w-full max-w-sm">
+        <div className="mb-space-5 gap-space-3 flex items-end">
+          <div className="bg-brand-600 font-display flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[16px] font-extrabold text-white">
             H
           </div>
           <div>
-            <span className="block text-eyebrow">DAAP</span>
-            <span className="block text-[16px] font-bold text-ink-900">CareConnect</span>
+            <span className="text-eyebrow block">DAAP</span>
+            <span className="text-ink-900 block text-[16px] font-bold">CareConnect</span>
           </div>
         </div>
 
         <h1 className="text-display mb-space-1 !text-[22px]">Sign in</h1>
-        <p className="text-body mb-space-5">Sign in with your Google account or your individual staff email and password.</p>
+        <p className="text-body mb-space-5">
+          Sign in with your Google account or your individual staff email and password.
+        </p>
 
         <a
           href={googleLoginUrl()}
-          className="inline-flex h-14 w-full items-center justify-center gap-space-3 rounded-md border border-line bg-card text-[15px] font-semibold text-ink-900 shadow-[var(--shadow-sm)] transition-colors duration-150 hover:border-brand-300 hover:bg-brand-50 active:bg-brand-100"
+          className="gap-space-3 border-line bg-card text-ink-900 hover:border-brand-300 hover:bg-brand-50 active:bg-brand-100 inline-flex h-14 w-full items-center justify-center rounded-md border text-[15px] font-semibold shadow-[var(--shadow-sm)] transition-colors duration-150"
         >
           <GoogleIcon size={20} />
           Continue with Google
         </a>
 
-        <div className="my-space-5 flex items-center gap-space-3 text-[12px] font-medium uppercase text-ink-400">
-          <span className="h-px flex-1 bg-line" />
+        <div className="my-space-5 gap-space-3 text-ink-400 flex items-center text-[12px] font-medium uppercase">
+          <span className="bg-line h-px flex-1" />
           or
-          <span className="h-px flex-1 bg-line" />
+          <span className="bg-line h-px flex-1" />
         </div>
 
         <form onSubmit={handleStaffSubmit}>
@@ -111,7 +118,7 @@ export default function PortalLoginPage() {
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
                 tabIndex={-1}
-                className="absolute right-space-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"
+                className="right-space-3 text-ink-400 hover:text-ink-700 absolute top-1/2 -translate-y-1/2"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -119,7 +126,7 @@ export default function PortalLoginPage() {
             </div>
           </Field>
           {staffError && (
-            <p className="-mt-space-2 mb-space-4 rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] font-medium text-error">
+            <p className="-mt-space-2 mb-space-4 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px] font-medium">
               {staffError}
             </p>
           )}
@@ -133,9 +140,9 @@ export default function PortalLoginPage() {
           </Button>
         </form>
 
-        <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
+        <p className="mt-space-5 text-ink-400 text-center text-[12.5px]">
           Don&apos;t have a hospital account yet?{" "}
-          <a href="/auth" className="font-semibold text-brand-600 hover:underline">
+          <a href="/auth" className="text-brand-600 font-semibold hover:underline">
             Set one up
           </a>
         </p>

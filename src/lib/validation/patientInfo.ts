@@ -27,6 +27,9 @@ export const patientDateOfBirthSchema = z
   .string()
   .trim()
   .min(1, "Date of birth is required.")
-  .refine((v) => !Number.isNaN(Date.parse(v)) && new Date(v) <= new Date(), "Enter a valid date of birth.");
+  .refine(
+    (v) => !Number.isNaN(Date.parse(v)) && new Date(v) <= new Date(),
+    "Enter a valid date of birth.",
+  );
 
 export const patientGenderSchema = z.enum(GENDER_VALUES, { message: "Choose a gender." });

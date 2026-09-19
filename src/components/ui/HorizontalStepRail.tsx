@@ -22,9 +22,9 @@ export function HorizontalStepRail({
 
   return (
     <nav className={cn("relative", className)} aria-label="Onboarding steps">
-      <div className="pointer-events-none absolute top-3.5 right-4 left-4 h-0.5 bg-line md:top-4">
+      <div className="bg-line pointer-events-none absolute top-3.5 right-4 left-4 h-0.5 md:top-4">
         <div
-          className="h-full bg-brand-600 transition-[width] duration-300 ease-(--ease-standard)"
+          className="bg-brand-600 h-full transition-[width] duration-300 ease-(--ease-standard)"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -40,13 +40,13 @@ export function HorizontalStepRail({
               disabled={!isClickable}
               onClick={() => onStepClick(i)}
               className={cn(
-                "flex flex-1 flex-col items-center gap-space-2 px-1 text-center",
+                "gap-space-2 flex flex-1 flex-col items-center px-1 text-center",
                 isClickable ? "cursor-pointer" : "cursor-not-allowed",
               )}
             >
               <span
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 bg-card text-[11px] font-bold transition-colors duration-150 md:h-8 md:w-8 md:text-[12px]",
+                  "bg-card flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold transition-colors duration-150 md:h-8 md:w-8 md:text-[12px]",
                   isActive && "border-ink-900 bg-ink-900 text-white",
                   !isActive && isDone && "border-brand-600 bg-brand-600 text-white",
                   !isActive && !isDone && "border-line bg-card text-ink-400",

@@ -11,9 +11,9 @@ export function Card({ elevation = "resting", className, children, ...props }: C
   return (
     <div
       className={cn(
-        "rounded-lg border border-line bg-card shadow-[var(--shadow-sm)] transition-[box-shadow,transform,border-color] duration-150 ease-[var(--ease-standard)]",
+        "border-line bg-card rounded-lg border shadow-[var(--shadow-sm)] transition-[box-shadow,transform,border-color] duration-150 ease-[var(--ease-standard)]",
         elevation === "interactive" &&
-          "cursor-pointer hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-[var(--shadow-md)] active:translate-y-0",
+          "hover:border-brand-200 cursor-pointer hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] active:translate-y-0",
         elevation === "active" && "border-brand-300 shadow-[var(--shadow-lg)]",
         className,
       )}

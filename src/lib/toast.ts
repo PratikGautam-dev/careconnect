@@ -8,6 +8,8 @@ import { Toast } from "@base-ui/react/toast";
 export const toastManager = Toast.createToastManager();
 
 export const toast = {
-  success: (title: string, description?: string) => toastManager.add({ type: "success", title, description }),
-  error: (title: string, description?: string) => toastManager.add({ type: "error", title, description }),
+  success: (title: string, description?: string) =>
+    toastManager.add({ type: "success", title, description }),
+  error: (title: string, description?: string) =>
+    toastManager.add({ type: "error", title, description }),
 };

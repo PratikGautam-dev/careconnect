@@ -47,8 +47,13 @@ export function useAttendanceSettings(ready: boolean) {
     // unset (no default to fall back to) -- coerced to "" here so the
     // numeric <Input> below never renders "null", same convention
     // usePortalSettings.ts's own max_appointments_per_day uses.
-    const data = result.data as AttendanceSettings & { attendance_auto_checkout_grace_minutes: number | null };
-    setSettings({ ...data, attendance_auto_checkout_grace_minutes: data.attendance_auto_checkout_grace_minutes ?? "" });
+    const data = result.data as AttendanceSettings & {
+      attendance_auto_checkout_grace_minutes: number | null;
+    };
+    setSettings({
+      ...data,
+      attendance_auto_checkout_grace_minutes: data.attendance_auto_checkout_grace_minutes ?? "",
+    });
   }, [router]);
 
   useEffect(() => {

@@ -43,7 +43,9 @@ export function useHospitalStaff(
       if (query) params.set("search", query);
       const result = await adminFetch(`/api/admin/staff-users?${params.toString()}`);
       if (!result.ok) {
-        setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
+        setError(
+          result.unauthorized ? "Session expired — refresh to sign in again." : result.error,
+        );
         return;
       }
       setStaff((result.data as { staff: StaffRow[] }).staff);

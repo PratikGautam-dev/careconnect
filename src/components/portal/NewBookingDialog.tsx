@@ -27,14 +27,38 @@ type NewBookingDialogProps = {
  * than its own page -- same form/hook (useNewBooking) as before, just
  * mounted for the dialog's lifetime instead of a page's. */
 export function NewBookingDialog({
-  open, onOpenChange, onBooked, initialPatientName, initialPatientPhone,
+  open,
+  onOpenChange,
+  onBooked,
+  initialPatientName,
+  initialPatientPhone,
 }: NewBookingDialogProps) {
   const {
-    ctx, error, errors, submitting, success,
-    patientName, setPatientName, patientPhone, setPatientPhone,
-    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
-    departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
-    doctors, datesForDoctor, slotsForDate, slotsLoading,
+    ctx,
+    error,
+    errors,
+    submitting,
+    success,
+    patientName,
+    setPatientName,
+    patientPhone,
+    setPatientPhone,
+    patientDateOfBirth,
+    setPatientDateOfBirth,
+    patientGender,
+    setPatientGender,
+    departmentId,
+    setDepartmentId,
+    doctorId,
+    setDoctorId,
+    date,
+    setDate,
+    slotId,
+    setSlotId,
+    doctors,
+    datesForDoctor,
+    slotsForDate,
+    slotsLoading,
     handleSubmit,
   } = useNewBooking(open, onBooked, initialPatientName, initialPatientPhone);
 
@@ -43,24 +67,29 @@ export function NewBookingDialog({
       <DialogContent className="max-w-xl">
         <DialogTitle>New booking</DialogTitle>
 
-        {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+        {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
         {success ? (
           <div className="py-space-4 text-center">
-            <p className="mb-space-3 text-[14px] font-semibold text-success">Booking created.</p>
+            <p className="mb-space-3 text-success text-[14px] font-semibold">Booking created.</p>
             <Button onClick={() => onOpenChange(false)}>Done</Button>
           </div>
         ) : !ctx ? (
-          <p className="text-[13px] text-ink-400">Loading…</p>
+          <p className="text-ink-400 text-[13px]">Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
             <SectionHeader
               title="Patient information"
               description="Who this appointment is for -- an existing patient is matched by phone number, otherwise a new one is created."
             />
-            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Patient name" htmlFor="patient_name" required>
-                <Input id="patient_name" required value={patientName} onChange={(e) => setPatientName(e.target.value)} />
+                <Input
+                  id="patient_name"
+                  required
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                />
               </Field>
               <Field label="Patient phone" htmlFor="patient_phone" required>
                 <Input
@@ -76,7 +105,7 @@ export function NewBookingDialog({
               </Field>
             </div>
 
-            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Date of birth" htmlFor="patient_dob" required>
                 <Input
                   id="patient_dob"
@@ -93,7 +122,7 @@ export function NewBookingDialog({
                   required
                   value={patientGender}
                   onChange={(e) => setPatientGender(e.target.value)}
-                  className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                  className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
                 >
                   <option value="">Choose…</option>
                   {GENDER_VALUES.map((g) => (
@@ -105,7 +134,7 @@ export function NewBookingDialog({
               </Field>
             </div>
 
-            <div className="mt-space-3 border-t border-line pt-space-4">
+            <div className="mt-space-3 border-line pt-space-4 border-t">
               <SectionHeader
                 title="Appointment details"
                 description="Department, doctor, and an available date and time slot for this booking."
@@ -117,7 +146,7 @@ export function NewBookingDialog({
                 required
                 value={departmentId}
                 onChange={(e) => setDepartmentId(e.target.value)}
-                className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
               >
                 <option value="">Choose…</option>
                 {ctx.departments.map((d) => (
@@ -135,7 +164,7 @@ export function NewBookingDialog({
                   required
                   value={doctorId}
                   onChange={(e) => setDoctorId(e.target.value)}
-                  className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                  className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
                 >
                   <option value="">Choose…</option>
                   {doctors.map((d) => (
@@ -150,19 +179,21 @@ export function NewBookingDialog({
             {doctorId && (
               <Field label="Date">
                 {slotsLoading ? (
-                  <p className="text-[12.5px] text-ink-400">Loading available dates…</p>
+                  <p className="text-ink-400 text-[12.5px]">Loading available dates…</p>
                 ) : datesForDoctor.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-400">No available dates for this doctor.</p>
+                  <p className="text-ink-400 text-[12.5px]">No available dates for this doctor.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-space-2">
+                  <div className="gap-space-2 flex flex-wrap">
                     {datesForDoctor.map((d) => (
                       <button
                         type="button"
                         key={d}
                         onClick={() => setDate(d)}
                         className={cn(
-                          "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                          date === d ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                          "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                          date === d
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-card text-ink-600",
                         )}
                       >
                         {d}
@@ -176,17 +207,19 @@ export function NewBookingDialog({
             {date && (
               <Field label="Time slot" required>
                 {slotsForDate.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-400">No slots available on this date.</p>
+                  <p className="text-ink-400 text-[12.5px]">No slots available on this date.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-space-2">
+                  <div className="gap-space-2 flex flex-wrap">
                     {slotsForDate.map((s) => (
                       <button
                         type="button"
                         key={s.id}
                         onClick={() => setSlotId(s.id)}
                         className={cn(
-                          "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                          slotId === s.id ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                          "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                          slotId === s.id
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-card text-ink-600",
                         )}
                       >
                         {s.label}
@@ -198,8 +231,8 @@ export function NewBookingDialog({
             )}
 
             {errors.length > 0 && (
-              <div className="mb-space-3 rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] text-error">
-                <ul className="list-disc pl-space-4">
+              <div className="mb-space-3 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px]">
+                <ul className="pl-space-4 list-disc">
                   {errors.map((e, i) => (
                     <li key={i}>{e}</li>
                   ))}

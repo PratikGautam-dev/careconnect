@@ -23,7 +23,13 @@ export type Role = {
 // null (no opinion, inherit the role's own value for that cell).
 export type OverrideCell = { view: boolean | null; write: boolean | null; delete: boolean | null };
 export type RoleUserOverride = OverrideCell & { page_key: string };
-export type RoleUser = { staff_id: number; name: string; email: string; is_active: boolean; overrides: RoleUserOverride[] };
+export type RoleUser = {
+  staff_id: number;
+  name: string;
+  email: string;
+  is_active: boolean;
+  overrides: RoleUserOverride[];
+};
 
 /** Loads + owns every mutation on the /portal/settings/roles page -- the
  * roles list itself (create/rename/delete live in useRoleManagement.ts,
@@ -64,8 +70,11 @@ export function usePortalRoles(canView: boolean) {
     }
     // JSON object keys are always strings -- re-cast back to number so
     // matrix[role.id] lookups (role.id is a number) actually hit.
-    const raw = (result.data as { permissions: Record<string, Record<string, PagePerms>> }).permissions;
-    setMatrix(Object.fromEntries(Object.entries(raw).map(([roleId, pages]) => [Number(roleId), pages])));
+    const raw = (result.data as { permissions: Record<string, Record<string, PagePerms>> })
+      .permissions;
+    setMatrix(
+      Object.fromEntries(Object.entries(raw).map(([roleId, pages]) => [Number(roleId), pages])),
+    );
   }, [router]);
 
   useEffect(() => {
@@ -93,13 +102,15 @@ export function usePortalRoles(canView: boolean) {
       // the route's "no updates provided" 400, since `updates` defaulted to
       // an empty list.
       body: JSON.stringify({
-        updates: [{
-          role_id: roleId,
-          page_key: pageKey,
-          can_view: nextCell.view,
-          can_write: nextCell.write,
-          can_delete: nextCell.delete,
-        }],
+        updates: [
+          {
+            role_id: roleId,
+            page_key: pageKey,
+            can_view: nextCell.view,
+            can_write: nextCell.write,
+            can_delete: nextCell.delete,
+          },
+        ],
       }),
     });
     setSavingCell(null);
@@ -123,7 +134,9 @@ export function usePortalRoles(canView: boolean) {
    * (fail-closed, portal/permissions.py's own documented behavior).
    * Returns an error string on failure, null on success. */
   async function createRole(
-    name: string, description: string, cloneFromRoleId: number | null,
+    name: string,
+    description: string,
+    cloneFromRoleId: number | null,
   ): Promise<string | null> {
     const result = await staffFetch("/api/portal/roles", {
       method: "POST",
@@ -142,7 +155,8 @@ export function usePortalRoles(canView: boolean) {
   /** Rename/edit-description for an existing role -- partial update, only
    * the fields actually changed need to be passed. */
   async function updateRole(
-    roleId: number, updates: { name?: string; description?: string },
+    roleId: number,
+    updates: { name?: string; description?: string },
   ): Promise<string | null> {
     const result = await staffFetch(`/api/portal/roles/${roleId}`, {
       method: "PATCH",
@@ -172,15 +186,18 @@ export function usePortalRoles(canView: boolean) {
 
   /** "Users on this role" panel's own data source (opened lazily from the
    * per-role permissions Dialog, not prefetched for every role up front). */
-  const loadRoleUsers = useCallback(async (roleId: number): Promise<RoleUser[]> => {
-    const result = await staffFetch(`/api/portal/roles/${roleId}/users`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return [];
-    }
-    return (result.data as { users: RoleUser[] }).users;
-  }, [router]);
+  const loadRoleUsers = useCallback(
+    async (roleId: number): Promise<RoleUser[]> => {
+      const result = await staffFetch(`/api/portal/roles/${roleId}/users`);
+      if (!result.ok) {
+        if (result.unauthorized) router.push("/portal/login");
+        else setError(result.error);
+        return [];
+      }
+      return (result.data as { users: RoleUser[] }).users;
+    },
+    [router],
+  );
 
   /** Sets/clears one staff member's own override for one page -- `next` is
    * that page's FULL {view,write,delete} cell (each true/false/null), not
@@ -188,7 +205,11 @@ export function usePortalRoles(canView: boolean) {
    * the whole triple per page (same "always send the full cell" shape
    * handleToggle above already uses for role permissions). Returns an
    * error string on failure, null on success. */
-  async function updateStaffOverride(staffId: number, pageKey: string, next: OverrideCell): Promise<string | null> {
+  async function updateStaffOverride(
+    staffId: number,
+    pageKey: string,
+    next: OverrideCell,
+  ): Promise<string | null> {
     const result = await staffFetch(`/api/portal/staff/${staffId}/permissions`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -202,8 +223,16 @@ export function usePortalRoles(canView: boolean) {
   }
 
   return {
-    roles, loadRoles, matrix, error, savingCell, handleToggle,
-    createRole, updateRole, deleteRole,
-    loadRoleUsers, updateStaffOverride,
+    roles,
+    loadRoles,
+    matrix,
+    error,
+    savingCell,
+    handleToggle,
+    createRole,
+    updateRole,
+    deleteRole,
+    loadRoleUsers,
+    updateStaffOverride,
   };
 }

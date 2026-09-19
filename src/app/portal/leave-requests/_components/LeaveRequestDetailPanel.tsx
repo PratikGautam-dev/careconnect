@@ -7,13 +7,21 @@ import { formatDate } from "@/lib/formatDate";
 import type { LeaveRequestRow } from "@/hooks/useLeaveRequests";
 import { LEAVE_TYPE_LABELS, StatusBadge } from "./leave-request-columns";
 
-function DetailRow({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: React.ReactNode }) {
+function DetailRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof UserRound;
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between gap-space-3 text-[13px]">
-      <span className="flex items-center gap-space-2 text-ink-400">
+    <div className="gap-space-3 flex items-center justify-between text-[13px]">
+      <span className="gap-space-2 text-ink-400 flex items-center">
         <Icon size={14} className="shrink-0" /> {label}
       </span>
-      <span className="truncate text-right font-medium text-ink-900">{value}</span>
+      <span className="text-ink-900 truncate text-right font-medium">{value}</span>
     </div>
   );
 }
@@ -35,36 +43,55 @@ type Props = {
  * real (leave_requests + staff_details/identities, migration
  * 20260912065049). No attachment section -- skipped for now, confirmed
  * with the user. */
-export function LeaveRequestDetailPanel({ request, canManage, decidingId, onApprove, onReject }: Props) {
+export function LeaveRequestDetailPanel({
+  request,
+  canManage,
+  decidingId,
+  onApprove,
+  onReject,
+}: Props) {
   if (!request) {
     return (
       <Card className="p-space-4">
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Select a leave request to review it.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">
+          Select a leave request to review it.
+        </p>
       </Card>
     );
   }
 
-  const applicantLabel = request.is_doctor_role ? `Dr. ${request.applicant_name}` : request.applicant_name;
+  const applicantLabel = request.is_doctor_role
+    ? `Dr. ${request.applicant_name}`
+    : request.applicant_name;
 
   return (
     <Card className="p-space-4">
       <div className="mb-space-3 flex flex-col items-center text-center">
-        <span className="mb-space-2 flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 text-[20px] font-bold text-brand-700">
+        <span className="mb-space-2 bg-brand-50 text-brand-700 flex h-16 w-16 items-center justify-center rounded-full text-[20px] font-bold">
           {initials(request.applicant_name)}
         </span>
-        <p className="text-[15px] font-bold text-ink-900">{applicantLabel}</p>
-        <p className="text-[12px] text-ink-400">
+        <p className="text-ink-900 text-[15px] font-bold">{applicantLabel}</p>
+        <p className="text-ink-400 text-[12px]">
           {request.role_name} {request.department_name ? `· ${request.department_name}` : ""}
         </p>
       </div>
 
-      <div className="space-y-space-2 border-t border-line pt-space-3">
-        <DetailRow icon={CalendarDays} label="Leave Type" value={LEAVE_TYPE_LABELS[request.leave_type]} />
+      <div className="space-y-space-2 border-line pt-space-3 border-t">
+        <DetailRow
+          icon={CalendarDays}
+          label="Leave Type"
+          value={LEAVE_TYPE_LABELS[request.leave_type]}
+        />
         <DetailRow icon={Calendar} label="From Date" value={formatDate(request.from_date)} />
         <DetailRow icon={Calendar} label="To Date" value={formatDate(request.to_date)} />
         <DetailRow
-          icon={CalendarDays} label="Duration"
-          value={request.is_half_day ? "Half day" : `${request.duration_days} day${request.duration_days === 1 ? "" : "s"}`}
+          icon={CalendarDays}
+          label="Duration"
+          value={
+            request.is_half_day
+              ? "Half day"
+              : `${request.duration_days} day${request.duration_days === 1 ? "" : "s"}`
+          }
         />
         <DetailRow icon={Calendar} label="Submitted On" value={formatDate(request.submitted_at)} />
         <div className="flex items-center justify-between text-[13px]">
@@ -73,36 +100,44 @@ export function LeaveRequestDetailPanel({ request, canManage, decidingId, onAppr
         </div>
       </div>
 
-      <div className="mt-space-3 rounded-md border border-line bg-paper p-space-3">
-        <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Reason for Leave</p>
-        <p className="text-[13px] text-ink-900">{request.reason || "No reason given."}</p>
+      <div className="mt-space-3 border-line bg-paper p-space-3 rounded-md border">
+        <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Reason for Leave</p>
+        <p className="text-ink-900 text-[13px]">{request.reason || "No reason given."}</p>
       </div>
 
-      <div className="mt-space-2 rounded-md border border-line bg-paper p-space-3">
-        <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+      <div className="mt-space-2 border-line bg-paper p-space-3 rounded-md border">
+        <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
           <Building2 size={12} /> Reporting Manager
         </p>
-        <p className="truncate text-[13px] font-bold text-ink-900">{request.reports_to_name || "—"}</p>
+        <p className="text-ink-900 truncate text-[13px] font-bold">
+          {request.reports_to_name || "—"}
+        </p>
       </div>
 
       {request.status !== "pending" && (
         <p className="text-hint mt-space-2">
-          {request.status === "approved" ? "Approved" : "Rejected"} by {request.decided_by_name || "—"}
+          {request.status === "approved" ? "Approved" : "Rejected"} by{" "}
+          {request.decided_by_name || "—"}
           {request.decided_at ? ` on ${formatDate(request.decided_at)}` : ""}.
         </p>
       )}
 
       {canManage && request.status === "pending" && (
-        <div className="mt-space-4 flex gap-space-2 border-t border-line pt-space-3">
+        <div className="mt-space-4 gap-space-2 border-line pt-space-3 flex border-t">
           <Button
-            type="button" size="md" className="flex-1"
+            type="button"
+            size="md"
+            className="flex-1"
             disabled={decidingId === request.id}
             onClick={() => onApprove(request)}
           >
             <CheckCircle2 size={14} /> Approve
           </Button>
           <Button
-            type="button" variant="secondary" size="md" className="flex-1"
+            type="button"
+            variant="secondary"
+            size="md"
+            className="flex-1"
             disabled={decidingId === request.id}
             onClick={() => onReject(request)}
           >

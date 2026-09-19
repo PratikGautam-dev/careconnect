@@ -27,13 +27,21 @@ function initials(name: string): string {
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
 
-function DetailRow({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: React.ReactNode }) {
+function DetailRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof UserRound;
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between gap-space-3 text-[13px]">
-      <span className="flex items-center gap-space-2 text-ink-400">
+    <div className="gap-space-3 flex items-center justify-between text-[13px]">
+      <span className="gap-space-2 text-ink-400 flex items-center">
         <Icon size={14} className="shrink-0" /> {label}
       </span>
-      <span className="truncate text-right font-medium text-ink-900">{value}</span>
+      <span className="text-ink-900 truncate text-right font-medium">{value}</span>
     </div>
   );
 }
@@ -60,13 +68,23 @@ type Props = {
  * (login_email/login_staff_id) -- the same login used to sign into the
  * shared portal, not a profile contact field. */
 export function DoctorDetailPanel({
-  doctor, index, canManage, onEdit, togglingId, onToggleActive,
-  onRunningLate, onCreateLogin, onResetPassword, onManageLeave,
+  doctor,
+  index,
+  canManage,
+  onEdit,
+  togglingId,
+  onToggleActive,
+  onRunningLate,
+  onCreateLogin,
+  onResetPassword,
+  onManageLeave,
 }: Props) {
   if (!doctor) {
     return (
       <Card className="p-space-4">
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Select a doctor to view their profile.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">
+          Select a doctor to view their profile.
+        </p>
       </Card>
     );
   }
@@ -77,14 +95,21 @@ export function DoctorDetailPanel({
     ...(canManage ? [{ label: "Edit profile", icon: Pencil, onClick: () => onEdit(doctor) }] : []),
     { label: "Running late", icon: Clock, onClick: () => onRunningLate(doctor) },
     ...(canManage
-      ? [{
-          label: doctor.is_active ? "Mark unavailable" : "Mark available",
-          icon: Power,
-          onClick: () => onToggleActive(doctor),
-          disabled: togglingId === doctor.id,
-        }]
+      ? [
+          {
+            label: doctor.is_active ? "Mark unavailable" : "Mark available",
+            icon: Power,
+            onClick: () => onToggleActive(doctor),
+            disabled: togglingId === doctor.id,
+          },
+        ]
       : []),
-    { label: "Send message", icon: MessageCircle, disabled: true, title: "Coming soon — no doctor-facing internal messaging exists yet" },
+    {
+      label: "Send message",
+      icon: MessageCircle,
+      disabled: true,
+      title: "Coming soon — no doctor-facing internal messaging exists yet",
+    },
     ...(canManage && !doctor.login_staff_id
       ? [{ label: "Create login", icon: KeyRound, onClick: () => onCreateLogin(doctor) }]
       : []),
@@ -109,21 +134,29 @@ export function DoctorDetailPanel({
         </span>
         <span
           className={cn(
-            "mb-space-1 rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-            doctor.is_active ? "bg-success-tint text-success" : "bg-black/4 text-ink-600",
+            "mb-space-1 px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+            doctor.is_active ? "bg-success-tint text-success" : "text-ink-600 bg-black/4",
           )}
         >
           {doctor.is_active ? "Available" : "Unavailable"}
         </span>
-        <p className="text-[15px] font-bold text-ink-900">Dr. {doctor.name}</p>
-        {doctor.qualification && <p className="text-[12.5px] text-ink-600">{doctor.qualification}</p>}
-        {doctor.specialization && <p className="text-[12px] text-ink-400">{doctor.specialization}</p>}
+        <p className="text-ink-900 text-[15px] font-bold">Dr. {doctor.name}</p>
+        {doctor.qualification && (
+          <p className="text-ink-600 text-[12.5px]">{doctor.qualification}</p>
+        )}
+        {doctor.specialization && (
+          <p className="text-ink-400 text-[12px]">{doctor.specialization}</p>
+        )}
       </div>
 
-      <div className="space-y-space-2 border-t border-line pt-space-3">
+      <div className="space-y-space-2 border-line pt-space-3 border-t">
         <DetailRow icon={Building2} label="Department" value={doctor.department_name} />
         <DetailRow icon={IdCard} label="Employee ID" value={doctor.employee_id || "—"} />
-        <DetailRow icon={CalendarClock} label="Experience" value={doctor.years_experience != null ? `${doctor.years_experience} years` : "—"} />
+        <DetailRow
+          icon={CalendarClock}
+          label="Experience"
+          value={doctor.years_experience != null ? `${doctor.years_experience} years` : "—"}
+        />
         <DetailRow icon={Phone} label="Phone" value={doctor.phone || "—"} />
         <DetailRow icon={Mail} label="Login email" value={doctor.login_email || "No login yet"} />
         <DetailRow icon={MapPin} label="Location" value={doctor.location || "—"} />
@@ -134,51 +167,55 @@ export function DoctorDetailPanel({
           equivalent 4: Working hours, Total appointments, Reports to
           (same staff_details.reports_to_id every other role already has --
           a doctor with a login can be assigned one too), Leave balance. */}
-      <div className="mt-space-3 grid grid-cols-2 gap-space-2">
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Working hours</p>
-          <p className="text-[13px] font-bold text-ink-900">
+      <div className="mt-space-3 gap-space-2 grid grid-cols-2">
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Working hours</p>
+          <p className="text-ink-900 text-[13px] font-bold">
             {doctor.working_days.length > 0 ? formatWorkingDays(doctor.working_days) : "—"}
           </p>
-          <p className="text-[11.5px] text-ink-600">{hours || ""}</p>
+          <p className="text-ink-600 text-[11.5px]">{hours || ""}</p>
         </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
             <CalendarCheck size={12} /> Total appointments
           </p>
-          <p className="text-[13px] font-bold text-ink-900">{doctor.total_appointments}</p>
+          <p className="text-ink-900 text-[13px] font-bold">{doctor.total_appointments}</p>
         </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
             <Building2 size={12} /> Reports to
           </p>
-          <p className="truncate text-[13px] font-bold text-ink-900">{doctor.reports_to_name || "—"}</p>
+          <p className="text-ink-900 truncate text-[13px] font-bold">
+            {doctor.reports_to_name || "—"}
+          </p>
         </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Leave balance</p>
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Leave balance</p>
           {doctor.leave_balance_total != null ? (
             <>
-              <p className="text-[13px] font-bold text-ink-900">
-                {doctor.leave_balance_total - (doctor.leave_balance_used ?? 0)} / {doctor.leave_balance_total} days
+              <p className="text-ink-900 text-[13px] font-bold">
+                {doctor.leave_balance_total - (doctor.leave_balance_used ?? 0)} /{" "}
+                {doctor.leave_balance_total} days
               </p>
-              <p className="text-[11.5px] text-ink-600">remaining this year</p>
+              <p className="text-ink-600 text-[11.5px]">remaining this year</p>
             </>
           ) : (
             <>
-              <p className="text-[13px] font-bold text-ink-400">—</p>
-              <p className="text-[11.5px] text-ink-400">No login yet</p>
+              <p className="text-ink-400 text-[13px] font-bold">—</p>
+              <p className="text-ink-400 text-[11.5px]">No login yet</p>
             </>
           )}
         </div>
       </div>
 
       <p className="text-hint mt-space-2">
-        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) — applying for leave from here is still
-        a later page. Availability is the real Available/Unavailable toggle, not a live &quot;since HH:MM&quot; check-in.
+        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) — applying for leave
+        from here is still a later page. Availability is the real Available/Unavailable toggle, not
+        a live &quot;since HH:MM&quot; check-in.
       </p>
 
-      <div className="mt-space-4 border-t border-line pt-space-3">
-        <p className="text-label mb-space-2 font-bold text-ink-900">Quick actions</p>
+      <div className="mt-space-4 border-line pt-space-3 border-t">
+        <p className="text-label mb-space-2 text-ink-900 font-bold">Quick actions</p>
         <QuickActionList actions={quickActions} columns={2} size="sm" />
       </div>
     </Card>

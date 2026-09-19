@@ -12,31 +12,46 @@ import { useLabServiceAreas } from "@/hooks/useLabServiceAreas";
  * Hospital/Lab instead. Supports both single-PIN and range entry. */
 export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
   const {
-    areas, error, pendingId,
-    showAddForm, setShowAddForm, addMode, setAddMode,
-    newPincode, setNewPincode, newRangeStart, setNewRangeStart, newRangeEnd, setNewRangeEnd,
-    toggleActive, removeArea, addArea,
+    areas,
+    error,
+    pendingId,
+    showAddForm,
+    setShowAddForm,
+    addMode,
+    setAddMode,
+    newPincode,
+    setNewPincode,
+    newRangeStart,
+    setNewRangeStart,
+    newRangeEnd,
+    setNewRangeEnd,
+    toggleActive,
+    removeArea,
+    addArea,
   } = useLabServiceAreas();
 
   if (areas === null) return null;
 
-  const canSubmit = addMode === "single" ? !!newPincode.trim() : !!(newRangeStart.trim() && newRangeEnd.trim());
+  const canSubmit =
+    addMode === "single" ? !!newPincode.trim() : !!(newRangeStart.trim() && newRangeEnd.trim());
 
   return (
     <div>
-      {error && <p className="mb-space-3 text-[12.5px] font-medium text-error">{error}</p>}
+      {error && <p className="mb-space-3 text-error text-[12.5px] font-medium">{error}</p>}
 
       {areas.length === 0 ? (
-        <p className="mb-space-3 text-[13px] text-ink-400">No serviceable PIN codes added yet.</p>
+        <p className="mb-space-3 text-ink-400 text-[13px]">No serviceable PIN codes added yet.</p>
       ) : (
-        <ul className="mb-space-3 divide-y divide-line">
+        <ul className="mb-space-3 divide-line divide-y">
           {areas.map((area) => (
-            <li key={area.id} className="flex items-center justify-between py-space-2">
-              <p className="text-[13.5px] font-semibold text-ink-900">
+            <li key={area.id} className="py-space-2 flex items-center justify-between">
+              <p className="text-ink-900 text-[13.5px] font-semibold">
                 {area.pincode ?? `${area.range_start}–${area.range_end}`}
               </p>
-              <div className="flex items-center gap-space-3">
-                <Badge tone={area.is_active ? "success" : "neutral"}>{area.is_active ? "Active" : "Inactive"}</Badge>
+              <div className="gap-space-3 flex items-center">
+                <Badge tone={area.is_active ? "success" : "neutral"}>
+                  {area.is_active ? "Active" : "Inactive"}
+                </Badge>
                 <Switch
                   checked={area.is_active}
                   onChange={() => toggleActive(area)}
@@ -60,18 +75,22 @@ export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
         </ul>
       )}
 
-      {canManage && (
-        showAddForm ? (
-          <div className="flex flex-wrap items-center gap-space-2">
-            <div className="flex gap-space-1">
+      {canManage &&
+        (showAddForm ? (
+          <div className="gap-space-2 flex flex-wrap items-center">
+            <div className="gap-space-1 flex">
               <Button
-                type="button" variant={addMode === "single" ? "secondary" : "ghost"} size="md"
+                type="button"
+                variant={addMode === "single" ? "secondary" : "ghost"}
+                size="md"
                 onClick={() => setAddMode("single")}
               >
                 Single
               </Button>
               <Button
-                type="button" variant={addMode === "range" ? "secondary" : "ghost"} size="md"
+                type="button"
+                variant={addMode === "range" ? "secondary" : "ghost"}
+                size="md"
                 onClick={() => setAddMode("range")}
               >
                 Range
@@ -100,11 +119,18 @@ export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
                 />
               </>
             )}
-            <Button type="button" size="md" onClick={addArea} disabled={pendingId === "new" || !canSubmit}>
+            <Button
+              type="button"
+              size="md"
+              onClick={addArea}
+              disabled={pendingId === "new" || !canSubmit}
+            >
               Add
             </Button>
             <Button
-              type="button" variant="ghost" size="md"
+              type="button"
+              variant="ghost"
+              size="md"
               onClick={() => {
                 setShowAddForm(false);
                 setNewPincode("");
@@ -119,8 +145,7 @@ export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
           <Button type="button" variant="secondary" size="md" onClick={() => setShowAddForm(true)}>
             <Plus size={14} /> Add PIN code
           </Button>
-        )
-      )}
+        ))}
     </div>
   );
 }

@@ -16,7 +16,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   return (
     <input
       ref={ref}
-      className={cn(fieldStyle, invalid && "border-error focus:border-error focus:ring-error-tint", className)}
+      className={cn(
+        fieldStyle,
+        invalid && "border-error focus:border-error focus:ring-error-tint",
+        className,
+      )}
       {...props}
     />
   );
@@ -33,7 +37,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
       ref={ref}
       className={cn(
         fieldStyle,
-        "h-auto resize-y py-space-2 leading-relaxed",
+        "py-space-2 h-auto resize-y leading-relaxed",
         invalid && "border-error focus:border-error focus:ring-error-tint",
         className,
       )}

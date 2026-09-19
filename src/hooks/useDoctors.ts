@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DoctorScheduleFormState, emptyDoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
+import {
+  DoctorScheduleFormState,
+  emptyDoctorScheduleForm,
+} from "@/components/portal/DoctorScheduleForm";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
@@ -87,7 +90,11 @@ export function useDoctors(ready: boolean) {
       else setError(result.error);
       return;
     }
-    const data = result.data as { departments: Department[]; doctors: Doctor[]; on_leave_today_count: number };
+    const data = result.data as {
+      departments: Department[];
+      doctors: Doctor[];
+      on_leave_today_count: number;
+    };
     setDepartments(data.departments);
     setDoctors(data.doctors);
     setOnLeaveTodayCount(data.on_leave_today_count);
@@ -153,14 +160,20 @@ export function useDoctors(ready: boolean) {
       if (result.unauthorized) router.push("/portal/login");
       else {
         setDoctorErrors([result.error]);
-        toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", result.error);
+        toast.error(
+          editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor",
+          result.error,
+        );
       }
       return;
     }
     const data = result.data as { errors?: string[] };
     if (data.errors?.length) {
       setDoctorErrors(data.errors);
-      toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", data.errors[0]);
+      toast.error(
+        editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor",
+        data.errors[0],
+      );
       return;
     }
     toast.success(editingDoctorId ? "Doctor updated" : "Doctor added");
@@ -198,12 +211,15 @@ export function useDoctors(ready: boolean) {
       working_days: (full.working_days as string[]) || [],
       shifts: shifts.length > 0 ? shifts : [{ start: "", end: "" }],
       breaks: ((full.breaks as string[]) || []).map(toRange),
-      slot_duration_minutes: full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
-      max_bookings_per_slot: full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
+      slot_duration_minutes:
+        full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
+      max_bookings_per_slot:
+        full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
       daily_booking_limit: full.daily_booking_limit != null ? String(full.daily_booking_limit) : "",
       online_quota: full.online_quota != null ? String(full.online_quota) : "",
       walkin_quota: full.walkin_quota != null ? String(full.walkin_quota) : "",
-      followup_duration_minutes: full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
+      followup_duration_minutes:
+        full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
       effective_from: (full.effective_from as string) || "",
       phone: (full.phone as string) || "",
       location: (full.location as string) || "",
@@ -243,11 +259,32 @@ export function useDoctors(ready: boolean) {
   }, [doctors, searchQuery, activeFilter]);
 
   return {
-    departments, doctors, onLeaveTodayCount, error, load,
-    showDoctorForm, showCsvImport, doctorForm, setDoctorForm, doctorErrors, savingDoctor,
-    editingDoctorId, loadingDoctorForEdit,
-    openAddDoctorForm, toggleCsvImport, cancelDoctorForm, handleSaveDoctor, handleEditDoctor, handleToggleActive,
-    expandedId, setExpandedId, togglingId,
-    searchQuery, setSearchQuery, activeFilter, setActiveFilter, filteredDoctors,
+    departments,
+    doctors,
+    onLeaveTodayCount,
+    error,
+    load,
+    showDoctorForm,
+    showCsvImport,
+    doctorForm,
+    setDoctorForm,
+    doctorErrors,
+    savingDoctor,
+    editingDoctorId,
+    loadingDoctorForEdit,
+    openAddDoctorForm,
+    toggleCsvImport,
+    cancelDoctorForm,
+    handleSaveDoctor,
+    handleEditDoctor,
+    handleToggleActive,
+    expandedId,
+    setExpandedId,
+    togglingId,
+    searchQuery,
+    setSearchQuery,
+    activeFilter,
+    setActiveFilter,
+    filteredDoctors,
   };
 }

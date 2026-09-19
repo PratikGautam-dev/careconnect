@@ -41,7 +41,7 @@ function DropdownMenuContent({
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
           className={cn(
-            "z-50 min-w-40 origin-(--transform-origin) rounded-lg border border-line bg-card p-1 text-ink-900 shadow-[var(--shadow-md)] outline-none",
+            "border-line bg-card text-ink-900 z-50 min-w-40 origin-(--transform-origin) rounded-lg border p-1 shadow-[var(--shadow-md)] outline-none",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}
@@ -60,7 +60,10 @@ function DropdownMenuLabel({ className, ...props }: MenuPrimitive.GroupLabel.Pro
   return (
     <MenuPrimitive.GroupLabel
       data-slot="dropdown-menu-label"
-      className={cn("px-space-2 py-space-1 text-[11px] font-semibold text-ink-400 uppercase", className)}
+      className={cn(
+        "px-space-2 py-space-1 text-ink-400 text-[11px] font-semibold uppercase",
+        className,
+      )}
       {...props}
     />
   );
@@ -76,8 +79,8 @@ function DropdownMenuItem({
       data-slot="dropdown-menu-item"
       data-variant={variant}
       className={cn(
-        "flex cursor-default items-center gap-space-2 rounded-md px-space-2 py-space-1 text-[13px] font-medium outline-hidden select-none",
-        "focus:cursor-pointer focus:bg-brand-50 focus:text-brand-700",
+        "gap-space-2 px-space-2 py-space-1 flex cursor-default items-center rounded-md text-[13px] font-medium outline-hidden select-none",
+        "focus:bg-brand-50 focus:text-brand-700 focus:cursor-pointer",
         "data-[variant=destructive]:text-error data-[variant=destructive]:focus:bg-error/10 data-[variant=destructive]:focus:text-error",
         "data-disabled:pointer-events-none data-disabled:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
@@ -88,4 +91,11 @@ function DropdownMenuItem({
   );
 }
 
-export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuItem };
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+};

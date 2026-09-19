@@ -75,10 +75,7 @@ export const TYPE_ICONS: Record<string, LucideIcon> = {
 export function initials(name: string | null, phone: string): string {
   if (!name) return phone.slice(-2);
   const parts = name.trim().split(/\s+/);
-  return (
-    ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() ||
-    phone.slice(-2)
-  );
+  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || phone.slice(-2);
 }
 
 /** Column definitions for the /portal/appointments (Doctor appointments)
@@ -116,7 +113,7 @@ export function createAppointmentColumns({
             checked={allSelected}
             onChange={(e) => toggleSelectAll(e.target.checked)}
             disabled={deletableCount === 0}
-            className="h-4 w-4 accent-brand-600"
+            className="accent-brand-600 h-4 w-4"
             aria-label="Select all deletable appointments"
           />
         </PermissionGate>
@@ -130,7 +127,7 @@ export function createAppointmentColumns({
               type="checkbox"
               checked={selected.has(a.id)}
               onChange={(e) => toggleSelected(a.id, e.target.checked)}
-              className="h-4 w-4 accent-brand-600"
+              className="accent-brand-600 h-4 w-4"
               aria-label={`Select appointment ${a.reference_id || a.id}`}
             />
           </PermissionGate>
@@ -141,7 +138,7 @@ export function createAppointmentColumns({
       id: "reference_id",
       header: "Appointment ID",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
+        <span className="text-ink-600 font-mono text-[12px] whitespace-nowrap">
           {row.original.reference_id || "—"}
         </span>
       ),
@@ -150,7 +147,7 @@ export function createAppointmentColumns({
       id: "scheduled_at",
       header: "Appointment time",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">
+        <span className="text-ink-600 whitespace-nowrap tabular-nums">
           {formatShortDateTime(row.original.scheduled_at)}
         </span>
       ),
@@ -162,7 +159,7 @@ export function createAppointmentColumns({
       cell: ({ row }) => {
         const a = row.original;
         return (
-          <div className="flex items-center gap-space-2">
+          <div className="gap-space-2 flex items-center">
             <span
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
@@ -172,12 +169,8 @@ export function createAppointmentColumns({
               {initials(a.patient_name, a.phone)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">
-                {a.patient_name || a.phone}
-              </p>
-              {a.patient_name && (
-                <p className="truncate text-[11.5px] text-ink-400">{a.phone}</p>
-              )}
+              <p className="text-ink-900 truncate font-semibold">{a.patient_name || a.phone}</p>
+              {a.patient_name && <p className="text-ink-400 truncate text-[11.5px]">{a.phone}</p>}
             </div>
           </div>
         );
@@ -186,17 +179,13 @@ export function createAppointmentColumns({
     {
       id: "doctor_name",
       header: "Doctor",
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.doctor_name || "—"}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-600">{row.original.doctor_name || "—"}</span>,
     },
     {
       id: "department_name",
       header: "Department",
       cell: ({ row }) => (
-        <span className="text-ink-600">
-          {row.original.department_name || "—"}
-        </span>
+        <span className="text-ink-600">{row.original.department_name || "—"}</span>
       ),
     },
     {
@@ -204,12 +193,10 @@ export function createAppointmentColumns({
       header: "Appointment type",
       cell: ({ row }) => {
         const a = row.original;
-        const Icon =
-          (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) ||
-          CalendarCheck;
+        const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
         return (
-          <span className="inline-flex items-center gap-space-2 text-ink-600">
-            <Icon size={14} strokeWidth={2} className="shrink-0 text-ink-400" />
+          <span className="gap-space-2 text-ink-600 inline-flex items-center">
+            <Icon size={14} strokeWidth={2} className="text-ink-400 shrink-0" />
             {a.appointment_type_id
               ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
               : "Consultation"}
@@ -223,8 +210,8 @@ export function createAppointmentColumns({
       cell: ({ row }) => (
         <span
           className={cn(
-            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-            STATUS_STYLES[row.original.status] || "bg-black/4 text-ink-600",
+            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+            STATUS_STYLES[row.original.status] || "text-ink-600 bg-black/4",
           )}
         >
           {STATUS_LABELS[row.original.status] || row.original.status}
@@ -245,15 +232,15 @@ export function createAppointmentColumns({
               href={a.video_link}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[12.5px] font-semibold text-brand-600 hover:underline"
+              className="text-brand-600 text-[12.5px] font-semibold hover:underline"
             >
               Video · Join
             </a>
           ) : (
-            <span className="text-[12.5px] text-ink-600">Video</span>
+            <span className="text-ink-600 text-[12.5px]">Video</span>
           );
         }
-        return <span className="text-[12.5px] text-ink-600">In-person</span>;
+        return <span className="text-ink-600 text-[12.5px]">In-person</span>;
       },
     },
     {
@@ -262,7 +249,7 @@ export function createAppointmentColumns({
       cell: ({ row }) => {
         const createdAt = row.original.created_at;
         return (
-          <span className="whitespace-nowrap tabular-nums text-ink-600">
+          <span className="text-ink-600 whitespace-nowrap tabular-nums">
             {createdAt ? formatShortDateTime(createdAt) : "—"}
           </span>
         );

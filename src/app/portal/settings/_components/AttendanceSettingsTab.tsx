@@ -18,12 +18,15 @@ import { SectionHeader } from "./settings-ui";
 export function AttendanceSettingsTab() {
   const canView = usePermission("attendance_settings", "view");
   const canWrite = usePermission("attendance_settings", "write");
-  const { settings, setSettings, saving, saved, error, handleSave } = useAttendanceSettings(canView);
+  const { settings, setSettings, saving, saved, error, handleSave } =
+    useAttendanceSettings(canView);
 
   if (!canView) {
     return (
       <Card className="p-space-6">
-        <p className="text-center text-[13px] text-ink-400">You don&apos;t have access to Attendance settings.</p>
+        <p className="text-ink-400 text-center text-[13px]">
+          You don&apos;t have access to Attendance settings.
+        </p>
       </Card>
     );
   }
@@ -58,7 +61,7 @@ export function AttendanceSettingsTab() {
   }
 
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-space-4">
+    <form onSubmit={handleSave} className="gap-space-4 flex flex-col">
       <Card className="p-space-4">
         <SectionHeader
           icon={MapPin}
@@ -66,12 +69,13 @@ export function AttendanceSettingsTab() {
           title="Hospital Location & Network"
           subtitle="Staff can only check in/out from this location or network -- leave blank to skip that check"
         />
-        <p className="mb-space-3 text-[12.5px] text-ink-600">
-          For the most reliable check-in, set up <span className="font-semibold">both</span> checks below --
-          Location and Network. A check-in is accepted as long as it matches at least one of them, so if
-          staff ever lose GPS signal indoors, the Network check still lets them in (and vice versa).
+        <p className="mb-space-3 text-ink-600 text-[12.5px]">
+          For the most reliable check-in, set up <span className="font-semibold">both</span> checks
+          below -- Location and Network. A check-in is accepted as long as it matches at least one
+          of them, so if staff ever lose GPS signal indoors, the Network check still lets them in
+          (and vice versa).
         </p>
-        <div className="grid grid-cols-1 gap-x-space-3 sm:grid-cols-2">
+        <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
           <Field label="Latitude" hint={!settings ? "Loading…" : undefined}>
             <Input
               type="number"
@@ -80,7 +84,10 @@ export function AttendanceSettingsTab() {
               value={settings?.attendance_latitude ?? ""}
               onChange={(e) =>
                 settings &&
-                setSettings({ ...settings, attendance_latitude: e.target.value === "" ? null : Number(e.target.value) })
+                setSettings({
+                  ...settings,
+                  attendance_latitude: e.target.value === "" ? null : Number(e.target.value),
+                })
               }
               disabled={!settings || !canWrite}
             />
@@ -93,30 +100,41 @@ export function AttendanceSettingsTab() {
               value={settings?.attendance_longitude ?? ""}
               onChange={(e) =>
                 settings &&
-                setSettings({ ...settings, attendance_longitude: e.target.value === "" ? null : Number(e.target.value) })
+                setSettings({
+                  ...settings,
+                  attendance_longitude: e.target.value === "" ? null : Number(e.target.value),
+                })
               }
               disabled={!settings || !canWrite}
             />
           </Field>
         </div>
-        <p className="mb-space-3 text-[12px] text-ink-500">
-          <span className="font-semibold text-ink-700">Location check:</span> Latitude and Longitude are your
-          hospital&apos;s exact map coordinates. When someone checks in, we compare their phone or laptop&apos;s
-          GPS position against this point -- if they&apos;re within the Allowed Radius below, it passes. The
-          easiest way to fill these in correctly: stand at the hospital and click the button below.
+        <p className="mb-space-3 text-ink-500 text-[12px]">
+          <span className="text-ink-700 font-semibold">Location check:</span> Latitude and Longitude
+          are your hospital&apos;s exact map coordinates. When someone checks in, we compare their
+          phone or laptop&apos;s GPS position against this point -- if they&apos;re within the
+          Allowed Radius below, it passes. The easiest way to fill these in correctly: stand at the
+          hospital and click the button below.
         </p>
         {canWrite && (
           <Button type="button" variant="secondary" onClick={useHere} disabled={!settings}>
             Use my current location
           </Button>
         )}
-        <Field label="Allowed Radius" className="mt-space-3" hint="Distance (in meters) staff must be within to check in">
+        <Field
+          label="Allowed Radius"
+          className="mt-space-3"
+          hint="Distance (in meters) staff must be within to check in"
+        >
           <Input
             type="number"
             min={10}
             max={5000}
             value={settings?.attendance_allowed_radius_meters ?? 150}
-            onChange={(e) => settings && setSettings({ ...settings, attendance_allowed_radius_meters: Number(e.target.value) })}
+            onChange={(e) =>
+              settings &&
+              setSettings({ ...settings, attendance_allowed_radius_meters: Number(e.target.value) })
+            }
             disabled={!settings || !canWrite}
           />
         </Field>
@@ -128,24 +146,27 @@ export function AttendanceSettingsTab() {
           <Textarea
             rows={2}
             value={settings?.attendance_allowed_ip_cidrs ?? ""}
-            onChange={(e) => settings && setSettings({ ...settings, attendance_allowed_ip_cidrs: e.target.value })}
+            onChange={(e) =>
+              settings && setSettings({ ...settings, attendance_allowed_ip_cidrs: e.target.value })
+            }
             disabled={!settings || !canWrite}
           />
         </Field>
 
-        <div className="mt-space-3 rounded-md bg-brand-50 p-space-3 text-[12.5px] text-ink-700">
-          <p className="font-bold text-ink-900">Network check: how to set this up</p>
+        <div className="mt-space-3 bg-brand-50 p-space-3 text-ink-700 rounded-md text-[12.5px]">
+          <p className="text-ink-900 font-bold">Network check: how to set this up</p>
           <p className="mt-space-1">
-            While you&apos;re physically at the hospital, connected to its WiFi, open this page on your own
-            phone or laptop. The box below shows the address your WiFi is using right now -- click
-            &quot;Add this IP&quot; and save. You only need to do this <span className="font-semibold">once</span>:
-            every staff member who later checks in from that same hospital WiFi will be recognized
-            automatically, without any setup on their end.
+            While you&apos;re physically at the hospital, connected to its WiFi, open this page on
+            your own phone or laptop. The box below shows the address your WiFi is using right now
+            -- click &quot;Add this IP&quot; and save. You only need to do this{" "}
+            <span className="font-semibold">once</span>: every staff member who later checks in from
+            that same hospital WiFi will be recognized automatically, without any setup on their
+            end.
           </p>
-          <div className="mt-space-3 flex flex-wrap items-center gap-space-3 rounded-md border border-line bg-card p-space-3">
+          <div className="mt-space-3 gap-space-3 border-line bg-card p-space-3 flex flex-wrap items-center rounded-md border">
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] text-ink-400">This device&apos;s current network address</p>
-              <p className="font-mono text-[13px] font-semibold text-ink-900">
+              <p className="text-ink-400 text-[11px]">This device&apos;s current network address</p>
+              <p className="text-ink-900 font-mono text-[13px] font-semibold">
                 {settings?.detected_ip ?? (settings ? "Not available" : "Loading…")}
               </p>
             </div>
@@ -155,10 +176,10 @@ export function AttendanceSettingsTab() {
               </Button>
             )}
           </div>
-          <p className="mt-space-2 text-[11.5px] text-ink-400">
-            Not at the hospital right now, or on a different network (home WiFi, mobile data)? The address
-            shown above won&apos;t be the right one to add -- come back to this page once you&apos;re on
-            the hospital&apos;s actual WiFi.
+          <p className="mt-space-2 text-ink-400 text-[11.5px]">
+            Not at the hospital right now, or on a different network (home WiFi, mobile data)? The
+            address shown above won&apos;t be the right one to add -- come back to this page once
+            you&apos;re on the hospital&apos;s actual WiFi.
           </p>
         </div>
       </Card>
@@ -170,12 +191,14 @@ export function AttendanceSettingsTab() {
           title="Shift Window"
           subtitle="When check-in opens, and when a check-in counts as late"
         />
-        <div className="grid grid-cols-1 gap-x-space-3 sm:grid-cols-2">
+        <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
           <Field label="Shift Start">
             <Input
               type="time"
               value={settings?.attendance_shift_start ?? ""}
-              onChange={(e) => settings && setSettings({ ...settings, attendance_shift_start: e.target.value })}
+              onChange={(e) =>
+                settings && setSettings({ ...settings, attendance_shift_start: e.target.value })
+              }
               disabled={!settings || !canWrite}
             />
           </Field>
@@ -183,7 +206,9 @@ export function AttendanceSettingsTab() {
             <Input
               type="time"
               value={settings?.attendance_shift_end ?? ""}
-              onChange={(e) => settings && setSettings({ ...settings, attendance_shift_end: e.target.value })}
+              onChange={(e) =>
+                settings && setSettings({ ...settings, attendance_shift_end: e.target.value })
+              }
               disabled={!settings || !canWrite}
             />
           </Field>
@@ -193,7 +218,13 @@ export function AttendanceSettingsTab() {
               min={0}
               max={240}
               value={settings?.attendance_early_checkin_minutes ?? 30}
-              onChange={(e) => settings && setSettings({ ...settings, attendance_early_checkin_minutes: Number(e.target.value) })}
+              onChange={(e) =>
+                settings &&
+                setSettings({
+                  ...settings,
+                  attendance_early_checkin_minutes: Number(e.target.value),
+                })
+              }
               disabled={!settings || !canWrite}
             />
           </Field>
@@ -203,7 +234,13 @@ export function AttendanceSettingsTab() {
               min={0}
               max={240}
               value={settings?.attendance_late_threshold_minutes ?? 10}
-              onChange={(e) => settings && setSettings({ ...settings, attendance_late_threshold_minutes: Number(e.target.value) })}
+              onChange={(e) =>
+                settings &&
+                setSettings({
+                  ...settings,
+                  attendance_late_threshold_minutes: Number(e.target.value),
+                })
+              }
               disabled={!settings || !canWrite}
             />
           </Field>
@@ -222,25 +259,31 @@ export function AttendanceSettingsTab() {
                 settings &&
                 setSettings({
                   ...settings,
-                  attendance_auto_checkout_grace_minutes: e.target.value === "" ? "" : Number(e.target.value),
+                  attendance_auto_checkout_grace_minutes:
+                    e.target.value === "" ? "" : Number(e.target.value),
                 })
               }
               disabled={!settings || !canWrite}
             />
           </Field>
         </div>
-        <p className="mt-space-3 text-[12px] text-ink-500">
-          This uses each staff member&apos;s own shift hours (set on their profile) when they have one, and
-          falls back to the Shift End above only for staff without their own hours configured -- so two staff
-          on different shifts each get auto-checked-out at the right time for them, not one shared cutoff.
+        <p className="mt-space-3 text-ink-500 text-[12px]">
+          This uses each staff member&apos;s own shift hours (set on their profile) when they have
+          one, and falls back to the Shift End above only for staff without their own hours
+          configured -- so two staff on different shifts each get auto-checked-out at the right time
+          for them, not one shared cutoff.
         </p>
       </Card>
 
       {canWrite && (
-        <div className="flex flex-wrap items-center justify-end gap-space-2">
-          {error && <p className="mr-auto text-[12.5px] font-medium text-error">{error}</p>}
-          {saved && !error && <p className="mr-auto text-[12.5px] font-medium text-success">Saved.</p>}
-          <Button type="submit" disabled={saving || !settings}>{saving ? "Saving…" : "Save Changes"}</Button>
+        <div className="gap-space-2 flex flex-wrap items-center justify-end">
+          {error && <p className="text-error mr-auto text-[12.5px] font-medium">{error}</p>}
+          {saved && !error && (
+            <p className="text-success mr-auto text-[12.5px] font-medium">Saved.</p>
+          )}
+          <Button type="submit" disabled={saving || !settings}>
+            {saving ? "Saving…" : "Save Changes"}
+          </Button>
         </div>
       )}
     </form>

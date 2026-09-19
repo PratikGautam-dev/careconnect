@@ -39,25 +39,31 @@ export function AssignPersonDialog({ open, title, people, saving, onClose, onAss
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-space-4" onClick={handleClose}>
+    <div
+      className="p-space-4 fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={handleClose}
+    >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[80vh] w-full max-w-[420px] flex-col rounded-lg bg-card p-space-5 shadow-[var(--shadow-lg)]"
+        className="bg-card p-space-5 flex max-h-[80vh] w-full max-w-[420px] flex-col rounded-lg shadow-[var(--shadow-lg)]"
       >
-        <h2 className="mb-space-3 text-[16px] font-bold text-ink-900">{title}</h2>
-        <div className="relative mb-space-3">
-          <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+        <h2 className="mb-space-3 text-ink-900 text-[16px] font-bold">{title}</h2>
+        <div className="mb-space-3 relative">
+          <Search
+            size={14}
+            className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
+          />
           <input
             type="text"
             placeholder="Search…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+            className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
-            <p className="py-space-4 text-center text-[13px] text-ink-400">No matches.</p>
+            <p className="py-space-4 text-ink-400 text-center text-[13px]">No matches.</p>
           ) : (
             filtered.map((p) => (
               <button
@@ -65,18 +71,20 @@ export function AssignPersonDialog({ open, title, people, saving, onClose, onAss
                 type="button"
                 onClick={() => setSelectedId(p.id)}
                 className={cn(
-                  "flex w-full flex-col items-start rounded-md px-space-3 py-space-2 text-left",
+                  "px-space-3 py-space-2 flex w-full flex-col items-start rounded-md text-left",
                   selectedId === p.id ? "bg-brand-50" : "hover:bg-black/[0.03]",
                 )}
               >
-                <span className="text-[13.5px] font-semibold text-ink-900">{p.label}</span>
-                <span className="text-[12px] text-ink-400">{p.sublabel}</span>
+                <span className="text-ink-900 text-[13.5px] font-semibold">{p.label}</span>
+                <span className="text-ink-400 text-[12px]">{p.sublabel}</span>
               </button>
             ))
           )}
         </div>
-        <div className="mt-space-4 flex justify-end gap-space-2">
-          <Button type="button" variant="secondary" onClick={handleClose} disabled={saving}>Cancel</Button>
+        <div className="mt-space-4 gap-space-2 flex justify-end">
+          <Button type="button" variant="secondary" onClick={handleClose} disabled={saving}>
+            Cancel
+          </Button>
           <Button
             type="button"
             onClick={() => selectedId && onAssign(selectedId)}

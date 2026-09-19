@@ -41,24 +41,35 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
 
   return (
     <div>
-      <Link href="/admin/tenants" className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline">
+      <Link
+        href="/admin/tenants"
+        className="mb-space-4 text-brand-600 inline-block text-[13px] font-semibold hover:underline"
+      >
         ← All tenants
       </Link>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       {!tenant || !form ? (
-        <p className="text-[13px] text-ink-400">Loading…</p>
+        <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <Card className="p-space-5">
           <p className="text-eyebrow mb-space-1">Editing tenant #{tenant.id}</p>
           <h1 className="text-display mb-space-4">{tenant.name}</h1>
-          <p className="text-body mb-space-5">Only fields you change are updated — leave the token/secret fields blank to keep their current values.</p>
+          <p className="text-body mb-space-5">
+            Only fields you change are updated — leave the token/secret fields blank to keep their
+            current values.
+          </p>
 
           <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Hospital name" htmlFor="name" required>
-                <Input id="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <Input
+                  id="name"
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
               </Field>
               <Field label="WhatsApp phone_number_id" htmlFor="phone_id" required>
                 <Input
@@ -68,11 +79,27 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                   onChange={(e) => setForm({ ...form, whatsapp_phone_number_id: e.target.value })}
                 />
               </Field>
-              <Field label="Access token" htmlFor="access_token" hint={`Leave blank to keep current (${tenant.access_token_masked})`}>
-                <Input id="access_token" value={form.access_token} onChange={(e) => setForm({ ...form, access_token: e.target.value })} />
+              <Field
+                label="Access token"
+                htmlFor="access_token"
+                hint={`Leave blank to keep current (${tenant.access_token_masked})`}
+              >
+                <Input
+                  id="access_token"
+                  value={form.access_token}
+                  onChange={(e) => setForm({ ...form, access_token: e.target.value })}
+                />
               </Field>
-              <Field label="App secret" htmlFor="app_secret" hint={`Leave blank to keep current (${tenant.app_secret_masked})`}>
-                <Input id="app_secret" value={form.app_secret} onChange={(e) => setForm({ ...form, app_secret: e.target.value })} />
+              <Field
+                label="App secret"
+                htmlFor="app_secret"
+                hint={`Leave blank to keep current (${tenant.app_secret_masked})`}
+              >
+                <Input
+                  id="app_secret"
+                  value={form.app_secret}
+                  onChange={(e) => setForm({ ...form, app_secret: e.target.value })}
+                />
               </Field>
             </div>
 
@@ -85,7 +112,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               />
             </Field>
 
-            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Reminder offsets (hours)" htmlFor="reminder_offsets_hours">
                 <Input
                   id="reminder_offsets_hours"
@@ -105,9 +132,18 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
             <Field
               label="Bookings portal password"
               htmlFor="portal_password"
-              hint={tenant.has_portal_password ? "Leave blank to keep the current password." : "Not set yet — set one so staff can log in."}
+              hint={
+                tenant.has_portal_password
+                  ? "Leave blank to keep the current password."
+                  : "Not set yet — set one so staff can log in."
+              }
             >
-              <Input id="portal_password" type="password" value={form.portal_password} onChange={(e) => setForm({ ...form, portal_password: e.target.value })} />
+              <Input
+                id="portal_password"
+                type="password"
+                value={form.portal_password}
+                onChange={(e) => setForm({ ...form, portal_password: e.target.value })}
+              />
             </Field>
 
             <Field label="Tenant type" htmlFor="tenant_type">
@@ -115,7 +151,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 id="tenant_type"
                 value={form.tenant_type}
                 onChange={(e) => setForm({ ...form, tenant_type: e.target.value })}
-                className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
               >
                 <option value="hospital">Hospital</option>
                 <option value="clinic">Clinic</option>
@@ -127,17 +163,20 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               htmlFor="admin_capabilities"
               hint="Controls which staff-portal management screens this tenant can use. Changing tenant type above does NOT change these automatically — use Reset to defaults if you want them to match."
             >
-              <div className="mb-space-2 flex items-center gap-space-2">
+              <div className="mb-space-2 gap-space-2 flex items-center">
                 <Button type="button" variant="secondary" onClick={resetCapabilitiesToDefaults}>
                   Reset to {form.tenant_type} defaults
                 </Button>
-                {!capabilitiesMatch(form.admin_capabilities, tenant.default_capabilities_by_type[form.tenant_type] ?? []) && (
-                  <span className="text-[13px] text-error">
+                {!capabilitiesMatch(
+                  form.admin_capabilities,
+                  tenant.default_capabilities_by_type[form.tenant_type] ?? [],
+                ) && (
+                  <span className="text-error text-[13px]">
                     Custom — doesn&apos;t match the {form.tenant_type} default set.
                   </span>
                 )}
               </div>
-              <div id="admin_capabilities" className="grid grid-cols-1 gap-space-1 md:grid-cols-2">
+              <div id="admin_capabilities" className="gap-space-1 grid grid-cols-1 md:grid-cols-2">
                 {tenant.all_capabilities.map((key) => (
                   <CheckboxRow
                     key={key}
@@ -155,8 +194,10 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               htmlFor="appointment_types"
               hint="Which types this tenant may offer at all. Unchecking one also turns it off in the tenant's own portal immediately — the tenant can then only switch it back on if you re-allow it here first."
             >
-              {appointmentTypeError && <p className="mb-space-2 text-[12.5px] text-error">{appointmentTypeError}</p>}
-              <div id="appointment_types" className="grid grid-cols-1 gap-space-1 md:grid-cols-2">
+              {appointmentTypeError && (
+                <p className="mb-space-2 text-error text-[12.5px]">{appointmentTypeError}</p>
+              )}
+              <div id="appointment_types" className="gap-space-1 grid grid-cols-1 md:grid-cols-2">
                 {tenant.appointment_types.map((at) => (
                   <CheckboxRow
                     key={at.id}
@@ -174,7 +215,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 id="data_tier"
                 value={form.data_tier}
                 onChange={(e) => setForm({ ...form, data_tier: e.target.value })}
-                className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
               >
                 <option value="tier1">Tier 1 — this platform</option>
                 <option value="tier2">Tier 2 — external API</option>
@@ -187,7 +228,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               htmlFor="enabled_features"
               hint="Only set once, at onboarding -- this is the one place to change it afterward. A hospital's own /portal/settings can rename a label for an already-enabled feature, but can't turn one on or off."
             >
-              <div id="enabled_features" className="grid grid-cols-1 gap-space-1 md:grid-cols-2">
+              <div id="enabled_features" className="gap-space-1 grid grid-cols-1 md:grid-cols-2">
                 {Object.entries(tenant.feature_default_labels).map(([key, label]) => (
                   <CheckboxRow
                     key={key}
@@ -201,26 +242,36 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
             </Field>
 
             {form.data_tier === "tier2" && (
-              <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+              <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
                 <Field label="API base URL" htmlFor="api_base_url" required>
-                  <Input id="api_base_url" required value={form.api_base_url} onChange={(e) => setForm({ ...form, api_base_url: e.target.value })} />
+                  <Input
+                    id="api_base_url"
+                    required
+                    value={form.api_base_url}
+                    onChange={(e) => setForm({ ...form, api_base_url: e.target.value })}
+                  />
                 </Field>
                 <Field label="API key" htmlFor="api_key" required>
-                  <Input id="api_key" required value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
+                  <Input
+                    id="api_key"
+                    required
+                    value={form.api_key}
+                    onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                  />
                 </Field>
               </div>
             )}
 
             {errors.length > 0 && (
-              <div className="mb-space-3 rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] text-error">
-                <ul className="list-disc pl-space-4">
+              <div className="mb-space-3 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px]">
+                <ul className="pl-space-4 list-disc">
                   {errors.map((e, i) => (
                     <li key={i}>{e}</li>
                   ))}
                 </ul>
               </div>
             )}
-            {saved && <p className="mb-space-3 text-[12.5px] font-medium text-success">Saved.</p>}
+            {saved && <p className="mb-space-3 text-success text-[12.5px] font-medium">Saved.</p>}
 
             <Button type="submit" disabled={saving}>
               {saving ? "Saving…" : "Save changes"}
@@ -228,7 +279,6 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
           </form>
         </Card>
       )}
-
     </div>
   );
 }

@@ -14,7 +14,10 @@ import { AVATAR_TINTS } from "@/lib/avatarTints";
 
 export function StatusBadge({ isActive }: { isActive: boolean }) {
   return (
-    <Badge tone={isActive ? "success" : "clay"} className={!isActive ? "bg-error-tint text-error" : undefined}>
+    <Badge
+      tone={isActive ? "success" : "clay"}
+      className={!isActive ? "bg-error-tint text-error" : undefined}
+    >
       {isActive ? "Active" : "Inactive"}
     </Badge>
   );
@@ -27,7 +30,9 @@ type CreateDepartmentColumnsOptions = {
 };
 
 export function createDepartmentColumns({
-  onSelect, onEdit, onToggleActive,
+  onSelect,
+  onEdit,
+  onToggleActive,
 }: CreateDepartmentColumnsOptions): ColumnDef<DepartmentDetail>[] {
   return [
     {
@@ -36,11 +41,17 @@ export function createDepartmentColumns({
       cell: ({ row }) => {
         const d = row.original;
         return (
-          <button type="button" onClick={() => onSelect(d)} className="flex items-center gap-space-2 text-left">
-            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${AVATAR_TINTS[row.index % AVATAR_TINTS.length]}`}>
+          <button
+            type="button"
+            onClick={() => onSelect(d)}
+            className="gap-space-2 flex items-center text-left"
+          >
+            <span
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${AVATAR_TINTS[row.index % AVATAR_TINTS.length]}`}
+            >
               <Building2 size={15} />
             </span>
-            <span className="font-semibold text-ink-900">{d.name}</span>
+            <span className="text-ink-900 font-semibold">{d.name}</span>
           </button>
         );
       },
@@ -53,8 +64,8 @@ export function createDepartmentColumns({
         if (!head) return <span className="text-ink-400">—</span>;
         return (
           <div>
-            <p className="font-medium text-ink-900">{head.name}</p>
-            <p className="text-[11.5px] text-ink-400">{head.qualification}</p>
+            <p className="text-ink-900 font-medium">{head.name}</p>
+            <p className="text-ink-400 text-[11.5px]">{head.qualification}</p>
           </div>
         );
       },
@@ -84,7 +95,7 @@ export function createDepartmentColumns({
             <DropdownMenu>
               <DropdownMenuTrigger
                 title="More actions"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-400 hover:bg-black/[0.04] hover:text-ink-900"
+                className="text-ink-400 hover:text-ink-900 flex h-7 w-7 items-center justify-center rounded-md hover:bg-black/[0.04]"
               >
                 <MoreHorizontal size={15} />
               </DropdownMenuTrigger>

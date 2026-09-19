@@ -16,15 +16,15 @@ function AuthContent() {
   const error = params.get("error");
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-paper px-space-4">
-      <Card className="w-full max-w-sm p-space-6">
-        <div className="mb-space-5 flex items-end gap-space-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-[16px] font-extrabold text-white">
+    <div className="bg-paper px-space-4 flex min-h-screen items-center justify-center">
+      <Card className="p-space-6 w-full max-w-sm">
+        <div className="mb-space-5 gap-space-3 flex items-end">
+          <div className="bg-brand-600 font-display flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[16px] font-extrabold text-white">
             H
           </div>
           <div>
-            <span className="block text-eyebrow">DAAP</span>
-            <span className="block text-[16px] font-bold text-ink-900">CareConnect</span>
+            <span className="text-eyebrow block">DAAP</span>
+            <span className="text-ink-900 block text-[16px] font-bold">CareConnect</span>
           </div>
         </div>
 
@@ -34,22 +34,22 @@ function AuthContent() {
         </p>
 
         {error && (
-          <p className="mb-space-4 rounded-md bg-error-tint p-space-3 text-[13px] font-medium text-error">
+          <p className="mb-space-4 bg-error-tint p-space-3 text-error rounded-md text-[13px] font-medium">
             Something went wrong signing in with Google. Please try again.
           </p>
         )}
 
         <a
           href={googleLoginUrl()}
-          className="inline-flex h-14 w-full items-center justify-center gap-space-3 rounded-md border border-line bg-card text-[15px] font-semibold text-ink-900 shadow-[var(--shadow-sm)] transition-colors duration-150 hover:border-brand-300 hover:bg-brand-50 active:bg-brand-100"
+          className="gap-space-3 border-line bg-card text-ink-900 hover:border-brand-300 hover:bg-brand-50 active:bg-brand-100 inline-flex h-14 w-full items-center justify-center rounded-md border text-[15px] font-semibold shadow-[var(--shadow-sm)] transition-colors duration-150"
         >
           <GoogleIcon size={20} />
           Continue with Google
         </a>
 
-        <p className="mt-space-5 text-center text-[12.5px] text-ink-400">
+        <p className="mt-space-5 text-ink-400 text-center text-[12.5px]">
           Prefer a hospital password instead?{" "}
-          <a href="/portal/login" className="font-semibold text-brand-600 hover:underline">
+          <a href="/portal/login" className="text-brand-600 font-semibold hover:underline">
             Staff login
           </a>
         </p>

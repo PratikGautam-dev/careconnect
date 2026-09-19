@@ -1,14 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Beaker,
-  BedDouble,
-  CalendarPlus,
-  Plus,
-  UserPlus,
-  FileDown,
-} from "lucide-react";
+import { Beaker, BedDouble, CalendarPlus, Plus, UserPlus, FileDown } from "lucide-react";
 import { AddStaffDialog } from "./AddStaffDialog";
 import { NewBookingDialog } from "./NewBookingDialog";
 import { NewTestBookingDialog } from "./NewTestBookingDialog";
@@ -64,16 +57,8 @@ export function DashboardQuickActions({ className }: Props) {
           usePortalDashboard hook already polls on an interval, so a new
           booking/staff member shows up shortly without needing a manual
           refetch hook threaded down here. */}
-      <AddStaffDialog
-        open={addStaffOpen}
-        onOpenChange={setAddStaffOpen}
-        onCreated={() => {}}
-      />
-      <NewBookingDialog
-        open={bookingOpen}
-        onOpenChange={setBookingOpen}
-        onBooked={() => {}}
-      />
+      <AddStaffDialog open={addStaffOpen} onOpenChange={setAddStaffOpen} onCreated={() => {}} />
+      <NewBookingDialog open={bookingOpen} onOpenChange={setBookingOpen} onBooked={() => {}} />
       <NewTestBookingDialog
         open={testBookingOpen}
         onOpenChange={setTestBookingOpen}

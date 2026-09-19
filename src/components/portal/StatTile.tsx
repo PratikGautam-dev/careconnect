@@ -34,23 +34,37 @@ type Props = {
   href?: string;
 };
 
-export function StatTile({ label, value, deltaPct, upIsGood = true, hint = "vs last week", icon: Icon, tint = "brand", href }: Props) {
+export function StatTile({
+  label,
+  value,
+  deltaPct,
+  upIsGood = true,
+  hint = "vs last week",
+  icon: Icon,
+  tint = "brand",
+  href,
+}: Props) {
   const isUp = deltaPct !== null && deltaPct > 0;
   const isDown = deltaPct !== null && deltaPct < 0;
   const isGoodDirection = (isUp && upIsGood) || (isDown && !upIsGood);
   const isBadDirection = (isUp && !upIsGood) || (isDown && upIsGood);
 
   const body = (
-    <div className="flex items-center gap-space-3">
+    <div className="gap-space-3 flex items-center">
       {Icon && (
-        <span className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-full", TINT_CLASSES[tint])}>
+        <span
+          className={cn(
+            "flex h-14 w-14 shrink-0 items-center justify-center rounded-full",
+            TINT_CLASSES[tint],
+          )}
+        >
           <Icon size={26} strokeWidth={2} />
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-label mb-space-1 truncate font-medium text-ink-600">{label}</p>
-        <div className="flex items-baseline justify-between gap-space-2">
-          <span className="text-[26px] leading-none font-semibold text-ink-900">
+        <p className="text-label mb-space-1 text-ink-600 truncate font-medium">{label}</p>
+        <div className="gap-space-2 flex items-baseline justify-between">
+          <span className="text-ink-900 text-[26px] leading-none font-semibold">
             {value === null ? "—" : value.toLocaleString()}
           </span>
           <span
@@ -69,14 +83,16 @@ export function StatTile({ label, value, deltaPct, upIsGood = true, hint = "vs l
         </div>
         {hint && <p className="text-hint mt-space-0.5 truncate">{hint}</p>}
       </div>
-      {href && <ChevronRight size={18} className="shrink-0 text-ink-300" />}
+      {href && <ChevronRight size={18} className="text-ink-300 shrink-0" />}
     </div>
   );
 
   if (href) {
     return (
       <Link href={href} className="block">
-        <Card className="p-space-4 transition-colors duration-150 hover:border-brand-300">{body}</Card>
+        <Card className="p-space-4 hover:border-brand-300 transition-colors duration-150">
+          {body}
+        </Card>
       </Link>
     );
   }

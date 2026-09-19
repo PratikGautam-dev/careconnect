@@ -20,7 +20,9 @@ export function formatWorkingDays(days: string[]): string {
   const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const sorted = [...days].sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const isContiguousFromMon = sorted.every((d, i) => d === order[i]);
-  return isContiguousFromMon && sorted.length > 1 ? `${sorted[0]} - ${sorted[sorted.length - 1]}` : sorted.join(", ");
+  return isContiguousFromMon && sorted.length > 1
+    ? `${sorted[0]} - ${sorted[sorted.length - 1]}`
+    : sorted.join(", ");
 }
 
 /** "9:00 AM - 1:00 PM, 4:00 PM - 7:00 PM" from ["09:00-13:00", "16:00-19:00"];

@@ -46,7 +46,12 @@ export type Appointment = {
   // booking is bound to -- empty for every non-procedure appointment (and
   // for one not yet CONFIRMED, since resources are only reserved at that
   // point).
-  procedure_resources: { id: number; resource_id: number; resource_type: string; resource_name: string }[];
+  procedure_resources: {
+    id: number;
+    resource_id: number;
+    resource_type: string;
+    resource_name: string;
+  }[];
 };
 
 export type Department = { id: string; name: string };
@@ -56,7 +61,12 @@ export type Doctor = { id: string; name: string };
 // from the plain reschedule-context caller's own reads, which is fine --
 // TypeScript structural typing doesn't require every consumer to use every
 // field.
-export type Resource = { id: number; name: string; category: "diagnostic" | "lab"; price: number | null };
+export type Resource = {
+  id: number;
+  name: string;
+  category: "diagnostic" | "lab";
+  price: number | null;
+};
 export type Slot = { id: string; label: string };
 export type SlotsByDate = Record<string, Slot[]>;
 export type NewBookingContext = {
@@ -77,7 +87,8 @@ export type NewBookingContext = {
  * their own hooks), RescheduleDialog (below), and the patient page's
  * "Book now" panel (usePatientDetail.ts). */
 export async function fetchSlotsByDate(
-  router: ReturnType<typeof useRouter>, opts: { doctorId?: string; resourceId?: string; procedureId?: string },
+  router: ReturnType<typeof useRouter>,
+  opts: { doctorId?: string; resourceId?: string; procedureId?: string },
 ): Promise<SlotsByDate | null> {
   const params = new URLSearchParams();
   if (opts.doctorId) params.set("doctor_id", opts.doctorId);
@@ -117,25 +128,41 @@ export type AppointmentCategory = "all" | "doctor" | "diagnostic" | "daycare";
 // client-side) keeps a tab pill meaning "every matching row", not just
 // whichever ones landed on the current page.
 export type AppointmentTab =
-  | "all" | "today" | "upcoming" | "previous"
-  | "completed" | "cancelled" | "pending" | "diagnostics" | "lab";
+  | "all"
+  | "today"
+  | "upcoming"
+  | "previous"
+  | "completed"
+  | "cancelled"
+  | "pending"
+  | "diagnostics"
+  | "lab";
 
 function tabToServerParams(tab: string): { status?: string; type?: string; when?: string } {
   switch (tab as AppointmentTab) {
-    case "today": return { when: "today" };
-    case "upcoming": return { when: "upcoming" };
+    case "today":
+      return { when: "today" };
+    case "upcoming":
+      return { when: "upcoming" };
     // Same "attended, regardless of date" meaning as "completed" below --
     // "previous" is the Doctor/Diagnostic & lab pages' shared All/Today/
     // Upcoming/Previous tab set replacing the old, more granular per-page
     // tab lists (completed/cancelled/pending/diagnostics/lab, still kept
     // here for whichever page hasn't moved onto that shared set yet).
-    case "previous": return { status: "attended" };
-    case "completed": return { status: "attended" };
-    case "cancelled": return { status: "cancelled" };
-    case "pending": return { status: "booked" };
-    case "diagnostics": return { type: "diagnostic" };
-    case "lab": return { type: "lab" };
-    default: return {};
+    case "previous":
+      return { status: "attended" };
+    case "completed":
+      return { status: "attended" };
+    case "cancelled":
+      return { status: "cancelled" };
+    case "pending":
+      return { status: "booked" };
+    case "diagnostics":
+      return { type: "diagnostic" };
+    case "lab":
+      return { type: "lab" };
+    default:
+      return {};
   }
 }
 
@@ -162,7 +189,11 @@ function resolveTypeParam(mode: string, type: string): string {
  * calling page's own current tab pill id (see AppointmentTab) -- passed in
  * rather than owned here since each page's tab labels/ids differ; this
  * hook only needs the id to resolve it to server params. */
-export function useAppointments(ready: boolean, category: AppointmentCategory = "all", tab: string = "all") {
+export function useAppointments(
+  ready: boolean,
+  category: AppointmentCategory = "all",
+  tab: string = "all",
+) {
   const router = useRouter();
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
@@ -243,21 +274,24 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
   // wouldn't work, since this closure still sees the OLD draft value until
   // the next render. Passing it here updates draft + applied together in
   // one go.
-  const applyFilters = useCallback((overrides?: { search?: string; status?: string; type?: string; labStatus?: string }) => {
-    const nextSearch = overrides?.search ?? searchQuery;
-    const nextStatus = overrides?.status ?? statusFilter;
-    const nextType = overrides?.type ?? typeFilter;
-    const nextLabStatus = overrides?.labStatus ?? labStatusFilter;
-    if (overrides?.search !== undefined) setSearchQuery(nextSearch);
-    if (overrides?.status !== undefined) setStatusFilter(nextStatus);
-    if (overrides?.type !== undefined) setTypeFilter(nextType);
-    if (overrides?.labStatus !== undefined) setLabStatusFilter(nextLabStatus);
-    setAppliedSearch(nextSearch.trim());
-    setAppliedStatus(nextStatus);
-    setAppliedType(nextType);
-    setAppliedLabStatus(nextLabStatus);
-    setPage(1);
-  }, [searchQuery, statusFilter, typeFilter, labStatusFilter]);
+  const applyFilters = useCallback(
+    (overrides?: { search?: string; status?: string; type?: string; labStatus?: string }) => {
+      const nextSearch = overrides?.search ?? searchQuery;
+      const nextStatus = overrides?.status ?? statusFilter;
+      const nextType = overrides?.type ?? typeFilter;
+      const nextLabStatus = overrides?.labStatus ?? labStatusFilter;
+      if (overrides?.search !== undefined) setSearchQuery(nextSearch);
+      if (overrides?.status !== undefined) setStatusFilter(nextStatus);
+      if (overrides?.type !== undefined) setTypeFilter(nextType);
+      if (overrides?.labStatus !== undefined) setLabStatusFilter(nextLabStatus);
+      setAppliedSearch(nextSearch.trim());
+      setAppliedStatus(nextStatus);
+      setAppliedType(nextType);
+      setAppliedLabStatus(nextLabStatus);
+      setPage(1);
+    },
+    [searchQuery, statusFilter, typeFilter, labStatusFilter],
+  );
 
   const resetFilters = useCallback(() => {
     setSearchQuery("");
@@ -272,7 +306,10 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     setPage(1);
   }, []);
 
-  const filtersDirty = searchQuery.trim() !== appliedSearch || statusFilter !== appliedStatus || typeFilter !== appliedType ||
+  const filtersDirty =
+    searchQuery.trim() !== appliedSearch ||
+    statusFilter !== appliedStatus ||
+    typeFilter !== appliedType ||
     labStatusFilter !== appliedLabStatus;
 
   // A tab pill switch changes which rows exist at all -- staying on page 3
@@ -286,11 +323,22 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
   }
 
   const queryKey = [
-    "portal-bookings", category, page, appliedSearch, appliedStatus, appliedType, appliedLabStatus, modeFilter, tab,
+    "portal-bookings",
+    category,
+    page,
+    appliedSearch,
+    appliedStatus,
+    appliedType,
+    appliedLabStatus,
+    modeFilter,
+    tab,
   ] as const;
 
   const {
-    data, isFetching, error: queryError, refetch,
+    data,
+    isFetching,
+    error: queryError,
+    refetch,
   } = useQuery({
     queryKey,
     enabled: ready,
@@ -351,7 +399,11 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
 
   // Shared success/error-toast handling for the fire-and-forget row
   // actions below (attendance, lab status, procedure actions, delete).
-  function afterAction(result: Awaited<ReturnType<typeof portalFetch>>, successMessage: string, failureMessage: string): boolean {
+  function afterAction(
+    result: Awaited<ReturnType<typeof portalFetch>>,
+    successMessage: string,
+    failureMessage: string,
+  ): boolean {
     if (result.ok) {
       toast.success(successMessage);
       return true;
@@ -375,7 +427,14 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
       body: JSON.stringify({ attended }),
     });
     setMarkingAttendanceId(null);
-    if (afterAction(result, attended ? "Marked as attended" : "Marked as no-show", "Couldn't update attendance")) load();
+    if (
+      afterAction(
+        result,
+        attended ? "Marked as attended" : "Marked as no-show",
+        "Couldn't update attendance",
+      )
+    )
+      load();
   }
 
   // Advances booked -> sample_collected -> processing one step at a time
@@ -397,7 +456,9 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
   const [procedureActionId, setProcedureActionId] = useState<number | null>(null);
   async function handleApproveProcedureRequest(id: number) {
     setProcedureActionId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/approve`, { method: "POST" });
+    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/approve`, {
+      method: "POST",
+    });
     setProcedureActionId(null);
     if (afterAction(result, "Request approved", "Couldn't approve request")) load();
   }
@@ -422,17 +483,30 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
       body: JSON.stringify(status ? { status } : {}),
     });
     setProcedureActionId(null);
-    if (afterAction(result, status === "CANCELLED" ? "Booking cancelled" : "Marked completed", "Couldn't update status")) load();
+    if (
+      afterAction(
+        result,
+        status === "CANCELLED" ? "Booking cancelled" : "Marked completed",
+        "Couldn't update status",
+      )
+    )
+      load();
   }
   async function handleApproveProcedureReschedule(id: number) {
     setProcedureActionId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reschedule-request/approve`, { method: "POST" });
+    const result = await portalFetch(
+      `/api/portal/bookings/${id}/procedure/reschedule-request/approve`,
+      { method: "POST" },
+    );
     setProcedureActionId(null);
     if (afterAction(result, "Reschedule approved", "Couldn't approve reschedule")) load();
   }
   async function handleRejectProcedureReschedule(id: number) {
     setProcedureActionId(id);
-    const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reschedule-request/reject`, { method: "POST" });
+    const result = await portalFetch(
+      `/api/portal/bookings/${id}/procedure/reschedule-request/reject`,
+      { method: "POST" },
+    );
     setProcedureActionId(null);
     if (afterAction(result, "Reschedule rejected", "Couldn't reject reschedule")) load();
   }
@@ -441,7 +515,8 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
   // it first), same guard reflected here by only offering the button once
   // status !== "booked".
   async function handleDelete(id: number) {
-    if (!window.confirm("Delete this appointment record? This can't be undone from the portal.")) return;
+    if (!window.confirm("Delete this appointment record? This can't be undone from the portal."))
+      return;
     setDeletingId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/delete`, { method: "POST" });
     setDeletingId(null);
@@ -520,7 +595,8 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     setRescheduleErrors([]);
     const appointment = appointments?.find((a) => a.id === id);
     const doctorId = appointment?.doctor_id || "";
-    const resourceId = appointment?.diagnostic_test_id != null ? String(appointment.diagnostic_test_id) : "";
+    const resourceId =
+      appointment?.diagnostic_test_id != null ? String(appointment.diagnostic_test_id) : "";
     setRDoctorId(doctorId);
     setRResourceId(resourceId);
     setRDate("");
@@ -529,7 +605,10 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     // so only that one entity's slots are fetched, not every doctor/
     // resource in the hospital.
     setRescheduleSlotsByDate(null);
-    const slots = await fetchSlotsByDate(router, { doctorId: doctorId || undefined, resourceId: resourceId || undefined });
+    const slots = await fetchSlotsByDate(router, {
+      doctorId: doctorId || undefined,
+      resourceId: resourceId || undefined,
+    });
     setRescheduleSlotsByDate(slots ?? {});
   }
 
@@ -545,9 +624,12 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        department_id: appointment?.department_id || "", doctor_id: appointment?.doctor_id || rDoctorId,
-        diagnostic_test_id: appointment?.diagnostic_test_id ?? (rResourceId ? Number(rResourceId) : null),
-        slot_id: rSlotId, message: rescheduleMessage.trim(),
+        department_id: appointment?.department_id || "",
+        doctor_id: appointment?.doctor_id || rDoctorId,
+        diagnostic_test_id:
+          appointment?.diagnostic_test_id ?? (rResourceId ? Number(rResourceId) : null),
+        slot_id: rSlotId,
+        message: rescheduleMessage.trim(),
       }),
     });
     setReschedulingId(null);
@@ -572,26 +654,75 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
   const rSlotsForDate = rDate && rescheduleSlotsByDate ? rescheduleSlotsByDate[rDate] || [] : [];
 
   const selectedAppointments = deletableAppointments.filter((a) => selected.has(a.id));
-  const allSelected = deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
+  const allSelected =
+    deletableAppointments.length > 0 && selected.size === deletableAppointments.length;
 
   return {
-    appointments, allAppointments, error, load, isFetching,
-    page, setPage, total, pageSize: PAGE_SIZE,
-    searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
-    labStatusFilter, setLabStatusFilter,
-    modeFilter, setModeFilter,
-    applyFilters, resetFilters, filtersDirty,
-    cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
-    reschedulePanelId, reschedulingId, rescheduleSlotsByDate, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
-    rDate, setRDate, rSlotId, setRSlotId,
-    rDatesForDoctor, rSlotsForDate,
-    openReschedulePanel, closeReschedulePanel, handleReschedule,
-    markingAttendanceId, handleAttendance,
-    advancingLabStatusId, handleAdvanceLabStatus,
-    procedureActionId, handleApproveProcedureRequest, handleRejectProcedureRequest,
-    handleAdvanceProcedureStatus, handleApproveProcedureReschedule, handleRejectProcedureReschedule,
-    deletingId, handleDelete,
-    selected, toggleSelected, toggleSelectAll, deletableAppointments, selectedAppointments, allSelected,
-    pendingDelete, setPendingDelete, bulkDeleting, runBulkDelete,
+    appointments,
+    allAppointments,
+    error,
+    load,
+    isFetching,
+    page,
+    setPage,
+    total,
+    pageSize: PAGE_SIZE,
+    searchQuery,
+    setSearchQuery,
+    statusFilter,
+    setStatusFilter,
+    typeFilter,
+    setTypeFilter,
+    labStatusFilter,
+    setLabStatusFilter,
+    modeFilter,
+    setModeFilter,
+    applyFilters,
+    resetFilters,
+    filtersDirty,
+    cancellingId,
+    cancelPanelId,
+    cancelMessage,
+    setCancelMessage,
+    openCancelPanel,
+    closeCancelPanel,
+    handleCancel,
+    reschedulePanelId,
+    reschedulingId,
+    rescheduleSlotsByDate,
+    rescheduleErrors,
+    rescheduleMessage,
+    setRescheduleMessage,
+    rDate,
+    setRDate,
+    rSlotId,
+    setRSlotId,
+    rDatesForDoctor,
+    rSlotsForDate,
+    openReschedulePanel,
+    closeReschedulePanel,
+    handleReschedule,
+    markingAttendanceId,
+    handleAttendance,
+    advancingLabStatusId,
+    handleAdvanceLabStatus,
+    procedureActionId,
+    handleApproveProcedureRequest,
+    handleRejectProcedureRequest,
+    handleAdvanceProcedureStatus,
+    handleApproveProcedureReschedule,
+    handleRejectProcedureReschedule,
+    deletingId,
+    handleDelete,
+    selected,
+    toggleSelected,
+    toggleSelectAll,
+    deletableAppointments,
+    selectedAppointments,
+    allSelected,
+    pendingDelete,
+    setPendingDelete,
+    bulkDeleting,
+    runBulkDelete,
   };
 }

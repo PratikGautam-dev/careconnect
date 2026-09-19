@@ -79,25 +79,31 @@ export function GoogleCalendarCard() {
 
   return (
     <>
-      <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Google Meet for tele-consultations</h2>
-      <p className="mb-space-3 text-[12.5px] text-ink-400">
-        Connect one Google account for your hospital so every doctor&apos;s tele-consultation bookings create a real
-        Google Calendar event with a Meet link, instead of the default video room. This is a hospital-wide
-        connection, made once by an admin — individual doctors don&apos;t connect their own accounts.
+      <h2 className="mb-space-1 text-ink-900 text-[15px] font-bold">
+        Google Meet for tele-consultations
+      </h2>
+      <p className="mb-space-3 text-ink-400 text-[12.5px]">
+        Connect one Google account for your hospital so every doctor&apos;s tele-consultation
+        bookings create a real Google Calendar event with a Meet link, instead of the default video
+        room. This is a hospital-wide connection, made once by an admin — individual doctors
+        don&apos;t connect their own accounts.
       </p>
 
       {calendarParam === "connected" && (
-        <p className="mb-space-3 text-[12.5px] font-semibold text-success">Google Calendar connected.</p>
-      )}
-      {calendarErrorParam && calendarErrorParam !== "not_configured" && (
-        <p className="mb-space-3 text-[12.5px] text-error">
-          {CONNECT_ERROR_MESSAGES[calendarErrorParam] || "Something went wrong connecting Google Calendar."}
+        <p className="mb-space-3 text-success text-[12.5px] font-semibold">
+          Google Calendar connected.
         </p>
       )}
-      {error && <p className="mb-space-3 text-[12.5px] text-error">{error}</p>}
+      {calendarErrorParam && calendarErrorParam !== "not_configured" && (
+        <p className="mb-space-3 text-error text-[12.5px]">
+          {CONNECT_ERROR_MESSAGES[calendarErrorParam] ||
+            "Something went wrong connecting Google Calendar."}
+        </p>
+      )}
+      {error && <p className="mb-space-3 text-error text-[12.5px]">{error}</p>}
 
       {showReturnNav && (
-        <div className="mb-space-4 flex gap-space-2">
+        <div className="mb-space-4 gap-space-2 flex">
           <Button variant="secondary" size="md" onClick={() => router.back()}>
             Back
           </Button>
@@ -108,12 +114,14 @@ export function GoogleCalendarCard() {
       )}
 
       {status === null ? (
-        <p className="text-[12.5px] text-ink-400">Loading…</p>
+        <p className="text-ink-400 text-[12.5px]">Loading…</p>
       ) : !status.configured ? (
-        <p className="text-[12.5px] text-ink-400">Google Calendar integration isn&apos;t configured yet.</p>
+        <p className="text-ink-400 text-[12.5px]">
+          Google Calendar integration isn&apos;t configured yet.
+        </p>
       ) : status.connected ? (
-        <div className="flex flex-wrap items-center justify-between gap-space-3">
-          <p className="text-[13px] text-ink-900">
+        <div className="gap-space-3 flex flex-wrap items-center justify-between">
+          <p className="text-ink-900 text-[13px]">
             Connected as <span className="font-semibold">{status.google_email}</span>
           </p>
           <Button variant="secondary" size="md" onClick={handleDisconnect} disabled={disconnecting}>

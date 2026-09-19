@@ -37,10 +37,15 @@ export function NotificationsTab() {
   }
 
   return (
-    <div className="flex flex-col gap-space-4">
+    <div className="gap-space-4 flex flex-col">
       <Card className="p-space-4">
-        <SectionHeader icon={Bell} tint="clay" title="Notification Preferences" subtitle="Choose how and when to send notifications" />
-        <div className="divide-y divide-line">
+        <SectionHeader
+          icon={Bell}
+          tint="clay"
+          title="Notification Preferences"
+          subtitle="Choose how and when to send notifications"
+        />
+        <div className="divide-line divide-y">
           <ToggleRow
             label="Appointment Confirmations"
             subtitle="Notify patients when appointment is confirmed"
@@ -79,7 +84,9 @@ export function NotificationsTab() {
           />
         </div>
         <div className="mt-space-3 flex justify-end">
-          <Button type="button" variant="secondary" size="md" onClick={handleResetPreferences}>Reset to Default</Button>
+          <Button type="button" variant="secondary" size="md" onClick={handleResetPreferences}>
+            Reset to Default
+          </Button>
         </div>
       </Card>
 
@@ -92,7 +99,7 @@ export function NotificationsTab() {
             subtitle="What patients actually see in a WhatsApp message"
           />
           {!settings ? (
-            <p className="text-[13px] text-ink-400">Loading…</p>
+            <p className="text-ink-400 text-[13px]">Loading…</p>
           ) : (
             <>
               <Field
@@ -104,10 +111,12 @@ export function NotificationsTab() {
                   id="welcome_message_text"
                   rows={2}
                   value={settings.welcome_message_text}
-                  onChange={(e) => setSettings({ ...settings, welcome_message_text: e.target.value })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, welcome_message_text: e.target.value })
+                  }
                 />
               </Field>
-              <div className="grid grid-cols-1 gap-x-space-3 sm:grid-cols-2">
+              <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
                 <Field
                   label="Reminder offsets (comma-separated hours)"
                   htmlFor="reminder_offsets_hours"
@@ -116,14 +125,18 @@ export function NotificationsTab() {
                   <Input
                     id="reminder_offsets_hours"
                     value={settings.reminder_offsets_hours}
-                    onChange={(e) => setSettings({ ...settings, reminder_offsets_hours: e.target.value })}
+                    onChange={(e) =>
+                      setSettings({ ...settings, reminder_offsets_hours: e.target.value })
+                    }
                   />
                 </Field>
                 <Field label="Reminder template name" htmlFor="reminder_template_name">
                   <Input
                     id="reminder_template_name"
                     value={settings.reminder_template_name}
-                    onChange={(e) => setSettings({ ...settings, reminder_template_name: e.target.value })}
+                    onChange={(e) =>
+                      setSettings({ ...settings, reminder_template_name: e.target.value })
+                    }
                   />
                 </Field>
               </div>
@@ -137,15 +150,21 @@ export function NotificationsTab() {
                   id="closing_message_text"
                   rows={2}
                   value={settings.closing_message_text}
-                  onChange={(e) => setSettings({ ...settings, closing_message_text: e.target.value })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, closing_message_text: e.target.value })
+                  }
                 />
               </Field>
             </>
           )}
-          <div className="mt-space-3 flex flex-wrap items-center justify-end gap-space-2">
-            {error && <p className="mr-auto text-[12.5px] font-medium text-error">{error}</p>}
-            {saved && !error && <p className="mr-auto text-[12.5px] font-medium text-success">Saved.</p>}
-            <Button type="submit" disabled={saving || !settings}>{saving ? "Saving…" : "Save Changes"}</Button>
+          <div className="mt-space-3 gap-space-2 flex flex-wrap items-center justify-end">
+            {error && <p className="text-error mr-auto text-[12.5px] font-medium">{error}</p>}
+            {saved && !error && (
+              <p className="text-success mr-auto text-[12.5px] font-medium">Saved.</p>
+            )}
+            <Button type="submit" disabled={saving || !settings}>
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
           </div>
         </Card>
       </form>

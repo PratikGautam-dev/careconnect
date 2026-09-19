@@ -42,17 +42,17 @@ function PlatformSettingsForm() {
       <div className="mb-space-5">
         <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Platform settings</h1>
-        <p className="text-[13px] text-ink-600">
+        <p className="text-ink-600 text-[13px]">
           Global values that apply identically across every hospital — no per-tenant override.
         </p>
       </div>
 
       {!settings ? (
         <Card className="p-space-5">
-          <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
         </Card>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-space-5">
+        <form onSubmit={handleSubmit} className="gap-space-5 flex flex-col">
           <Card className="p-space-5">
             <Field
               label="Max active patient links"
@@ -72,10 +72,11 @@ function PlatformSettingsForm() {
           </Card>
 
           <Card className="p-space-5">
-            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">Menu labels</h2>
-            <p className="mb-space-3 text-[12.5px] text-ink-400">
-              Rename how a feature appears in every hospital&apos;s WhatsApp menu. Leave a field blank to use the
-              default. Applies platform-wide — a hospital&apos;s own Settings page can no longer override this.
+            <h2 className="mb-space-1 text-ink-900 text-[15px] font-bold">Menu labels</h2>
+            <p className="mb-space-3 text-ink-400 text-[12.5px]">
+              Rename how a feature appears in every hospital&apos;s WhatsApp menu. Leave a field
+              blank to use the default. Applies platform-wide — a hospital&apos;s own Settings page
+              can no longer override this.
             </p>
             {Object.keys(settings.feature_default_labels).map((key) => (
               <Field key={key} label={FEATURE_DISPLAY_NAMES[key] || key} htmlFor={`label_${key}`}>
@@ -90,19 +91,20 @@ function PlatformSettingsForm() {
           </Card>
 
           <Card className="p-space-5">
-            <h2 className="mb-space-1 text-[15px] font-bold text-ink-900">DPDP Act consent</h2>
-            <p className="mb-space-3 text-[12.5px] text-ink-400">
-              When enabled, a fresh conversation on ANY hospital&apos;s bot must tap &quot;I Agree&quot; on a fixed
-              Digital Personal Data Protection (DPDP) Act notice right after choosing a language, before anything
-              else — including registration or picking a patient. The decision is remembered per phone number, so a
-              patient who has already agreed is never asked again.
+            <h2 className="mb-space-1 text-ink-900 text-[15px] font-bold">DPDP Act consent</h2>
+            <p className="mb-space-3 text-ink-400 text-[12.5px]">
+              When enabled, a fresh conversation on ANY hospital&apos;s bot must tap &quot;I
+              Agree&quot; on a fixed Digital Personal Data Protection (DPDP) Act notice right after
+              choosing a language, before anything else — including registration or picking a
+              patient. The decision is remembered per phone number, so a patient who has already
+              agreed is never asked again.
             </p>
             <CheckboxRow checked={dpdpRequired} onChange={setDpdpRequired}>
               Require DPDP consent before entering the menu, for every hospital
             </CheckboxRow>
           </Card>
 
-          {saved && <p className="text-[13px] text-success">Saved.</p>}
+          {saved && <p className="text-success text-[13px]">Saved.</p>}
           <Button type="submit" disabled={saving || !maxActiveLinks} className="self-start">
             {saving ? "Saving…" : "Save"}
           </Button>

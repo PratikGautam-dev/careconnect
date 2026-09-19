@@ -17,18 +17,27 @@ export function AppointmentTypeToggles({ canManage }: { canManage: boolean }) {
 
   return (
     <div>
-      {error && <p className="mb-space-3 text-[12.5px] font-medium text-error">{error}</p>}
-      <ul className="divide-y divide-line">
+      {error && <p className="mb-space-3 text-error text-[12.5px] font-medium">{error}</p>}
+      <ul className="divide-line divide-y">
         {types.map((type) => (
-          <li key={type.id} className="flex flex-col gap-space-2 py-space-2 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
-            <p className={`text-[13.5px] font-semibold ${type.is_allowed ? "text-ink-900" : "text-ink-400"}`}>
+          <li
+            key={type.id}
+            className="gap-space-2 py-space-2 sm:gap-space-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p
+              className={`text-[13.5px] font-semibold ${type.is_allowed ? "text-ink-900" : "text-ink-400"}`}
+            >
               {type.label}
             </p>
             {!type.is_allowed ? (
-              <span className="text-[12px] text-ink-400">Not enabled for your plan — contact support</span>
+              <span className="text-ink-400 text-[12px]">
+                Not enabled for your plan — contact support
+              </span>
             ) : (
-              <div className="flex items-center gap-space-3">
-                <Badge tone={type.is_active ? "success" : "neutral"}>{type.is_active ? "Active" : "Inactive"}</Badge>
+              <div className="gap-space-3 flex items-center">
+                <Badge tone={type.is_active ? "success" : "neutral"}>
+                  {type.is_active ? "Active" : "Inactive"}
+                </Badge>
                 <Switch
                   checked={type.is_active}
                   onChange={() => toggleActive(type)}

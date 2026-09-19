@@ -15,11 +15,17 @@ import { formatDate } from "@/lib/formatDate";
 import type { LeaveRequestRow, LeaveRequestStatus, LeaveType } from "@/hooks/useLeaveRequests";
 
 export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  casual: "Casual Leave", sick: "Sick Leave", annual: "Annual Leave",
-  maternity: "Maternity Leave", conference: "Conference Leave", personal: "Personal Leave",
+  casual: "Casual Leave",
+  sick: "Sick Leave",
+  annual: "Annual Leave",
+  maternity: "Maternity Leave",
+  conference: "Conference Leave",
+  personal: "Personal Leave",
 };
 export const STATUS_LABELS: Record<LeaveRequestStatus, string> = {
-  pending: "Pending", approved: "Approved", rejected: "Rejected",
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
 };
 const STATUS_TINT: Record<LeaveRequestStatus, string> = {
   pending: "bg-clay-100 text-clay-700",
@@ -29,7 +35,12 @@ const STATUS_TINT: Record<LeaveRequestStatus, string> = {
 
 export function StatusBadge({ status }: { status: LeaveRequestStatus }) {
   return (
-    <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_TINT[status])}>
+    <span
+      className={cn(
+        "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+        STATUS_TINT[status],
+      )}
+    >
       {STATUS_LABELS[status]}
     </span>
   );
@@ -44,7 +55,11 @@ type CreateColumnsOptions = {
 };
 
 export function createLeaveRequestColumns({
-  onSelect, canManage, decidingId, onApprove, onReject,
+  onSelect,
+  canManage,
+  decidingId,
+  onApprove,
+  onReject,
 }: CreateColumnsOptions): ColumnDef<LeaveRequestRow>[] {
   return [
     {
@@ -54,35 +69,65 @@ export function createLeaveRequestColumns({
         const r = row.original;
         return (
           <button type="button" onClick={() => onSelect(r)} className="text-left">
-            <p className="font-semibold text-ink-900">{r.is_doctor_role ? `Dr. ${r.applicant_name}` : r.applicant_name}</p>
+            <p className="text-ink-900 font-semibold">
+              {r.is_doctor_role ? `Dr. ${r.applicant_name}` : r.applicant_name}
+            </p>
           </button>
         );
       },
     },
-    { id: "role", header: "Role", cell: ({ row }) => <span className="text-ink-600">{row.original.role_name}</span> },
+    {
+      id: "role",
+      header: "Role",
+      cell: ({ row }) => <span className="text-ink-600">{row.original.role_name}</span>,
+    },
     {
       id: "department",
       header: "Department",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.department_name || "—"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{row.original.department_name || "—"}</span>
+      ),
     },
     {
       id: "leave_type",
       header: "Leave Type",
-      cell: ({ row }) => <span className="text-ink-600">{LEAVE_TYPE_LABELS[row.original.leave_type]}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{LEAVE_TYPE_LABELS[row.original.leave_type]}</span>
+      ),
     },
-    { id: "from_date", header: "From Date", cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.from_date)}</span> },
-    { id: "to_date", header: "To Date", cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.to_date)}</span> },
+    {
+      id: "from_date",
+      header: "From Date",
+      cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.from_date)}</span>,
+    },
+    {
+      id: "to_date",
+      header: "To Date",
+      cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.to_date)}</span>,
+    },
     {
       id: "duration",
       header: "Duration",
       cell: ({ row }) => (
         <span className="text-ink-600">
-          {row.original.is_half_day ? "Half day" : `${row.original.duration_days} day${row.original.duration_days === 1 ? "" : "s"}`}
+          {row.original.is_half_day
+            ? "Half day"
+            : `${row.original.duration_days} day${row.original.duration_days === 1 ? "" : "s"}`}
         </span>
       ),
     },
-    { id: "submitted", header: "Submitted", cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.submitted_at)}</span> },
-    { id: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
+    {
+      id: "submitted",
+      header: "Submitted",
+      cell: ({ row }) => (
+        <span className="text-ink-600">{formatDate(row.original.submitted_at)}</span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
     {
       id: "actions",
       enableHiding: false,
@@ -95,7 +140,7 @@ export function createLeaveRequestColumns({
             <div onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-600 hover:bg-black/4 hover:text-ink-900"
+                  className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
                   aria-label={`Actions for ${r.applicant_name}`}
                 >
                   <MoreHorizontal size={16} />
@@ -111,13 +156,13 @@ export function createLeaveRequestColumns({
           );
         }
         return (
-          <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-space-1">
+          <div onClick={(e) => e.stopPropagation()} className="gap-space-1 flex items-center">
             <button
               type="button"
               onClick={() => onApprove(r)}
               disabled={decidingId === r.id}
               title="Approve"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-success hover:bg-success-tint disabled:opacity-50"
+              className="text-success hover:bg-success-tint flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-50"
             >
               <Check size={15} />
             </button>
@@ -126,7 +171,7 @@ export function createLeaveRequestColumns({
               onClick={() => onReject(r)}
               disabled={decidingId === r.id}
               title="Reject"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-error hover:bg-error-tint disabled:opacity-50"
+              className="text-error hover:bg-error-tint flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-50"
             >
               <X size={15} />
             </button>

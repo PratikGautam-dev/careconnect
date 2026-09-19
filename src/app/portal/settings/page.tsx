@@ -10,7 +10,11 @@ import { AttendanceSettingsTab } from "./_components/AttendanceSettingsTab";
 import { DepartmentsTab } from "./_components/DepartmentsTab";
 import { GeneralSettingsTab } from "./_components/GeneralSettingsTab";
 import { NotificationsTab } from "./_components/NotificationsTab";
-import { SettingsTabsNav, type SettingsTabDef, type SettingsTabKey } from "./_components/SettingsTabsNav";
+import {
+  SettingsTabsNav,
+  type SettingsTabDef,
+  type SettingsTabKey,
+} from "./_components/SettingsTabsNav";
 
 const TABS: SettingsTabDef[] = [
   { key: "general", label: "General", icon: SettingsIcon },
@@ -46,8 +50,9 @@ export default function PortalSettingsPage() {
           {tab === "attendance" && <AttendanceSettingsTab />}
           {!BUILT_TABS.includes(tab) && (
             <Card className="p-space-6">
-              <p className="text-center text-[13px] text-ink-400">
-                This tab hasn&apos;t been designed yet -- share its reference screenshot to build it out.
+              <p className="text-ink-400 text-center text-[13px]">
+                This tab hasn&apos;t been designed yet -- share its reference screenshot to build it
+                out.
               </p>
             </Card>
           )}

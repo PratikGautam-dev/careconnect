@@ -24,10 +24,7 @@ import {
   type Consent,
   type Visit,
 } from "@/hooks/usePatientDetail";
-import {
-  createVisitHistoryColumns,
-  STATUS_LABELS,
-} from "./_components/visit-history-columns";
+import { createVisitHistoryColumns, STATUS_LABELS } from "./_components/visit-history-columns";
 
 // WhatsApp menu restructuring: Reports & Prescriptions' "View
 // Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
@@ -117,9 +114,9 @@ export default function PatientDetailPage() {
     return (
       <PortalShell hospital={hospital} active="patients">
         {error ? (
-          <p className="text-[13px] text-error">{error}</p>
+          <p className="text-error text-[13px]">{error}</p>
         ) : (
-          <p className="text-[13px] text-ink-400">Loading…</p>
+          <p className="text-ink-400 text-[13px]">Loading…</p>
         )}
       </PortalShell>
     );
@@ -127,8 +124,7 @@ export default function PatientDetailPage() {
 
   const { patient, visit_history, notes, documents, consent } = data;
   const generalNotes = notes.filter((n) => n.appointment_id === null);
-  const notesByVisit = (visitId: number) =>
-    notes.filter((n) => n.appointment_id === visitId);
+  const notesByVisit = (visitId: number) => notes.filter((n) => n.appointment_id === visitId);
 
   const columns = createVisitHistoryColumns({
     followupPanelId,
@@ -145,18 +141,13 @@ export default function PatientDetailPage() {
     return (
       <>
         {expanded && (
-          <div className="mb-space-3 rounded-lg border border-line bg-paper p-space-3">
+          <div className="mb-space-3 border-line bg-paper p-space-3 rounded-lg border">
             {visitNotes.length === 0 ? (
-              <p className="text-hint mb-space-3">
-                No notes for this visit yet.
-              </p>
+              <p className="text-hint mb-space-3">No notes for this visit yet.</p>
             ) : (
               <ul className="mb-space-3 space-y-space-2">
                 {visitNotes.map((n) => (
-                  <li
-                    key={n.id}
-                    className="rounded-md bg-card p-space-3 text-[13px]"
-                  >
+                  <li key={n.id} className="bg-card p-space-3 rounded-md text-[13px]">
                     <p className="text-ink-900">{n.note_text}</p>
                     <p className="text-hint mt-space-1">
                       {n.doctor_name ? `${n.doctor_name} · ` : ""}
@@ -166,22 +157,18 @@ export default function PatientDetailPage() {
                 ))}
               </ul>
             )}
-            <div className="flex items-end gap-space-2">
+            <div className="gap-space-2 flex items-end">
               <Textarea
                 placeholder="Add a note for this visit…"
                 value={noteDraft[v.id] || ""}
-                onChange={(e) =>
-                  setNoteDraft((d) => ({ ...d, [v.id]: e.target.value }))
-                }
+                onChange={(e) => setNoteDraft((d) => ({ ...d, [v.id]: e.target.value }))}
                 rows={2}
                 className="flex-1"
               />
               <Button
                 size="md"
                 onClick={() => handleAddNote(v.id)}
-                disabled={
-                  savingNote === v.id || !(noteDraft[v.id] || "").trim()
-                }
+                disabled={savingNote === v.id || !(noteDraft[v.id] || "").trim()}
               >
                 {savingNote === v.id ? "Saving…" : "Add note"}
               </Button>
@@ -189,20 +176,19 @@ export default function PatientDetailPage() {
           </div>
         )}
         {followupPanelId === v.id && (
-          <div className="rounded-lg border border-line bg-paper p-space-3">
+          <div className="border-line bg-paper p-space-3 rounded-lg border">
             <p className="text-hint mb-space-3">
               Follow-up validity for this visit{" "}
-              {v.followup_valid_until &&
-              new Date(v.followup_valid_until) >= new Date()
+              {v.followup_valid_until && new Date(v.followup_valid_until) >= new Date()
                 ? `is open until ${formatDate(v.followup_valid_until)}`
                 : "has closed"}
-              . Grant extra days so the patient can book it themselves on
-              WhatsApp, or book it directly right now.
+              . Grant extra days so the patient can book it themselves on WhatsApp, or book it
+              directly right now.
             </p>
 
-            <div className="mb-space-3 flex flex-wrap items-end gap-space-2">
+            <div className="mb-space-3 gap-space-2 flex flex-wrap items-end">
               <div>
-                <label className="mb-space-1 block text-[12px] font-semibold text-ink-600">
+                <label className="mb-space-1 text-ink-600 block text-[12px] font-semibold">
                   Extend by (days)
                 </label>
                 <input
@@ -210,7 +196,7 @@ export default function PatientDetailPage() {
                   min={1}
                   value={extendDays}
                   onChange={(e) => setExtendDays(e.target.value)}
-                  className="h-9 w-24 rounded-md border border-line bg-card px-space-2 text-[13px] text-ink-900"
+                  className="border-line bg-card px-space-2 text-ink-900 h-9 w-24 rounded-md border text-[13px]"
                 />
               </div>
               <Button
@@ -223,31 +209,25 @@ export default function PatientDetailPage() {
               </Button>
             </div>
 
-            <div className="border-t border-line pt-space-3">
-              <p className="mb-space-2 text-[12px] font-semibold text-ink-600">
-                Or book this follow-up now (with {v.doctor_name},{" "}
-                {v.department_name})
+            <div className="border-line pt-space-3 border-t">
+              <p className="mb-space-2 text-ink-600 text-[12px] font-semibold">
+                Or book this follow-up now (with {v.doctor_name}, {v.department_name})
               </p>
               {(() => {
-                const dates = bookSlotsByDate
-                  ? Object.keys(bookSlotsByDate).sort()
-                  : [];
-                const slots =
-                  bookSlotsByDate && bookDate
-                    ? bookSlotsByDate[bookDate] || []
-                    : [];
+                const dates = bookSlotsByDate ? Object.keys(bookSlotsByDate).sort() : [];
+                const slots = bookSlotsByDate && bookDate ? bookSlotsByDate[bookDate] || [] : [];
                 return (
                   <>
                     {bookSlotsByDate === null ? (
-                      <p className="mb-space-2 text-[12.5px] text-ink-400">
+                      <p className="mb-space-2 text-ink-400 text-[12.5px]">
                         Loading available dates…
                       </p>
                     ) : dates.length === 0 ? (
-                      <p className="mb-space-2 text-[12.5px] text-ink-400">
+                      <p className="mb-space-2 text-ink-400 text-[12.5px]">
                         No available dates for this doctor.
                       </p>
                     ) : (
-                      <div className="mb-space-2 flex flex-wrap gap-space-2">
+                      <div className="mb-space-2 gap-space-2 flex flex-wrap">
                         {dates.map((d) => (
                           <button
                             type="button"
@@ -257,7 +237,7 @@ export default function PatientDetailPage() {
                               setBookSlotId("");
                             }}
                             className={cn(
-                              "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                              "px-space-2 py-space-1 rounded-md border text-[12px] font-semibold",
                               bookDate === d
                                 ? "border-brand-600 bg-brand-600 text-white"
                                 : "border-line bg-card text-ink-600",
@@ -270,18 +250,18 @@ export default function PatientDetailPage() {
                     )}
                     {bookDate &&
                       (slots.length === 0 ? (
-                        <p className="mb-space-2 text-[12.5px] text-ink-400">
+                        <p className="mb-space-2 text-ink-400 text-[12.5px]">
                           No slots available on this date.
                         </p>
                       ) : (
-                        <div className="mb-space-2 flex flex-wrap gap-space-2">
+                        <div className="mb-space-2 gap-space-2 flex flex-wrap">
                           {slots.map((s) => (
                             <button
                               type="button"
                               key={s.id}
                               onClick={() => setBookSlotId(s.id)}
                               className={cn(
-                                "rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+                                "px-space-2 py-space-1 rounded-md border text-[12px] font-semibold",
                                 bookSlotId === s.id
                                   ? "border-brand-600 bg-brand-600 text-white"
                                   : "border-line bg-card text-ink-600",
@@ -304,17 +284,9 @@ export default function PatientDetailPage() {
               </Button>
             </div>
 
-            {followupError && (
-              <p className="mt-space-3 text-[12px] text-error">
-                {followupError}
-              </p>
-            )}
+            {followupError && <p className="mt-space-3 text-error text-[12px]">{followupError}</p>}
             <div className="mt-space-3">
-              <Button
-                size="md"
-                variant="secondary"
-                onClick={closeFollowupPanel}
-              >
+              <Button size="md" variant="secondary" onClick={closeFollowupPanel}>
                 Close
               </Button>
             </div>
@@ -329,28 +301,26 @@ export default function PatientDetailPage() {
       <button
         type="button"
         onClick={() => router.push("/portal/patients")}
-        className="mb-space-3 flex items-center gap-space-1 text-[12.5px] font-semibold text-brand-600 hover:underline"
+        className="mb-space-3 gap-space-1 text-brand-600 flex items-center text-[12.5px] font-semibold hover:underline"
       >
         <ArrowLeft size={14} /> All patients
       </button>
 
-      <div className="mb-space-5 flex items-center gap-space-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[18px] font-bold text-brand-700">
+      <div className="mb-space-5 gap-space-3 flex items-center">
+        <div className="bg-brand-100 text-brand-700 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[18px] font-bold">
           {(patient.name || patient.phone).trim().charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0">
-          <h1 className="text-display !text-[24px]">
-            {patient.name || patient.phone}
-          </h1>
-          <div className="flex flex-wrap items-center gap-space-2 text-[13px] text-ink-600">
+          <h1 className="text-display !text-[24px]">{patient.name || patient.phone}</h1>
+          <div className="gap-space-2 text-ink-600 flex flex-wrap items-center text-[13px]">
             <span>{patient.phone}</span>
             {patient.patient_display_id && (
-              <span className="rounded-full bg-brand-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-brand-700">
+              <span className="bg-brand-50 px-space-2 text-brand-700 rounded-full py-0.5 font-mono text-[11.5px] font-semibold">
                 {patient.patient_display_id}
               </span>
             )}
             {patient.mrn && (
-              <span className="rounded-full bg-ink-50 px-space-2 py-0.5 font-mono text-[11.5px] font-semibold text-ink-600">
+              <span className="bg-ink-50 px-space-2 text-ink-600 rounded-full py-0.5 font-mono text-[11.5px] font-semibold">
                 MRN {patient.mrn}
               </span>
             )}
@@ -363,33 +333,29 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-[1fr_320px]">
+      <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[1fr_320px]">
         <div className="space-y-space-4">
           <Card className="p-space-4">
-            <h3 className="text-label mb-space-3 font-bold text-ink-900">
-              Visit history
-            </h3>
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Visit history</h3>
 
             {visit_history.length === 0 ? (
-              <p className="py-space-4 text-center text-[13px] text-ink-400">
-                No visits yet.
-              </p>
+              <p className="py-space-4 text-ink-400 text-center text-[13px]">No visits yet.</p>
             ) : (
               <>
                 {/* Top-level category picks which appointment table shows
                       (Doctor / Lab & Diagnostics / Daycare) -- it also
                       narrows the sub-type tabs below it, same pattern as
                       /portal/appointments' Walk-in/Tele mode filter. */}
-                <div className="mb-space-3 flex gap-space-1 rounded-md border border-line bg-paper p-0.5">
+                <div className="mb-space-3 gap-space-1 border-line bg-paper flex rounded-md border p-0.5">
                   {VISIT_CATEGORY_ORDER.map((c) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setVisitCategory(c)}
                       className={cn(
-                        "rounded px-space-3 py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
+                        "px-space-3 rounded py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
                         visitCategory === c
                           ? "bg-card text-ink-900 shadow-[var(--shadow-sm)]"
                           : "text-ink-400 hover:text-ink-700",
@@ -403,13 +369,11 @@ export default function PatientDetailPage() {
                 {/* Same filter shape as /portal/appointments: type tabs,
                       search, status dropdown -- plus an upcoming/past time
                       filter this single-patient view adds on top. */}
-                <div className="mb-space-3 flex flex-wrap gap-space-2">
+                <div className="mb-space-3 gap-space-2 flex flex-wrap">
                   {CATEGORY_TYPE_TABS[visitCategory]
                     .filter(
                       (id) =>
-                        id === "all" ||
-                        (visitTypeCounts[id] || 0) > 0 ||
-                        visitTypeFilter === id,
+                        id === "all" || (visitTypeCounts[id] || 0) > 0 || visitTypeFilter === id,
                     )
                     .map((id) => (
                       <button
@@ -417,23 +381,17 @@ export default function PatientDetailPage() {
                         type="button"
                         onClick={() => setVisitTypeFilter(id)}
                         className={cn(
-                          "rounded-full border px-space-3 py-space-1 text-[12.5px] font-semibold transition-colors duration-150",
+                          "px-space-3 py-space-1 rounded-full border text-[12.5px] font-semibold transition-colors duration-150",
                           visitTypeFilter === id
                             ? "border-brand-600 bg-brand-600 text-white"
                             : "border-line bg-card text-ink-600 hover:border-brand-300 hover:bg-brand-50",
                         )}
                       >
-                        {id === "all"
-                          ? "All"
-                          : id === "other"
-                            ? "Other"
-                            : TYPE_LABELS[id]}
+                        {id === "all" ? "All" : id === "other" ? "Other" : TYPE_LABELS[id]}
                         <span
                           className={cn(
                             "ml-space-1 tabular-nums",
-                            visitTypeFilter === id
-                              ? "text-white/80"
-                              : "text-ink-400",
+                            visitTypeFilter === id ? "text-white/80" : "text-ink-400",
                           )}
                         >
                           {visitTypeCounts[id] || 0}
@@ -442,15 +400,15 @@ export default function PatientDetailPage() {
                     ))}
                 </div>
 
-                <div className="mb-space-3 flex flex-wrap items-center gap-space-2">
-                  <div className="flex gap-space-1 rounded-md border border-line bg-paper p-0.5">
+                <div className="mb-space-3 gap-space-2 flex flex-wrap items-center">
+                  <div className="gap-space-1 border-line bg-paper flex rounded-md border p-0.5">
                     {(["all", "upcoming", "past"] as const).map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => setVisitTimeFilter(t)}
                         className={cn(
-                          "rounded px-space-2 py-1 text-[12px] font-semibold capitalize transition-colors duration-150",
+                          "px-space-2 rounded py-1 text-[12px] font-semibold capitalize transition-colors duration-150",
                           visitTimeFilter === t
                             ? "bg-card text-ink-900 shadow-[var(--shadow-sm)]"
                             : "text-ink-400 hover:text-ink-700",
@@ -463,20 +421,20 @@ export default function PatientDetailPage() {
                   <div className="relative min-w-[180px] flex-1">
                     <Search
                       size={14}
-                      className="pointer-events-none absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400"
+                      className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
                     />
                     <input
                       type="text"
                       placeholder="Search doctor, department, or reference…"
                       value={visitSearch}
                       onChange={(e) => setVisitSearch(e.target.value)}
-                      className="h-9 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[12.5px] text-ink-900 outline-none focus:border-brand-400"
+                      className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-9 w-full rounded-md border text-[12.5px] outline-none"
                     />
                   </div>
                   <select
                     value={visitStatusFilter}
                     onChange={(e) => setVisitStatusFilter(e.target.value)}
-                    className="h-9 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                    className="border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]"
                   >
                     <option value="all">All statuses</option>
                     {Object.entries(STATUS_LABELS).map(([value, label]) => (
@@ -488,7 +446,7 @@ export default function PatientDetailPage() {
                 </div>
 
                 {filteredVisits.length === 0 ? (
-                  <p className="py-space-4 text-center text-[13px] text-ink-400">
+                  <p className="py-space-4 text-ink-400 text-center text-[13px]">
                     No visits match this filter.
                   </p>
                 ) : (
@@ -496,9 +454,7 @@ export default function PatientDetailPage() {
                     columns={columns}
                     data={filteredVisits}
                     getRowId={(v) => String(v.id)}
-                    isRowExpanded={(v) =>
-                      expandedVisit === v.id || followupPanelId === v.id
-                    }
+                    isRowExpanded={(v) => expandedVisit === v.id || followupPanelId === v.id}
                     renderRowDetail={renderVisitRowDetail}
                   />
                 )}
@@ -507,29 +463,21 @@ export default function PatientDetailPage() {
           </Card>
 
           <Card className="p-space-4">
-            <h3 className="text-label mb-space-3 font-bold text-ink-900">
-              General notes
-            </h3>
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">General notes</h3>
             <p className="text-hint mb-space-3">
-              Not tied to a specific visit — e.g. a walk-in or a phone
-              conversation.
+              Not tied to a specific visit — e.g. a walk-in or a phone conversation.
             </p>
             {generalNotes.length > 0 && (
               <ul className="mb-space-3 space-y-space-2">
                 {generalNotes.map((n) => (
-                  <li
-                    key={n.id}
-                    className="rounded-md bg-paper p-space-3 text-[13px]"
-                  >
+                  <li key={n.id} className="bg-paper p-space-3 rounded-md text-[13px]">
                     <p className="text-ink-900">{n.note_text}</p>
-                    <p className="text-hint mt-space-1">
-                      {formatDateTime(n.created_at)}
-                    </p>
+                    <p className="text-hint mt-space-1">{formatDateTime(n.created_at)}</p>
                   </li>
                 ))}
               </ul>
             )}
-            <div className="flex items-end gap-space-2">
+            <div className="gap-space-2 flex items-end">
               <Textarea
                 placeholder="Add a general note…"
                 value={generalNoteDraft}
@@ -548,15 +496,15 @@ export default function PatientDetailPage() {
           </Card>
 
           <Card className="p-space-4">
-            <div className="mb-space-3 flex items-center justify-between gap-space-2">
-              <h3 className="text-label font-bold text-ink-900">Documents</h3>
-              <div className="flex items-center gap-space-2">
+            <div className="mb-space-3 gap-space-2 flex items-center justify-between">
+              <h3 className="text-label text-ink-900 font-bold">Documents</h3>
+              <div className="gap-space-2 flex items-center">
                 <select
                   value={documentType}
                   onChange={(e) => setDocumentType(e.target.value)}
                   disabled={uploading}
                   aria-label="Document type"
-                  className="h-8 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                  className="border-line bg-card px-space-2 text-ink-900 h-8 rounded-md border text-[12.5px]"
                 >
                   {DOCUMENT_TYPE_OPTIONS.map(({ value, label }) => (
                     <option key={value} value={value}>
@@ -564,9 +512,8 @@ export default function PatientDetailPage() {
                     </option>
                   ))}
                 </select>
-                <label className="flex cursor-pointer items-center gap-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
-                  <Upload size={14} />{" "}
-                  {uploading ? "Uploading…" : "Upload document"}
+                <label className="gap-space-2 text-brand-600 flex cursor-pointer items-center text-[12.5px] font-semibold hover:underline">
+                  <Upload size={14} /> {uploading ? "Uploading…" : "Upload document"}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -578,34 +525,29 @@ export default function PatientDetailPage() {
               </div>
             </div>
             {documents.length === 0 ? (
-              <p className="py-space-4 text-center text-[13px] text-ink-400">
-                No documents yet.
-              </p>
+              <p className="py-space-4 text-ink-400 text-center text-[13px]">No documents yet.</p>
             ) : (
-              <ul className="divide-y divide-line">
+              <ul className="divide-line divide-y">
                 {documents.map((doc) => (
                   <li key={doc.id} className="py-space-3">
-                    <div className="flex flex-col gap-space-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center gap-space-2 overflow-hidden">
-                        <FileText size={16} className="shrink-0 text-ink-400" />
+                    <div className="gap-space-2 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                      <div className="gap-space-2 flex items-center overflow-hidden">
+                        <FileText size={16} className="text-ink-400 shrink-0" />
                         <div className="overflow-hidden">
-                          <p className="truncate text-[13px] font-semibold text-ink-900">
+                          <p className="text-ink-900 truncate text-[13px] font-semibold">
                             {doc.file_name}
                           </p>
                           <p className="text-hint">
-                            {DOCUMENT_TYPE_LABELS[doc.document_type] ??
-                              doc.document_type}{" "}
-                            · Uploaded {formatDate(doc.uploaded_at)}
+                            {DOCUMENT_TYPE_LABELS[doc.document_type] ?? doc.document_type} ·
+                            Uploaded {formatDate(doc.uploaded_at)}
                             {doc.sent_to_whatsapp_at
                               ? ` · Sent ${formatDate(doc.sent_to_whatsapp_at)}`
                               : ""}
                           </p>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-space-2">
-                        {doc.sent_to_whatsapp_at && (
-                          <Badge tone="success">Sent</Badge>
-                        )}
+                      <div className="gap-space-2 flex shrink-0 items-center">
+                        {doc.sent_to_whatsapp_at && <Badge tone="success">Sent</Badge>}
                         <Button
                           size="md"
                           variant="secondary"
@@ -613,34 +555,23 @@ export default function PatientDetailPage() {
                           disabled={sendingDocId === doc.id}
                         >
                           <Send size={13} />{" "}
-                          {sendingDocId === doc.id
-                            ? "Sending…"
-                            : "Send to WhatsApp"}
+                          {sendingDocId === doc.id ? "Sending…" : "Send to WhatsApp"}
                         </Button>
                       </div>
                     </div>
                     {sendError[doc.id] && (
-                      <p className="mt-space-2 text-[12px] text-error">
-                        {sendError[doc.id]}
-                      </p>
+                      <p className="mt-space-2 text-error text-[12px]">{sendError[doc.id]}</p>
                     )}
                   </li>
                 ))}
               </ul>
             )}
           </Card>
-          <Card className="h-fit p-space-4">
-            <h3 className="text-label mb-space-3 font-bold text-ink-900">
-              Demographics
-            </h3>
-            <div className="mb-space-3 grid grid-cols-1 gap-space-3 sm:grid-cols-2">
+          <Card className="p-space-4 h-fit">
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Demographics</h3>
+            <div className="mb-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
               <Field label="Date of birth" htmlFor="dob">
-                <Input
-                  id="dob"
-                  type="date"
-                  value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                />
+                <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
               </Field>
               <Field label="Gender" htmlFor="gender">
                 <Input
@@ -676,14 +607,12 @@ export default function PatientDetailPage() {
               this 2-column grid would auto-flow the 3rd into a new row
               under the LEFT column instead of stacking under Record status. */}
         <div className="space-y-space-4">
-          <Card className="h-fit p-space-4">
-            <h3 className="text-label mb-space-1 font-bold text-ink-900">
-              Record status
-            </h3>
+          <Card className="p-space-4 h-fit">
+            <h3 className="text-label mb-space-1 text-ink-900 font-bold">Record status</h3>
             <p className="text-hint mb-space-3">
-              Blocking a patient stops them from being selected/booked against
-              on WhatsApp -- their appointment history and Patient ID are
-              untouched, and any phone still linked to them is unaffected.
+              Blocking a patient stops them from being selected/booked against on WhatsApp -- their
+              appointment history and Patient ID are untouched, and any phone still linked to them
+              is unaffected.
             </p>
             {patient.status === "active" ? (
               <Button
@@ -707,45 +636,40 @@ export default function PatientDetailPage() {
             )}
           </Card>
 
-          <Card className="h-fit p-space-4">
-            <h3 className="text-label mb-space-1 font-bold text-ink-900">
-              Consent management
-            </h3>
+          <Card className="p-space-4 h-fit">
+            <h3 className="text-label mb-space-1 text-ink-900 font-bold">Consent management</h3>
             <p className="text-hint mb-space-3">
-              How this patient (or a hospital staff member on their behalf) has
-              responded to each consent. Not agreed yet reads as Disagree --
-              there&apos;s no separate &quot;not asked&quot; state.
+              How this patient (or a hospital staff member on their behalf) has responded to each
+              consent. Not agreed yet reads as Disagree -- there&apos;s no separate &quot;not
+              asked&quot; state.
             </p>
             <ul className="space-y-space-3">
               {CONSENT_TYPE_ORDER.map((type) => {
                 const key = `${type}_consent` as keyof Consent;
                 const agreed = consent[key];
                 return (
-                  <li
-                    key={type}
-                    className="flex items-center justify-between gap-space-2"
-                  >
-                    <span className="text-[13px] font-semibold text-ink-900">
+                  <li key={type} className="gap-space-2 flex items-center justify-between">
+                    <span className="text-ink-900 text-[13px] font-semibold">
                       {CONSENT_LABELS[type]}
                     </span>
-                    <div className="flex items-center gap-space-3">
-                      <label className="flex items-center gap-1 text-[12px] font-semibold text-ink-600">
+                    <div className="gap-space-3 flex items-center">
+                      <label className="text-ink-600 flex items-center gap-1 text-[12px] font-semibold">
                         <input
                           type="checkbox"
                           checked={agreed}
                           onChange={() => handleSetConsent(type, true)}
                           disabled={savingConsent === type}
-                          className="h-4 w-4 accent-success"
+                          className="accent-success h-4 w-4"
                         />
                         Agree
                       </label>
-                      <label className="flex items-center gap-1 text-[12px] font-semibold text-ink-600">
+                      <label className="text-ink-600 flex items-center gap-1 text-[12px] font-semibold">
                         <input
                           type="checkbox"
                           checked={!agreed}
                           onChange={() => handleSetConsent(type, false)}
                           disabled={savingConsent === type}
-                          className="h-4 w-4 accent-error"
+                          className="accent-error h-4 w-4"
                         />
                         Disagree
                       </label>

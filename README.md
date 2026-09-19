@@ -19,19 +19,19 @@ Point at a different backend by setting `NEXT_PUBLIC_API_BASE_URL` (see `.env.lo
 
 ## Pages
 
-| Route | What it is |
-|---|---|
-| `/` | Public landing page |
-| `/admin/onboard-hospital` | Guided multi-step wizard for onboarding a new hospital (WhatsApp setup, departments/doctors, feature selection) |
+| Route                                       | What it is                                                                                                              |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `/`                                         | Public landing page                                                                                                     |
+| `/admin/onboard-hospital`                   | Guided multi-step wizard for onboarding a new hospital (WhatsApp setup, departments/doctors, feature selection)         |
 | `/admin/tenants`, `/admin/edit-tenant/[id]` | Platform-admin tenant list/edit, gated by `TENANTS_ADMIN_SECRET` — separate credential from onboarding's `ADMIN_SECRET` |
-| `/portal/login` | Hospital-staff login |
-| `/portal/dashboard` | Stat tiles, weekly trend, department breakdown, recent activity |
-| `/portal/appointments` | List + cancel (with an optional patient-facing message) |
-| `/portal/doctors` | Add/manage doctors and departments — schedule, breaks, quotas, leave, CSV bulk import |
-| `/portal/patients`, `/portal/patients/[id]` | Patient directory + record (visit history, notes, document upload sent straight to the patient's WhatsApp chat) |
-| `/portal/messages` | The human-handoff inbox — reply to a patient who escalated from the bot |
-| `/portal/new-booking` | Staff-created bookings, through the exact same connector path a WhatsApp patient's booking uses |
-| `/portal/settings` | Self-serve bot customization: menu labels, closing message, business hours, default language, session timeout |
+| `/portal/login`                             | Hospital-staff login                                                                                                    |
+| `/portal/dashboard`                         | Stat tiles, weekly trend, department breakdown, recent activity                                                         |
+| `/portal/appointments`                      | List + cancel (with an optional patient-facing message)                                                                 |
+| `/portal/doctors`                           | Add/manage doctors and departments — schedule, breaks, quotas, leave, CSV bulk import                                   |
+| `/portal/patients`, `/portal/patients/[id]` | Patient directory + record (visit history, notes, document upload sent straight to the patient's WhatsApp chat)         |
+| `/portal/messages`                          | The human-handoff inbox — reply to a patient who escalated from the bot                                                 |
+| `/portal/new-booking`                       | Staff-created bookings, through the exact same connector path a WhatsApp patient's booking uses                         |
+| `/portal/settings`                          | Self-serve bot customization: menu labels, closing message, business hours, default language, session timeout           |
 
 ## Design system
 

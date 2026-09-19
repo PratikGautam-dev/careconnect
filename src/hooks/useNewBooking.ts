@@ -20,7 +20,10 @@ export type NewBookingContext = {
  * Slots for the picked doctor are fetched separately, lazily, the moment
  * doctorId changes -- not eager-loaded for every doctor up front. */
 export function useNewBooking(
-  open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
+  open: boolean,
+  onBooked?: () => void,
+  initialPatientName?: string,
+  initialPatientPhone?: string,
 ) {
   const router = useRouter();
   const [ctx, setCtx] = useState<NewBookingContext | null>(null);
@@ -159,11 +162,30 @@ export function useNewBooking(
   }
 
   return {
-    ctx, error, errors, submitting, success,
-    patientName, setPatientName, patientPhone, setPatientPhone,
-    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
-    departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
-    doctors, datesForDoctor, slotsForDate,
+    ctx,
+    error,
+    errors,
+    submitting,
+    success,
+    patientName,
+    setPatientName,
+    patientPhone,
+    setPatientPhone,
+    patientDateOfBirth,
+    setPatientDateOfBirth,
+    patientGender,
+    setPatientGender,
+    departmentId,
+    setDepartmentId,
+    doctorId,
+    setDoctorId,
+    date,
+    setDate,
+    slotId,
+    setSlotId,
+    doctors,
+    datesForDoctor,
+    slotsForDate,
     // true while a doctor is picked but its slots haven't come back yet --
     // lets the dialog show "Loading…" instead of a misleading "No available
     // dates" during that gap.

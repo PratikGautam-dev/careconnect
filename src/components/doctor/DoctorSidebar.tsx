@@ -50,13 +50,13 @@ export function DoctorSidebar({ doctor, active, open = false, onClose }: Props) 
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[85vw] shrink-0 -translate-x-full flex-col bg-brand-700 px-space-3 py-space-4 text-white transition-transform duration-200 ease-out",
+          "bg-brand-700 px-space-3 py-space-4 fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[85vw] shrink-0 -translate-x-full flex-col text-white transition-transform duration-200 ease-out",
           "lg:static lg:z-auto lg:w-60 lg:max-w-none lg:translate-x-0",
           open && "translate-x-0",
         )}
       >
-        <div className="mb-space-5 flex items-center gap-space-2 px-space-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 font-display text-[14px] font-extrabold">
+        <div className="mb-space-5 gap-space-2 px-space-2 flex items-center">
+          <div className="font-display flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 text-[14px] font-extrabold">
             {(doctor?.name || "D").trim().charAt(0).toUpperCase()}
           </div>
           <span className="truncate text-[14px] font-bold">{doctor?.name || "Doctor"}</span>
@@ -79,8 +79,10 @@ export function DoctorSidebar({ doctor, active, open = false, onClose }: Props) 
                 href={href}
                 onClick={onClose}
                 className={cn(
-                  "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium transition-colors duration-150",
-                  isActive ? "bg-white text-brand-700" : "text-white/85 hover:bg-white/10 hover:text-white",
+                  "gap-space-3 px-space-3 py-space-2 flex w-full items-center rounded-md text-left text-[13.5px] font-medium transition-colors duration-150",
+                  isActive
+                    ? "text-brand-700 bg-white"
+                    : "text-white/85 hover:bg-white/10 hover:text-white",
                 )}
               >
                 <Icon size={16} strokeWidth={2} className="shrink-0" />
@@ -93,7 +95,7 @@ export function DoctorSidebar({ doctor, active, open = false, onClose }: Props) 
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white"
+          className="gap-space-3 px-space-3 py-space-2 flex w-full items-center rounded-md text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white"
         >
           <LogOut size={16} strokeWidth={2} className="shrink-0" />
           Log out

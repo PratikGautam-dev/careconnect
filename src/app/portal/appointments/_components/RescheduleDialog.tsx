@@ -30,8 +30,20 @@ type RescheduleDialogProps = {
  * (shown read-only below) rather than a dropdown -- rescheduling moves an
  * appointment's time, not who/what it's with. */
 export function RescheduleDialog({
-  appointment, onOpenChange, slotsByDate, message, setMessage, errors, submitting,
-  date, setDate, slotId, setSlotId, datesForDoctor, slotsForDate, onSubmit,
+  appointment,
+  onOpenChange,
+  slotsByDate,
+  message,
+  setMessage,
+  errors,
+  submitting,
+  date,
+  setDate,
+  slotId,
+  setSlotId,
+  datesForDoctor,
+  slotsForDate,
+  onSubmit,
 }: RescheduleDialogProps) {
   const open = appointment !== null;
 
@@ -42,36 +54,43 @@ export function RescheduleDialog({
 
         {!appointment ? null : (
           <>
-            <div className="mb-space-4 grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="mb-space-4 gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Department">
-                <div className="flex h-11 items-center rounded-md border border-line bg-paper px-space-3 text-[14px] text-ink-600">
+                <div className="border-line bg-paper px-space-3 text-ink-600 flex h-11 items-center rounded-md border text-[14px]">
                   {appointment.department_name || "—"}
                 </div>
               </Field>
               <Field label={appointment.doctor_id ? "Doctor" : "Resource"}>
-                <div className="flex h-11 items-center rounded-md border border-line bg-paper px-space-3 text-[14px] text-ink-600">
+                <div className="border-line bg-paper px-space-3 text-ink-600 flex h-11 items-center rounded-md border text-[14px]">
                   {appointment.doctor_name || appointment.diagnostic_test_name || "—"}
                 </div>
               </Field>
             </div>
 
             {!slotsByDate ? (
-              <p className="text-[13px] text-ink-400">Loading…</p>
+              <p className="text-ink-400 text-[13px]">Loading…</p>
             ) : (
               <>
                 <Field label="Date">
                   {datesForDoctor.length === 0 ? (
-                    <p className="text-[12.5px] text-ink-400">No available dates for this {appointment.doctor_id ? "doctor" : "resource"}.</p>
+                    <p className="text-ink-400 text-[12.5px]">
+                      No available dates for this {appointment.doctor_id ? "doctor" : "resource"}.
+                    </p>
                   ) : (
-                    <div className="flex flex-wrap gap-space-2">
+                    <div className="gap-space-2 flex flex-wrap">
                       {datesForDoctor.map((d) => (
                         <button
                           type="button"
                           key={d}
-                          onClick={() => { setDate(d); setSlotId(""); }}
+                          onClick={() => {
+                            setDate(d);
+                            setSlotId("");
+                          }}
                           className={cn(
-                            "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                            date === d ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                            "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                            date === d
+                              ? "border-brand-600 bg-brand-600 text-white"
+                              : "border-line bg-card text-ink-600",
                           )}
                         >
                           {d}
@@ -84,17 +103,19 @@ export function RescheduleDialog({
                 {date && (
                   <Field label="Time slot" required>
                     {slotsForDate.length === 0 ? (
-                      <p className="text-[12.5px] text-ink-400">No slots available on this date.</p>
+                      <p className="text-ink-400 text-[12.5px]">No slots available on this date.</p>
                     ) : (
-                      <div className="flex flex-wrap gap-space-2">
+                      <div className="gap-space-2 flex flex-wrap">
                         {slotsForDate.map((s) => (
                           <button
                             type="button"
                             key={s.id}
                             onClick={() => setSlotId(s.id)}
                             className={cn(
-                              "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                              slotId === s.id ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                              "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                              slotId === s.id
+                                ? "border-brand-600 bg-brand-600 text-white"
+                                : "border-line bg-card text-ink-600",
                             )}
                           >
                             {s.label}
@@ -107,19 +128,22 @@ export function RescheduleDialog({
               </>
             )}
 
-            <Field label={`Message to send ${appointment.phone} on WhatsApp (optional)`} htmlFor="reschedule_message">
+            <Field
+              label={`Message to send ${appointment.phone} on WhatsApp (optional)`}
+              htmlFor="reschedule_message"
+            >
               <textarea
                 id="reschedule_message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={2}
-                className="h-16 w-full resize-none rounded-md border border-line bg-card px-space-3 py-space-2 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                className="border-line bg-card px-space-3 py-space-2 text-ink-900 focus:border-brand-400 h-16 w-full resize-none rounded-md border text-[13px] outline-none"
               />
             </Field>
 
             {errors.length > 0 && (
-              <div className="mb-space-3 rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] text-error">
-                <ul className="list-disc pl-space-4">
+              <div className="mb-space-3 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px]">
+                <ul className="pl-space-4 list-disc">
                   {errors.map((e, i) => (
                     <li key={i}>{e}</li>
                   ))}
@@ -127,7 +151,7 @@ export function RescheduleDialog({
               </div>
             )}
 
-            <div className="flex gap-space-2">
+            <div className="gap-space-2 flex">
               <Button onClick={onSubmit} disabled={submitting || !slotId}>
                 <CalendarClock size={13} /> {submitting ? "Rescheduling…" : "Send & reschedule"}
               </Button>

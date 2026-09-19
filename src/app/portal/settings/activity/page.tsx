@@ -20,7 +20,8 @@ function formatAuditChanges(entry: AuditEntry): string {
     .map((key) => {
       const before = entry.before_value?.[key];
       const after = entry.after_value?.[key];
-      if (before !== undefined && after !== undefined) return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
+      if (before !== undefined && after !== undefined)
+        return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
       if (after !== undefined) return `${key}: ${JSON.stringify(after)}`;
       return `${key}: ${JSON.stringify(before)}`;
     })
@@ -31,17 +32,23 @@ const columns: ColumnDef<AuditEntry>[] = [
   {
     id: "created_at",
     header: "Date",
-    cell: ({ row }) => <span className="whitespace-nowrap tabular-nums text-ink-400">{row.original.created_at}</span>,
+    cell: ({ row }) => (
+      <span className="text-ink-400 whitespace-nowrap tabular-nums">{row.original.created_at}</span>
+    ),
   },
   {
     id: "action",
     header: "Action",
-    cell: ({ row }) => <span className="font-medium text-ink-900">{row.original.action}</span>,
+    cell: ({ row }) => <span className="text-ink-900 font-medium">{row.original.action}</span>,
   },
   {
     id: "changes",
     header: "Details",
-    cell: ({ row }) => <span className="whitespace-normal text-ink-600">{formatAuditChanges(row.original) || "—"}</span>,
+    cell: ({ row }) => (
+      <span className="text-ink-600 whitespace-normal">
+        {formatAuditChanges(row.original) || "—"}
+      </span>
+    ),
   },
 ];
 
@@ -55,11 +62,17 @@ export default function PortalActivityLogPage() {
         title="Activity log"
         description="Recent changes made by your staff through this portal — doctor/department edits, feature toggles,
           settings updates. Platform-level changes (made by the operator on your behalf) aren't shown here."
-        actions={<Button href="/portal/settings" variant="secondary"><ArrowLeft size={14} /> Back to settings</Button>}
+        actions={
+          <Button href="/portal/settings" variant="secondary">
+            <ArrowLeft size={14} /> Back to settings
+          </Button>
+        }
       />
 
       {entries === null ? (
-        <p className="text-[13px] text-ink-400">Activity log isn&apos;t available for your account type.</p>
+        <p className="text-ink-400 text-[13px]">
+          Activity log isn&apos;t available for your account type.
+        </p>
       ) : (
         <Card className="p-space-4">
           <DataTable

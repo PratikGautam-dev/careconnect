@@ -16,8 +16,11 @@ const STATUS_STYLES: Record<string, string> = {
   no_show: "bg-error-tint text-error",
 };
 export const STATUS_LABELS: Record<string, string> = {
-  booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled",
-  attended: "Attended", no_show: "No-show",
+  booked: "Confirmed",
+  cancelled: "Cancelled",
+  rescheduled: "Rescheduled",
+  attended: "Attended",
+  no_show: "No-show",
 };
 const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
 // "Follow-up" is a doctor-consultation-only appointment_type_id (no
@@ -42,22 +45,28 @@ type CreateVisitHistoryColumnsOptions = {
  * actions menu) since both show real at-a-glance info -- valid-until date,
  * note count -- alongside their toggle, not just a bare action. */
 export function createVisitHistoryColumns({
-  followupPanelId, onOpenFollowup, onCloseFollowup,
-  expandedVisit, setExpandedVisit, notesByVisit,
+  followupPanelId,
+  onOpenFollowup,
+  onCloseFollowup,
+  expandedVisit,
+  setExpandedVisit,
+  notesByVisit,
 }: CreateVisitHistoryColumnsOptions): ColumnDef<Visit>[] {
   return [
     {
       id: "scheduled_at",
       header: "Appointment time",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(row.original.scheduled_at)}</span>
+        <span className="text-ink-600 whitespace-nowrap tabular-nums">
+          {formatShortDateTime(row.original.scheduled_at)}
+        </span>
       ),
     },
     {
       id: "created_at",
       header: "Booked",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-400">
+        <span className="text-ink-400 whitespace-nowrap tabular-nums">
           {row.original.created_at ? formatShortDateTime(row.original.created_at) : "—"}
         </span>
       ),
@@ -66,7 +75,9 @@ export function createVisitHistoryColumns({
       id: "reference_id",
       header: "Reference",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-400">{row.original.reference_id || "—"}</span>
+        <span className="text-ink-400 font-mono text-[12px] whitespace-nowrap">
+          {row.original.reference_id || "—"}
+        </span>
       ),
     },
     {
@@ -86,13 +97,17 @@ export function createVisitHistoryColumns({
         const v = row.original;
         return (
           <div className="text-ink-600">
-            <div>{v.appointment_type_id ? TYPE_LABELS[v.appointment_type_id] || v.appointment_type_id : "—"}</div>
+            <div>
+              {v.appointment_type_id
+                ? TYPE_LABELS[v.appointment_type_id] || v.appointment_type_id
+                : "—"}
+            </div>
             {v.appointment_type_id === "tele" && v.video_link && (
               <a
                 href={v.video_link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[11.5px] font-semibold text-brand-600 hover:underline"
+                className="text-brand-600 text-[11.5px] font-semibold hover:underline"
               >
                 🎥 Join
               </a>
@@ -104,7 +119,11 @@ export function createVisitHistoryColumns({
     {
       id: "source",
       header: "Source",
-      cell: ({ row }) => <span className="text-ink-600">{SOURCE_LABELS[row.original.source] || row.original.source}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">
+          {SOURCE_LABELS[row.original.source] || row.original.source}
+        </span>
+      ),
     },
     {
       id: "status",
@@ -112,8 +131,8 @@ export function createVisitHistoryColumns({
       cell: ({ row }) => (
         <span
           className={cn(
-            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-            STATUS_STYLES[row.original.status] || "bg-black/[0.04] text-ink-600",
+            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+            STATUS_STYLES[row.original.status] || "text-ink-600 bg-black/[0.04]",
           )}
         >
           {STATUS_LABELS[row.original.status] || row.original.status}
@@ -125,15 +144,20 @@ export function createVisitHistoryColumns({
       header: "Follow-up",
       cell: ({ row }) => {
         const v = row.original;
-        if (v.status !== "attended" || (v.appointment_type_id && TEST_CATEGORY_TYPES.has(v.appointment_type_id))) {
+        if (
+          v.status !== "attended" ||
+          (v.appointment_type_id && TEST_CATEGORY_TYPES.has(v.appointment_type_id))
+        ) {
           return <span className="text-ink-300">—</span>;
         }
         return (
-          <div className="flex items-center gap-space-2 whitespace-nowrap">
+          <div className="gap-space-2 flex items-center whitespace-nowrap">
             <span
               className={cn(
                 "text-[12px] font-semibold",
-                v.followup_valid_until && new Date(v.followup_valid_until) < new Date() ? "text-error" : "text-ink-600",
+                v.followup_valid_until && new Date(v.followup_valid_until) < new Date()
+                  ? "text-error"
+                  : "text-ink-600",
               )}
             >
               {v.followup_valid_until ? `Until ${formatDate(v.followup_valid_until)}` : "—"}
@@ -142,7 +166,7 @@ export function createVisitHistoryColumns({
               <button
                 type="button"
                 onClick={() => (followupPanelId === v.id ? onCloseFollowup() : onOpenFollowup(v))}
-                className="text-[11.5px] font-semibold text-brand-600 hover:underline"
+                className="text-brand-600 text-[11.5px] font-semibold hover:underline"
               >
                 {followupPanelId === v.id ? "Close" : "Follow-up…"}
               </button>
@@ -163,9 +187,11 @@ export function createVisitHistoryColumns({
             <button
               type="button"
               onClick={() => setExpandedVisit(expanded ? null : v.id)}
-              className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-brand-600 hover:underline"
+              className="text-brand-600 inline-flex items-center gap-1 text-[12px] font-semibold whitespace-nowrap hover:underline"
             >
-              {visitNotes.length > 0 ? `${visitNotes.length} note${visitNotes.length > 1 ? "s" : ""}` : "Notes"}
+              {visitNotes.length > 0
+                ? `${visitNotes.length} note${visitNotes.length > 1 ? "s" : ""}`
+                : "Notes"}
               {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
           </div>

@@ -65,7 +65,9 @@ export function useLeaveRequests(canView: boolean) {
 
   async function decide(request: LeaveRequestRow, action: "approve" | "reject") {
     setDecidingId(request.id);
-    const result = await staffFetch(`/api/portal/leave-requests/${request.id}/${action}`, { method: "POST" });
+    const result = await staffFetch(`/api/portal/leave-requests/${request.id}/${action}`, {
+      method: "POST",
+    });
     setDecidingId(null);
     if (result.ok) {
       toast.success(`Leave request ${action === "approve" ? "approved" : "rejected"}`);
@@ -78,7 +80,11 @@ export function useLeaveRequests(canView: boolean) {
   }
 
   return {
-    requests, summary, error, decidingId, load,
+    requests,
+    summary,
+    error,
+    decidingId,
+    load,
     approve: (r: LeaveRequestRow) => decide(r, "approve"),
     reject: (r: LeaveRequestRow) => decide(r, "reject"),
   };

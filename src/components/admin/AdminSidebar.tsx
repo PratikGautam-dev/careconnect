@@ -18,7 +18,12 @@ const NAV_ITEMS = [
   { key: "tenants", label: "Tenants", icon: ShieldCheck, href: "/admin/tenants" },
   { key: "users", label: "Users", icon: Users, href: "/admin/users" },
   { key: "audit-log", label: "Audit Log", icon: ClipboardList, href: "/admin/audit-log" },
-  { key: "platform-settings", label: "Platform Settings", icon: Settings, href: "/admin/platform-settings" },
+  {
+    key: "platform-settings",
+    label: "Platform Settings",
+    icon: Settings,
+    href: "/admin/platform-settings",
+  },
 ];
 
 type Props = {
@@ -35,7 +40,13 @@ type Props = {
   onToggleCollapsed?: () => void;
 };
 
-export function AdminSidebar({ active, open = false, onClose, collapsed = false, onToggleCollapsed }: Props) {
+export function AdminSidebar({
+  active,
+  open = false,
+  onClose,
+  collapsed = false,
+  onToggleCollapsed,
+}: Props) {
   const superAdmin = getSuperAdmin();
 
   function handleLogout() {
@@ -61,17 +72,21 @@ export function AdminSidebar({ active, open = false, onClose, collapsed = false,
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[85vw] shrink-0 -translate-x-full flex-col bg-brand-700 px-space-3 py-space-4 text-white transition-transform duration-200 ease-out",
+          "bg-brand-700 px-space-3 py-space-4 fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[85vw] shrink-0 -translate-x-full flex-col text-white transition-transform duration-200 ease-out",
           "lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:transition-[width] lg:duration-200",
-          collapsed ? "lg:w-[68px] lg:px-space-2" : "lg:w-60",
+          collapsed ? "lg:px-space-2 lg:w-[68px]" : "lg:w-60",
           open && "translate-x-0",
         )}
       >
-        <div className="mb-space-5 flex items-center gap-space-2 px-space-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 font-display text-[14px] font-extrabold">
+        <div className="mb-space-5 gap-space-2 px-space-2 flex items-center">
+          <div className="font-display flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 text-[14px] font-extrabold">
             A
           </div>
-          {!collapsed && <span className="truncate text-[14px] font-bold">{superAdmin?.name || "Platform admin"}</span>}
+          {!collapsed && (
+            <span className="truncate text-[14px] font-bold">
+              {superAdmin?.name || "Platform admin"}
+            </span>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -92,9 +107,9 @@ export function AdminSidebar({ active, open = false, onClose, collapsed = false,
                 onClick={onClose}
                 title={collapsed ? label : undefined}
                 className={cn(
-                  "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium transition-colors duration-150",
+                  "gap-space-3 px-space-3 py-space-2 flex w-full items-center rounded-md text-left text-[13.5px] font-medium transition-colors duration-150",
                   collapsed && "lg:justify-center lg:px-0",
-                  isActive && "bg-white text-brand-700",
+                  isActive && "text-brand-700 bg-white",
                   !isActive && "text-white/85 hover:bg-white/10 hover:text-white",
                 )}
               >
@@ -111,11 +126,15 @@ export function AdminSidebar({ active, open = false, onClose, collapsed = false,
             onClick={onToggleCollapsed}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className={cn(
-              "mb-space-1 hidden w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white lg:flex",
+              "mb-space-1 gap-space-3 px-space-3 py-space-2 hidden w-full items-center rounded-md text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white lg:flex",
               collapsed && "justify-center px-0",
             )}
           >
-            {collapsed ? <ChevronsRight size={16} strokeWidth={2} className="shrink-0" /> : <ChevronsLeft size={16} strokeWidth={2} className="shrink-0" />}
+            {collapsed ? (
+              <ChevronsRight size={16} strokeWidth={2} className="shrink-0" />
+            ) : (
+              <ChevronsLeft size={16} strokeWidth={2} className="shrink-0" />
+            )}
             {!collapsed && "Collapse"}
           </button>
         )}
@@ -125,7 +144,7 @@ export function AdminSidebar({ active, open = false, onClose, collapsed = false,
           onClick={handleLogout}
           title={collapsed ? "Log out" : undefined}
           className={cn(
-            "flex w-full items-center gap-space-3 rounded-md px-space-3 py-space-2 text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white",
+            "gap-space-3 px-space-3 py-space-2 flex w-full items-center rounded-md text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white",
             collapsed && "lg:justify-center lg:px-0",
           )}
         >

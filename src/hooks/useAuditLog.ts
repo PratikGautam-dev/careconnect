@@ -18,7 +18,10 @@ export type AuditEntry = {
 /** Loads the /admin/audit-log list -- hospitalIdParam/levelFilter are owned
  * by the page (hospitalIdParam comes from the URL's ?hospital_id= query
  * param via useSearchParams(), a routing concern this hook stays out of). */
-export function useAuditLog(hospitalIdParam: string | null, levelFilter: "" | "platform_admin" | "portal") {
+export function useAuditLog(
+  hospitalIdParam: string | null,
+  levelFilter: "" | "platform_admin" | "portal",
+) {
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 

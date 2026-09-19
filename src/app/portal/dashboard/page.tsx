@@ -57,8 +57,8 @@ function HospitalDashboard() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-paper px-space-4">
-        <p className="text-[14px] text-error">{error}</p>
+      <div className="bg-paper px-space-4 flex min-h-screen items-center justify-center">
+        <p className="text-error text-[14px]">{error}</p>
       </div>
     );
   }
@@ -76,11 +76,8 @@ function HospitalDashboard() {
           <>
             Admin Dashboard
             {data && (
-              <span className="ml-space-2 text-[15px] font-medium text-ink-400">
-                (
-                {TIER_LABELS[data.hospital.data_tier] ||
-                  data.hospital.data_tier}
-                )
+              <span className="ml-space-2 text-ink-400 text-[15px] font-medium">
+                ({TIER_LABELS[data.hospital.data_tier] || data.hospital.data_tier})
               </span>
             )}
           </>
@@ -90,10 +87,10 @@ function HospitalDashboard() {
       />
 
       {!data ? (
-        <p className="text-[13px] text-ink-400">Loading…</p>
+        <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Total appointments"
               value={totalAppointments}
@@ -159,25 +156,20 @@ function HospitalDashboard() {
                 auto-placement -- only TodaysAppointmentsTable/
                 DashboardPendingApprovals are widened to 2 columns, every
                 other tile stays 1-wide and fills in around them. */}
-          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3 mb-space-4">
+          <div className="gap-space-4 mb-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <WeeklyTrendChart data={data.weekly_counts} className="h-90" />
-            <DepartmentDonut
-              data={data.department_breakdown}
-              className="h-90"
-            />
+            <DepartmentDonut data={data.department_breakdown} className="h-90" />
             <DashboardQuickActions className="h-90" />
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+          <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             {/* Stacked in normal flow (space-y), not separate grid tracks --
                 so PendingApprovals/StaffAttendance always sit directly under
                 TodaysAppointmentsTable and shift down as it grows, instead
                 of sitting in a fixed-height grid row with a gap underneath. */}
             <div className="space-y-space-4 lg:col-span-2">
-              <TodaysAppointmentsTable
-                appointments={data.today_appointments}
-              />
-              <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-2">
+              <TodaysAppointmentsTable appointments={data.today_appointments} />
+              <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-2">
                 <DashboardPendingApprovals className="h-62" />
                 <DashboardStaffAttendance className="h-62" />
               </div>

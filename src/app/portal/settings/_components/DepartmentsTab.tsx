@@ -7,7 +7,11 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
-import { useDepartmentsAdmin, type DepartmentDetail, type DepartmentFields } from "@/hooks/useDepartments";
+import {
+  useDepartmentsAdmin,
+  type DepartmentDetail,
+  type DepartmentFields,
+} from "@/hooks/useDepartments";
 import { useDoctors } from "@/hooks/useDoctors";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
@@ -27,11 +31,23 @@ const STATUS_OPTIONS = [
 // for). Doctors have no department_id here (see staff.py's own check --
 // a doctor's department comes from their linked doctor profile), so this
 // list is implicitly support-staff-only already.
-type StaffPickOption = { id: number; name: string; role_name: string; department_name: string | null };
+type StaffPickOption = {
+  id: number;
+  name: string;
+  role_name: string;
+  department_name: string | null;
+};
 
 export function DepartmentsTab() {
-  const { departments, error, reload, createDepartment, updateDepartment, setDepartmentActive, setDepartmentVisibility } =
-    useDepartmentsAdmin(true);
+  const {
+    departments,
+    error,
+    reload,
+    createDepartment,
+    updateDepartment,
+    setDepartmentActive,
+    setDepartmentVisibility,
+  } = useDepartmentsAdmin(true);
   const { doctors, load: reloadDoctors } = useDoctors(true);
 
   const [staffOptions, setStaffOptions] = useState<StaffPickOption[]>([]);
@@ -49,7 +65,9 @@ export function DepartmentsTab() {
   const [formDepartment, setFormDepartment] = useState<DepartmentDetail | null>(null);
   const [savingForm, setSavingForm] = useState(false);
 
-  const [assignDoctorDepartment, setAssignDoctorDepartment] = useState<DepartmentDetail | null>(null);
+  const [assignDoctorDepartment, setAssignDoctorDepartment] = useState<DepartmentDetail | null>(
+    null,
+  );
   const [assigningDoctor, setAssigningDoctor] = useState(false);
 
   const [manageStaffDepartment, setManageStaffDepartment] = useState<DepartmentDetail | null>(null);
@@ -64,7 +82,9 @@ export function DepartmentsTab() {
       if (statusFilter === "active" && !d.is_active) return false;
       if (statusFilter === "inactive" && d.is_active) return false;
       if (!q) return true;
-      return d.name.toLowerCase().includes(q) || (d.head_doctor?.name || "").toLowerCase().includes(q);
+      return (
+        d.name.toLowerCase().includes(q) || (d.head_doctor?.name || "").toLowerCase().includes(q)
+      );
     });
   }, [departments, searchQuery, statusFilter]);
 
@@ -136,13 +156,16 @@ export function DepartmentsTab() {
       years_experience: full.years_experience != null ? String(full.years_experience) : "",
       working_days: full.working_days ?? [],
       working_hours: full.working_hours ?? [],
-      slot_duration_minutes: full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
+      slot_duration_minutes:
+        full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
       breaks: full.breaks ?? [],
-      max_bookings_per_slot: full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
+      max_bookings_per_slot:
+        full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
       daily_booking_limit: full.daily_booking_limit != null ? String(full.daily_booking_limit) : "",
       online_quota: full.online_quota != null ? String(full.online_quota) : "",
       walkin_quota: full.walkin_quota != null ? String(full.walkin_quota) : "",
-      followup_duration_minutes: full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
+      followup_duration_minutes:
+        full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
       effective_from: full.effective_from ?? "",
       phone: full.phone ?? "",
       employee_id: full.employee_id ?? "",
@@ -155,7 +178,10 @@ export function DepartmentsTab() {
     });
     setAssigningDoctor(false);
     if (!updateResult.ok) {
-      toast.error("Couldn't assign doctor", !updateResult.unauthorized ? updateResult.error : undefined);
+      toast.error(
+        "Couldn't assign doctor",
+        !updateResult.unauthorized ? updateResult.error : undefined,
+      );
       return;
     }
     toast.success("Doctor assigned", `${full.name} → ${assignDoctorDepartment.name}`);
@@ -187,45 +213,74 @@ export function DepartmentsTab() {
   }
 
   const doctorPeople: PersonOption[] = doctors.map((d) => ({
-    id: d.id, label: d.name, sublabel: `${d.specialization || "—"} · currently ${d.department_name}`,
+    id: d.id,
+    label: d.name,
+    sublabel: `${d.specialization || "—"} · currently ${d.department_name}`,
   }));
   // GET /api/portal/staff already excludes doctors server-side (see
   // staff.py's own docstring) -- this list is implicitly support-staff-only
   // already, no client-side role filter needed.
   const staffPeople: PersonOption[] = staffOptions.map((s) => ({
-    id: String(s.id), label: s.name, sublabel: `${s.role_name} · currently ${s.department_name || "no department"}`,
+    id: String(s.id),
+    label: s.name,
+    sublabel: `${s.role_name} · currently ${s.department_name || "no department"}`,
   }));
 
   if (error) {
     return (
       <Card className="p-space-6">
-        <p className="text-center text-[13px] text-error">{error}</p>
+        <p className="text-error text-center text-[13px]">{error}</p>
       </Card>
     );
   }
 
   return (
-    <div className="flex flex-col gap-space-4">
-      <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total Departments" value={totalDepartments} deltaPct={null} hint="Live count" icon={Building2} tint="brand" />
+    <div className="gap-space-4 flex flex-col">
+      <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Total Departments"
+          value={totalDepartments}
+          deltaPct={null}
+          hint="Live count"
+          icon={Building2}
+          tint="brand"
+        />
         <StatTile
           label="Active Departments"
           value={activeDepartments}
           deltaPct={null}
-          hint={totalDepartments ? `${Math.round((activeDepartments / totalDepartments) * 100)}% of total` : "—"}
+          hint={
+            totalDepartments
+              ? `${Math.round((activeDepartments / totalDepartments) * 100)}% of total`
+              : "—"
+          }
           icon={CheckCircle2}
           tint="success"
         />
-        <StatTile label="Doctors Assigned" value={doctorsAssigned} deltaPct={null} hint="Live count" icon={Users} tint="brand" />
-        <StatTile label="Support Staff Assigned" value={supportStaffAssigned} deltaPct={null} hint="Live count" icon={UserCog} tint="clay" />
+        <StatTile
+          label="Doctors Assigned"
+          value={doctorsAssigned}
+          deltaPct={null}
+          hint="Live count"
+          icon={Users}
+          tint="brand"
+        />
+        <StatTile
+          label="Support Staff Assigned"
+          value={supportStaffAssigned}
+          deltaPct={null}
+          hint="Live count"
+          icon={UserCog}
+          tint="clay"
+        />
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+      <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="p-space-4">
-            <div className="mb-space-3 flex flex-wrap items-start justify-between gap-space-3">
+            <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
               <div>
-                <h3 className="text-label font-bold text-ink-900">Department Directory</h3>
+                <h3 className="text-label text-ink-900 font-bold">Department Directory</h3>
                 <p className="text-hint mt-space-1">View and manage all hospital departments</p>
               </div>
               <Button size="md" onClick={openAddDialog}>
@@ -233,18 +288,26 @@ export function DepartmentsTab() {
               </Button>
             </div>
 
-            <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
+            <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
               <div className="relative min-w-50 flex-1">
-                <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+                <Search
+                  size={14}
+                  className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
+                />
                 <input
                   type="text"
                   placeholder="Search departments, heads, or keywords…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                  className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
                 />
               </div>
-              <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Status" options={STATUS_OPTIONS} />
+              <FilterSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                allLabel="All Status"
+                options={STATUS_OPTIONS}
+              />
             </div>
 
             <DataTable
@@ -260,7 +323,11 @@ export function DepartmentsTab() {
               pageSize={10}
               pageSizeOptions={[10, 25, 50]}
               loading={!departments}
-              emptyMessage={departments && departments.length > 0 ? "No departments match your search/filters." : "No departments yet."}
+              emptyMessage={
+                departments && departments.length > 0
+                  ? "No departments match your search/filters."
+                  : "No departments yet."
+              }
             />
           </Card>
         </div>

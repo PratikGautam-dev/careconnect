@@ -30,7 +30,14 @@ type SwitchProps = {
 
 /** Shared on/off toggle used by doctor/staff active-toggles, appointment
  * types, and diagnostic managers. */
-export function Switch({ checked, onChange, disabled, size = "md", className, ...rest }: SwitchProps) {
+export function Switch({
+  checked,
+  onChange,
+  disabled,
+  size = "md",
+  className,
+  ...rest
+}: SwitchProps) {
   return (
     <button
       type="button"
@@ -40,7 +47,7 @@ export function Switch({ checked, onChange, disabled, size = "md", className, ..
       onClick={onChange}
       className={cn(
         "relative shrink-0 rounded-full shadow-inner transition-colors duration-150",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2",
+        "focus-visible:ring-brand-400 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
         "disabled:cursor-not-allowed disabled:opacity-50",
         trackSizes[size],
         checked ? "bg-brand-600 hover:bg-brand-700" : "bg-line hover:bg-black/15",

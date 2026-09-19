@@ -130,7 +130,10 @@ export function useStaffManagement(canView: boolean) {
     e.preventDefault();
     if (!resetPasswordTarget) return;
 
-    const parsed = setStaffPasswordSchema.safeParse({ new_password: newPassword, confirm_password: confirmPassword });
+    const parsed = setStaffPasswordSchema.safeParse({
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    });
     if (!parsed.success) {
       setResetErrors(parsed.error.issues.map((issue) => issue.message));
       return;
@@ -158,9 +161,21 @@ export function useStaffManagement(canView: boolean) {
   }
 
   return {
-    staff, error, togglingId, load,
-    handleToggleActive, handleSetAttendance,
-    resetPasswordTarget, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
-    resetErrors, resetting, openResetPassword, closeResetPassword, handleResetPassword,
+    staff,
+    error,
+    togglingId,
+    load,
+    handleToggleActive,
+    handleSetAttendance,
+    resetPasswordTarget,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    resetErrors,
+    resetting,
+    openResetPassword,
+    closeResetPassword,
+    handleResetPassword,
   };
 }

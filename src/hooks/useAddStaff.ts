@@ -9,7 +9,11 @@ import type { WorkingScheduleValue } from "@/components/portal/WorkingScheduleFi
 export type Doctor = { id: string; name: string };
 export type StaffOption = { id: number; name: string };
 
-const EMPTY_SCHEDULE: WorkingScheduleValue = { working_days: [], shifts: [{ start: "", end: "" }], breaks: [] };
+const EMPTY_SCHEDULE: WorkingScheduleValue = {
+  working_days: [],
+  shifts: [{ start: "", end: "" }],
+  breaks: [],
+};
 
 /** Owns the "Add staff member" dialog's own form state + submit -- fully
  * self-contained (loads the linked-doctor/department/reports-to/role
@@ -26,7 +30,10 @@ const EMPTY_SCHEDULE: WorkingScheduleValue = { working_days: [], shifts: [{ star
  * defaults to the first fetched role -- the picker itself is immediately
  * visible/editable regardless, and doctorId is a fully independent field. */
 export function useAddStaff(
-  open: boolean, onOpenChange: (open: boolean) => void, onCreated?: () => void, presetDoctor?: Doctor | null,
+  open: boolean,
+  onOpenChange: (open: boolean) => void,
+  onCreated?: () => void,
+  presetDoctor?: Doctor | null,
 ) {
   const router = useRouter();
   const departments = useDepartments(open);
@@ -119,13 +126,20 @@ export function useAddStaff(
     }
     setSaving(true);
     setFormError(null);
-    const working_hours = schedule.shifts.filter((s) => s.start && s.end).map((s) => `${s.start}-${s.end}`);
-    const breaks = schedule.breaks.filter((b) => b && b.start && b.end).map((b) => `${b.start}-${b.end}`);
+    const working_hours = schedule.shifts
+      .filter((s) => s.start && s.end)
+      .map((s) => `${s.start}-${s.end}`);
+    const breaks = schedule.breaks
+      .filter((b) => b && b.start && b.end)
+      .map((b) => `${b.start}-${b.end}`);
     const result = await staffFetch("/api/portal/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name, email, password, role_id: roleId,
+        name,
+        email,
+        password,
+        role_id: roleId,
         doctor_id: doctorId || undefined,
         phone: phone || undefined,
         address: address || undefined,
@@ -151,10 +165,32 @@ export function useAddStaff(
   }
 
   return {
-    doctors, departments, staffOptions, roles,
-    name, setName, email, setEmail, password, setPassword, roleId, setRoleId, doctorId, setDoctorId,
-    phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
-    reportsToId, setReportsToId,
-    formError, saving, handleCreate,
+    doctors,
+    departments,
+    staffOptions,
+    roles,
+    name,
+    setName,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    roleId,
+    setRoleId,
+    doctorId,
+    setDoctorId,
+    phone,
+    setPhone,
+    address,
+    setAddress,
+    departmentId,
+    setDepartmentId,
+    schedule,
+    setSchedule,
+    reportsToId,
+    setReportsToId,
+    formError,
+    saving,
+    handleCreate,
   };
 }

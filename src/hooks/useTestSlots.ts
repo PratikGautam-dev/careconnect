@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
-export type Slot = { scheduled_at: string; date: string; time: string; blocked: boolean; block_reason: string | null; booked: boolean };
+export type Slot = {
+  scheduled_at: string;
+  date: string;
+  time: string;
+  blocked: boolean;
+  block_reason: string | null;
+  booked: boolean;
+};
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -62,7 +69,12 @@ export function useTestSlots(testId: number) {
   }
 
   async function removeSlot(slot: Slot) {
-    if (!window.confirm(`Remove the ${slot.time} slot on ${slot.date}? This deletes it outright, not just blocks it.`)) return;
+    if (
+      !window.confirm(
+        `Remove the ${slot.time} slot on ${slot.date}? This deletes it outright, not just blocks it.`,
+      )
+    )
+      return;
     setPendingId(slot.scheduled_at);
     setError(null);
     const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/slots/remove`, {
@@ -101,8 +113,21 @@ export function useTestSlots(testId: number) {
   }
 
   return {
-    date, setDate, viewAll, setViewAll, slots, error, pendingId,
-    newDate, setNewDate, newTime, setNewTime, adding,
-    groupedByDate, toggleBlock, removeSlot, addSlot,
+    date,
+    setDate,
+    viewAll,
+    setViewAll,
+    slots,
+    error,
+    pendingId,
+    newDate,
+    setNewDate,
+    newTime,
+    setNewTime,
+    adding,
+    groupedByDate,
+    toggleBlock,
+    removeSlot,
+    addSlot,
   };
 }

@@ -21,13 +21,23 @@ type FilterSelectProps = {
  * availability filter and similar are meant to move onto this too), instead
  * of each page hand-rolling its own <select> classes. Not for a data-entry
  * form field (those keep using Field + a plain <select>, e.g. Settings). */
-export function FilterSelect({ value, onChange, options, allLabel, ariaLabel, className }: FilterSelectProps) {
+export function FilterSelect({
+  value,
+  onChange,
+  options,
+  allLabel,
+  ariaLabel,
+  className,
+}: FilterSelectProps) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-label={ariaLabel ?? allLabel}
-      className={cn("h-9 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900", className)}
+      className={cn(
+        "border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]",
+        className,
+      )}
     >
       <option value="all">{allLabel}</option>
       {options.map((o) => (

@@ -108,7 +108,11 @@ export function OnboardingWizard() {
     if (result.ok) {
       setSuccess(result.data);
     } else {
-      setSubmitErrors(result.data.errors?.length ? result.data.errors : ["Something went wrong. Please try again."]);
+      setSubmitErrors(
+        result.data.errors?.length
+          ? result.data.errors
+          : ["Something went wrong. Please try again."],
+      );
     }
   }
 
@@ -116,22 +120,28 @@ export function OnboardingWizard() {
 
   const isGuideStep = currentStep >= 1 && currentStep <= 3;
   const guideDone =
-    currentStep === 1 ? state.metaAccountDone : currentStep === 2 ? state.whatsappAppDone : state.verifyBusinessDone;
+    currentStep === 1
+      ? state.metaAccountDone
+      : currentStep === 2
+        ? state.whatsappAppDone
+        : state.verifyBusinessDone;
   const nextDisabled = isGuideStep && !guideDone;
 
   return (
     <div className="px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
-      <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
-        <div className="flex items-center gap-space-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-600 font-display text-[15px] font-extrabold text-white">
+      <div className="mb-space-5 gap-space-3 flex flex-wrap items-center justify-between">
+        <div className="gap-space-2 flex items-center">
+          <div className="bg-brand-600 font-display flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[15px] font-extrabold text-white">
             H
           </div>
           <div className="min-w-0">
-            <span className="block truncate text-[13px] font-bold text-ink-900">Hospital Onboarding</span>
-            <span className="block text-[11px] text-ink-400">Guided setup wizard</span>
+            <span className="text-ink-900 block truncate text-[13px] font-bold">
+              Hospital Onboarding
+            </span>
+            <span className="text-ink-400 block text-[11px]">Guided setup wizard</span>
           </div>
         </div>
-        <span className="rounded-full bg-brand-50 px-space-3 py-1 text-[12px] font-bold text-brand-700">
+        <span className="bg-brand-50 px-space-3 text-brand-700 rounded-full py-1 text-[12px] font-bold">
           Step {currentStep + 1} of {TOTAL_STEPS}
         </span>
       </div>
@@ -167,7 +177,8 @@ export function OnboardingWizard() {
               {
                 icon: Mail,
                 title: "Verify your email",
-                description: "Check your email inbox and click the verification link Meta sends you.",
+                description:
+                  "Check your email inbox and click the verification link Meta sends you.",
               },
               {
                 icon: CheckSquare,
@@ -204,12 +215,13 @@ export function OnboardingWizard() {
                 icon: SquarePlus,
                 title: "Create your app",
                 description:
-                  'My Apps → Create App, choose Business as the type, give it any name, add a contact email.',
+                  "My Apps → Create App, choose Business as the type, give it any name, add a contact email.",
               },
               {
                 icon: MessageSquarePlus,
                 title: "Add WhatsApp to your app",
-                description: "On the app dashboard, find WhatsApp under Add Products to Your App → click Set Up.",
+                description:
+                  "On the app dashboard, find WhatsApp under Add Products to Your App → click Set Up.",
               },
               {
                 icon: ArrowRight,
@@ -240,22 +252,26 @@ export function OnboardingWizard() {
               {
                 icon: ShieldCheck,
                 title: "Start business verification",
-                description: "Security Center → Start Verification, with your legal business name, address, and a document.",
+                description:
+                  "Security Center → Start Verification, with your legal business name, address, and a document.",
               },
               {
                 icon: Clock,
                 title: "Wait for Meta's review",
-                description: "Can take hours to days — you can continue with later wizard steps while you wait.",
+                description:
+                  "Can take hours to days — you can continue with later wizard steps while you wait.",
               },
               {
                 icon: Phone,
                 title: "Register your number",
-                description: "Add your hospital's real WhatsApp number and verify it via the code Meta texts you.",
+                description:
+                  "Add your hospital's real WhatsApp number and verify it via the code Meta texts you.",
               },
               {
                 icon: CreditCard,
                 title: "Add a payment method",
-                description: "Required before sending messages; you're only charged for messages actually sent.",
+                description:
+                  "Required before sending messages; you're only charged for messages actually sent.",
               },
             ]}
             illustrationImageSrc="/meta-verify-payment.png"
@@ -264,7 +280,8 @@ export function OnboardingWizard() {
             illustrationImageHeight={993}
             resourceLink={{
               title: "Meta for Developers",
-              description: "Open your app's Production Setup to verify, register your number, and add payment",
+              description:
+                "Open your app's Production Setup to verify, register your number, and add payment",
               displayUrl: "developers.facebook.com",
               href: "https://developers.facebook.com",
             }}
@@ -274,11 +291,19 @@ export function OnboardingWizard() {
         )}
 
         {currentStep === 4 && <Step4AccessToken state={state} dispatch={dispatch} />}
-        {currentStep === 5 && <Step5PhoneSecret state={state} dispatch={dispatch} error={stepError || undefined} />}
-        {currentStep === 6 && (
-          <Step6PatientExperience state={state} dispatch={dispatch} error={stepError || undefined} />
+        {currentStep === 5 && (
+          <Step5PhoneSecret state={state} dispatch={dispatch} error={stepError || undefined} />
         )}
-        {currentStep === 7 && <Step7HospitalDetails state={state} dispatch={dispatch} error={stepError || undefined} />}
+        {currentStep === 6 && (
+          <Step6PatientExperience
+            state={state}
+            dispatch={dispatch}
+            error={stepError || undefined}
+          />
+        )}
+        {currentStep === 7 && (
+          <Step7HospitalDetails state={state} dispatch={dispatch} error={stepError || undefined} />
+        )}
         {currentStep === 8 && (
           <Step8Review
             state={state}
@@ -291,11 +316,11 @@ export function OnboardingWizard() {
         )}
 
         {stepError && currentStep !== 5 && currentStep !== 6 && currentStep !== 7 && (
-          <p className="mt-space-3 text-[12.5px] font-medium text-error">{stepError}</p>
+          <p className="mt-space-3 text-error text-[12.5px] font-medium">{stepError}</p>
         )}
 
         {currentStep !== 8 && (
-          <div className="mt-space-6 flex items-center justify-between border-t border-line pt-space-4">
+          <div className="mt-space-6 border-line pt-space-4 flex items-center justify-between border-t">
             {currentStep > 0 ? (
               <Button variant="secondary" onClick={() => goToStep(currentStep - 1)}>
                 <ArrowLeft size={15} /> Previous
@@ -303,7 +328,7 @@ export function OnboardingWizard() {
             ) : (
               <span />
             )}
-            <span className="hidden text-[12.5px] text-ink-400 sm:block">
+            <span className="text-ink-400 hidden text-[12.5px] sm:block">
               Step {currentStep + 1} of {TOTAL_STEPS}
             </span>
             <Button onClick={handleNext} disabled={nextDisabled}>

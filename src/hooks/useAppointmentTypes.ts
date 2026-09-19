@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
-export type AppointmentTypeRow = { id: string; label: string; is_active: boolean; is_allowed: boolean };
+export type AppointmentTypeRow = {
+  id: string;
+  label: string;
+  is_active: boolean;
+  is_allowed: boolean;
+};
 
 /** Loads + toggles this hospital's appointment-type allow-list (admin/
  * tenants_api.py's "Appointment types" section controls is_allowed per

@@ -15,7 +15,9 @@ export default function HolidayApplicationPage() {
   if (!canView) {
     return (
       <PortalShell hospital={hospital} active="holiday-application">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Holiday Application.</p>
+        <p className="text-ink-400 text-[13px]">
+          You don&apos;t have access to Holiday Application.
+        </p>
       </PortalShell>
     );
   }

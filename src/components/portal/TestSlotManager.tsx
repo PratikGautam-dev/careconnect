@@ -9,9 +9,22 @@ import { useTestSlots, type Slot } from "@/hooks/useTestSlots";
 
 export function TestSlotManager({ testId }: { testId: number }) {
   const {
-    date, setDate, viewAll, setViewAll, slots, error, pendingId,
-    newDate, setNewDate, newTime, setNewTime, adding,
-    groupedByDate, toggleBlock, removeSlot, addSlot,
+    date,
+    setDate,
+    viewAll,
+    setViewAll,
+    slots,
+    error,
+    pendingId,
+    newDate,
+    setNewDate,
+    newTime,
+    setNewTime,
+    adding,
+    groupedByDate,
+    toggleBlock,
+    removeSlot,
+    addSlot,
   } = useTestSlots(testId);
 
   function renderSlotPill(s: Slot) {
@@ -19,7 +32,7 @@ export function TestSlotManager({ testId }: { testId: number }) {
       <span
         key={s.scheduled_at}
         className={cn(
-          "group flex items-center gap-space-1 rounded-md border px-space-2 py-space-1 text-[12px] font-semibold",
+          "group gap-space-1 px-space-2 py-space-1 flex items-center rounded-md border text-[12px] font-semibold",
           s.blocked
             ? "border-error bg-error-tint text-error"
             : s.booked
@@ -31,8 +44,14 @@ export function TestSlotManager({ testId }: { testId: number }) {
           type="button"
           disabled={pendingId === s.scheduled_at || (s.booked && !s.blocked)}
           onClick={() => toggleBlock(s)}
-          title={s.booked && !s.blocked ? "Already booked — cancel or reschedule that appointment first" : s.blocked ? "Tap to unblock" : "Tap to block"}
-          className="flex items-center gap-space-1 disabled:cursor-not-allowed disabled:opacity-60"
+          title={
+            s.booked && !s.blocked
+              ? "Already booked — cancel or reschedule that appointment first"
+              : s.blocked
+                ? "Tap to unblock"
+                : "Tap to block"
+          }
+          className="gap-space-1 flex items-center disabled:cursor-not-allowed disabled:opacity-60"
         >
           {s.blocked ? <Ban size={11} /> : s.booked ? <CheckCircle2 size={11} /> : null}
           {s.time}
@@ -41,7 +60,11 @@ export function TestSlotManager({ testId }: { testId: number }) {
           type="button"
           disabled={pendingId === s.scheduled_at || s.booked}
           onClick={() => removeSlot(s)}
-          title={s.booked ? "Already booked — cancel or reschedule that appointment first" : "Remove this slot entirely"}
+          title={
+            s.booked
+              ? "Already booked — cancel or reschedule that appointment first"
+              : "Remove this slot entirely"
+          }
           className="text-ink-300 hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
         >
           <X size={11} />
@@ -51,42 +74,65 @@ export function TestSlotManager({ testId }: { testId: number }) {
   }
 
   return (
-    <div className="rounded-lg border border-line bg-paper p-space-3">
-      <div className="mb-space-2 flex flex-wrap items-center justify-between gap-space-2">
-        <p className="text-label font-semibold text-ink-900">Manage individual slots</p>
-        <div className="flex items-center gap-space-2">
-          {!viewAll && <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />}
+    <div className="border-line bg-paper p-space-3 rounded-lg border">
+      <div className="mb-space-2 gap-space-2 flex flex-wrap items-center justify-between">
+        <p className="text-label text-ink-900 font-semibold">Manage individual slots</p>
+        <div className="gap-space-2 flex items-center">
+          {!viewAll && (
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-40"
+            />
+          )}
           <button
             type="button"
             onClick={() => setViewAll((v) => !v)}
-            className="text-[12px] font-semibold text-brand-600 hover:underline"
+            className="text-brand-600 text-[12px] font-semibold hover:underline"
           >
             {viewAll ? "Show one date" : "View all upcoming slots"}
           </button>
         </div>
       </div>
-      {error && <p className="mb-space-2 text-[12.5px] text-error">{error}</p>}
+      {error && <p className="mb-space-2 text-error text-[12.5px]">{error}</p>}
       {slots === null ? (
         <p className="text-hint">Loading…</p>
       ) : slots.length === 0 ? (
         <p className="mb-space-2 text-hint">
-          {viewAll ? "No upcoming slots generated for this test." : "No generated slots on this date."}
+          {viewAll
+            ? "No upcoming slots generated for this test."
+            : "No generated slots on this date."}
         </p>
       ) : viewAll ? (
-        <div className="mb-space-3 max-h-64 space-y-space-2 overflow-y-auto">
+        <div className="mb-space-3 space-y-space-2 max-h-64 overflow-y-auto">
           {groupedByDate.map(([d, daySlots]) => (
             <div key={d}>
-              <p className="mb-space-1 text-[11px] font-semibold text-ink-400">{formatDateHeading(d)}</p>
-              <div className="flex flex-wrap gap-space-2">{daySlots.map(renderSlotPill)}</div>
+              <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">
+                {formatDateHeading(d)}
+              </p>
+              <div className="gap-space-2 flex flex-wrap">{daySlots.map(renderSlotPill)}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="mb-space-3 flex flex-wrap gap-space-2">{slots.map(renderSlotPill)}</div>
+        <div className="mb-space-3 gap-space-2 flex flex-wrap">{slots.map(renderSlotPill)}</div>
       )}
-      <div className="flex flex-wrap items-center gap-space-2 border-t border-line pt-space-2">
-        {viewAll && <Input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-40" />}
-        <Input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-32" />
+      <div className="gap-space-2 border-line pt-space-2 flex flex-wrap items-center border-t">
+        {viewAll && (
+          <Input
+            type="date"
+            value={newDate}
+            onChange={(e) => setNewDate(e.target.value)}
+            className="w-40"
+          />
+        )}
+        <Input
+          type="time"
+          value={newTime}
+          onChange={(e) => setNewTime(e.target.value)}
+          className="w-32"
+        />
         <Button type="button" size="md" onClick={addSlot} disabled={adding || !newTime}>
           <Plus size={13} /> {adding ? "Adding…" : "Add a slot"}
         </Button>

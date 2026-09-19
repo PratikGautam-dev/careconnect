@@ -6,12 +6,7 @@ import { cn } from "@/lib/cn";
 import { formatShortDateTime, formatTimeOnly } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
-import {
-  AVATAR_TINTS,
-  initials,
-  STATUS_LABELS,
-  STATUS_STYLES,
-} from "./appointments-columns";
+import { AVATAR_TINTS, initials, STATUS_LABELS, STATUS_STYLES } from "./appointments-columns";
 
 // Daycare/procedure bookings have their own separate sidebar section
 // (category "diagnostic" excludes them server-side) -- this table only ever
@@ -99,7 +94,7 @@ export function createDiagnosticAppointmentColumns({
             checked={allSelected}
             onChange={(e) => toggleSelectAll(e.target.checked)}
             disabled={deletableCount === 0}
-            className="h-4 w-4 accent-brand-600"
+            className="accent-brand-600 h-4 w-4"
             aria-label="Select all deletable bookings"
           />
         </PermissionGate>
@@ -113,7 +108,7 @@ export function createDiagnosticAppointmentColumns({
               type="checkbox"
               checked={selected.has(a.id)}
               onChange={(e) => toggleSelected(a.id, e.target.checked)}
-              className="h-4 w-4 accent-brand-600"
+              className="accent-brand-600 h-4 w-4"
               aria-label={`Select booking ${a.reference_id || a.id}`}
             />
           </PermissionGate>
@@ -124,7 +119,7 @@ export function createDiagnosticAppointmentColumns({
       id: "reference_id",
       header: "Appointment ID",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
+        <span className="text-ink-600 font-mono text-[12px] whitespace-nowrap">
           {row.original.reference_id || "—"}
         </span>
       ),
@@ -133,7 +128,7 @@ export function createDiagnosticAppointmentColumns({
       id: "scheduled_at",
       header: "Appointment time",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">
+        <span className="text-ink-600 whitespace-nowrap tabular-nums">
           {formatShortDateTime(row.original.scheduled_at)}
         </span>
       ),
@@ -145,7 +140,7 @@ export function createDiagnosticAppointmentColumns({
       cell: ({ row }) => {
         const a = row.original;
         return (
-          <div className="flex items-center gap-space-2">
+          <div className="gap-space-2 flex items-center">
             <span
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
@@ -155,10 +150,8 @@ export function createDiagnosticAppointmentColumns({
               {initials(a.patient_name, a.phone)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">
-                {a.patient_name || a.phone}
-              </p>
-              <p className="truncate text-[11.5px] text-ink-400">
+              <p className="text-ink-900 truncate font-semibold">{a.patient_name || a.phone}</p>
+              <p className="text-ink-400 truncate text-[11.5px]">
                 {a.patient_display_id || a.phone}
               </p>
             </div>
@@ -170,9 +163,7 @@ export function createDiagnosticAppointmentColumns({
       id: "diagnostic_test_name",
       header: "Test / Procedure",
       cell: ({ row }) => (
-        <span className="text-ink-900">
-          {row.original.diagnostic_test_name || "—"}
-        </span>
+        <span className="text-ink-900">{row.original.diagnostic_test_name || "—"}</span>
       ),
     },
     {
@@ -184,8 +175,8 @@ export function createDiagnosticAppointmentColumns({
         return (
           <span
             className={cn(
-              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-              TEST_TYPE_STYLES[key] || "bg-black/4 text-ink-600",
+              "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+              TEST_TYPE_STYLES[key] || "text-ink-600 bg-black/4",
             )}
           >
             {TEST_TYPE_LABELS[key] || "Other"}
@@ -201,8 +192,8 @@ export function createDiagnosticAppointmentColumns({
         return (
           <span
             className={cn(
-              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-              STATUS_STYLES[a.status] || "bg-black/4 text-ink-600",
+              "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+              STATUS_STYLES[a.status] || "text-ink-600 bg-black/4",
             )}
           >
             {STATUS_LABELS[a.status] || a.status}
@@ -225,8 +216,8 @@ export function createDiagnosticAppointmentColumns({
         return (
           <span
             className={cn(
-              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-              LAB_STAGE_STYLES[a.lab_status] || "bg-black/4 text-ink-600",
+              "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+              LAB_STAGE_STYLES[a.lab_status] || "text-ink-600 bg-black/4",
             )}
           >
             {LAB_STAGE_LABELS[a.lab_status] || a.lab_status}
@@ -241,9 +232,7 @@ export function createDiagnosticAppointmentColumns({
       // Department / Lab Room", no room-assignment concept exists anywhere
       // in this schema -- not shown, rather than invented.
       cell: ({ row }) => (
-        <span className="text-ink-600">
-          {row.original.department_name || "—"}
-        </span>
+        <span className="text-ink-600">{row.original.department_name || "—"}</span>
       ),
     },
     {
@@ -252,7 +241,7 @@ export function createDiagnosticAppointmentColumns({
       cell: ({ row }) => {
         const createdAt = row.original.created_at;
         return (
-          <span className="whitespace-nowrap tabular-nums text-ink-600">
+          <span className="text-ink-600 whitespace-nowrap tabular-nums">
             {createdAt ? formatShortDateTime(createdAt) : "—"}
           </span>
         );

@@ -10,21 +10,41 @@ import { TopicCard } from "./TopicCard";
 
 type Props = { state: WizardState; dispatch: WizardDispatch; error?: string };
 
-const TENANT_TYPE_OPTIONS: { value: TenantType; label: string; description: string; icon: typeof Building2 }[] = [
-  { value: "hospital", label: "Hospital", description: "Multiple departments and doctors.", icon: Building2 },
-  { value: "clinic", label: "Clinic", description: "A single doctor's practice.", icon: Stethoscope },
+const TENANT_TYPE_OPTIONS: {
+  value: TenantType;
+  label: string;
+  description: string;
+  icon: typeof Building2;
+}[] = [
+  {
+    value: "hospital",
+    label: "Hospital",
+    description: "Multiple departments and doctors.",
+    icon: Building2,
+  },
+  {
+    value: "clinic",
+    label: "Clinic",
+    description: "A single doctor's practice.",
+    icon: Stethoscope,
+  },
 ];
 
 export function Step7HospitalDetails({ state, dispatch, error }: Props) {
   const bookingEnabled =
-    state.enabledFeatures.includes("book_doctor_appointment") || state.enabledFeatures.includes("tests_diagnostics");
+    state.enabledFeatures.includes("book_doctor_appointment") ||
+    state.enabledFeatures.includes("tests_diagnostics");
   const faqEnabled = state.enabledFeatures.includes("faq");
   const isClinic = state.tenantType === "clinic";
 
   const parts = [];
   if (bookingEnabled) parts.push(isClinic ? "your doctor's details" : "departments & doctors");
   if (faqEnabled) parts.push("topics & answers");
-  const heading = parts.length ? `Add ${parts.join(" and ")}` : isClinic ? "Clinic details" : "Hospital details";
+  const heading = parts.length
+    ? `Add ${parts.join(" and ")}`
+    : isClinic
+      ? "Clinic details"
+      : "Hospital details";
   const desc = bookingEnabled
     ? "This drives real slot generation — patients only see times a doctor is actually working."
     : faqEnabled
@@ -40,16 +60,16 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
       <p className="text-body mb-space-4">{desc}</p>
 
       <Field label="Type of practice">
-        <div className="grid grid-cols-1 gap-space-3 md:grid-cols-2">
+        <div className="gap-space-3 grid grid-cols-1 md:grid-cols-2">
           {TENANT_TYPE_OPTIONS.map(({ value, label, description, icon: Icon }) => {
             const selected = state.tenantType === value;
             return (
               <label
                 key={value}
                 className={cn(
-                  "flex cursor-pointer items-start gap-space-3 rounded-lg border bg-card p-space-4 shadow-[var(--shadow-sm)] transition-all duration-150 ease-(--ease-standard)",
+                  "gap-space-3 bg-card p-space-4 flex cursor-pointer items-start rounded-lg border shadow-[var(--shadow-sm)] transition-all duration-150 ease-(--ease-standard)",
                   "hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]",
-                  selected ? "border-brand-400 ring-2 ring-brand-100" : "border-line",
+                  selected ? "border-brand-400 ring-brand-100 ring-2" : "border-line",
                 )}
               >
                 <input
@@ -68,8 +88,8 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
                   <Icon size={16} strokeWidth={2} />
                 </div>
                 <div>
-                  <h3 className="mb-space-1 text-[14.5px] font-bold text-ink-900">{label}</h3>
-                  <p className="text-[12.5px] leading-relaxed text-ink-600">{description}</p>
+                  <h3 className="mb-space-1 text-ink-900 text-[14.5px] font-bold">{label}</h3>
+                  <p className="text-ink-600 text-[12.5px] leading-relaxed">{description}</p>
                 </div>
               </label>
             );
@@ -90,13 +110,15 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
           rows={2}
           placeholder="Hi! Welcome to [Hospital Name]. How can we help you today?"
           value={state.welcomeMessageText}
-          onChange={(e) => dispatch({ type: "set", field: "welcomeMessageText", value: e.target.value })}
+          onChange={(e) =>
+            dispatch({ type: "set", field: "welcomeMessageText", value: e.target.value })
+          }
         />
       </Field>
 
       {bookingEnabled && (
         <>
-          <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+          <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
             <Field
               label="Reminder offsets (comma-separated hours)"
               htmlFor="reminder_offsets"
@@ -106,7 +128,9 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
                 id="reminder_offsets"
                 placeholder="24,1"
                 value={state.reminderOffsetsHours}
-                onChange={(e) => dispatch({ type: "set", field: "reminderOffsetsHours", value: e.target.value })}
+                onChange={(e) =>
+                  dispatch({ type: "set", field: "reminderOffsetsHours", value: e.target.value })
+                }
               />
             </Field>
             <Field
@@ -117,7 +141,9 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
               <Input
                 id="reminder_template"
                 value={state.reminderTemplateName}
-                onChange={(e) => dispatch({ type: "set", field: "reminderTemplateName", value: e.target.value })}
+                onChange={(e) =>
+                  dispatch({ type: "set", field: "reminderTemplateName", value: e.target.value })
+                }
               />
             </Field>
           </div>
@@ -133,7 +159,9 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
               type="password"
               required
               value={state.portalPassword}
-              onChange={(e) => dispatch({ type: "set", field: "portalPassword", value: e.target.value })}
+              onChange={(e) =>
+                dispatch({ type: "set", field: "portalPassword", value: e.target.value })
+              }
             />
           </Field>
 
@@ -159,7 +187,7 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
               <button
                 type="button"
                 onClick={() => dispatch({ type: "addDepartment" })}
-                className="flex items-center gap-1 text-[13px] font-semibold text-brand-600 hover:underline"
+                className="text-brand-600 flex items-center gap-1 text-[13px] font-semibold hover:underline"
               >
                 <Plus size={14} /> Add department
               </button>
@@ -172,8 +200,8 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
         <>
           <p className="text-label mb-space-2 mt-space-5">Topics &amp; answers</p>
           <p className="text-hint mb-space-3">
-            Each topic becomes an option patients tap on WhatsApp — e.g. &quot;Hours,&quot; &quot;Location,&quot;
-            &quot;Pricing.&quot; Keep answers short and clear.
+            Each topic becomes an option patients tap on WhatsApp — e.g. &quot;Hours,&quot;
+            &quot;Location,&quot; &quot;Pricing.&quot; Keep answers short and clear.
           </p>
           {state.topics.map((topic, i) => (
             <TopicCard key={i} topicIndex={i} topic={topic} dispatch={dispatch} />
@@ -181,22 +209,26 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
           <button
             type="button"
             onClick={() => dispatch({ type: "addTopic" })}
-            className="flex items-center gap-1 text-[13px] font-semibold text-brand-600 hover:underline"
+            className="text-brand-600 flex items-center gap-1 text-[13px] font-semibold hover:underline"
           >
             <Plus size={14} /> Add topic
           </button>
         </>
       )}
 
-      {error && <p className="mt-space-4 text-[12.5px] font-medium text-error">{error}</p>}
+      {error && <p className="mt-space-4 text-error text-[12.5px] font-medium">{error}</p>}
     </div>
   );
 }
 
 export function validateStep7(state: WizardState): string | null {
   const isClinic = state.tenantType === "clinic";
-  if (!state.name.trim()) return isClinic ? "Clinic name is required." : "Hospital name is required.";
-  if (state.enabledFeatures.includes("book_doctor_appointment") || state.enabledFeatures.includes("tests_diagnostics")) {
+  if (!state.name.trim())
+    return isClinic ? "Clinic name is required." : "Hospital name is required.";
+  if (
+    state.enabledFeatures.includes("book_doctor_appointment") ||
+    state.enabledFeatures.includes("tests_diagnostics")
+  ) {
     const doctorCount = state.departments.reduce((n, d) => n + d.doctors.length, 0);
     if (doctorCount === 0) {
       return isClinic
@@ -206,8 +238,11 @@ export function validateStep7(state: WizardState): string | null {
     if (!state.portalPassword.trim()) return "A bookings portal password is required.";
   }
   if (state.enabledFeatures.includes("faq")) {
-    const topicCount = state.topics.filter((t) => t.topicLabel.trim() && t.answerText.trim()).length;
-    if (topicCount === 0) return "FAQ / Information Bot is enabled, so at least one topic with a label and an answer is required.";
+    const topicCount = state.topics.filter(
+      (t) => t.topicLabel.trim() && t.answerText.trim(),
+    ).length;
+    if (topicCount === 0)
+      return "FAQ / Information Bot is enabled, so at least one topic with a label and an answer is required.";
   }
   return null;
 }

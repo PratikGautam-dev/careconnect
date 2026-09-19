@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export default function OnboardHospitalPage() {
   return (
     <AdminSecretGate title="Super admin sign-in">
-      <div className="min-h-screen bg-paper">
+      <div className="bg-paper min-h-screen">
         <OnboardingWizard />
       </div>
     </AdminSecretGate>

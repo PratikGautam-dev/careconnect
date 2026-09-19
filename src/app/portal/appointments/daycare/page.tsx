@@ -19,7 +19,10 @@ import { cn } from "@/lib/cn";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
 import { type Appointment, useAppointments } from "@/hooks/useAppointments";
-import { createDaycareAppointmentColumns, PROCEDURE_STATUS_LABELS } from "../_components/daycare-appointments-columns";
+import {
+  createDaycareAppointmentColumns,
+  PROCEDURE_STATUS_LABELS,
+} from "../_components/daycare-appointments-columns";
 
 // Same All/Today/Upcoming/Previous tab set the Doctor and Diagnostic & lab
 // appointments pages use, in place of the old procedure_status-grouped tabs
@@ -42,19 +45,30 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "previous", label: "Previous" },
 ];
 
-const STATUS_FILTER_OPTIONS = Object.entries(PROCEDURE_STATUS_LABELS).map(([value, label]) => ({ value, label }));
+const STATUS_FILTER_OPTIONS = Object.entries(PROCEDURE_STATUS_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 function isSameDate(iso: string, ref: Date): boolean {
   const d = new Date(iso);
-  return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+  return (
+    d.getFullYear() === ref.getFullYear() &&
+    d.getMonth() === ref.getMonth() &&
+    d.getDate() === ref.getDate()
+  );
 }
 
 function matchesTab(a: Appointment, tab: Tab, now: Date): boolean {
   switch (tab) {
-    case "today": return isSameDate(a.scheduled_at, now);
-    case "upcoming": return a.procedure_status === "CONFIRMED" && new Date(a.scheduled_at) > now;
-    case "previous": return a.procedure_status === "COMPLETED";
-    default: return true;
+    case "today":
+      return isSameDate(a.scheduled_at, now);
+    case "upcoming":
+      return a.procedure_status === "CONFIRMED" && new Date(a.scheduled_at) > now;
+    case "previous":
+      return a.procedure_status === "COMPLETED";
+    default:
+      return true;
   }
 }
 
@@ -84,10 +98,15 @@ export default function PortalDaycareAppointmentsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
 
   const {
-    allAppointments, error, load,
+    allAppointments,
+    error,
+    load,
     procedureActionId,
-    handleApproveProcedureRequest, handleRejectProcedureRequest,
-    handleAdvanceProcedureStatus, handleApproveProcedureReschedule, handleRejectProcedureReschedule,
+    handleApproveProcedureRequest,
+    handleRejectProcedureRequest,
+    handleAdvanceProcedureStatus,
+    handleApproveProcedureReschedule,
+    handleRejectProcedureReschedule,
   } = useAppointments(ready, "daycare");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [manageBedsOpen, setManageBedsOpen] = useState(false);
@@ -110,10 +129,13 @@ export default function PortalDaycareAppointmentsPage() {
     if (!allAppointments) return null;
     return {
       total: allAppointments.length,
-      pending: allAppointments.filter((a) => a.procedure_status === "REQUESTED" || a.procedure_status === "UNDER_REVIEW").length,
+      pending: allAppointments.filter(
+        (a) => a.procedure_status === "REQUESTED" || a.procedure_status === "UNDER_REVIEW",
+      ).length,
       confirmed: allAppointments.filter((a) => a.procedure_status === "CONFIRMED").length,
       completed: allAppointments.filter((a) => a.procedure_status === "COMPLETED").length,
-      rescheduleRequests: allAppointments.filter((a) => !!a.procedure_reschedule_requested_at).length,
+      rescheduleRequests: allAppointments.filter((a) => !!a.procedure_reschedule_requested_at)
+        .length,
     };
   }, [allAppointments]);
 
@@ -129,7 +151,8 @@ export default function PortalDaycareAppointmentsPage() {
       // the old "Pending approval" tab's REQUESTED-or-UNDER_REVIEW union,
       // which no single procedure_status value can express.
       if (statusFilter === "pending") {
-        if (a.procedure_status !== "REQUESTED" && a.procedure_status !== "UNDER_REVIEW") return false;
+        if (a.procedure_status !== "REQUESTED" && a.procedure_status !== "UNDER_REVIEW")
+          return false;
       } else if (statusFilter !== "all" && a.procedure_status !== statusFilter) {
         return false;
       }
@@ -155,8 +178,12 @@ export default function PortalDaycareAppointmentsPage() {
         onRejectReschedule: handleRejectProcedureReschedule,
       }),
     [
-      procedureActionId, handleApproveProcedureRequest, handleRejectProcedureRequest,
-      handleAdvanceProcedureStatus, handleApproveProcedureReschedule, handleRejectProcedureReschedule,
+      procedureActionId,
+      handleApproveProcedureRequest,
+      handleRejectProcedureRequest,
+      handleAdvanceProcedureStatus,
+      handleApproveProcedureReschedule,
+      handleRejectProcedureReschedule,
     ],
   );
 
@@ -178,7 +205,9 @@ export default function PortalDaycareAppointmentsPage() {
   if (!canView) {
     return (
       <PortalShell hospital={hospital} active="daycare">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Daycare Appointments.</p>
+        <p className="text-ink-400 text-[13px]">
+          You don&apos;t have access to Daycare Appointments.
+        </p>
       </PortalShell>
     );
   }
@@ -189,8 +218,13 @@ export default function PortalDaycareAppointmentsPage() {
         title="Daycare appointments"
         description={formatHeaderDate(today)}
         actions={
-          <div className="flex items-center gap-space-2">
-            <Button type="button" variant="secondary" size="md" onClick={() => setManageBedsOpen(true)}>
+          <div className="gap-space-2 flex items-center">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setManageBedsOpen(true)}
+            >
               <Bed size={14} /> Manage Beds
             </Button>
             <PortalTopBarActions />
@@ -198,10 +232,16 @@ export default function PortalDaycareAppointmentsPage() {
         }
       />
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total daycare bookings" value={stats?.total ?? null} deltaPct={null} hint="Live count" icon={BedDouble} />
+      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Total daycare bookings"
+          value={stats?.total ?? null}
+          deltaPct={null}
+          hint="Live count"
+          icon={BedDouble}
+        />
         <StatTile
           label="Pending approval"
           value={stats?.pending ?? null}
@@ -227,51 +267,67 @@ export default function PortalDaycareAppointmentsPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+      <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="space-y-space-4 lg:col-span-2">
-          <div className="flex flex-wrap gap-space-2">
+          <div className="gap-space-2 flex flex-wrap">
             {TABS.map(({ id, label }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setTab(id)}
                 className={cn(
-                  "rounded-full border px-space-3 py-space-1 text-[12.5px] font-semibold transition-colors duration-150",
+                  "px-space-3 py-space-1 rounded-full border text-[12.5px] font-semibold transition-colors duration-150",
                   tab === id
                     ? "border-brand-600 bg-brand-600 text-white"
                     : "border-line bg-card text-ink-600 hover:border-brand-300 hover:bg-brand-50",
                 )}
               >
                 {label}
-                <span className={cn("ml-space-1 tabular-nums", tab === id ? "text-white/80" : "text-ink-400")}>
+                <span
+                  className={cn(
+                    "ml-space-1 tabular-nums",
+                    tab === id ? "text-white/80" : "text-ink-400",
+                  )}
+                >
                   {tabCounts[id]}
                 </span>
               </button>
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-space-3">
+          <div className="gap-space-3 flex flex-wrap items-center">
             <div className="relative min-w-[220px] flex-1">
               <input
                 type="text"
                 placeholder="Search by patient name, procedure, or order reference…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                className="border-line bg-card px-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
               />
             </div>
-            <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Statuses" options={STATUS_FILTER_OPTIONS} />
+            <FilterSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              allLabel="All Statuses"
+              options={STATUS_FILTER_OPTIONS}
+            />
           </div>
 
           <Card className="p-space-4">
-            <h3 className="text-label mb-space-3 font-bold text-ink-900">Daycare / procedure bookings</h3>
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">
+              Daycare / procedure bookings
+            </h3>
             <DataTable
               columns={columns}
               data={filteredRows}
               getRowId={(a) => String(a.id)}
               pageSizeOptions={[10, 25, 50]}
               loading={!allAppointments}
-              emptyMessage={allAppointments && allAppointments.length > 0 ? "No bookings match your search/filter." : "No daycare bookings yet."}
+              emptyMessage={
+                allAppointments && allAppointments.length > 0
+                  ? "No bookings match your search/filter."
+                  : "No daycare bookings yet."
+              }
             />
           </Card>
         </div>
@@ -279,30 +335,34 @@ export default function PortalDaycareAppointmentsPage() {
         <div className="space-y-space-4">
           <Card className="p-space-4">
             <div className="mb-space-3 flex items-center justify-between">
-              <h3 className="text-label font-bold text-ink-900">Approval queue</h3>
+              <h3 className="text-label text-ink-900 font-bold">Approval queue</h3>
               <button
                 type="button"
                 onClick={() => {
                   setTab("all");
                   setStatusFilter("pending");
                 }}
-                className="text-[12px] font-semibold text-brand-600 hover:underline"
+                className="text-brand-600 text-[12px] font-semibold hover:underline"
               >
                 View all →
               </button>
             </div>
             <ul className="space-y-space-2 text-[12.5px]">
-              <li className="flex items-center gap-space-2 text-ink-600">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-clay-500" /> Pending approval
-                <span className="ml-auto font-semibold text-ink-900">{stats?.pending ?? 0}</span>
+              <li className="gap-space-2 text-ink-600 flex items-center">
+                <span className="bg-clay-500 h-2.5 w-2.5 shrink-0 rounded-full" /> Pending approval
+                <span className="text-ink-900 ml-auto font-semibold">{stats?.pending ?? 0}</span>
               </li>
-              <li className="flex items-center gap-space-2 text-ink-600">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand-600" /> Confirmed, awaiting visit
-                <span className="ml-auto font-semibold text-ink-900">{stats?.confirmed ?? 0}</span>
+              <li className="gap-space-2 text-ink-600 flex items-center">
+                <span className="bg-brand-600 h-2.5 w-2.5 shrink-0 rounded-full" /> Confirmed,
+                awaiting visit
+                <span className="text-ink-900 ml-auto font-semibold">{stats?.confirmed ?? 0}</span>
               </li>
-              <li className="flex items-center gap-space-2 text-ink-600">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-clay-700" /> Reschedule requests
-                <span className="ml-auto font-semibold text-ink-900">{stats?.rescheduleRequests ?? 0}</span>
+              <li className="gap-space-2 text-ink-600 flex items-center">
+                <span className="bg-clay-700 h-2.5 w-2.5 shrink-0 rounded-full" /> Reschedule
+                requests
+                <span className="text-ink-900 ml-auto font-semibold">
+                  {stats?.rescheduleRequests ?? 0}
+                </span>
               </li>
             </ul>
           </Card>
@@ -313,7 +373,11 @@ export default function PortalDaycareAppointmentsPage() {
         </div>
       </div>
 
-      <NewDaycareBookingDialog open={newBookingOpen} onOpenChange={setNewBookingOpen} onBooked={load} />
+      <NewDaycareBookingDialog
+        open={newBookingOpen}
+        onOpenChange={setNewBookingOpen}
+        onBooked={load}
+      />
       <ManageBedsDialog open={manageBedsOpen} onOpenChange={setManageBedsOpen} />
     </PortalShell>
   );

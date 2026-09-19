@@ -69,7 +69,7 @@ export function createPatientColumns({
           checked={allSelected}
           onChange={(e) => toggleSelectAll(e.target.checked)}
           onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 accent-brand-600"
+          className="accent-brand-600 h-4 w-4"
           aria-label="Select all patients"
         />
       ),
@@ -81,7 +81,7 @@ export function createPatientColumns({
             checked={selected.has(p.id)}
             onChange={(e) => toggleSelected(p.id, e.target.checked)}
             onClick={(e) => e.stopPropagation()}
-            className="h-4 w-4 accent-brand-600"
+            className="accent-brand-600 h-4 w-4"
             aria-label={`Select ${p.name || p.phone}`}
           />
         );
@@ -91,7 +91,7 @@ export function createPatientColumns({
       id: "patient_display_id",
       header: "Patient ID",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
+        <span className="text-ink-600 font-mono text-[12px] whitespace-nowrap">
           {row.original.patient_display_id || `#${row.original.id}`}
         </span>
       ),
@@ -106,7 +106,7 @@ export function createPatientColumns({
           <button
             type="button"
             onClick={() => onSelect(p)}
-            className="flex items-center gap-space-2 text-left"
+            className="gap-space-2 flex items-center text-left"
           >
             <span
               className={cn(
@@ -116,9 +116,7 @@ export function createPatientColumns({
             >
               {initials(p.name)}
             </span>
-            <span className="truncate font-semibold text-ink-900">
-              {p.name || "—"}
-            </span>
+            <span className="text-ink-900 truncate font-semibold">{p.name || "—"}</span>
           </button>
         );
       },
@@ -140,7 +138,7 @@ export function createPatientColumns({
       id: "contact",
       header: "Contact",
       cell: ({ row }) => (
-        <span className="flex items-center gap-1 whitespace-nowrap text-ink-600">
+        <span className="text-ink-600 flex items-center gap-1 whitespace-nowrap">
           <Phone size={11} className="text-ink-400" /> {row.original.phone}
         </span>
       ),
@@ -155,17 +153,13 @@ export function createPatientColumns({
     {
       id: "visited_count",
       header: "Total Visited",
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.visited_count}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-600">{row.original.visited_count}</span>,
     },
     {
       id: "last_visit",
       header: "Last visit",
       cell: ({ row }) => (
-        <span className="text-ink-600">
-          {formatDate(row.original.last_visit)}
-        </span>
+        <span className="text-ink-600">{formatDate(row.original.last_visit)}</span>
       ),
     },
     {
@@ -174,7 +168,7 @@ export function createPatientColumns({
       cell: ({ row }) => (
         <span
           className={cn(
-            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
             STATUS_STYLES[row.original.status],
           )}
         >
@@ -195,7 +189,7 @@ export function createPatientColumns({
         return (
           <span
             title={reason}
-            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-error/10 px-space-2 py-0.5 text-[11px] font-semibold text-error"
+            className="bg-error/10 px-space-2 text-error inline-flex items-center gap-1 rounded-full py-0.5 text-[11px] font-semibold whitespace-nowrap"
           >
             <Flag size={11} /> Possible duplicate
           </span>
@@ -205,9 +199,7 @@ export function createPatientColumns({
     {
       id: "actions",
       header: "Actions",
-      cell: ({ row }) => (
-        <PatientCellAction patient={row.original} onDelete={onDelete} />
-      ),
+      cell: ({ row }) => <PatientCellAction patient={row.original} onDelete={onDelete} />,
     },
   ];
 }

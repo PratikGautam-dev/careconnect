@@ -3,7 +3,11 @@ import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
 export type Test = {
-  id: number; category: "diagnostic" | "lab"; name: string; price: number | null; is_active: boolean;
+  id: number;
+  category: "diagnostic" | "lab";
+  name: string;
+  price: number | null;
+  is_active: boolean;
 };
 export type TestFull = Test & {
   working_days: string[];
@@ -31,9 +35,17 @@ export type ScheduleFormState = {
 
 function emptyForm(): ScheduleFormState {
   return {
-    name: "", price: "", working_days: [], shift_start: "", shift_end: "",
-    break_start: "", break_end: "", slot_duration_minutes: "30", max_bookings_per_slot: "1",
-    daily_booking_limit: "", effective_from: "",
+    name: "",
+    price: "",
+    working_days: [],
+    shift_start: "",
+    shift_end: "",
+    break_start: "",
+    break_end: "",
+    slot_duration_minutes: "30",
+    max_bookings_per_slot: "1",
+    daily_booking_limit: "",
+    effective_from: "",
   };
 }
 
@@ -41,9 +53,15 @@ function formFromTest(t: TestFull): ScheduleFormState {
   const [shift_start = "", shift_end = ""] = (t.working_hours[0] || "").split("-");
   const [break_start = "", break_end = ""] = (t.breaks[0] || "").split("-");
   return {
-    name: t.name, price: t.price != null ? String(t.price) : "", working_days: t.working_days,
-    shift_start, shift_end, break_start, break_end,
-    slot_duration_minutes: String(t.slot_duration_minutes), max_bookings_per_slot: String(t.max_bookings_per_slot),
+    name: t.name,
+    price: t.price != null ? String(t.price) : "",
+    working_days: t.working_days,
+    shift_start,
+    shift_end,
+    break_start,
+    break_end,
+    slot_duration_minutes: String(t.slot_duration_minutes),
+    max_bookings_per_slot: String(t.max_bookings_per_slot),
     daily_booking_limit: t.daily_booking_limit != null ? String(t.daily_booking_limit) : "",
     effective_from: t.effective_from || "",
   };
@@ -54,7 +72,8 @@ function scheduleFromForm(form: ScheduleFormState) {
     name: form.name.trim(),
     price: form.price ? Number(form.price) : null,
     working_days: form.working_days,
-    working_hours: form.shift_start && form.shift_end ? [`${form.shift_start}-${form.shift_end}`] : [],
+    working_hours:
+      form.shift_start && form.shift_end ? [`${form.shift_start}-${form.shift_end}`] : [],
     breaks: form.break_start && form.break_end ? [`${form.break_start}-${form.break_end}`] : [],
     slot_duration_minutes: Number(form.slot_duration_minutes) || 30,
     max_bookings_per_slot: Number(form.max_bookings_per_slot) || 1,
@@ -98,14 +117,18 @@ export function useDiagnosticTests() {
   function toggleNewTestDay(day: string) {
     setNewTestForm((f) => ({
       ...f,
-      working_days: f.working_days.includes(day) ? f.working_days.filter((d) => d !== day) : [...f.working_days, day],
+      working_days: f.working_days.includes(day)
+        ? f.working_days.filter((d) => d !== day)
+        : [...f.working_days, day],
     }));
   }
 
   function toggleEditTestDay(day: string) {
     setEditTestForm((f) => ({
       ...f,
-      working_days: f.working_days.includes(day) ? f.working_days.filter((d) => d !== day) : [...f.working_days, day],
+      working_days: f.working_days.includes(day)
+        ? f.working_days.filter((d) => d !== day)
+        : [...f.working_days, day],
     }));
   }
 
@@ -114,7 +137,8 @@ export function useDiagnosticTests() {
     setSavingTest(true);
     setError(null);
     const result = await portalFetch("/api/portal/diagnostic-tests", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category, ...scheduleFromForm(newTestForm) }),
     });
     setSavingTest(false);
@@ -124,7 +148,8 @@ export function useDiagnosticTests() {
       return;
     }
     toast.success("Test added");
-    setNewTestForm(emptyForm()); setShowAddTest(false);
+    setNewTestForm(emptyForm());
+    setShowAddTest(false);
     load();
   }
 
@@ -139,7 +164,8 @@ export function useDiagnosticTests() {
     if (!editTestForm.name.trim()) return;
     setPendingKey(`test-${testId}`);
     const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(scheduleFromForm(editTestForm)),
     });
     setPendingKey(null);
@@ -156,7 +182,9 @@ export function useDiagnosticTests() {
   async function toggleTestActive(test: Test) {
     setPendingKey(`test-${test.id}`);
     const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}/active`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !test.is_active }),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: !test.is_active }),
     });
     setPendingKey(null);
     if (result.ok) {
@@ -168,9 +196,14 @@ export function useDiagnosticTests() {
   }
 
   async function deleteTest(test: Test) {
-    if (!window.confirm(`Delete "${test.name}"? Past bookings keep their stored details either way.`)) return;
+    if (
+      !window.confirm(`Delete "${test.name}"? Past bookings keep their stored details either way.`)
+    )
+      return;
     setPendingKey(`test-${test.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}`, { method: "DELETE" });
+    const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}`, {
+      method: "DELETE",
+    });
     setPendingKey(null);
     if (result.ok) {
       toast.success("Test deleted");
@@ -182,10 +215,28 @@ export function useDiagnosticTests() {
   }
 
   return {
-    category, setCategory, tests, error, expandedId, setExpandedId,
-    showAddTest, setShowAddTest, newTestForm, setNewTestForm, toggleNewTestDay, savingTest,
-    editingTestId, setEditingTestId, editTestForm, setEditTestForm, toggleEditTestDay,
+    category,
+    setCategory,
+    tests,
+    error,
+    expandedId,
+    setExpandedId,
+    showAddTest,
+    setShowAddTest,
+    newTestForm,
+    setNewTestForm,
+    toggleNewTestDay,
+    savingTest,
+    editingTestId,
+    setEditingTestId,
+    editTestForm,
+    setEditTestForm,
+    toggleEditTestDay,
     pendingKey,
-    handleAddTest, startEditTest, saveEditTest, toggleTestActive, deleteTest,
+    handleAddTest,
+    startEditTest,
+    saveEditTest,
+    toggleTestActive,
+    deleteTest,
   };
 }

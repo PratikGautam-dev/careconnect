@@ -11,29 +11,76 @@ import { useDoctorCsvImport } from "@/hooks/useDoctorCsvImport";
 type CsvRow = Record<string, string>;
 
 const PREVIEW_COLUMNS: ColumnDef<CsvRow>[] = [
-  { id: "department_name", header: "Department", cell: ({ row }) => <span className="text-ink-900">{row.original.department_name}</span> },
-  { id: "name", header: "Name", cell: ({ row }) => <span className="text-ink-900">{row.original.name}</span> },
-  { id: "specialization", header: "Specialization", cell: ({ row }) => <span className="text-ink-600">{row.original.specialization}</span> },
-  { id: "phone", header: "Phone", cell: ({ row }) => <span className="text-ink-600">{row.original.phone}</span> },
-  { id: "working_days", header: "Days", cell: ({ row }) => <span className="text-ink-600">{row.original.working_days}</span> },
+  {
+    id: "department_name",
+    header: "Department",
+    cell: ({ row }) => <span className="text-ink-900">{row.original.department_name}</span>,
+  },
+  {
+    id: "name",
+    header: "Name",
+    cell: ({ row }) => <span className="text-ink-900">{row.original.name}</span>,
+  },
+  {
+    id: "specialization",
+    header: "Specialization",
+    cell: ({ row }) => <span className="text-ink-600">{row.original.specialization}</span>,
+  },
+  {
+    id: "phone",
+    header: "Phone",
+    cell: ({ row }) => <span className="text-ink-600">{row.original.phone}</span>,
+  },
+  {
+    id: "working_days",
+    header: "Days",
+    cell: ({ row }) => <span className="text-ink-600">{row.original.working_days}</span>,
+  },
 ];
 
 // No employee_id column -- Employee ID auto-numbering feature: it's
 // server-generated (EMP-DC-NNNNN) at create_doctor() time, never collected
 // from a CSV row.
 const CSV_COLUMNS = [
-  "department_name", "name", "specialization", "qualification", "years_experience",
-  "working_days", "working_hours", "slot_duration_minutes", "breaks",
-  "max_bookings_per_slot", "daily_booking_limit", "online_quota", "walkin_quota",
-  "followup_duration_minutes", "effective_from", "phone", "location",
+  "department_name",
+  "name",
+  "specialization",
+  "qualification",
+  "years_experience",
+  "working_days",
+  "working_hours",
+  "slot_duration_minutes",
+  "breaks",
+  "max_bookings_per_slot",
+  "daily_booking_limit",
+  "online_quota",
+  "walkin_quota",
+  "followup_duration_minutes",
+  "effective_from",
+  "phone",
+  "location",
 ];
 
 const SAMPLE_CSV = [
   CSV_COLUMNS.join(","),
   [
-    "Cardiology", "Dr. Ananya Singh", "Cardiologist", "MD", "12",
-    '"Mon,Tue,Wed,Thu,Fri"', '"09:00-13:00,16:00-19:00"', "20", '"11:20-11:40"',
-    "1", "30", "20", "10", "15", "", "9876543210", "Room 204",
+    "Cardiology",
+    "Dr. Ananya Singh",
+    "Cardiologist",
+    "MD",
+    "12",
+    '"Mon,Tue,Wed,Thu,Fri"',
+    '"09:00-13:00,16:00-19:00"',
+    "20",
+    '"11:20-11:40"',
+    "1",
+    "30",
+    "20",
+    "10",
+    "15",
+    "",
+    "9876543210",
+    "Room 204",
   ].join(","),
 ].join("\n");
 
@@ -65,23 +112,34 @@ export function DoctorCsvImport({ onImported }: { onImported: () => void }) {
   return (
     <Card className="p-space-4">
       <div className="mb-space-3 flex items-center justify-between">
-        <h3 className="text-label font-bold text-ink-900">Bulk import from CSV</h3>
-        <button type="button" onClick={downloadSample} className="flex items-center gap-1 text-[12.5px] font-semibold text-brand-600 hover:underline">
+        <h3 className="text-label text-ink-900 font-bold">Bulk import from CSV</h3>
+        <button
+          type="button"
+          onClick={downloadSample}
+          className="text-brand-600 flex items-center gap-1 text-[12.5px] font-semibold hover:underline"
+        >
           <Download size={13} /> Download template
         </button>
       </div>
       <p className="text-hint mb-space-3">
-        Columns with multiple values (working days, shifts, breaks) must be comma-joined and quoted, e.g. &quot;Mon,Tue,Wed&quot;.
+        Columns with multiple values (working days, shifts, breaks) must be comma-joined and quoted,
+        e.g. &quot;Mon,Tue,Wed&quot;.
       </p>
 
-      <label className="mb-space-3 flex cursor-pointer items-center gap-space-2 rounded-md border border-dashed border-line px-space-4 py-space-3 text-[13px] text-ink-600 hover:border-brand-300">
+      <label className="mb-space-3 gap-space-2 border-line px-space-4 py-space-3 text-ink-600 hover:border-brand-300 flex cursor-pointer items-center rounded-md border border-dashed text-[13px]">
         <Upload size={16} />
         {rows ? `${rows.length} row(s) loaded — choose a different file` : "Choose a CSV file"}
-        <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleFile} className="hidden" />
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={handleFile}
+          className="hidden"
+        />
       </label>
 
       {rows && rows.length > 0 && (
-        <div className="mb-space-3 rounded-md border border-line">
+        <div className="mb-space-3 border-line rounded-md border">
           <DataTable
             columns={PREVIEW_COLUMNS}
             data={rows}
@@ -93,10 +151,10 @@ export function DoctorCsvImport({ onImported }: { onImported: () => void }) {
       )}
 
       {result && (
-        <div className="mb-space-3 rounded-md border border-line bg-paper p-space-3 text-[12.5px]">
-          <p className="font-semibold text-success">{result.created_count} doctor(s) created.</p>
+        <div className="mb-space-3 border-line bg-paper p-space-3 rounded-md border text-[12.5px]">
+          <p className="text-success font-semibold">{result.created_count} doctor(s) created.</p>
           {result.row_errors.length > 0 && (
-            <ul className="mt-space-2 list-disc space-y-0.5 pl-space-4 text-error">
+            <ul className="mt-space-2 pl-space-4 text-error list-disc space-y-0.5">
               {result.row_errors.map((e, i) => (
                 <li key={i}>{e}</li>
               ))}
@@ -105,7 +163,11 @@ export function DoctorCsvImport({ onImported }: { onImported: () => void }) {
         </div>
       )}
 
-      <Button type="button" onClick={handleImportClick} disabled={!rows || rows.length === 0 || importing}>
+      <Button
+        type="button"
+        onClick={handleImportClick}
+        disabled={!rows || rows.length === 0 || importing}
+      >
         {importing ? "Importing…" : "Import doctors"}
       </Button>
     </Card>

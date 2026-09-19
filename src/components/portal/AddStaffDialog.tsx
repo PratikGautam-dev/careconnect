@@ -29,19 +29,46 @@ type Props = {
  * of each place hand-rolling its own inline form. */
 export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: Props) {
   const {
-    doctors, departments, staffOptions, roles,
-    name, setName, email, setEmail, password, setPassword, roleId, setRoleId, doctorId, setDoctorId,
-    phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
-    reportsToId, setReportsToId,
-    formError, saving, handleCreate,
+    doctors,
+    departments,
+    staffOptions,
+    roles,
+    name,
+    setName,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    roleId,
+    setRoleId,
+    doctorId,
+    setDoctorId,
+    phone,
+    setPhone,
+    address,
+    setAddress,
+    departmentId,
+    setDepartmentId,
+    schedule,
+    setSchedule,
+    reportsToId,
+    setReportsToId,
+    formError,
+    saving,
+    handleCreate,
   } = useAddStaff(open, onOpenChange, onCreated, presetDoctor);
   const hasNamedDoctorRole = roles.some((r) => r.name.toLowerCase() === "doctor");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogTitle>{presetDoctor ? `Create login for Dr. ${presetDoctor.name}` : "Add staff member"}</DialogTitle>
-        <form onSubmit={handleCreate} className="mt-space-3 grid grid-cols-1 gap-space-3 md:grid-cols-2">
+        <DialogTitle>
+          {presetDoctor ? `Create login for Dr. ${presetDoctor.name}` : "Add staff member"}
+        </DialogTitle>
+        <form
+          onSubmit={handleCreate}
+          className="mt-space-3 gap-space-3 grid grid-cols-1 md:grid-cols-2"
+        >
           <div className="md:col-span-2">
             <SectionHeader
               title="Login details"
@@ -53,24 +80,46 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
             />
           </div>
           <Field label="Name" htmlFor="staff_name">
-            <Input id="staff_name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <Input
+              id="staff_name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
           </Field>
           <Field label="Email" htmlFor="staff_email">
-            <Input id="staff_email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <Input
+              id="staff_email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </Field>
           <Field label="Password" htmlFor="staff_password">
-            <Input id="staff_password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <Input
+              id="staff_password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
           </Field>
           {(!presetDoctor || !hasNamedDoctorRole) && (
             <Field
-              label="Role" htmlFor="staff_role"
-              hint={presetDoctor ? 'No role named "Doctor" was found -- choose one for this login.' : undefined}
+              label="Role"
+              htmlFor="staff_role"
+              hint={
+                presetDoctor
+                  ? 'No role named "Doctor" was found -- choose one for this login.'
+                  : undefined
+              }
             >
               <select
                 id="staff_role"
                 value={roleId ?? ""}
                 onChange={(e) => setRoleId(e.target.value ? Number(e.target.value) : null)}
-                className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+                className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
               >
                 {roles.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -82,14 +131,16 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
           )}
           {!presetDoctor && (
             <Field
-              label="Link to existing doctor" htmlFor="staff_doctor" className="md:col-span-2"
+              label="Link to existing doctor"
+              htmlFor="staff_doctor"
+              className="md:col-span-2"
               hint="Optional -- links this login to a doctor profile (their department then comes from there instead)."
             >
               <select
                 id="staff_doctor"
                 value={doctorId}
                 onChange={(e) => setDoctorId(e.target.value)}
-                className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+                className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
               >
                 <option value="">No doctor linked</option>
                 {doctors.map((d) => (
@@ -100,7 +151,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
               </select>
             </Field>
           )}
-          <div className="mt-space-2 border-t border-line pt-space-4 md:col-span-2">
+          <div className="mt-space-2 border-line pt-space-4 border-t md:col-span-2">
             <SectionHeader
               title="Profile information"
               description="Contact details, department and who they report to -- shown on their staff profile."
@@ -108,13 +159,22 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
           </div>
           <StaffContactFields
             hasLinkedDoctor={!!doctorId}
-            phone={phone} setPhone={setPhone}
-            address={address} setAddress={setAddress}
-            departmentId={departmentId} setDepartmentId={setDepartmentId} departments={departments}
-            schedule={schedule} setSchedule={setSchedule}
-            reportsToId={reportsToId} setReportsToId={setReportsToId} staffOptions={staffOptions}
+            phone={phone}
+            setPhone={setPhone}
+            address={address}
+            setAddress={setAddress}
+            departmentId={departmentId}
+            setDepartmentId={setDepartmentId}
+            departments={departments}
+            schedule={schedule}
+            setSchedule={setSchedule}
+            reportsToId={reportsToId}
+            setReportsToId={setReportsToId}
+            staffOptions={staffOptions}
           />
-          {formError && <p className="text-[12.5px] font-medium text-error md:col-span-2">{formError}</p>}
+          {formError && (
+            <p className="text-error text-[12.5px] font-medium md:col-span-2">{formError}</p>
+          )}
           <div className="md:col-span-2">
             <Button type="submit" disabled={saving || !name || !email || !password} size="md">
               {saving ? "Creating…" : presetDoctor ? "Create login" : "Create staff member"}

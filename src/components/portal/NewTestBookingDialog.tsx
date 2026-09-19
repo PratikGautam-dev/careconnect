@@ -31,17 +31,43 @@ type NewTestBookingDialogProps = {
  * picked selection are fetched lazily via useNewTestBooking's own GET
  * .../slots?diagnostic_test_id= call, not eager-loaded here. */
 export function NewTestBookingDialog({
-  open, onOpenChange, onBooked, initialPatientName, initialPatientPhone,
+  open,
+  onOpenChange,
+  onBooked,
+  initialPatientName,
+  initialPatientPhone,
 }: NewTestBookingDialogProps) {
   const {
-    ctx, error, errors, submitting, success,
-    patientName, setPatientName, patientPhone, setPatientPhone,
-    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
-    selectedTestIds, selectedTests, category, toggleTest,
-    collectionMethod, setCollectionMethod, collectionAddress, setCollectionAddress,
-    collectionPincode, setCollectionPincode,
-    date, setDate, slotId, setSlotId,
-    datesForSelection, slotsForDate, slotsLoading,
+    ctx,
+    error,
+    errors,
+    submitting,
+    success,
+    patientName,
+    setPatientName,
+    patientPhone,
+    setPatientPhone,
+    patientDateOfBirth,
+    setPatientDateOfBirth,
+    patientGender,
+    setPatientGender,
+    selectedTestIds,
+    selectedTests,
+    category,
+    toggleTest,
+    collectionMethod,
+    setCollectionMethod,
+    collectionAddress,
+    setCollectionAddress,
+    collectionPincode,
+    setCollectionPincode,
+    date,
+    setDate,
+    slotId,
+    setSlotId,
+    datesForSelection,
+    slotsForDate,
+    slotsLoading,
     handleSubmit,
   } = useNewTestBooking(open, onBooked, initialPatientName, initialPatientPhone);
 
@@ -54,24 +80,29 @@ export function NewTestBookingDialog({
       <DialogContent className="max-w-xl">
         <DialogTitle>New test booking</DialogTitle>
 
-        {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+        {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
         {success ? (
           <div className="py-space-4 text-center">
-            <p className="mb-space-3 text-[14px] font-semibold text-success">Booking created.</p>
+            <p className="mb-space-3 text-success text-[14px] font-semibold">Booking created.</p>
             <Button onClick={() => onOpenChange(false)}>Done</Button>
           </div>
         ) : !ctx ? (
-          <p className="text-[13px] text-ink-400">Loading…</p>
+          <p className="text-ink-400 text-[13px]">Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
             <SectionHeader
               title="Patient information"
               description="Who this booking is for -- an existing patient is matched by phone number, otherwise a new one is created."
             />
-            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Patient name" htmlFor="patient_name" required>
-                <Input id="patient_name" required value={patientName} onChange={(e) => setPatientName(e.target.value)} />
+                <Input
+                  id="patient_name"
+                  required
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                />
               </Field>
               <Field label="Patient phone" htmlFor="patient_phone" required>
                 <Input
@@ -87,7 +118,7 @@ export function NewTestBookingDialog({
               </Field>
             </div>
 
-            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+            <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
               <Field label="Date of birth" htmlFor="patient_dob" required>
                 <Input
                   id="patient_dob"
@@ -104,7 +135,7 @@ export function NewTestBookingDialog({
                   required
                   value={patientGender}
                   onChange={(e) => setPatientGender(e.target.value)}
-                  className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                  className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
                 >
                   <option value="">Choose…</option>
                   {GENDER_VALUES.map((g) => (
@@ -116,14 +147,14 @@ export function NewTestBookingDialog({
               </Field>
             </div>
 
-            <div className="mt-space-3 border-t border-line pt-space-4">
+            <div className="mt-space-3 border-line pt-space-4 border-t">
               <SectionHeader
                 title="Test selection"
                 description="Pick a diagnostic test or one or more lab tests -- these are mutually exclusive per booking."
               />
             </div>
             <Field label="Diagnostic test" htmlFor="diagnostic-tests">
-              <div id="diagnostic-tests" className="flex flex-wrap gap-space-2">
+              <div id="diagnostic-tests" className="gap-space-2 flex flex-wrap">
                 {diagnosticTests.map((t) => (
                   <button
                     type="button"
@@ -131,20 +162,24 @@ export function NewTestBookingDialog({
                     disabled={category === "lab"}
                     onClick={() => toggleTest(t)}
                     className={cn(
-                      "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold disabled:opacity-40",
-                      selectedTestIds.includes(t.id) ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                      "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold disabled:opacity-40",
+                      selectedTestIds.includes(t.id)
+                        ? "border-brand-600 bg-brand-600 text-white"
+                        : "border-line bg-card text-ink-600",
                     )}
                   >
                     {t.name}
                     {t.price != null ? ` — ₹${t.price}` : ""}
                   </button>
                 ))}
-                {diagnosticTests.length === 0 && <p className="text-[12.5px] text-ink-400">No diagnostic tests configured.</p>}
+                {diagnosticTests.length === 0 && (
+                  <p className="text-ink-400 text-[12.5px]">No diagnostic tests configured.</p>
+                )}
               </div>
             </Field>
 
             <Field label="Lab tests (select one or more)" htmlFor="lab-tests">
-              <div id="lab-tests" className="flex flex-wrap gap-space-2">
+              <div id="lab-tests" className="gap-space-2 flex flex-wrap">
                 {labTests.map((t) => (
                   <button
                     type="button"
@@ -152,52 +187,68 @@ export function NewTestBookingDialog({
                     disabled={category === "diagnostic"}
                     onClick={() => toggleTest(t)}
                     className={cn(
-                      "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold disabled:opacity-40",
-                      selectedTestIds.includes(t.id) ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                      "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold disabled:opacity-40",
+                      selectedTestIds.includes(t.id)
+                        ? "border-brand-600 bg-brand-600 text-white"
+                        : "border-line bg-card text-ink-600",
                     )}
                   >
                     {t.name}
                     {t.price != null ? ` — ₹${t.price}` : ""}
                   </button>
                 ))}
-                {labTests.length === 0 && <p className="text-[12.5px] text-ink-400">No lab tests configured.</p>}
+                {labTests.length === 0 && (
+                  <p className="text-ink-400 text-[12.5px]">No lab tests configured.</p>
+                )}
               </div>
             </Field>
 
             {selectedTests.length > 0 && (
-              <div className="mb-space-3 rounded-md bg-black/3 p-space-3 text-[12.5px]">
-                <div className="flex flex-wrap gap-space-2">
+              <div className="mb-space-3 p-space-3 rounded-md bg-black/3 text-[12.5px]">
+                <div className="gap-space-2 flex flex-wrap">
                   {selectedTests.map((t) => (
-                    <span key={t.id} className="inline-flex items-center gap-1 rounded-full bg-card px-space-2 py-0.5 font-semibold text-ink-600">
+                    <span
+                      key={t.id}
+                      className="bg-card px-space-2 text-ink-600 inline-flex items-center gap-1 rounded-full py-0.5 font-semibold"
+                    >
                       {t.name}
-                      <button type="button" onClick={() => toggleTest(t)} className="text-ink-400 hover:text-error" aria-label={`Remove ${t.name}`}>
+                      <button
+                        type="button"
+                        onClick={() => toggleTest(t)}
+                        className="text-ink-400 hover:text-error"
+                        aria-label={`Remove ${t.name}`}
+                      >
                         ×
                       </button>
                     </span>
                   ))}
                 </div>
-                {priceTotal > 0 && <p className="mt-space-2 font-semibold text-ink-700">Total: ₹{priceTotal}</p>}
+                {priceTotal > 0 && (
+                  <p className="mt-space-2 text-ink-700 font-semibold">Total: ₹{priceTotal}</p>
+                )}
               </div>
             )}
 
             {category === "lab" && (
               <>
-                <div className="mt-space-3 border-t border-line pt-space-4">
+                <div className="mt-space-3 border-line pt-space-4 border-t">
                   <SectionHeader
                     title="Collection details"
                     description="Whether the sample is collected at the hospital/lab or picked up from the patient's home."
                   />
                 </div>
                 <Field label="Collection method" required>
-                  <div className="flex gap-space-2">
+                  <div className="gap-space-2 flex">
                     {(["visit", "home"] as const).map((m) => (
                       <button
                         type="button"
                         key={m}
                         onClick={() => setCollectionMethod(m)}
                         className={cn(
-                          "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                          collectionMethod === m ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                          "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                          collectionMethod === m
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-card text-ink-600",
                         )}
                       >
                         {m === "visit" ? "Visit hospital/lab" : "Home collection"}
@@ -206,16 +257,20 @@ export function NewTestBookingDialog({
                   </div>
                 </Field>
                 {collectionMethod === "home" && (
-                  <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+                  <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
                     <Field label="Pincode" htmlFor="collection_pincode" required>
                       <Input
-                        id="collection_pincode" required value={collectionPincode}
+                        id="collection_pincode"
+                        required
+                        value={collectionPincode}
                         onChange={(e) => setCollectionPincode(e.target.value)}
                       />
                     </Field>
                     <Field label="Address" htmlFor="collection_address" required>
                       <Input
-                        id="collection_address" required value={collectionAddress}
+                        id="collection_address"
+                        required
+                        value={collectionAddress}
                         onChange={(e) => setCollectionAddress(e.target.value)}
                       />
                     </Field>
@@ -225,26 +280,31 @@ export function NewTestBookingDialog({
             )}
 
             {selectedTestIds.length > 0 && (
-              <div className="mt-space-3 border-t border-line pt-space-4">
-                <SectionHeader title="Date & time" description="An available date and time slot for this test." />
+              <div className="mt-space-3 border-line pt-space-4 border-t">
+                <SectionHeader
+                  title="Date & time"
+                  description="An available date and time slot for this test."
+                />
               </div>
             )}
             {selectedTestIds.length > 0 && (
               <Field label="Date">
                 {slotsLoading ? (
-                  <p className="text-[12.5px] text-ink-400">Loading available dates…</p>
+                  <p className="text-ink-400 text-[12.5px]">Loading available dates…</p>
                 ) : datesForSelection.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-400">No available dates for this test.</p>
+                  <p className="text-ink-400 text-[12.5px]">No available dates for this test.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-space-2">
+                  <div className="gap-space-2 flex flex-wrap">
                     {datesForSelection.map((d) => (
                       <button
                         type="button"
                         key={d}
                         onClick={() => setDate(d)}
                         className={cn(
-                          "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                          date === d ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                          "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                          date === d
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-card text-ink-600",
                         )}
                       >
                         {d}
@@ -258,17 +318,19 @@ export function NewTestBookingDialog({
             {date && (
               <Field label="Time slot" required>
                 {slotsForDate.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-400">No slots available on this date.</p>
+                  <p className="text-ink-400 text-[12.5px]">No slots available on this date.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-space-2">
+                  <div className="gap-space-2 flex flex-wrap">
                     {slotsForDate.map((s) => (
                       <button
                         type="button"
                         key={s.id}
                         onClick={() => setSlotId(s.id)}
                         className={cn(
-                          "rounded-md border px-space-3 py-space-2 text-[12.5px] font-semibold",
-                          slotId === s.id ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600",
+                          "px-space-3 py-space-2 rounded-md border text-[12.5px] font-semibold",
+                          slotId === s.id
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-card text-ink-600",
                         )}
                       >
                         {s.label}
@@ -280,8 +342,8 @@ export function NewTestBookingDialog({
             )}
 
             {errors.length > 0 && (
-              <div className="mb-space-3 rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] text-error">
-                <ul className="list-disc pl-space-4">
+              <div className="mb-space-3 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px]">
+                <ul className="pl-space-4 list-disc">
                   {errors.map((e, i) => (
                     <li key={i}>{e}</li>
                   ))}

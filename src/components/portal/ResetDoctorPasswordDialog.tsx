@@ -42,7 +42,10 @@ export function ResetDoctorPasswordDialog({ doctor, onOpenChange }: Props) {
     e.preventDefault();
     if (!doctor) return;
 
-    const parsed = setStaffPasswordSchema.safeParse({ new_password: newPassword, confirm_password: confirmPassword });
+    const parsed = setStaffPasswordSchema.safeParse({
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    });
     if (!parsed.success) {
       setErrors(parsed.error.issues.map((issue) => issue.message));
       return;
@@ -71,9 +74,16 @@ export function ResetDoctorPasswordDialog({ doctor, onOpenChange }: Props) {
   return (
     <Dialog open={doctor !== null} onOpenChange={handleOpenChange}>
       <DialogContent>
-        <DialogTitle>{doctor ? `Reset password for Dr. ${doctor.name}` : "Reset password"}</DialogTitle>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-space-3">
-          <Field label="New password" htmlFor="doctor_reset_new_password" required hint="At least 8 characters.">
+        <DialogTitle>
+          {doctor ? `Reset password for Dr. ${doctor.name}` : "Reset password"}
+        </DialogTitle>
+        <form onSubmit={handleSubmit} className="gap-space-3 flex flex-col">
+          <Field
+            label="New password"
+            htmlFor="doctor_reset_new_password"
+            required
+            hint="At least 8 characters."
+          >
             <PasswordInput
               id="doctor_reset_new_password"
               value={newPassword}
@@ -90,17 +100,23 @@ export function ResetDoctorPasswordDialog({ doctor, onOpenChange }: Props) {
             />
           </Field>
           {errors.length > 0 && (
-            <ul className="list-disc pl-space-4 text-[12.5px] font-medium text-error">
+            <ul className="pl-space-4 text-error list-disc text-[12.5px] font-medium">
               {errors.map((err, i) => (
                 <li key={i}>{err}</li>
               ))}
             </ul>
           )}
-          <div className="flex gap-space-2">
+          <div className="gap-space-2 flex">
             <Button type="submit" disabled={resetting} size="md">
               {resetting ? "Resetting…" : "Reset password"}
             </Button>
-            <Button type="button" variant="secondary" size="md" onClick={() => handleOpenChange(false)} disabled={resetting}>
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => handleOpenChange(false)}
+              disabled={resetting}
+            >
               Cancel
             </Button>
           </div>

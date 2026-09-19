@@ -20,7 +20,14 @@ type Props = {
  * Plain fixed-overlay modal, same convention as ConfirmDialog.tsx (this
  * codebase's other hand-rolled modal), rather than the base-ui Dialog
  * primitive. */
-export function DepartmentFormDialog({ open, department, doctors, saving, onClose, onSubmit }: Props) {
+export function DepartmentFormDialog({
+  open,
+  department,
+  doctors,
+  saving,
+  onClose,
+  onSubmit,
+}: Props) {
   const [name, setName] = useState("");
   const [floorWing, setFloorWing] = useState("");
   const [consultationHours, setConsultationHours] = useState("");
@@ -51,13 +58,16 @@ export function DepartmentFormDialog({ open, department, doctors, saving, onClos
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-space-4" onClick={onClose}>
+    <div
+      className="p-space-4 fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[480px] rounded-lg bg-card p-space-5 shadow-[var(--shadow-lg)]"
+        className="bg-card p-space-5 w-full max-w-[480px] rounded-lg shadow-[var(--shadow-lg)]"
       >
-        <h2 className="mb-space-4 text-[16px] font-bold text-ink-900">
+        <h2 className="mb-space-4 text-ink-900 text-[16px] font-bold">
           {department ? "Edit Department" : "Add Department"}
         </h2>
 
@@ -65,7 +75,11 @@ export function DepartmentFormDialog({ open, department, doctors, saving, onClos
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
         <Field label="Floor / Wing">
-          <Input value={floorWing} onChange={(e) => setFloorWing(e.target.value)} placeholder="e.g. 1st Floor, Main Wing" />
+          <Input
+            value={floorWing}
+            onChange={(e) => setFloorWing(e.target.value)}
+            placeholder="e.g. 1st Floor, Main Wing"
+          />
         </Field>
         <Field label="Consultation Hours">
           <Input
@@ -78,11 +92,13 @@ export function DepartmentFormDialog({ open, department, doctors, saving, onClos
           <select
             value={headDoctorId}
             onChange={(e) => setHeadDoctorId(e.target.value)}
-            className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900"
+            className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13.5px]"
           >
             <option value="">None</option>
             {doctors.map((d) => (
-              <option key={d.id} value={d.id}>{d.name} — {d.department_name}</option>
+              <option key={d.id} value={d.id}>
+                {d.name} — {d.department_name}
+              </option>
             ))}
           </select>
         </Field>
@@ -90,8 +106,10 @@ export function DepartmentFormDialog({ open, department, doctors, saving, onClos
           <Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
 
-        <div className="mt-space-5 flex justify-end gap-space-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+        <div className="mt-space-5 gap-space-2 flex justify-end">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
           <Button type="submit" disabled={saving || !name.trim()}>
             {saving ? "Saving…" : department ? "Save Changes" : "Add Department"}
           </Button>

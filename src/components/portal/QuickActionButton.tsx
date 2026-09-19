@@ -33,7 +33,17 @@ export type Props = {
  * bordered outline at rest for every item (nothing reads as pre-selected),
  * with the solid brand fill appearing only on hover/focus (and permanently
  * for a genuinely `active`/toggled item, which is real state, not a look). */
-export function QuickActionButton({ label, icon: Icon, href, onClick, disabled, active, size = "md", title, className }: Props) {
+export function QuickActionButton({
+  label,
+  icon: Icon,
+  href,
+  onClick,
+  disabled,
+  active,
+  size = "md",
+  title,
+  className,
+}: Props) {
   const classes = cn(
     "flex w-full items-center rounded-sm border-2 font-extrabold",
     "transition-colors duration-150 ease-[var(--ease-standard)]",
@@ -66,7 +76,13 @@ export function QuickActionButton({ label, icon: Icon, href, onClick, disabled, 
   }
 
   return (
-    <button type="button" onClick={onClick} disabled={disabled ?? (!href && !onClick)} title={title} className={classes}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled ?? (!href && !onClick)}
+      title={title}
+      className={classes}
+    >
       {content}
     </button>
   );

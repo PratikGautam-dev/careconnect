@@ -20,13 +20,13 @@ into the new "Patient Management" card rather than dropped.
   snapshot to diff against, same treatment as other pages' cumulative
   totals).
 - **New Registrations** — new: `list_patients()` (`db/repositories/
-  patients.py`) now also selects `created_at` (already a real column,
+patients.py`) now also selects `created_at` (already a real column,
   just not previously returned by this query); counted client-side as
   "created in the last 7 days," labeled "Last 7 days" rather than a fake
   "vs last week" delta, since there's no prior-period comparison anywhere.
 - **Department, Age/Gender, Status, Last visit columns** — real:
   - **Department** — new: a correlated scalar subquery finds the
-    *most recent appointment's* department for each patient (same
+    _most recent appointment's_ department for each patient (same
     join pattern `get_all_appointments_for_hospital()` already uses,
     `AppointmentRow` outerjoined to `Department`); "—" for a patient with
     no appointment yet.
@@ -42,7 +42,7 @@ into the new "Patient Management" card rather than dropped.
   last-visit subquery above), not the hospital's full department catalog.
 - **Detail panel — Overview tab**: Date of Birth, Gender, Phone, Address
   (real, via a light per-patient fetch of the same `/api/portal/patients/
-  {id}` the full detail page already exposes); **Latest Visit** date +
+{id}` the full detail page already exposes); **Latest Visit** date +
   doctor + department — new: a second correlated subquery (same shape as
   Department above) resolves the most recent appointment's doctor name too.
 - **Detail panel — Medical History / Appointments / Reports tabs** — real:
@@ -77,7 +77,7 @@ into the new "Patient Management" card rather than dropped.
 - **Follow-up Due** (stat tile + status pill state) — no due-date/recall
   concept exists anywhere in this schema. The only near-miss field
   (`appointments.followup_override_until` + `hospital_settings.
-  followup_validity_days`) means the *opposite*: it's a booking-type fee
+followup_validity_days`) means the _opposite_: it's a booking-type fee
   eligibility window ("still allowed to book a cheap follow-up"), not a
   "come back by X" reminder — confirmed before ruling this out, rather
   than building something with inverted semantics. Shown as "—".
@@ -157,7 +157,7 @@ just relocated (see below) rather than dropped for the new layout.
 - **Active doctors** (of total) — `get_staffing_stats()`, counts real
   `DoctorRow` rows.
 - **Staff on duty** (of total) — same `get_staffing_stats()`, counts active
-  `StaffDetail`/`Identity` rows. Labeled as active *accounts*, not
+  `StaffDetail`/`Identity` rows. Labeled as active _accounts_, not
   attendance (see Missing).
 - **Appointment trends** (bar chart) — `get_weekly_appointment_counts`.
 - **Appointments by department** (donut) — `get_appointments_by_department`.
@@ -168,11 +168,11 @@ just relocated (see below) rather than dropped for the new layout.
   `STATUS_LABELS`/`TYPE_ICONS`/`initials` from `appointments-columns.tsx`,
   instead of a second, independently-drifting copy of the same fields;
   `appointment_type_id`/`video_link` newly added to `/api/portal/
-  dashboard`'s response (already on the same row, no extra query) to make
+dashboard`'s response (already on the same row, no extra query) to make
   that possible. Read-only (no select/Actions column) — this is a preview
   of the full table, not a place to manage a booking from. "View all
   patients" → "View all appointments", now linking to `/portal/
-  appointments`.
+appointments`.
 - **Today's activity** feed — `get_recent_activity_feed`; the backend
   already returned this on `/api/portal/dashboard`, it just wasn't typed/used
   on the frontend before this pass.
@@ -321,7 +321,7 @@ with lab-status advancement).
   creation for either category, and `portal_advance_lab_status`
   (`POST /api/portal/bookings/{id}/lab-status`) now picks a per-category
   forward-map — Lab Test still goes `booked -> sample_collected ->
-  processing` (a physical sample to collect), Diagnostics goes straight
+processing` (a physical sample to collect), Diagnostics goes straight
   `booked -> processing` (nothing to collect for a scan). `report_ready` is
   reached the same way for both: automatically, the moment a lab report
   document is uploaded — never a manual staff click. Frontend mirrors this
@@ -596,7 +596,7 @@ confirmed with the user up front. `departments` was previously just
   **`whatsapp_booking_enabled`** are both real: they gate
   `db.get_departments()`, the WhatsApp booking flow's one department-picker
   query (`connector.get_departments()`, called throughout `flows/
-  booking/*.py`) — a hidden or deactivated department is confirmed (via
+booking/*.py`) — a hidden or deactivated department is confirmed (via
   `tests/test_booking_flow.py`) to actually disappear from that menu.
   **`online_booking_enabled`** is real (stored, toggleable, returned) but
   **has no enforcement point of its own** — this app's only real
@@ -618,7 +618,7 @@ confirmed with the user up front. `departments` was previously just
   page's department list + Add/Edit Doctor's department picker), the CSV
   doctor-import's existing-department lookup, and the staff portal's own
   "new booking" context (`auth/session.py`, new `connector.
-  get_all_departments()`) — all three now call the unfiltered
+get_all_departments()`) — all three now call the unfiltered
   `get_all_departments_for_hospital` instead of the newly-filtered
   `get_departments`, so a department a staff member hid from WhatsApp
   patients doesn't also silently disappear from staff's own tools.

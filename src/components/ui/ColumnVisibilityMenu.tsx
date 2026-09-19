@@ -31,12 +31,12 @@ export function ColumnVisibilityMenu<TData>({ table }: { table: Table<TData> }) 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-9 items-center gap-space-2 rounded-md border border-line bg-card px-space-3 text-[12.5px] font-semibold text-ink-700 shadow-[var(--shadow-sm)] hover:border-brand-300 hover:bg-brand-50"
+        className="gap-space-2 border-line bg-card px-space-3 text-ink-700 hover:border-brand-300 hover:bg-brand-50 inline-flex h-9 items-center rounded-md border text-[12.5px] font-semibold shadow-[var(--shadow-sm)]"
       >
         <Columns3 size={14} /> Columns
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-space-1 w-56 rounded-md border border-line bg-card p-space-2 shadow-[var(--shadow-md)]">
+        <div className="mt-space-1 border-line bg-card p-space-2 absolute top-full right-0 z-20 w-56 rounded-md border shadow-[var(--shadow-md)]">
           {columns.map((column) => {
             const header = column.columnDef.header;
             const label = typeof header === "string" && header ? header : column.id;
@@ -44,14 +44,14 @@ export function ColumnVisibilityMenu<TData>({ table }: { table: Table<TData> }) 
               <label
                 key={column.id}
                 className={cn(
-                  "flex cursor-pointer items-center gap-space-2 rounded-md px-space-2 py-space-1.5 text-[13px] text-ink-900 hover:bg-paper",
+                  "gap-space-2 px-space-2 py-space-1.5 text-ink-900 hover:bg-paper flex cursor-pointer items-center rounded-md text-[13px]",
                 )}
               >
                 <input
                   type="checkbox"
                   checked={column.getIsVisible()}
                   onChange={(e) => column.toggleVisibility(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-brand-600"
+                  className="accent-brand-600 h-3.5 w-3.5"
                 />
                 <span>{label}</span>
               </label>

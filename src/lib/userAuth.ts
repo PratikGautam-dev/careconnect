@@ -30,9 +30,10 @@ export function googleLoginUrl(): string {
   return `${API_BASE_URL}/auth/google/login`;
 }
 
-export async function fetchAuthMe(): Promise<
-  { user: AuthUser; owned_hospitals: OwnedHospital[] } | null
-> {
+export async function fetchAuthMe(): Promise<{
+  user: AuthUser;
+  owned_hospitals: OwnedHospital[];
+} | null> {
   const token = getUserToken();
   if (!token) return null;
   const res = await fetch(`${API_BASE_URL}/api/auth/me`, {

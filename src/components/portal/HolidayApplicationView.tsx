@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Calendar as CalendarIcon, CalendarDays, ChevronLeft, ChevronRight, Clock3, Send } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Send,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
@@ -25,7 +32,11 @@ const STATUS_STYLES: Record<LeaveRequestStatus, string> = {
   approved: "bg-success-tint text-success",
   rejected: "bg-error-tint text-error",
 };
-const STATUS_LABELS: Record<LeaveRequestStatus, string> = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
+const STATUS_LABELS: Record<LeaveRequestStatus, string> = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+};
 
 const REASON_MAX = 500;
 
@@ -37,7 +48,11 @@ function dateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function formatShort(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 /** Doctor/staff self-service leave application -- submits into the same
@@ -67,13 +82,29 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
 
   async function handleSubmit() {
     setFormError(null);
-    if (!fromDate || !toDate) { setFormError("Both From date and To date are required."); return; }
-    if (toDate < fromDate) { setFormError("To date can't be before From date."); return; }
-    if (duration === "half" && toDate !== fromDate) { setFormError("Half day only applies to a single date -- set To date the same as From date."); return; }
-    if (!reason.trim()) { setFormError("Please enter a reason for leave."); return; }
+    if (!fromDate || !toDate) {
+      setFormError("Both From date and To date are required.");
+      return;
+    }
+    if (toDate < fromDate) {
+      setFormError("To date can't be before From date.");
+      return;
+    }
+    if (duration === "half" && toDate !== fromDate) {
+      setFormError("Half day only applies to a single date -- set To date the same as From date.");
+      return;
+    }
+    if (!reason.trim()) {
+      setFormError("Please enter a reason for leave.");
+      return;
+    }
 
     const err = await submit({
-      leave_type: leaveType, from_date: fromDate, to_date: toDate, is_half_day: duration === "half", reason: reason.trim(),
+      leave_type: leaveType,
+      from_date: fromDate,
+      to_date: toDate,
+      is_half_day: duration === "half",
+      reason: reason.trim(),
     });
     if (err) setFormError(err);
     else resetForm();
@@ -88,17 +119,32 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
         <p className="text-body">Manage your leave requests and view your leave balance.</p>
       </div>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-5 grid grid-cols-1 gap-space-4 xs:grid-cols-2 lg:grid-cols-3">
-        <InfoTile icon={CalendarDays} label="Leave balance" value={balance ? `${balance.remaining_days} left` : "—"} hint={balance ? `of ${balance.quota_days} days` : ""} />
-        <InfoTile icon={Clock3} label="Used this year" value={balance ? `${balance.used_days}` : "—"} hint="days approved" />
-        <InfoTile icon={CalendarIcon} label="Pending requests" value={String(pendingCount)} hint="awaiting approval" />
+      <div className="mb-space-5 gap-space-4 xs:grid-cols-2 grid grid-cols-1 lg:grid-cols-3">
+        <InfoTile
+          icon={CalendarDays}
+          label="Leave balance"
+          value={balance ? `${balance.remaining_days} left` : "—"}
+          hint={balance ? `of ${balance.quota_days} days` : ""}
+        />
+        <InfoTile
+          icon={Clock3}
+          label="Used this year"
+          value={balance ? `${balance.used_days}` : "—"}
+          hint="days approved"
+        />
+        <InfoTile
+          icon={CalendarIcon}
+          label="Pending requests"
+          value={String(pendingCount)}
+          hint="awaiting approval"
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-2">
+      <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
         <Card className="p-space-5">
-          <h3 className="text-label mb-space-4 font-bold text-ink-900">Apply for Leave</h3>
+          <h3 className="text-label mb-space-4 text-ink-900 font-bold">Apply for Leave</h3>
 
           <Field label="Leave type" htmlFor="leave_type" required>
             <select
@@ -106,35 +152,63 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
               value={leaveType}
               onChange={(e) => setLeaveType(e.target.value as LeaveType)}
               disabled={!canWrite}
-              className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900 disabled:cursor-not-allowed disabled:bg-paper disabled:text-ink-400"
+              className="border-line bg-card px-space-3 text-ink-900 disabled:bg-paper disabled:text-ink-400 h-11 w-full rounded-md border text-[14px] disabled:cursor-not-allowed"
             >
               {LEAVE_TYPES.map((t) => (
-                <option key={t} value={t}>{LEAVE_TYPE_LABELS[t]}</option>
+                <option key={t} value={t}>
+                  {LEAVE_TYPE_LABELS[t]}
+                </option>
               ))}
             </select>
           </Field>
 
-          <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+          <div className="gap-x-space-4 grid grid-cols-1 sm:grid-cols-2">
             <Field label="From date" htmlFor="from_date" required>
-              <Input id="from_date" type="date" value={fromDate} min={todayKey()} disabled={!canWrite} onChange={(e) => setFromDate(e.target.value)} />
+              <Input
+                id="from_date"
+                type="date"
+                value={fromDate}
+                min={todayKey()}
+                disabled={!canWrite}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
             </Field>
             <Field label="To date" htmlFor="to_date" required>
-              <Input id="to_date" type="date" value={toDate} min={fromDate || todayKey()} disabled={!canWrite} onChange={(e) => setToDate(e.target.value)} />
+              <Input
+                id="to_date"
+                type="date"
+                value={toDate}
+                min={fromDate || todayKey()}
+                disabled={!canWrite}
+                onChange={(e) => setToDate(e.target.value)}
+              />
             </Field>
           </div>
 
           <Field label="Leave duration" required>
-            <div className="flex items-center gap-space-4">
+            <div className="gap-space-4 flex items-center">
               {(["full", "half"] as const).map((d) => (
-                <label key={d} className="flex items-center gap-space-2 text-[13.5px] text-ink-700">
-                  <input type="radio" name="duration" checked={duration === d} disabled={!canWrite} onChange={() => setDuration(d)} className="h-4 w-4 accent-brand-600" />
+                <label key={d} className="gap-space-2 text-ink-700 flex items-center text-[13.5px]">
+                  <input
+                    type="radio"
+                    name="duration"
+                    checked={duration === d}
+                    disabled={!canWrite}
+                    onChange={() => setDuration(d)}
+                    className="accent-brand-600 h-4 w-4"
+                  />
                   {d === "full" ? "Full day" : "Half day"}
                 </label>
               ))}
             </div>
           </Field>
 
-          <Field label="Reason for leave" htmlFor="reason" required hint={`${reason.length}/${REASON_MAX}`}>
+          <Field
+            label="Reason for leave"
+            htmlFor="reason"
+            required
+            hint={`${reason.length}/${REASON_MAX}`}
+          >
             <Textarea
               id="reason"
               rows={4}
@@ -146,10 +220,14 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
             />
           </Field>
 
-          {formError && <p className="mb-space-3 text-[12.5px] font-medium text-error">{formError}</p>}
+          {formError && (
+            <p className="mb-space-3 text-error text-[12.5px] font-medium">{formError}</p>
+          )}
 
-          <div className="flex items-center gap-space-3">
-            <Button variant="secondary" type="button" onClick={resetForm} disabled={submitting}>Cancel</Button>
+          <div className="gap-space-3 flex items-center">
+            <Button variant="secondary" type="button" onClick={resetForm} disabled={submitting}>
+              Cancel
+            </Button>
             <Button type="button" onClick={handleSubmit} disabled={!canWrite || submitting}>
               <Send size={14} /> {submitting ? "Submitting…" : "Submit Application"}
             </Button>
@@ -165,17 +243,27 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
   );
 }
 
-function InfoTile({ icon: Icon, label, value, hint }: { icon: typeof CalendarDays; label: string; value: string; hint?: string }) {
+function InfoTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof CalendarDays;
+  label: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <Card className="p-space-4">
-      <div className="flex items-center gap-space-3">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+      <div className="gap-space-3 flex items-center">
+        <span className="bg-brand-50 text-brand-600 flex h-12 w-12 shrink-0 items-center justify-center rounded-full">
           <Icon size={20} strokeWidth={2} />
         </span>
         <div className="min-w-0">
           <p className="text-hint truncate">{label}</p>
-          <p className="truncate text-[16px] font-bold text-ink-900">{value}</p>
-          {hint && <p className="truncate text-[11px] text-ink-500">{hint}</p>}
+          <p className="text-ink-900 truncate text-[16px] font-bold">{value}</p>
+          {hint && <p className="text-ink-500 truncate text-[11px]">{hint}</p>}
         </div>
       </div>
     </Card>
@@ -213,33 +301,61 @@ function LeaveCalendar({ requests }: { requests: LeaveRequestRow[] }) {
   const todayK = todayKey();
 
   function goToMonth(delta: number) {
-    let m = month + delta, y = year;
-    if (m > 12) { m = 1; y += 1; }
-    if (m < 1) { m = 12; y -= 1; }
-    setMonth(m); setYear(y);
+    let m = month + delta,
+      y = year;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    setMonth(m);
+    setYear(y);
   }
 
   const cells: { key: string | null; day: number | null }[] = [];
   for (let i = 0; i < leadingBlanks; i++) cells.push({ key: null, day: null });
-  for (let d = 1; d <= daysInMonth; d++) cells.push({ key: `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`, day: d });
+  for (let d = 1; d <= daysInMonth; d++)
+    cells.push({
+      key: `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+      day: d,
+    });
 
   return (
     <Card className="p-space-4">
       <div className="mb-space-3 flex items-center justify-between">
-        <h3 className="text-label font-bold text-ink-900">Leave Calendar</h3>
-        <div className="flex items-center gap-space-3 text-[11px] text-ink-500">
+        <h3 className="text-label text-ink-900 font-bold">Leave Calendar</h3>
+        <div className="gap-space-3 text-ink-500 flex items-center text-[11px]">
           <LegendDot tone="bg-success" label="Approved" />
           <LegendDot tone="bg-clay-500" label="Pending" />
           <LegendDot tone="bg-error" label="Rejected" />
         </div>
       </div>
-      <div className="mb-space-3 flex items-center justify-center gap-space-3">
-        <button type="button" onClick={() => goToMonth(-1)} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-600 hover:bg-black/4"><ChevronLeft size={15} /></button>
-        <span className="text-[13px] font-semibold text-ink-900">{monthLabel}</span>
-        <button type="button" onClick={() => goToMonth(1)} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-600 hover:bg-black/4"><ChevronRight size={15} /></button>
+      <div className="mb-space-3 gap-space-3 flex items-center justify-center">
+        <button
+          type="button"
+          onClick={() => goToMonth(-1)}
+          className="text-ink-600 flex h-7 w-7 items-center justify-center rounded-md hover:bg-black/4"
+        >
+          <ChevronLeft size={15} />
+        </button>
+        <span className="text-ink-900 text-[13px] font-semibold">{monthLabel}</span>
+        <button
+          type="button"
+          onClick={() => goToMonth(1)}
+          className="text-ink-600 flex h-7 w-7 items-center justify-center rounded-md hover:bg-black/4"
+        >
+          <ChevronRight size={15} />
+        </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[10.5px] font-semibold text-ink-400">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => <div key={w} className="py-1">{w}</div>)}
+      <div className="text-ink-400 grid grid-cols-7 gap-1 text-center text-[10.5px] font-semibold">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (
+          <div key={w} className="py-1">
+            {w}
+          </div>
+        ))}
       </div>
       <div className="grid grid-cols-7 gap-1">
         {cells.map((c, i) => {
@@ -251,11 +367,11 @@ function LeaveCalendar({ requests }: { requests: LeaveRequestRow[] }) {
               key={c.key}
               className={cn(
                 "flex aspect-square items-center justify-center rounded-md border text-[12px]",
-                status === "approved" && "border-transparent bg-success-tint text-success",
-                status === "pending" && "border-transparent bg-clay-100 text-clay-700",
-                status === "rejected" && "border-transparent bg-error-tint text-error",
+                status === "approved" && "bg-success-tint text-success border-transparent",
+                status === "pending" && "bg-clay-100 text-clay-700 border-transparent",
+                status === "rejected" && "bg-error-tint text-error border-transparent",
                 !status && isToday && "border-brand-300 bg-brand-50 text-ink-900",
-                !status && !isToday && "border-transparent text-ink-600",
+                !status && !isToday && "text-ink-600 border-transparent",
               )}
             >
               {c.day}
@@ -278,16 +394,16 @@ function LegendDot({ tone, label }: { tone: string; label: string }) {
 function LeaveHistory({ requests }: { requests: LeaveRequestRow[] | null }) {
   return (
     <Card className="p-space-4">
-      <h3 className="text-label mb-space-3 font-bold text-ink-900">Leave Request History</h3>
+      <h3 className="text-label mb-space-3 text-ink-900 font-bold">Leave Request History</h3>
       {requests === null ? (
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
       ) : requests.length === 0 ? (
-        <p className="py-space-4 text-center text-[13px] text-ink-400">No leave requests yet.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">No leave requests yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]">
             <thead>
-              <tr className="border-b border-line text-left text-label text-ink-400">
+              <tr className="border-line text-label text-ink-400 border-b text-left">
                 <th className="py-space-2 pr-space-3 font-medium">Applied</th>
                 <th className="py-space-2 pr-space-3 font-medium">Type</th>
                 <th className="py-space-2 pr-space-3 font-medium">From</th>
@@ -298,14 +414,29 @@ function LeaveHistory({ requests }: { requests: LeaveRequestRow[] | null }) {
             </thead>
             <tbody>
               {requests.map((r) => (
-                <tr key={r.id} className="border-b border-line last:border-0">
-                  <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{formatShort(r.submitted_at.slice(0, 10))}</td>
-                  <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-900">{LEAVE_TYPE_LABELS[r.leave_type]}</td>
-                  <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{formatShort(r.from_date)}</td>
-                  <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{formatShort(r.to_date)}</td>
-                  <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{r.is_half_day ? "Half" : r.duration_days}</td>
+                <tr key={r.id} className="border-line border-b last:border-0">
+                  <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                    {formatShort(r.submitted_at.slice(0, 10))}
+                  </td>
+                  <td className="py-space-3 pr-space-3 text-ink-900 whitespace-nowrap">
+                    {LEAVE_TYPE_LABELS[r.leave_type]}
+                  </td>
+                  <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                    {formatShort(r.from_date)}
+                  </td>
+                  <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                    {formatShort(r.to_date)}
+                  </td>
+                  <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                    {r.is_half_day ? "Half" : r.duration_days}
+                  </td>
                   <td className="py-space-3">
-                    <span className={cn("whitespace-nowrap rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[r.status])}>
+                    <span
+                      className={cn(
+                        "px-space-2 rounded-full py-0.5 text-[11px] font-semibold whitespace-nowrap",
+                        STATUS_STYLES[r.status],
+                      )}
+                    >
                       {STATUS_LABELS[r.status]}
                     </span>
                   </td>

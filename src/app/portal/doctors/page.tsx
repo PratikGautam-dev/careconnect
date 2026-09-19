@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Building2, CalendarX, Plus, Search, SlidersHorizontal, Upload, UserRound, UserRoundCheck } from "lucide-react";
+import {
+  Building2,
+  CalendarX,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Upload,
+  UserRound,
+  UserRoundCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -35,15 +44,35 @@ export default function PortalDoctorsPage() {
   // controls) while hospital hasn't loaded yet, matching PortalSidebar.
   const canManageDoctors = !hospital || hospital.admin_capabilities?.includes("manage_doctors");
   const {
-    departments, doctors, onLeaveTodayCount, error, load,
-    showDoctorForm, showCsvImport, doctorForm, setDoctorForm, doctorErrors, savingDoctor,
-    editingDoctorId, loadingDoctorForEdit,
-    openAddDoctorForm, toggleCsvImport, cancelDoctorForm, handleSaveDoctor, handleEditDoctor, handleToggleActive,
+    departments,
+    doctors,
+    onLeaveTodayCount,
+    error,
+    load,
+    showDoctorForm,
+    showCsvImport,
+    doctorForm,
+    setDoctorForm,
+    doctorErrors,
+    savingDoctor,
+    editingDoctorId,
+    loadingDoctorForEdit,
+    openAddDoctorForm,
+    toggleCsvImport,
+    cancelDoctorForm,
+    handleSaveDoctor,
+    handleEditDoctor,
+    handleToggleActive,
     togglingId,
-    searchQuery, setSearchQuery, activeFilter, setActiveFilter, filteredDoctors,
+    searchQuery,
+    setSearchQuery,
+    activeFilter,
+    setActiveFilter,
+    filteredDoctors,
   } = useDoctors(ready);
 
-  const selectedDoctor: Doctor | null = doctors.find((d) => d.id === selectedDoctorId) || filteredDoctors[0] || null;
+  const selectedDoctor: Doctor | null =
+    doctors.find((d) => d.id === selectedDoctorId) || filteredDoctors[0] || null;
   const selectedIndex = selectedDoctor ? doctors.findIndex((d) => d.id === selectedDoctor.id) : 0;
 
   function selectDoctor(doc: Doctor) {
@@ -61,161 +90,217 @@ export default function PortalDoctorsPage() {
 
   return (
     <PortalShell hospital={hospital} active="doctors">
-        <PageHeader
-          title="Doctors"
-          description="Manage doctors, view profiles, availability and department information."
-          actions={
-            <>
-              {canManageDoctors && (
-                <>
-                  <Button variant="secondary" size="md" onClick={toggleCsvImport}>
-                    <Upload size={14} /> Bulk import
-                  </Button>
-                  <Button size="md" onClick={openAddDoctorForm}>
-                    <Plus size={14} /> Add doctor
-                  </Button>
-                </>
-              )}
-              <PortalTopBarActions />
-            </>
-          }
-        />
-
-        {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
-        {!canManageDoctors && (
-          <p className="mb-space-4 text-[13px] text-ink-400">
-            Doctor management isn&apos;t available for your account type. Contact support if you need changes made.
-          </p>
-        )}
-
-        {!departments ? (
-          <p className="text-[13px] text-ink-400">Loading…</p>
-        ) : (
+      <PageHeader
+        title="Doctors"
+        description="Manage doctors, view profiles, availability and department information."
+        actions={
           <>
-            <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatTile label="Total doctors" value={doctors.length} deltaPct={null} hint="Live count" icon={UserRound} />
-              <StatTile
-                label="Active doctors"
-                value={doctors.filter((d) => d.is_active).length}
-                deltaPct={null}
-                hint={`of ${doctors.length} total`}
-                icon={UserRoundCheck}
-              />
-              <StatTile label="On leave" value={onLeaveTodayCount} deltaPct={null} hint="Today" icon={CalendarX} tint="clay" />
-              <StatTile label="Departments covered" value={departments.length} deltaPct={null} hint="Live count" icon={Building2} />
-            </div>
-
-            {departments.length === 0 && (
-              <Card className="mb-space-4 p-space-4">
-                <p className="text-[12.5px] text-ink-400">
-                  No departments yet -- add one from{" "}
-                  <Link href="/portal/settings" className="font-semibold text-brand-600 hover:underline">
-                    Settings &rarr; Departments
-                  </Link>{" "}
-                  first, then you can add doctors to it.
-                </p>
-              </Card>
+            {canManageDoctors && (
+              <>
+                <Button variant="secondary" size="md" onClick={toggleCsvImport}>
+                  <Upload size={14} /> Bulk import
+                </Button>
+                <Button size="md" onClick={openAddDoctorForm}>
+                  <Plus size={14} /> Add doctor
+                </Button>
+              </>
             )}
-
-            {showCsvImport && <div className="mb-space-4"><DoctorCsvImport onImported={() => { load(); }} /></div>}
-
-            <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-                <Card className="p-space-4">
-                  <h3 className="text-label mb-space-3 font-bold text-ink-900">All doctors</h3>
-                  {doctors.length > 0 && (
-                    <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
-                      <div className="relative min-w-[200px] flex-1">
-                        <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                        <input
-                          type="text"
-                          placeholder="Search doctors by name, department or specialization…"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
-                        />
-                      </div>
-                      <select
-                        value={activeFilter}
-                        onChange={(e) => setActiveFilter(e.target.value)}
-                        className="h-10 rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
-                      >
-                        <option value="all">All doctors</option>
-                        <option value="active">Available only</option>
-                        <option value="inactive">Unavailable only</option>
-                      </select>
-                      <Button type="button" variant="secondary" disabled title="Coming soon">
-                        <SlidersHorizontal size={14} /> Filters
-                      </Button>
-                    </div>
-                  )}
-                  <DataTable
-                    columns={columns}
-                    data={filteredDoctors}
-                    getRowId={(d) => d.id}
-                    onRowClick={selectDoctor}
-                    rowClassName={(d) => (d.id === selectedDoctor?.id ? "bg-brand-50" : "")}
-                    emptyMessage={doctors.length === 0 ? "No doctors yet." : "No doctors match your search/filter."}
-                  />
-                </Card>
-              </div>
-
-              <div>
-                <DoctorDetailPanel
-                  doctor={selectedDoctor}
-                  index={Math.max(selectedIndex, 0)}
-                  canManage={canManageDoctors}
-                  onEdit={handleEditDoctor}
-                  togglingId={togglingId}
-                  onToggleActive={handleToggleActive}
-                  onRunningLate={setRunningLateFor}
-                  onCreateLogin={setCreateLoginFor}
-                  onResetPassword={setResetPasswordFor}
-                  onManageLeave={setLeaveManagerFor}
-                />
-              </div>
-            </div>
+            <PortalTopBarActions />
           </>
-        )}
+        }
+      />
 
-        <Dialog open={showDoctorForm} onOpenChange={(open) => { if (!open) cancelDoctorForm(); }}>
-          <DialogContent className="max-w-3xl">
-            <DialogTitle>{editingDoctorId ? "Edit doctor" : "Add doctor"}</DialogTitle>
-            {departments && (
-              <DoctorScheduleForm
-                departments={departments}
-                value={doctorForm}
-                onChange={setDoctorForm}
-                onSave={handleSaveDoctor}
-                onCancel={cancelDoctorForm}
-                saving={savingDoctor}
-                errors={doctorErrors}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
+      {!canManageDoctors && (
+        <p className="mb-space-4 text-ink-400 text-[13px]">
+          Doctor management isn&apos;t available for your account type. Contact support if you need
+          changes made.
+        </p>
+      )}
+
+      {!departments ? (
+        <p className="text-ink-400 text-[13px]">Loading…</p>
+      ) : (
+        <>
+          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              label="Total doctors"
+              value={doctors.length}
+              deltaPct={null}
+              hint="Live count"
+              icon={UserRound}
+            />
+            <StatTile
+              label="Active doctors"
+              value={doctors.filter((d) => d.is_active).length}
+              deltaPct={null}
+              hint={`of ${doctors.length} total`}
+              icon={UserRoundCheck}
+            />
+            <StatTile
+              label="On leave"
+              value={onLeaveTodayCount}
+              deltaPct={null}
+              hint="Today"
+              icon={CalendarX}
+              tint="clay"
+            />
+            <StatTile
+              label="Departments covered"
+              value={departments.length}
+              deltaPct={null}
+              hint="Live count"
+              icon={Building2}
+            />
+          </div>
+
+          {departments.length === 0 && (
+            <Card className="mb-space-4 p-space-4">
+              <p className="text-ink-400 text-[12.5px]">
+                No departments yet -- add one from{" "}
+                <Link
+                  href="/portal/settings"
+                  className="text-brand-600 font-semibold hover:underline"
+                >
+                  Settings &rarr; Departments
+                </Link>{" "}
+                first, then you can add doctors to it.
+              </p>
+            </Card>
+          )}
+
+          {showCsvImport && (
+            <div className="mb-space-4">
+              <DoctorCsvImport
+                onImported={() => {
+                  load();
+                }}
               />
-            )}
-          </DialogContent>
-        </Dialog>
+            </div>
+          )}
 
-        <AddStaffDialog
-          open={createLoginFor !== null}
-          onOpenChange={(open) => { if (!open) setCreateLoginFor(null); }}
-          onCreated={load}
-          presetDoctor={createLoginFor}
-        />
-        <RunningLateDialog
-          doctor={runningLateFor}
-          onOpenChange={(open) => { if (!open) setRunningLateFor(null); }}
-        />
-        <ResetDoctorPasswordDialog
-          doctor={resetPasswordFor}
-          onOpenChange={(open) => { if (!open) setResetPasswordFor(null); }}
-        />
+          <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <Card className="p-space-4">
+                <h3 className="text-label mb-space-3 text-ink-900 font-bold">All doctors</h3>
+                {doctors.length > 0 && (
+                  <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
+                    <div className="relative min-w-[200px] flex-1">
+                      <Search
+                        size={14}
+                        className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Search doctors by name, department or specialization…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
+                      />
+                    </div>
+                    <select
+                      value={activeFilter}
+                      onChange={(e) => setActiveFilter(e.target.value)}
+                      className="border-line bg-card px-space-3 text-ink-900 h-10 rounded-md border text-[13px]"
+                    >
+                      <option value="all">All doctors</option>
+                      <option value="active">Available only</option>
+                      <option value="inactive">Unavailable only</option>
+                    </select>
+                    <Button type="button" variant="secondary" disabled title="Coming soon">
+                      <SlidersHorizontal size={14} /> Filters
+                    </Button>
+                  </div>
+                )}
+                <DataTable
+                  columns={columns}
+                  data={filteredDoctors}
+                  getRowId={(d) => d.id}
+                  onRowClick={selectDoctor}
+                  rowClassName={(d) => (d.id === selectedDoctor?.id ? "bg-brand-50" : "")}
+                  emptyMessage={
+                    doctors.length === 0
+                      ? "No doctors yet."
+                      : "No doctors match your search/filter."
+                  }
+                />
+              </Card>
+            </div>
 
-        <Dialog open={leaveManagerFor !== null} onOpenChange={(open) => { if (!open) setLeaveManagerFor(null); }}>
-          <DialogContent className="max-w-2xl">
-            <DialogTitle>{leaveManagerFor ? `Dr. ${leaveManagerFor.name} — leave` : "Leave"}</DialogTitle>
-            {leaveManagerFor && <DoctorLeaveManager doctorId={leaveManagerFor.id} />}
-          </DialogContent>
-        </Dialog>
+            <div>
+              <DoctorDetailPanel
+                doctor={selectedDoctor}
+                index={Math.max(selectedIndex, 0)}
+                canManage={canManageDoctors}
+                onEdit={handleEditDoctor}
+                togglingId={togglingId}
+                onToggleActive={handleToggleActive}
+                onRunningLate={setRunningLateFor}
+                onCreateLogin={setCreateLoginFor}
+                onResetPassword={setResetPasswordFor}
+                onManageLeave={setLeaveManagerFor}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      <Dialog
+        open={showDoctorForm}
+        onOpenChange={(open) => {
+          if (!open) cancelDoctorForm();
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogTitle>{editingDoctorId ? "Edit doctor" : "Add doctor"}</DialogTitle>
+          {departments && (
+            <DoctorScheduleForm
+              departments={departments}
+              value={doctorForm}
+              onChange={setDoctorForm}
+              onSave={handleSaveDoctor}
+              onCancel={cancelDoctorForm}
+              saving={savingDoctor}
+              errors={doctorErrors}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AddStaffDialog
+        open={createLoginFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setCreateLoginFor(null);
+        }}
+        onCreated={load}
+        presetDoctor={createLoginFor}
+      />
+      <RunningLateDialog
+        doctor={runningLateFor}
+        onOpenChange={(open) => {
+          if (!open) setRunningLateFor(null);
+        }}
+      />
+      <ResetDoctorPasswordDialog
+        doctor={resetPasswordFor}
+        onOpenChange={(open) => {
+          if (!open) setResetPasswordFor(null);
+        }}
+      />
+
+      <Dialog
+        open={leaveManagerFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setLeaveManagerFor(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>
+            {leaveManagerFor ? `Dr. ${leaveManagerFor.name} — leave` : "Leave"}
+          </DialogTitle>
+          {leaveManagerFor && <DoctorLeaveManager doctorId={leaveManagerFor.id} />}
+        </DialogContent>
+      </Dialog>
     </PortalShell>
   );
 }

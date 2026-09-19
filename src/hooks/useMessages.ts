@@ -143,7 +143,12 @@ export function useMessages(ready: boolean) {
 
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.size} message record(s)? This can't be undone from the portal.`)) return;
+    if (
+      !window.confirm(
+        `Delete ${selectedIds.size} message record(s)? This can't be undone from the portal.`,
+      )
+    )
+      return;
     setBulkActing(true);
     setBulkError(null);
     const result = await portalFetch("/api/portal/handoffs/bulk-delete", {
@@ -199,16 +204,19 @@ export function useMessages(ready: boolean) {
     };
   }, [selected?.phone]);
 
-  const loadThread = useCallback(async (id: number) => {
-    const result = await portalFetch(`/api/portal/handoffs/${id}/messages`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setThreadError(result.error);
-      return;
-    }
-    setThreadError(null);
-    setThread((result.data as { messages: HandoffMessage[] }).messages);
-  }, [router]);
+  const loadThread = useCallback(
+    async (id: number) => {
+      const result = await portalFetch(`/api/portal/handoffs/${id}/messages`);
+      if (!result.ok) {
+        if (result.unauthorized) router.push("/portal/login");
+        else setThreadError(result.error);
+        return;
+      }
+      setThreadError(null);
+      setThread((result.data as { messages: HandoffMessage[] }).messages);
+    },
+    [router],
+  );
 
   // While a conversation is open, poll its thread too -- a patient's
   // follow-up messages must show up without a manual refresh, same as new
@@ -249,7 +257,8 @@ export function useMessages(ready: boolean) {
   // Item 3: soft-delete only (no restriction on status, unlike appointments
   // -- see db.soft_delete_handoff()'s own reasoning).
   async function handleDelete(id: number) {
-    if (!window.confirm("Delete this message record? This can't be undone from the portal.")) return;
+    if (!window.confirm("Delete this message record? This can't be undone from the portal."))
+      return;
     setDeletingId(id);
     const result = await portalFetch(`/api/portal/handoffs/${id}/delete`, { method: "POST" });
     setDeletingId(null);
@@ -260,14 +269,33 @@ export function useMessages(ready: boolean) {
   }
 
   return {
-    filter, setFilter, handoffs, error, dateFilter, setDateFilter,
-    selectedId, setSelectedId, selected,
-    replyText, setReplyText, sending, handleSend,
-    thread, threadError,
-    resolvingId, handleResolve,
-    deletingId, handleDelete,
-    selectedIds, toggleSelected, toggleSelectAll,
-    bulkActing, bulkError, handleBulkResolve, handleBulkDelete,
-    matchedPatient, matchedPatientLoading,
+    filter,
+    setFilter,
+    handoffs,
+    error,
+    dateFilter,
+    setDateFilter,
+    selectedId,
+    setSelectedId,
+    selected,
+    replyText,
+    setReplyText,
+    sending,
+    handleSend,
+    thread,
+    threadError,
+    resolvingId,
+    handleResolve,
+    deletingId,
+    handleDelete,
+    selectedIds,
+    toggleSelected,
+    toggleSelectAll,
+    bulkActing,
+    bulkError,
+    handleBulkResolve,
+    handleBulkDelete,
+    matchedPatient,
+    matchedPatientLoading,
   };
 }

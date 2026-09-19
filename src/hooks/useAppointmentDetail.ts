@@ -46,7 +46,11 @@ export function useAppointmentDetail(appointmentId: string, ready: boolean) {
       else setError(result.error);
       return;
     }
-    const data = result.data as { appointment: Appointment; patient: AppointmentPatient | null; notes: VisitNote[] };
+    const data = result.data as {
+      appointment: Appointment;
+      patient: AppointmentPatient | null;
+      notes: VisitNote[];
+    };
     setAppointment(data.appointment);
     setPatient(data.patient);
     setNotes(data.notes);
@@ -74,7 +78,9 @@ export function useAppointmentDetail(appointmentId: string, ready: boolean) {
 
   async function handleDelete() {
     setDeleting(true);
-    const result = await portalFetch(`/api/portal/bookings/${appointmentId}/delete`, { method: "POST" });
+    const result = await portalFetch(`/api/portal/bookings/${appointmentId}/delete`, {
+      method: "POST",
+    });
     setDeleting(false);
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
@@ -104,8 +110,18 @@ export function useAppointmentDetail(appointmentId: string, ready: boolean) {
   }
 
   return {
-    appointment, patient, notes, error, marking, deleting,
-    handleAttendance, handleDelete,
-    noteText, setNoteText, savingNote, noteError, handleAddNote,
+    appointment,
+    patient,
+    notes,
+    error,
+    marking,
+    deleting,
+    handleAttendance,
+    handleDelete,
+    noteText,
+    setNoteText,
+    savingNote,
+    noteError,
+    handleAddNote,
   };
 }

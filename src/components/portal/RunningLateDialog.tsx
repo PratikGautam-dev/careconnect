@@ -97,14 +97,21 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
       <DialogContent>
         <DialogTitle>{doctor ? `Dr. ${doctor.name} is running late` : "Running late"}</DialogTitle>
         <form onSubmit={handleSubmit} className="mt-space-3">
-          <p className="mb-space-3 text-[12.5px] text-ink-600">
-            Every still-confirmed appointment on the chosen date, at or after the cutoff time, shifts forward by the
-            chosen amount -- each patient gets a WhatsApp message with their new time automatically.
+          <p className="mb-space-3 text-ink-600 text-[12.5px]">
+            Every still-confirmed appointment on the chosen date, at or after the cutoff time,
+            shifts forward by the chosen amount -- each patient gets a WhatsApp message with their
+            new time automatically.
           </p>
 
-          <div className="mb-space-3 grid grid-cols-2 gap-space-3">
+          <div className="mb-space-3 gap-space-3 grid grid-cols-2">
             <Field label="Date" htmlFor="delay_date">
-              <Input id="delay_date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+              <Input
+                id="delay_date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                required
+              />
             </Field>
             <Field label="From time" htmlFor="delay_from_time">
               <Input
@@ -117,8 +124,8 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
             </Field>
           </div>
 
-          <p className="mb-space-1 text-[12px] font-semibold text-ink-600">Shift by</p>
-          <div className="mb-space-2 flex flex-wrap items-center gap-space-2">
+          <p className="mb-space-1 text-ink-600 text-[12px] font-semibold">Shift by</p>
+          <div className="mb-space-2 gap-space-2 flex flex-wrap items-center">
             {SHIFT_PRESETS.map((p) => (
               <button
                 key={p.label}
@@ -128,7 +135,7 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
                   setShiftMinutes(String(p.minutes));
                 }}
                 className={cn(
-                  "h-9 rounded-md border px-space-3 text-[12.5px] font-semibold transition-colors duration-150",
+                  "px-space-3 h-9 rounded-md border text-[12.5px] font-semibold transition-colors duration-150",
                   Number(shiftHours) === p.hours && Number(shiftMinutes) === p.minutes
                     ? "border-brand-600 bg-brand-600 text-white"
                     : "border-line bg-card text-ink-600 hover:border-brand-300",
@@ -138,7 +145,7 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
               </button>
             ))}
           </div>
-          <div className="mb-space-3 flex items-center gap-space-2">
+          <div className="mb-space-3 gap-space-2 flex items-center">
             <input
               type="number"
               min={0}
@@ -146,9 +153,9 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
               value={shiftHours}
               onChange={(e) => setShiftHours(e.target.value)}
               aria-label="Shift hours"
-              className="h-9 w-16 rounded-md border border-line bg-card px-space-2 text-[13px] text-ink-900"
+              className="border-line bg-card px-space-2 text-ink-900 h-9 w-16 rounded-md border text-[13px]"
             />
-            <span className="text-[12.5px] text-ink-400">hr</span>
+            <span className="text-ink-400 text-[12.5px]">hr</span>
             <input
               type="number"
               min={0}
@@ -156,12 +163,12 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
               value={shiftMinutes}
               onChange={(e) => setShiftMinutes(e.target.value)}
               aria-label="Shift minutes"
-              className="h-9 w-16 rounded-md border border-line bg-card px-space-2 text-[13px] text-ink-900"
+              className="border-line bg-card px-space-2 text-ink-900 h-9 w-16 rounded-md border text-[13px]"
             />
-            <span className="text-[12.5px] text-ink-400">min</span>
+            <span className="text-ink-400 text-[12.5px]">min</span>
           </div>
 
-          {error && <p className="mb-space-3 text-[12.5px] font-medium text-error">{error}</p>}
+          {error && <p className="mb-space-3 text-error text-[12.5px] font-medium">{error}</p>}
           <Button type="submit" disabled={saving || !date || !fromTime || totalMinutes < 1}>
             {saving ? "Updating…" : "Shift appointments"}
           </Button>

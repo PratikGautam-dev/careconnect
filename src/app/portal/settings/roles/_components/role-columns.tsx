@@ -22,35 +22,39 @@ type CreateRoleColumnsOptions = {
  * Rows are just page keys (strings); the actual {view,write,delete} cell
  * comes from `cellFor`, closing over that role's slice of the matrix. */
 export function createRoleColumns({
-  pageLabel, cellFor, canWrite, isSaving, onToggle,
+  pageLabel,
+  cellFor,
+  canWrite,
+  isSaving,
+  onToggle,
 }: CreateRoleColumnsOptions): ColumnDef<string>[] {
   return [
     {
       id: "page",
       header: "Page",
-      cell: ({ row }) => <span className="text-ink-900">{pageLabel[row.original] || row.original}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900">{pageLabel[row.original] || row.original}</span>
+      ),
     },
-    ...ACTIONS.map(
-      (action): ColumnDef<string> => ({
-        id: action,
-        header: () => <span className="block text-center capitalize">{action}</span>,
-        cell: ({ row }) => {
-          const pageKey = row.original;
-          const cell = cellFor(pageKey);
-          return (
-            <div className="text-center">
-              <input
-                type="checkbox"
-                checked={cell[action]}
-                disabled={!canWrite || isSaving(pageKey, action)}
-                onChange={(e) => onToggle(pageKey, action, e.target.checked)}
-                className="h-4 w-4 accent-brand-600 disabled:opacity-50"
-              />
-            </div>
-          );
-        },
-      }),
-    ),
+    ...ACTIONS.map((action): ColumnDef<string> => ({
+      id: action,
+      header: () => <span className="block text-center capitalize">{action}</span>,
+      cell: ({ row }) => {
+        const pageKey = row.original;
+        const cell = cellFor(pageKey);
+        return (
+          <div className="text-center">
+            <input
+              type="checkbox"
+              checked={cell[action]}
+              disabled={!canWrite || isSaving(pageKey, action)}
+              onChange={(e) => onToggle(pageKey, action, e.target.checked)}
+              className="accent-brand-600 h-4 w-4 disabled:opacity-50"
+            />
+          </div>
+        );
+      },
+    })),
   ];
 }
 
@@ -73,7 +77,12 @@ type CreateRoleManagementColumnsOptions = {
  * the click, not just a toast after a 400) only for the reserved Admin role
  * or a role with staff currently assigned; Rename is always available. */
 export function createRoleManagementColumns({
-  canManage, userCountFor, onEditPermissions, onManageUsers, onRename, onDelete,
+  canManage,
+  userCountFor,
+  onEditPermissions,
+  onManageUsers,
+  onRename,
+  onDelete,
 }: CreateRoleManagementColumnsOptions): ColumnDef<Role>[] {
   return [
     {
@@ -82,8 +91,8 @@ export function createRoleManagementColumns({
       cell: ({ row }) => {
         const role = row.original;
         return (
-          <span className="flex items-center gap-space-2 font-semibold text-ink-900">
-            <UsersIcon size={16} className="shrink-0 text-brand-600" /> {role.name}
+          <span className="gap-space-2 text-ink-900 flex items-center font-semibold">
+            <UsersIcon size={16} className="text-brand-600 shrink-0" /> {role.name}
           </span>
         );
       },
@@ -91,7 +100,9 @@ export function createRoleManagementColumns({
     {
       id: "description",
       header: "Description",
-      cell: ({ row }) => <span className="text-[12.5px] text-ink-600">{row.original.description || "—"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600 text-[12.5px]">{row.original.description || "—"}</span>
+      ),
     },
     {
       id: "users",
@@ -110,11 +121,11 @@ export function createRoleManagementColumns({
         const role = row.original;
         const staffCount = userCountFor(role.id);
         return (
-          <div className="flex items-center gap-space-2">
+          <div className="gap-space-2 flex items-center">
             <button
               type="button"
               onClick={() => onEditPermissions(role.id)}
-              className="rounded-md border border-brand-200 px-space-3 py-1.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50"
+              className="border-brand-200 px-space-3 text-brand-700 hover:bg-brand-50 rounded-md border py-1.5 text-[12px] font-semibold"
             >
               Edit Permissions
             </button>
@@ -122,7 +133,7 @@ export function createRoleManagementColumns({
               type="button"
               onClick={() => onManageUsers(role.id)}
               title="Manage user-level permission overrides for people on this role"
-              className="flex items-center gap-1 rounded-md border border-line px-space-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-black/[0.03]"
+              className="border-line px-space-3 text-ink-700 flex items-center gap-1 rounded-md border py-1.5 text-[12px] font-semibold hover:bg-black/[0.03]"
             >
               <UserCog size={14} /> Manage Users
             </button>
@@ -131,7 +142,7 @@ export function createRoleManagementColumns({
                 <button
                   type="button"
                   onClick={() => onRename(role)}
-                  className="rounded-md border border-line p-1.5 text-ink-600 hover:bg-black/[0.03]"
+                  className="border-line text-ink-600 rounded-md border p-1.5 hover:bg-black/[0.03]"
                   title="Rename"
                 >
                   <Pencil size={14} />
@@ -147,7 +158,7 @@ export function createRoleManagementColumns({
                         ? `${staffCount} staff member(s) are still assigned to this role.`
                         : "Delete role"
                   }
-                  className="rounded-md border border-line p-1.5 text-ink-600 hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="border-line text-ink-600 rounded-md border p-1.5 hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -179,49 +190,54 @@ type CreateStaffOverrideColumnsOptions = {
  * the override outright and the checkbox falls back to following the role
  * again. */
 export function createStaffOverrideColumns({
-  pageLabel, roleDefaultFor, cellFor, canWrite, isSaving, onChange,
+  pageLabel,
+  roleDefaultFor,
+  cellFor,
+  canWrite,
+  isSaving,
+  onChange,
 }: CreateStaffOverrideColumnsOptions): ColumnDef<string>[] {
   return [
     {
       id: "page",
       header: "Page",
-      cell: ({ row }) => <span className="text-ink-900">{pageLabel[row.original] || row.original}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900">{pageLabel[row.original] || row.original}</span>
+      ),
     },
-    ...ACTIONS.map(
-      (action): ColumnDef<string> => ({
-        id: action,
-        header: () => <span className="block text-center capitalize">{action}</span>,
-        cell: ({ row }) => {
-          const pageKey = row.original;
-          const cell = cellFor(pageKey);
-          const roleDefault = roleDefaultFor(pageKey)[action];
-          const isOverridden = cell[action] !== null;
-          const effective = isOverridden ? (cell[action] as boolean) : roleDefault;
-          const disabled = !canWrite || isSaving(pageKey);
-          return (
-            <div className="flex items-center justify-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={effective}
+    ...ACTIONS.map((action): ColumnDef<string> => ({
+      id: action,
+      header: () => <span className="block text-center capitalize">{action}</span>,
+      cell: ({ row }) => {
+        const pageKey = row.original;
+        const cell = cellFor(pageKey);
+        const roleDefault = roleDefaultFor(pageKey)[action];
+        const isOverridden = cell[action] !== null;
+        const effective = isOverridden ? (cell[action] as boolean) : roleDefault;
+        const disabled = !canWrite || isSaving(pageKey);
+        return (
+          <div className="flex items-center justify-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={effective}
+              disabled={disabled}
+              onChange={(e) => onChange(pageKey, { ...cell, [action]: e.target.checked })}
+              className="accent-brand-600 h-4 w-4 disabled:opacity-50"
+            />
+            {isOverridden && (
+              <button
+                type="button"
                 disabled={disabled}
-                onChange={(e) => onChange(pageKey, { ...cell, [action]: e.target.checked })}
-                className="h-4 w-4 accent-brand-600 disabled:opacity-50"
-              />
-              {isOverridden && (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => onChange(pageKey, { ...cell, [action]: null })}
-                  title={`Custom for this person -- click to reset back to the role's own setting (${roleDefault ? "allowed" : "denied"})`}
-                  className="rounded border border-brand-200 bg-brand-50 px-1 py-0.5 text-[9px] font-bold uppercase text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Custom ↺
-                </button>
-              )}
-            </div>
-          );
-        },
-      }),
-    ),
+                onClick={() => onChange(pageKey, { ...cell, [action]: null })}
+                title={`Custom for this person -- click to reset back to the role's own setting (${roleDefault ? "allowed" : "denied"})`}
+                className="border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 rounded border px-1 py-0.5 text-[9px] font-bold uppercase disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Custom ↺
+              </button>
+            )}
+          </div>
+        );
+      },
+    })),
   ];
 }

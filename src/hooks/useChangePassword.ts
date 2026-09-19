@@ -64,10 +64,14 @@ export function useChangePassword() {
   }
 
   return {
-    currentPassword, setCurrentPassword,
-    newPassword, setNewPassword,
-    confirmPassword, setConfirmPassword,
-    errors, submitting,
+    currentPassword,
+    setCurrentPassword,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    errors,
+    submitting,
     handleSubmit,
   };
 }

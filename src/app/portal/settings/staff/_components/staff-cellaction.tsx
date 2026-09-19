@@ -20,12 +20,19 @@ type Props = {
   onResetPassword: (staff: StaffRow) => void;
 };
 
-export function StaffCellAction({ staff, canManage, togglingId, onSelect, onToggleActive, onResetPassword }: Props) {
+export function StaffCellAction({
+  staff,
+  canManage,
+  togglingId,
+  onSelect,
+  onToggleActive,
+  onResetPassword,
+}: Props) {
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-600 hover:bg-black/4 hover:text-ink-900"
+          className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
           aria-label={`Actions for ${staff.name}`}
         >
           <MoreHorizontal size={16} />
@@ -41,7 +48,10 @@ export function StaffCellAction({ staff, canManage, togglingId, onSelect, onTogg
                 <DropdownMenuItem onClick={() => onResetPassword(staff)}>
                   <KeyRound size={14} /> Reset password
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={togglingId === staff.id} onClick={() => onToggleActive(staff)}>
+                <DropdownMenuItem
+                  disabled={togglingId === staff.id}
+                  onClick={() => onToggleActive(staff)}
+                >
                   <Power size={14} /> {staff.is_active ? "Deactivate" : "Activate"}
                 </DropdownMenuItem>
               </>

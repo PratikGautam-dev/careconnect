@@ -15,30 +15,30 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
     <div>
       <Link
         href={`/admin/users/${hospitalId}`}
-        className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline"
+        className="mb-space-4 text-brand-600 inline-block text-[13px] font-semibold hover:underline"
       >
         ← Back to staff list
       </Link>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       {!staff ? (
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-5 flex flex-col gap-space-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="mb-space-5 gap-space-3 flex flex-col sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-eyebrow mb-space-1">{staff.hospital_name}</p>
               <h1 className="text-display">{staff.name}</h1>
             </div>
-            <div className="flex items-center gap-space-2">
-              <span className="rounded-full bg-brand-50 px-space-2 py-0.5 text-[11px] font-semibold text-brand-700">
+            <div className="gap-space-2 flex items-center">
+              <span className="bg-brand-50 px-space-2 text-brand-700 rounded-full py-0.5 text-[11px] font-semibold">
                 {staff.role_name}
               </span>
               <span
                 className={cn(
-                  "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                  staff.is_active ? "bg-success-tint text-success" : "bg-black/[0.05] text-ink-400",
+                  "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                  staff.is_active ? "bg-success-tint text-success" : "text-ink-400 bg-black/[0.05]",
                 )}
               >
                 {staff.is_active ? "Active" : "Inactive"}
@@ -47,12 +47,12 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
           </div>
 
           <Card className="mb-space-4 p-space-5">
-            <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2">
+            <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2">
               <Field label="Email">
-                <p className="text-[13.5px] text-ink-900">{staff.email}</p>
+                <p className="text-ink-900 text-[13.5px]">{staff.email}</p>
               </Field>
               <Field label="Member since">
-                <p className="text-[13.5px] text-ink-900">{formatDate(staff.created_at)}</p>
+                <p className="text-ink-900 text-[13.5px]">{formatDate(staff.created_at)}</p>
               </Field>
             </div>
           </Card>
@@ -61,20 +61,20 @@ function StaffDetailView({ hospitalId, staffId }: { hospitalId: number; staffId:
             <Card className="p-space-5">
               <p className="text-eyebrow mb-space-3">Doctor details</p>
               {!staff.doctor_name ? (
-                <p className="text-[13px] text-ink-400">Not linked to a doctor record.</p>
+                <p className="text-ink-400 text-[13px]">Not linked to a doctor record.</p>
               ) : (
-                <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2">
+                <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2">
                   <Field label="Department">
-                    <p className="text-[13.5px] text-ink-900">{staff.department_name || "—"}</p>
+                    <p className="text-ink-900 text-[13.5px]">{staff.department_name || "—"}</p>
                   </Field>
                   <Field label="Specialization">
-                    <p className="text-[13.5px] text-ink-900">{staff.specialization || "—"}</p>
+                    <p className="text-ink-900 text-[13.5px]">{staff.specialization || "—"}</p>
                   </Field>
                   <Field label="Qualification">
-                    <p className="text-[13.5px] text-ink-900">{staff.qualification || "—"}</p>
+                    <p className="text-ink-900 text-[13.5px]">{staff.qualification || "—"}</p>
                   </Field>
                   <Field label="Experience">
-                    <p className="text-[13.5px] text-ink-900">
+                    <p className="text-ink-900 text-[13.5px]">
                       {staff.years_experience != null ? `${staff.years_experience} years` : "—"}
                     </p>
                   </Field>

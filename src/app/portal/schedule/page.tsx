@@ -15,7 +15,7 @@ export default function PortalSchedulePage() {
   if (!canView) {
     return (
       <PortalShell hospital={hospital} active="schedule">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Schedule.</p>
+        <p className="text-ink-400 text-[13px]">You don&apos;t have access to Schedule.</p>
       </PortalShell>
     );
   }
@@ -27,7 +27,10 @@ export default function PortalSchedulePage() {
   if (!isDoctor) {
     return (
       <PortalShell hospital={hospital} active="schedule">
-        <p className="text-[13px] text-ink-400">Your account isn&apos;t linked to a doctor profile, so there&apos;s no schedule to manage here.</p>
+        <p className="text-ink-400 text-[13px]">
+          Your account isn&apos;t linked to a doctor profile, so there&apos;s no schedule to manage
+          here.
+        </p>
       </PortalShell>
     );
   }

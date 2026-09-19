@@ -28,11 +28,7 @@ export const metadata: Metadata = {
     "Let patients book, reschedule and cancel appointments through WhatsApp, managed from one hospital dashboard.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
       <body>

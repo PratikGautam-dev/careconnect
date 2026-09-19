@@ -13,7 +13,14 @@ import {
 } from "@tanstack/react-table";
 import { Button } from "@/components/ui/Button";
 import { ColumnVisibilityMenu } from "@/components/ui/ColumnVisibilityMenu";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { useStaffSession } from "@/lib/staffAuth";
 
@@ -147,7 +154,8 @@ export function DataTable<TData>({
   // (see its own comment), so the first render always starts from {} (all
   // columns visible) and swaps in the real saved state a tick later.
   useEffect(() => {
-    if (enableColumnVisibility && tableId) setColumnVisibility(loadColumnVisibility(tableId, staffId));
+    if (enableColumnVisibility && tableId)
+      setColumnVisibility(loadColumnVisibility(tableId, staffId));
   }, [enableColumnVisibility, tableId, staffId]);
 
   useEffect(() => {
@@ -177,13 +185,20 @@ export function DataTable<TData>({
   const { pageIndex, pageSize: currentPageSize } = serverPagination
     ? { pageIndex: serverPagination.page - 1, pageSize: serverPagination.limit }
     : table.getState().pagination;
-  const totalRows = serverPagination ? serverPagination.total : table.getFilteredRowModel().rows.length;
-  const pageCount = serverPagination ? Math.max(1, Math.ceil(serverPagination.total / serverPagination.limit)) : table.getPageCount();
+  const totalRows = serverPagination
+    ? serverPagination.total
+    : table.getFilteredRowModel().rows.length;
+  const pageCount = serverPagination
+    ? Math.max(1, Math.ceil(serverPagination.total / serverPagination.limit))
+    : table.getPageCount();
   const canPreviousPage = serverPagination ? serverPagination.page > 1 : table.getCanPreviousPage();
   const canNextPage = serverPagination ? serverPagination.page < pageCount : table.getCanNextPage();
-  const goToPage = (page: number) => (serverPagination ? onPageChange?.(page) : table.setPageIndex(page - 1));
-  const goPrev = () => (serverPagination ? onPageChange?.(serverPagination.page - 1) : table.previousPage());
-  const goNext = () => (serverPagination ? onPageChange?.(serverPagination.page + 1) : table.nextPage());
+  const goToPage = (page: number) =>
+    serverPagination ? onPageChange?.(page) : table.setPageIndex(page - 1);
+  const goPrev = () =>
+    serverPagination ? onPageChange?.(serverPagination.page - 1) : table.previousPage();
+  const goNext = () =>
+    serverPagination ? onPageChange?.(serverPagination.page + 1) : table.nextPage();
 
   return (
     <div>
@@ -193,12 +208,14 @@ export function DataTable<TData>({
         </div>
       )}
       <Table containerClassName={containerClassName}>
-        <TableHeader className={cn(stickyHeader && "sticky top-0 z-10 bg-card")}>
+        <TableHeader className={cn(stickyHeader && "bg-card sticky top-0 z-10")}>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id} className="hover:bg-transparent">
               {headerGroup.headers.map((header) => (
                 <TableHead key={header.id}>
-                  {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(header.column.columnDef.header, header.getContext())}
                 </TableHead>
               ))}
             </TableRow>
@@ -207,7 +224,7 @@ export function DataTable<TData>({
         {loading || rows.length === 0 ? (
           <TableBody>
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={columns.length} className="py-space-4 text-center text-ink-400">
+              <TableCell colSpan={columns.length} className="py-space-4 text-ink-400 text-center">
                 {loading ? loadingMessage : emptyMessage}
               </TableCell>
             </TableRow>
@@ -219,16 +236,25 @@ export function DataTable<TData>({
               return (
                 <Fragment key={row.id}>
                   <TableRow
-                    className={cn(onRowClick && "cursor-pointer", expanded && "border-b-0", rowClassName?.(row.original))}
+                    className={cn(
+                      onRowClick && "cursor-pointer",
+                      expanded && "border-b-0",
+                      rowClassName?.(row.original),
+                    )}
                     onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
                     ))}
                   </TableRow>
                   {expanded && renderRowDetail && (
                     <TableRow>
-                      <TableCell colSpan={row.getVisibleCells().length} className="pb-space-3 whitespace-normal">
+                      <TableCell
+                        colSpan={row.getVisibleCells().length}
+                        className="pb-space-3 whitespace-normal"
+                      >
                         {renderRowDetail(row.original)}
                       </TableCell>
                     </TableRow>
@@ -241,18 +267,19 @@ export function DataTable<TData>({
       </Table>
 
       {totalRows > currentPageSize && (
-        <div className="mt-space-3 flex flex-col items-center justify-between gap-space-2 border-t border-line pt-space-3 sm:flex-row">
-          <p className="text-[12px] text-ink-400">
-            Showing {pageIndex * currentPageSize + 1}–{Math.min((pageIndex + 1) * currentPageSize, totalRows)} of {totalRows}
+        <div className="mt-space-3 gap-space-2 border-line pt-space-3 flex flex-col items-center justify-between border-t sm:flex-row">
+          <p className="text-ink-400 text-[12px]">
+            Showing {pageIndex * currentPageSize + 1}–
+            {Math.min((pageIndex + 1) * currentPageSize, totalRows)} of {totalRows}
           </p>
           {pageSizeOptions && !serverPagination ? (
-            <div className="flex items-center gap-space-2">
+            <div className="gap-space-2 flex items-center">
               <Button size="md" variant="secondary" onClick={goPrev} disabled={!canPreviousPage}>
                 <ArrowLeft size={13} />
               </Button>
               {pageNumbers(pageIndex + 1, pageCount).map((n, i) =>
                 n === "…" ? (
-                  <span key={`e${i}`} className="px-space-1 text-[12px] text-ink-400">
+                  <span key={`e${i}`} className="px-space-1 text-ink-400 text-[12px]">
                     …
                   </span>
                 ) : (
@@ -261,8 +288,10 @@ export function DataTable<TData>({
                     type="button"
                     onClick={() => goToPage(n)}
                     className={cn(
-                      "flex h-8 min-w-8 items-center justify-center rounded-md px-space-2 text-[12px] font-semibold",
-                      n === pageIndex + 1 ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-black/4",
+                      "px-space-2 flex h-8 min-w-8 items-center justify-center rounded-md text-[12px] font-semibold",
+                      n === pageIndex + 1
+                        ? "bg-brand-600 text-white"
+                        : "text-ink-600 hover:bg-black/4",
                     )}
                   >
                     {n}
@@ -275,7 +304,7 @@ export function DataTable<TData>({
               <select
                 value={currentPageSize}
                 onChange={(e) => table.setPageSize(Number(e.target.value))}
-                className="h-8 rounded-md border border-line bg-card px-space-2 text-[12px] text-ink-900"
+                className="border-line bg-card px-space-2 text-ink-900 h-8 rounded-md border text-[12px]"
                 aria-label="Rows per page"
               >
                 {pageSizeOptions.map((n) => (
@@ -286,11 +315,11 @@ export function DataTable<TData>({
               </select>
             </div>
           ) : (
-            <div className="flex items-center gap-space-2">
+            <div className="gap-space-2 flex items-center">
               <Button size="md" variant="secondary" onClick={goPrev} disabled={!canPreviousPage}>
                 <ArrowLeft size={13} /> Prev
               </Button>
-              <span className="text-[12px] font-semibold text-ink-600">
+              <span className="text-ink-600 text-[12px] font-semibold">
                 Page {pageIndex + 1} of {pageCount}
               </span>
               <Button size="md" variant="secondary" onClick={goNext} disabled={!canNextPage}>

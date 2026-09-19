@@ -17,15 +17,28 @@ export const TINT_CLASSES: Record<Tint, string> = {
 };
 
 export function SectionHeader({
-  icon: Icon, tint, title, subtitle,
-}: { icon: LucideIcon; tint: Tint; title: string; subtitle: string }) {
+  icon: Icon,
+  tint,
+  title,
+  subtitle,
+}: {
+  icon: LucideIcon;
+  tint: Tint;
+  title: string;
+  subtitle: string;
+}) {
   return (
-    <div className="mb-space-4 flex items-start gap-space-3">
-      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-md", TINT_CLASSES[tint])}>
+    <div className="mb-space-4 gap-space-3 flex items-start">
+      <span
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+          TINT_CLASSES[tint],
+        )}
+      >
         <Icon size={17} strokeWidth={2} />
       </span>
       <div className="min-w-0">
-        <h3 className="text-[14px] font-bold text-ink-900">{title}</h3>
+        <h3 className="text-ink-900 text-[14px] font-bold">{title}</h3>
         <p className="text-hint">{subtitle}</p>
       </div>
     </div>
@@ -33,29 +46,49 @@ export function SectionHeader({
 }
 
 export function Select({
-  value, onChange, options, disabled,
-}: { value: string; onChange: (v: string) => void; options: string[]; disabled?: boolean }) {
+  value,
+  onChange,
+  options,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  disabled?: boolean;
+}) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 disabled:cursor-not-allowed disabled:opacity-50"
+      className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13.5px] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {options.map((o) => (
-        <option key={o} value={o}>{o}</option>
+        <option key={o} value={o}>
+          {o}
+        </option>
       ))}
     </select>
   );
 }
 
 export function ToggleRow({
-  label, subtitle, checked, onChange, disabled,
-}: { label: string; subtitle: string; checked: boolean; onChange: () => void; disabled?: boolean }) {
+  label,
+  subtitle,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  subtitle: string;
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between gap-space-3 py-space-2">
+    <div className="gap-space-3 py-space-2 flex items-center justify-between">
       <div className="min-w-0">
-        <p className="text-[13px] font-semibold text-ink-900">{label}</p>
+        <p className="text-ink-900 text-[13px] font-semibold">{label}</p>
         <p className="text-hint truncate">{subtitle}</p>
       </div>
       <Switch checked={checked} onChange={onChange} disabled={disabled} />

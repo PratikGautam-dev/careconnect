@@ -56,26 +56,55 @@ export function ManageBedsDialog({ open, onOpenChange }: ManageBedsDialogProps) 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogTitle>Manage Beds</DialogTitle>
-        <p className="mb-space-4 text-[12.5px] text-ink-400">Total bed capacity and occupancy details</p>
+        <p className="mb-space-4 text-ink-400 text-[12.5px]">
+          Total bed capacity and occupancy details
+        </p>
         <form onSubmit={handleSave}>
-          <div className="grid grid-cols-1 gap-x-space-3 sm:grid-cols-2">
+          <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
             <Field label="Total Beds">
-              <Input type="number" min={0} value={beds.totalBeds} onChange={(e) => patch({ totalBeds: Number(e.target.value) })} />
+              <Input
+                type="number"
+                min={0}
+                value={beds.totalBeds}
+                onChange={(e) => patch({ totalBeds: Number(e.target.value) })}
+              />
             </Field>
             <Field label="ICU Beds">
-              <Input type="number" min={0} value={beds.icuBeds} onChange={(e) => patch({ icuBeds: Number(e.target.value) })} />
+              <Input
+                type="number"
+                min={0}
+                value={beds.icuBeds}
+                onChange={(e) => patch({ icuBeds: Number(e.target.value) })}
+              />
             </Field>
             <Field label="General Beds">
-              <Input type="number" min={0} value={beds.generalBeds} onChange={(e) => patch({ generalBeds: Number(e.target.value) })} />
+              <Input
+                type="number"
+                min={0}
+                value={beds.generalBeds}
+                onChange={(e) => patch({ generalBeds: Number(e.target.value) })}
+              />
             </Field>
             <Field label="Semi-Private Beds">
-              <Input type="number" min={0} value={beds.semiPrivateBeds} onChange={(e) => patch({ semiPrivateBeds: Number(e.target.value) })} />
+              <Input
+                type="number"
+                min={0}
+                value={beds.semiPrivateBeds}
+                onChange={(e) => patch({ semiPrivateBeds: Number(e.target.value) })}
+              />
             </Field>
           </div>
           <Field label="Private Rooms" className="mb-0">
-            <Input type="number" min={0} value={beds.privateRooms} onChange={(e) => patch({ privateRooms: Number(e.target.value) })} />
+            <Input
+              type="number"
+              min={0}
+              value={beds.privateRooms}
+              onChange={(e) => patch({ privateRooms: Number(e.target.value) })}
+            />
           </Field>
-          <Button type="submit" className="mt-space-4">Save Changes</Button>
+          <Button type="submit" className="mt-space-4">
+            Save Changes
+          </Button>
         </form>
       </DialogContent>
     </Dialog>

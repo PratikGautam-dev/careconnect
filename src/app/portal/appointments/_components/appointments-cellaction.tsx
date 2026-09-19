@@ -1,6 +1,18 @@
 "use client";
 
-import { Beaker, CalendarClock, Check, Download, Eye, MoreHorizontal, Send, Trash2, Upload, UserX, XCircle } from "lucide-react";
+import {
+  Beaker,
+  CalendarClock,
+  Check,
+  Download,
+  Eye,
+  MoreHorizontal,
+  Send,
+  Trash2,
+  Upload,
+  UserX,
+  XCircle,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
@@ -78,7 +90,7 @@ export function AppointmentCellAction({
     <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-600 hover:bg-black/4 hover:text-ink-900"
+          className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
           aria-label={`Actions for appointment ${a.reference_id || a.id}`}
         >
           <MoreHorizontal size={16} />
@@ -91,10 +103,16 @@ export function AppointmentCellAction({
             </DropdownMenuItem>
             {a.lab_status && (
               <>
-                <DropdownMenuItem disabled title="Coming soon — no report-download endpoint scoped to a booking yet">
+                <DropdownMenuItem
+                  disabled
+                  title="Coming soon — no report-download endpoint scoped to a booking yet"
+                >
                   <Download size={14} /> Download report
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled title="Coming soon — report upload exists on a patient's own page, not scoped to a booking yet">
+                <DropdownMenuItem
+                  disabled
+                  title="Coming soon — report upload exists on a patient's own page, not scoped to a booking yet"
+                >
                   <Upload size={14} /> Upload report
                 </DropdownMenuItem>
               </>
@@ -103,19 +121,31 @@ export function AppointmentCellAction({
               <>
                 {onAttendance && (
                   <>
-                    <DropdownMenuItem disabled={markingAttendanceId === a.id} onClick={() => onAttendance(a.id, true)}>
+                    <DropdownMenuItem
+                      disabled={markingAttendanceId === a.id}
+                      onClick={() => onAttendance(a.id, true)}
+                    >
                       <Check size={14} /> Mark attended
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={markingAttendanceId === a.id} onClick={() => onAttendance(a.id, false)}>
+                    <DropdownMenuItem
+                      disabled={markingAttendanceId === a.id}
+                      onClick={() => onAttendance(a.id, false)}
+                    >
                       <UserX size={14} /> Mark no-show
                     </DropdownMenuItem>
                   </>
                 )}
-                {onAdvanceLabStatus && a.lab_status && LAB_STATUS_NEXT_LABEL[a.appointment_type_id || ""]?.[a.lab_status] && (
-                  <DropdownMenuItem disabled={advancingLabStatusId === a.id} onClick={() => onAdvanceLabStatus(a.id)}>
-                    <Beaker size={14} /> {LAB_STATUS_NEXT_LABEL[a.appointment_type_id || ""][a.lab_status]}
-                  </DropdownMenuItem>
-                )}
+                {onAdvanceLabStatus &&
+                  a.lab_status &&
+                  LAB_STATUS_NEXT_LABEL[a.appointment_type_id || ""]?.[a.lab_status] && (
+                    <DropdownMenuItem
+                      disabled={advancingLabStatusId === a.id}
+                      onClick={() => onAdvanceLabStatus(a.id)}
+                    >
+                      <Beaker size={14} />{" "}
+                      {LAB_STATUS_NEXT_LABEL[a.appointment_type_id || ""][a.lab_status]}
+                    </DropdownMenuItem>
+                  )}
                 <DropdownMenuItem onClick={() => onOpenReschedule(a.id)}>
                   <CalendarClock size={14} /> Reschedule
                 </DropdownMenuItem>
@@ -128,7 +158,11 @@ export function AppointmentCellAction({
               </>
             ) : (
               <PermissionGate page={permissionPage} action="delete">
-                <DropdownMenuItem variant="destructive" disabled={deletingId === a.id} onClick={() => onDelete(a.id)}>
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={deletingId === a.id}
+                  onClick={() => onDelete(a.id)}
+                >
                   <Trash2 size={14} /> {deletingId === a.id ? "Deleting…" : "Delete"}
                 </DropdownMenuItem>
               </PermissionGate>

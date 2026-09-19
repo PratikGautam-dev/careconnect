@@ -25,15 +25,39 @@ import { StatTile } from "@/components/portal/StatTile";
 import { cn } from "@/lib/cn";
 import { toast } from "@/lib/toast";
 import { usePermission, useStaffSession } from "@/lib/staffAuth";
-import { usePortalRoles, type OverrideCell, type Role, type RoleUser } from "@/hooks/usePortalRoles";
-import { createRoleColumns, createRoleManagementColumns, createStaffOverrideColumns } from "./_components/role-columns";
+import {
+  usePortalRoles,
+  type OverrideCell,
+  type Role,
+  type RoleUser,
+} from "@/hooks/usePortalRoles";
+import {
+  createRoleColumns,
+  createRoleManagementColumns,
+  createStaffOverrideColumns,
+} from "./_components/role-columns";
 
 const EMPTY_CELL: OverrideCell = { view: null, write: null, delete: null };
 
 const PAGE_KEYS = [
-  "dashboard", "appointments", "daycare_appointments", "diagnostic_appointments", "patients", "schedule", "doctors",
-  "diagnostic_tests", "messages", "settings", "staff", "roles", "leave_requests", "holiday_application",
-  "attendance", "check_in_out", "report-review", "report-analytics",
+  "dashboard",
+  "appointments",
+  "daycare_appointments",
+  "diagnostic_appointments",
+  "patients",
+  "schedule",
+  "doctors",
+  "diagnostic_tests",
+  "messages",
+  "settings",
+  "staff",
+  "roles",
+  "leave_requests",
+  "holiday_application",
+  "attendance",
+  "check_in_out",
+  "report-review",
+  "report-analytics",
 ];
 const PAGE_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
@@ -68,8 +92,16 @@ export default function RolesPermissionsPage() {
   const canWrite = usePermission("roles", "write");
 
   const {
-    roles, matrix, error, savingCell, handleToggle, createRole, updateRole, deleteRole,
-    loadRoleUsers, updateStaffOverride,
+    roles,
+    matrix,
+    error,
+    savingCell,
+    handleToggle,
+    createRole,
+    updateRole,
+    deleteRole,
+    loadRoleUsers,
+    updateStaffOverride,
   } = usePortalRoles(canView);
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
 
@@ -107,7 +139,9 @@ export default function RolesPermissionsPage() {
   if (!canView) {
     return (
       <PortalShell hospital={session?.hospital || null} active="roles">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Roles &amp; Permissions.</p>
+        <p className="text-ink-400 text-[13px]">
+          You don&apos;t have access to Roles &amp; Permissions.
+        </p>
       </PortalShell>
     );
   }
@@ -144,7 +178,8 @@ export default function RolesPermissionsPage() {
     const err = renameTarget
       ? await updateRole(renameTarget.id, { name, description: roleForm.description.trim() })
       : await createRole(
-          name, roleForm.description.trim(),
+          name,
+          roleForm.description.trim(),
           roleForm.cloneFromRoleId ? Number(roleForm.cloneFromRoleId) : null,
         );
     setSavingRoleForm(false);
@@ -177,11 +212,15 @@ export default function RolesPermissionsPage() {
       return;
     }
     const isCleared = next.view === null && next.write === null && next.delete === null;
-    setRoleUsers((prev) => prev && prev.map((u) => {
-      if (u.staff_id !== staffId) return u;
-      const rest = u.overrides.filter((o) => o.page_key !== pageKey);
-      return { ...u, overrides: isCleared ? rest : [...rest, { page_key: pageKey, ...next }] };
-    }));
+    setRoleUsers(
+      (prev) =>
+        prev &&
+        prev.map((u) => {
+          if (u.staff_id !== staffId) return u;
+          const rest = u.overrides.filter((o) => o.page_key !== pageKey);
+          return { ...u, overrides: isCleared ? rest : [...rest, { page_key: pageKey, ...next }] };
+        }),
+    );
   }
 
   const roleManagementColumns = createRoleManagementColumns({
@@ -200,11 +239,23 @@ export default function RolesPermissionsPage() {
         description="Manage user roles, permissions and access across the portal."
       />
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total Roles" value={roles.length} deltaPct={null} hint="Roles at this hospital" icon={Users} />
-        <StatTile label="Total Users" value={totalUsers} deltaPct={null} hint="Across all roles" icon={UserRound} />
+      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Total Roles"
+          value={roles.length}
+          deltaPct={null}
+          hint="Roles at this hospital"
+          icon={Users}
+        />
+        <StatTile
+          label="Total Users"
+          value={totalUsers}
+          deltaPct={null}
+          hint="Across all roles"
+          icon={UserRound}
+        />
         <StatTile
           label="Active Roles"
           value={activeRoleCount}
@@ -213,33 +264,51 @@ export default function RolesPermissionsPage() {
           icon={ShieldCheck}
           tint="success"
         />
-        <StatTile label="Total Permissions" value={totalPermissionCells} deltaPct={null} hint="Role x module combinations" icon={KeyRound} />
+        <StatTile
+          label="Total Permissions"
+          value={totalPermissionCells}
+          deltaPct={null}
+          hint="Role x module combinations"
+          icon={KeyRound}
+        />
       </div>
 
       {!matrix ? (
-        <p className="text-[13px] text-ink-400">Loading…</p>
+        <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
-        <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-[1fr_360px]">
+        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[1fr_360px]">
           <div className="space-y-space-4">
             <Card className="p-space-4">
               <div className="mb-space-3">
-                <h3 className="text-label font-bold text-ink-900">Role Management</h3>
+                <h3 className="text-label text-ink-900 font-bold">Role Management</h3>
                 <p className="text-hint">
-                  {roles.length} role{roles.length === 1 ? "" : "s"} at this hospital.{!canWrite && " You have view-only access."}
+                  {roles.length} role{roles.length === 1 ? "" : "s"} at this hospital.
+                  {!canWrite && " You have view-only access."}
                 </p>
               </div>
-              <DataTable columns={roleManagementColumns} data={roles} getRowId={(r) => String(r.id)} />
+              <DataTable
+                columns={roleManagementColumns}
+                data={roles}
+                getRowId={(r) => String(r.id)}
+              />
             </Card>
 
             <Card className="p-space-4">
-              <h3 className="text-label font-bold text-ink-900">Quick Actions</h3>
+              <h3 className="text-label text-ink-900 font-bold">Quick Actions</h3>
               <p className="text-hint mb-space-3">Common role and permission management tasks.</p>
               <QuickActionList
                 columns={2}
                 actions={[
                   ...(canWrite
                     ? [{ label: "Add New Role", icon: Plus, onClick: openAddRole }]
-                    : [{ label: "Add New Role", icon: Plus, disabled: true, title: "You don't have write access to this page." }]),
+                    : [
+                        {
+                          label: "Add New Role",
+                          icon: Plus,
+                          disabled: true,
+                          title: "You don't have write access to this page.",
+                        },
+                      ]),
                   { label: "Audit Logs", icon: ScrollText, href: "/portal/settings/activity" },
                 ]}
               />
@@ -247,12 +316,14 @@ export default function RolesPermissionsPage() {
           </div>
 
           <div className="space-y-space-4">
-            <Card className="overflow-x-auto p-space-4">
-              <h3 className="text-label font-bold text-ink-900">Module Access Overview</h3>
-              <p className="text-hint mb-space-3">Whether each role can view a module (its own real view permission).</p>
+            <Card className="p-space-4 overflow-x-auto">
+              <h3 className="text-label text-ink-900 font-bold">Module Access Overview</h3>
+              <p className="text-hint mb-space-3">
+                Whether each role can view a module (its own real view permission).
+              </p>
               <table className="w-full text-[12px]">
                 <thead>
-                  <tr className="border-b border-line text-left text-ink-400">
+                  <tr className="border-line text-ink-400 border-b text-left">
                     <th className="py-space-2 pr-space-2 font-semibold">Module</th>
                     {roles.map((role) => (
                       <th key={role.id} className="px-space-1 py-space-2 text-center font-semibold">
@@ -263,16 +334,16 @@ export default function RolesPermissionsPage() {
                 </thead>
                 <tbody>
                   {PAGE_KEYS.map((pageKey) => (
-                    <tr key={pageKey} className="border-b border-line last:border-0">
+                    <tr key={pageKey} className="border-line border-b last:border-0">
                       <td className="py-space-2 pr-space-2 text-ink-900">{PAGE_LABEL[pageKey]}</td>
                       {roles.map((role) => {
                         const hasAccess = matrix[role.id]?.[pageKey]?.view;
                         return (
                           <td key={role.id} className="px-space-1 py-space-2 text-center">
                             {hasAccess ? (
-                              <Check size={14} className="mx-auto text-success" />
+                              <Check size={14} className="text-success mx-auto" />
                             ) : (
-                              <Minus size={14} className="mx-auto text-ink-300" />
+                              <Minus size={14} className="text-ink-300 mx-auto" />
                             )}
                           </td>
                         );
@@ -299,10 +370,17 @@ export default function RolesPermissionsPage() {
                 <DataTable
                   columns={createRoleColumns({
                     pageLabel: PAGE_LABEL,
-                    cellFor: (pageKey) => matrix[editingRole.id]?.[pageKey] || { view: false, write: false, delete: false },
+                    cellFor: (pageKey) =>
+                      matrix[editingRole.id]?.[pageKey] || {
+                        view: false,
+                        write: false,
+                        delete: false,
+                      },
                     canWrite,
-                    isSaving: (pageKey, action) => savingCell === `${editingRole.id}:${pageKey}:${action}`,
-                    onToggle: (pageKey, action, next) => handleToggle(editingRole.id, pageKey, action, next),
+                    isSaving: (pageKey, action) =>
+                      savingCell === `${editingRole.id}:${pageKey}:${action}`,
+                    onToggle: (pageKey, action, next) =>
+                      handleToggle(editingRole.id, pageKey, action, next),
                   })}
                   data={PAGE_KEYS}
                   getRowId={(pageKey) => pageKey}
@@ -313,23 +391,26 @@ export default function RolesPermissionsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={manageUsersRole !== null} onOpenChange={(open) => !open && setManageUsersRoleId(null)}>
+      <Dialog
+        open={manageUsersRole !== null}
+        onOpenChange={(open) => !open && setManageUsersRoleId(null)}
+      >
         <DialogContent className={cn("max-w-2xl")}>
           {manageUsersRole && (
             <>
               <DialogTitle>Users on &quot;{manageUsersRole.name}&quot;</DialogTitle>
               <p className="text-hint mb-space-3">
-                Grant or revoke one permission for one specific person -- it always overrides whatever this role
-                itself grants them.
+                Grant or revoke one permission for one specific person -- it always overrides
+                whatever this role itself grants them.
               </p>
               {loadingRoleUsers ? (
-                <p className="text-[12.5px] text-ink-400">Loading…</p>
+                <p className="text-ink-400 text-[12.5px]">Loading…</p>
               ) : !roleUsers || roleUsers.length === 0 ? (
-                <p className="text-[12.5px] text-ink-400">No staff members are on this role yet.</p>
+                <p className="text-ink-400 text-[12.5px]">No staff members are on this role yet.</p>
               ) : (
                 <table className="w-full text-[12.5px]">
                   <thead>
-                    <tr className="border-b border-line text-left text-ink-400">
+                    <tr className="border-line text-ink-400 border-b text-left">
                       <th className="py-space-2 pr-space-2 font-semibold">Name</th>
                       <th className="py-space-2 pr-space-2 font-semibold">Email</th>
                       <th className="py-space-2 pr-space-2 font-semibold">Status</th>
@@ -339,11 +420,13 @@ export default function RolesPermissionsPage() {
                   </thead>
                   <tbody>
                     {roleUsers.map((u) => (
-                      <tr key={u.staff_id} className="border-b border-line last:border-0">
+                      <tr key={u.staff_id} className="border-line border-b last:border-0">
                         <td className="py-space-2 pr-space-2 text-ink-900">{u.name}</td>
                         <td className="py-space-2 pr-space-2 text-ink-600">{u.email}</td>
                         <td className="py-space-2 pr-space-2">
-                          <Badge tone={u.is_active ? "success" : "neutral"}>{u.is_active ? "Active" : "Inactive"}</Badge>
+                          <Badge tone={u.is_active ? "success" : "neutral"}>
+                            {u.is_active ? "Active" : "Inactive"}
+                          </Badge>
                         </td>
                         <td className="py-space-2 pr-space-2 text-ink-600">
                           {u.overrides.length === 0 ? "—" : `${u.overrides.length} page(s)`}
@@ -353,7 +436,7 @@ export default function RolesPermissionsPage() {
                             type="button"
                             onClick={() => setOverrideStaffId(u.staff_id)}
                             disabled={!canWrite}
-                            className="rounded-md border border-brand-200 px-space-3 py-1 text-[12px] font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="border-brand-200 px-space-3 text-brand-700 hover:bg-brand-50 rounded-md border py-1 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Permissions
                           </button>
@@ -368,44 +451,57 @@ export default function RolesPermissionsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={overrideStaffId !== null} onOpenChange={(open) => !open && setOverrideStaffId(null)}>
+      <Dialog
+        open={overrideStaffId !== null}
+        onOpenChange={(open) => !open && setOverrideStaffId(null)}
+      >
         <DialogContent className={cn("max-w-2xl")}>
-          {manageUsersRole && overrideStaffId !== null && (() => {
-            const staffUser = roleUsers?.find((u) => u.staff_id === overrideStaffId);
-            if (!staffUser) return null;
-            return (
-              <>
-                <DialogTitle>{staffUser.name}&apos;s permissions</DialogTitle>
-                <p className="text-hint mb-space-3">
-                  On the &quot;{manageUsersRole.name}&quot; role. Each box starts pre-filled with what that role
-                  already grants -- check or uncheck one to override it just for {staffUser.name}; a
-                  &quot;Custom&quot; tag appears next to it, click that to reset it back to the role&apos;s own setting.
-                </p>
-                <DataTable
-                  columns={createStaffOverrideColumns({
-                    pageLabel: PAGE_LABEL,
-                    roleDefaultFor: (pageKey) => matrix?.[manageUsersRole.id]?.[pageKey] || { view: false, write: false, delete: false },
-                    cellFor: (pageKey) => {
-                      const o = staffUser.overrides.find((ov) => ov.page_key === pageKey);
-                      return o ? { view: o.view, write: o.write, delete: o.delete } : EMPTY_CELL;
-                    },
-                    canWrite,
-                    isSaving: (pageKey) => savingOverrideCell === `${staffUser.staff_id}:${pageKey}`,
-                    onChange: (pageKey, next) => handleOverrideChange(staffUser.staff_id, pageKey, next),
-                  })}
-                  data={PAGE_KEYS}
-                  getRowId={(pageKey) => pageKey}
-                />
-              </>
-            );
-          })()}
+          {manageUsersRole &&
+            overrideStaffId !== null &&
+            (() => {
+              const staffUser = roleUsers?.find((u) => u.staff_id === overrideStaffId);
+              if (!staffUser) return null;
+              return (
+                <>
+                  <DialogTitle>{staffUser.name}&apos;s permissions</DialogTitle>
+                  <p className="text-hint mb-space-3">
+                    On the &quot;{manageUsersRole.name}&quot; role. Each box starts pre-filled with
+                    what that role already grants -- check or uncheck one to override it just for{" "}
+                    {staffUser.name}; a &quot;Custom&quot; tag appears next to it, click that to
+                    reset it back to the role&apos;s own setting.
+                  </p>
+                  <DataTable
+                    columns={createStaffOverrideColumns({
+                      pageLabel: PAGE_LABEL,
+                      roleDefaultFor: (pageKey) =>
+                        matrix?.[manageUsersRole.id]?.[pageKey] || {
+                          view: false,
+                          write: false,
+                          delete: false,
+                        },
+                      cellFor: (pageKey) => {
+                        const o = staffUser.overrides.find((ov) => ov.page_key === pageKey);
+                        return o ? { view: o.view, write: o.write, delete: o.delete } : EMPTY_CELL;
+                      },
+                      canWrite,
+                      isSaving: (pageKey) =>
+                        savingOverrideCell === `${staffUser.staff_id}:${pageKey}`,
+                      onChange: (pageKey, next) =>
+                        handleOverrideChange(staffUser.staff_id, pageKey, next),
+                    })}
+                    data={PAGE_KEYS}
+                    getRowId={(pageKey) => pageKey}
+                  />
+                </>
+              );
+            })()}
         </DialogContent>
       </Dialog>
 
       <Dialog open={roleFormOpen} onOpenChange={setRoleFormOpen}>
         <DialogContent>
           <DialogTitle>{renameTarget ? `Rename "${renameTarget.name}"` : "Add role"}</DialogTitle>
-          <form onSubmit={handleRoleFormSubmit} className="flex flex-col gap-space-3">
+          <form onSubmit={handleRoleFormSubmit} className="gap-space-3 flex flex-col">
             <Field label="Name" htmlFor="role_name" required>
               <Input
                 id="role_name"
@@ -423,12 +519,16 @@ export default function RolesPermissionsPage() {
               />
             </Field>
             {!renameTarget && (
-              <Field label="Clone permissions from" htmlFor="role_clone" hint="Optional -- starts with no access if left blank.">
+              <Field
+                label="Clone permissions from"
+                htmlFor="role_clone"
+                hint="Optional -- starts with no access if left blank."
+              >
                 <select
                   id="role_clone"
                   value={roleForm.cloneFromRoleId}
                   onChange={(e) => setRoleForm((f) => ({ ...f, cloneFromRoleId: e.target.value }))}
-                  className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+                  className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
                 >
                   <option value="">None (start with no access)</option>
                   {roles.map((r) => (
@@ -439,12 +539,20 @@ export default function RolesPermissionsPage() {
                 </select>
               </Field>
             )}
-            {roleFormError && <p className="text-[12.5px] font-medium text-error">{roleFormError}</p>}
-            <div className="flex gap-space-2">
+            {roleFormError && (
+              <p className="text-error text-[12.5px] font-medium">{roleFormError}</p>
+            )}
+            <div className="gap-space-2 flex">
               <Button type="submit" size="md" disabled={savingRoleForm}>
                 {savingRoleForm ? "Saving…" : renameTarget ? "Save" : "Create role"}
               </Button>
-              <Button type="button" variant="secondary" size="md" onClick={() => setRoleFormOpen(false)} disabled={savingRoleForm}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={() => setRoleFormOpen(false)}
+                disabled={savingRoleForm}
+              >
                 Cancel
               </Button>
             </div>

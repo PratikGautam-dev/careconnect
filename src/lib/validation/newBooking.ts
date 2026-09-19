@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { patientDateOfBirthSchema, patientGenderSchema, patientNameSchema, patientPhoneSchema } from "./patientInfo";
+import {
+  patientDateOfBirthSchema,
+  patientGenderSchema,
+  patientNameSchema,
+  patientPhoneSchema,
+} from "./patientInfo";
 
 export const newBookingSchema = z.object({
   patient_name: patientNameSchema,

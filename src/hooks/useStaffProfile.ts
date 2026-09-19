@@ -4,8 +4,13 @@ import type { PortalHospital } from "@/lib/portalAuth";
 import { staffFetch } from "@/lib/staffAuth";
 
 export type StaffProfile = {
-  id: number; name: string; email: string;
-  role_id: number; role_name: string; is_doctor_role: boolean; doctor_id: string | null;
+  id: number;
+  name: string;
+  email: string;
+  role_id: number;
+  role_name: string;
+  is_doctor_role: boolean;
+  doctor_id: string | null;
   hospital: PortalHospital;
   employee_id: string;
   phone: string | null;

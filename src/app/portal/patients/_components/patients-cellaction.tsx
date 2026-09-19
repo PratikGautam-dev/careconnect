@@ -29,7 +29,7 @@ export function PatientCellAction({ patient, onDelete }: PatientCellActionProps)
     <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-600 hover:bg-black/4 hover:text-ink-900"
+          className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
           aria-label={`Actions for ${patient.name || patient.phone}`}
         >
           <MoreHorizontal size={16} />

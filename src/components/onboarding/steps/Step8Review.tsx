@@ -26,14 +26,20 @@ function ReviewSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-space-3 rounded-lg border border-line bg-card p-space-4 shadow-[var(--shadow-sm)]">
+    <div className="mb-space-3 border-line bg-card p-space-4 rounded-lg border shadow-[var(--shadow-sm)]">
       <div className="mb-space-2 flex items-center justify-between">
-        <h4 className="text-[13.5px] font-bold text-ink-900">{title}</h4>
-        <button type="button" onClick={onEdit} className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+        <h4 className="text-ink-900 text-[13.5px] font-bold">{title}</h4>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-brand-600 text-[12.5px] font-semibold hover:underline"
+        >
           Edit
         </button>
       </div>
-      <dl className="grid grid-cols-1 gap-x-space-4 gap-y-space-1 text-[13px] md:grid-cols-[180px_1fr]">{children}</dl>
+      <dl className="gap-x-space-4 gap-y-space-1 grid grid-cols-1 text-[13px] md:grid-cols-[180px_1fr]">
+        {children}
+      </dl>
     </div>
   );
 }
@@ -56,9 +62,17 @@ type Props = {
   submitErrors: string[];
 };
 
-export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting, submitErrors }: Props) {
+export function Step8Review({
+  state,
+  dispatch,
+  onGoToStep,
+  onSubmit,
+  submitting,
+  submitErrors,
+}: Props) {
   const bookingEnabled =
-    state.enabledFeatures.includes("book_doctor_appointment") || state.enabledFeatures.includes("tests_diagnostics");
+    state.enabledFeatures.includes("book_doctor_appointment") ||
+    state.enabledFeatures.includes("tests_diagnostics");
   const faqEnabled = state.enabledFeatures.includes("faq");
   const isClinic = state.tenantType === "clinic";
   const namedDepartments = state.departments.filter((d) => d.name.trim() || d.doctors.length > 0);
@@ -68,7 +82,9 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
     <div>
       <p className="text-eyebrow mb-space-2">Step 8 of 9</p>
       <h2 className="text-display mb-space-2">Review &amp; go live</h2>
-      <p className="text-body mb-space-4">One last look before this hospital is created and immediately bookable.</p>
+      <p className="text-body mb-space-4">
+        One last look before this hospital is created and immediately bookable.
+      </p>
 
       <ReviewSection title="Data connection (Step 0)" onEdit={() => onGoToStep(0)}>
         <Row label="Data connection" value={TIER_LABELS[state.dataTier]} />
@@ -94,7 +110,7 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
           label="Enabled for patients"
           value={
             state.enabledFeatures.length ? (
-              <ul className="list-disc space-y-0.5 pl-space-4">
+              <ul className="pl-space-4 list-disc space-y-0.5">
                 {state.enabledFeatures.map((f) => (
                   <li key={f}>{FEATURE_LABELS[f]}</li>
                 ))}
@@ -113,7 +129,10 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
           <>
             <Row label="Reminder offsets (hours)" value={state.reminderOffsetsHours} />
             <Row label="Reminder template name" value={state.reminderTemplateName || "(not set)"} />
-            <Row label="Bookings portal password" value={state.portalPassword ? "Set" : "Not set — can add later"} />
+            <Row
+              label="Bookings portal password"
+              value={state.portalPassword ? "Set" : "Not set — can add later"}
+            />
             {isClinic ? (
               <Row label="Doctor" value={state.departments[0]?.doctors[0]?.name || "(not set)"} />
             ) : (
@@ -123,11 +142,12 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
                   namedDepartments.length === 0 ? (
                     "(none added yet)"
                   ) : (
-                    <ul className="list-disc space-y-0.5 pl-space-4">
+                    <ul className="pl-space-4 list-disc space-y-0.5">
                       {namedDepartments.map((d, i) => (
                         <li key={i}>
                           {d.name || "(unnamed department)"}:{" "}
-                          {d.doctors.map((doc) => doc.name || "(unnamed doctor)").join(", ") || "(no doctors)"}
+                          {d.doctors.map((doc) => doc.name || "(unnamed doctor)").join(", ") ||
+                            "(no doctors)"}
                         </li>
                       ))}
                     </ul>
@@ -144,7 +164,7 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
               filledTopics.length === 0 ? (
                 "(none added yet)"
               ) : (
-                <ul className="list-disc space-y-0.5 pl-space-4">
+                <ul className="pl-space-4 list-disc space-y-0.5">
                   {filledTopics.map((t, i) => (
                     <li key={i}>
                       {t.topicLabel || "(unnamed topic)"}: {t.answerText || "(no answer yet)"}
@@ -157,14 +177,17 @@ export function Step8Review({ state, dispatch, onGoToStep, onSubmit, submitting,
         )}
       </ReviewSection>
 
-      <p className="mb-space-4 text-[13.5px] font-medium text-brand-700">
-        Once you submit, your hospital will be live and bookable through WhatsApp within a few minutes.
+      <p className="mb-space-4 text-brand-700 text-[13.5px] font-medium">
+        Once you submit, your hospital will be live and bookable through WhatsApp within a few
+        minutes.
       </p>
 
       {submitErrors.length > 0 && (
-        <div className="mb-space-4 rounded-lg border border-error bg-error-tint p-space-4">
-          <strong className="mb-space-1 block text-[13.5px] text-error">Please fix the following:</strong>
-          <ul className="list-disc space-y-0.5 pl-space-4 text-[13px] text-error">
+        <div className="mb-space-4 border-error bg-error-tint p-space-4 rounded-lg border">
+          <strong className="mb-space-1 text-error block text-[13.5px]">
+            Please fix the following:
+          </strong>
+          <ul className="pl-space-4 text-error list-disc space-y-0.5 text-[13px]">
             {submitErrors.map((e, i) => (
               <li key={i}>{e}</li>
             ))}

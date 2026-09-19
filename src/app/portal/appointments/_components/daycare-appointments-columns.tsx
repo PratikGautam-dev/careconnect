@@ -34,11 +34,7 @@ export const PROCEDURE_STATUS_STYLES: Record<string, string> = {
 // Not yet CONFIRMED -- scheduled_at is only a placeholder (request creation
 // time) at these stages, so the table shows "Awaiting slot selection"
 // instead of a fabricated real time.
-const AWAITING_SLOT_STATUSES = new Set([
-  "REQUESTED",
-  "UNDER_REVIEW",
-  "APPROVED",
-]);
+const AWAITING_SLOT_STATUSES = new Set(["REQUESTED", "UNDER_REVIEW", "APPROVED"]);
 
 function formatPriceRange(min: number | null, max: number | null): string {
   if (min == null && max == null) return "—";
@@ -75,7 +71,7 @@ export function createDaycareAppointmentColumns({
       id: "reference_id",
       header: "Appointment ID",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
+        <span className="text-ink-600 font-mono text-[12px] whitespace-nowrap">
           {row.original.reference_id || "—"}
         </span>
       ),
@@ -86,7 +82,7 @@ export function createDaycareAppointmentColumns({
       cell: ({ row }) => {
         const a = row.original;
         return (
-          <div className="flex items-center gap-space-2">
+          <div className="gap-space-2 flex items-center">
             <span
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
@@ -96,10 +92,8 @@ export function createDaycareAppointmentColumns({
               {initials(a.patient_name, a.phone)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">
-                {a.patient_name || a.phone}
-              </p>
-              <p className="truncate text-[11.5px] text-ink-400">
+              <p className="text-ink-900 truncate font-semibold">{a.patient_name || a.phone}</p>
+              <p className="text-ink-400 truncate text-[11.5px]">
                 {a.patient_display_id || a.phone}
               </p>
             </div>
@@ -110,34 +104,23 @@ export function createDaycareAppointmentColumns({
     {
       id: "procedure_name",
       header: "Procedure",
-      cell: ({ row }) => (
-        <span className="text-ink-900">
-          {row.original.procedure_name || "—"}
-        </span>
-      ),
+      cell: ({ row }) => <span className="text-ink-900">{row.original.procedure_name || "—"}</span>,
     },
     {
       id: "scheduled_at",
       header: "Appointment time",
       cell: ({ row }) => {
         const a = row.original;
-        if (
-          a.procedure_status &&
-          AWAITING_SLOT_STATUSES.has(a.procedure_status)
-        ) {
-          return (
-            <span className="italic text-ink-400">Awaiting slot selection</span>
-          );
+        if (a.procedure_status && AWAITING_SLOT_STATUSES.has(a.procedure_status)) {
+          return <span className="text-ink-400 italic">Awaiting slot selection</span>;
         }
         return (
           <div>
-            <span className="whitespace-nowrap tabular-nums text-ink-600">
+            <span className="text-ink-600 whitespace-nowrap tabular-nums">
               {formatShortDateTime(a.scheduled_at)}
             </span>
             {a.procedure_reschedule_requested_at && (
-              <p className="text-[11px] font-semibold text-clay-700">
-                Reschedule requested
-              </p>
+              <p className="text-clay-700 text-[11px] font-semibold">Reschedule requested</p>
             )}
           </div>
         );
@@ -148,7 +131,7 @@ export function createDaycareAppointmentColumns({
       id: "price",
       header: "Estimated price",
       cell: ({ row }) => (
-        <span className="tabular-nums text-ink-600">
+        <span className="text-ink-600 tabular-nums">
           {formatPriceRange(
             row.original.procedure_estimated_price_min,
             row.original.procedure_estimated_price_max,
@@ -160,10 +143,8 @@ export function createDaycareAppointmentColumns({
       id: "order_reference",
       header: "Order reference",
       cell: ({ row }) => (
-        <span className="font-mono text-[12px] text-ink-600">
-          {row.original.procedure_order_reference ||
-            row.original.reference_id ||
-            "—"}
+        <span className="text-ink-600 font-mono text-[12px]">
+          {row.original.procedure_order_reference || row.original.reference_id || "—"}
         </span>
       ),
     },
@@ -175,8 +156,8 @@ export function createDaycareAppointmentColumns({
         return (
           <span
             className={cn(
-              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-              PROCEDURE_STATUS_STYLES[status] || "bg-black/4 text-ink-600",
+              "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+              PROCEDURE_STATUS_STYLES[status] || "text-ink-600 bg-black/4",
             )}
           >
             {PROCEDURE_STATUS_LABELS[status] || status || "—"}
@@ -193,7 +174,7 @@ export function createDaycareAppointmentColumns({
       cell: ({ row }) => {
         const createdAt = row.original.created_at;
         return (
-          <span className="whitespace-nowrap tabular-nums text-ink-600">
+          <span className="text-ink-600 whitespace-nowrap tabular-nums">
             {createdAt ? formatShortDateTime(createdAt) : "—"}
           </span>
         );

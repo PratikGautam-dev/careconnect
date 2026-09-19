@@ -54,7 +54,10 @@ export function useHolidayApplication(canView: boolean) {
     });
     setSubmitting(false);
     if (!result.ok) {
-      if (result.unauthorized) { router.push("/portal/login"); return null; }
+      if (result.unauthorized) {
+        router.push("/portal/login");
+        return null;
+      }
       return result.error;
     }
     toast.success("Leave application submitted");

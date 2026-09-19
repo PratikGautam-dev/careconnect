@@ -69,7 +69,9 @@ export function usePlatformSettings() {
         }),
       });
       if (!result.ok) {
-        setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
+        setError(
+          result.unauthorized ? "Session expired — refresh to sign in again." : result.error,
+        );
         if (!result.unauthorized) toast.error("Couldn't save platform settings", result.error);
         return;
       }

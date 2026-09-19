@@ -95,7 +95,9 @@ export function useEditTenant(tenantId: number) {
     if (!form) return;
     setForm({
       ...form,
-      enabled_features: checked ? [...form.enabled_features, key] : form.enabled_features.filter((k) => k !== key),
+      enabled_features: checked
+        ? [...form.enabled_features, key]
+        : form.enabled_features.filter((k) => k !== key),
     });
   }
 
@@ -117,13 +119,18 @@ export function useEditTenant(tenantId: number) {
 
   async function toggleAppointmentTypeAllowed(appointmentTypeId: string, isAllowed: boolean) {
     setAppointmentTypeError(null);
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}/appointment-types/${appointmentTypeId}/allowed`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_allowed: isAllowed }),
-    });
+    const result = await adminFetch(
+      `/api/admin/tenants/${tenantId}/appointment-types/${appointmentTypeId}/allowed`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_allowed: isAllowed }),
+      },
+    );
     if (!result.ok) {
-      setAppointmentTypeError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
+      setAppointmentTypeError(
+        result.unauthorized ? "Session expired — refresh to sign in again." : result.error,
+      );
       if (!result.unauthorized) toast.error("Couldn't update appointment type", result.error);
       return;
     }
@@ -131,7 +138,12 @@ export function useEditTenant(tenantId: number) {
     toast.success(updated.is_allowed ? `${updated.label} allowed` : `${updated.label} disallowed`);
     setTenant((prev) =>
       prev
-        ? { ...prev, appointment_types: prev.appointment_types.map((t) => (t.id === updated.id ? updated : t)) }
+        ? {
+            ...prev,
+            appointment_types: prev.appointment_types.map((t) =>
+              t.id === updated.id ? updated : t,
+            ),
+          }
         : prev,
     );
   }

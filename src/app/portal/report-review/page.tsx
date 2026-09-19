@@ -63,7 +63,8 @@ export default function ReportReviewPage() {
   const today = new Date();
 
   const typeOptions = useMemo(
-    () => Array.from(new Set(reports.map((r) => r.reportType))).map((t) => ({ value: t, label: t })),
+    () =>
+      Array.from(new Set(reports.map((r) => r.reportType))).map((t) => ({ value: t, label: t })),
     [reports],
   );
 
@@ -103,46 +104,98 @@ export default function ReportReviewPage() {
   if (ready && !canViewReview && !canViewAnalytics) {
     return (
       <PortalShell hospital={hospital} active="report-review">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Report Review.</p>
+        <p className="text-ink-400 text-[13px]">You don&apos;t have access to Report Review.</p>
       </PortalShell>
     );
   }
 
   return (
     <PortalShell hospital={hospital} active="report-review">
-      <PageHeader title="Report Review" description={formatHeaderDate(today)} actions={<PortalTopBarActions />} />
+      <PageHeader
+        title="Report Review"
+        description={formatHeaderDate(today)}
+        actions={<PortalTopBarActions />}
+      />
 
       {!ready ? null : (
         <>
-          <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile label="Pending Reviews" value={stats.pendingReviews.value} deltaPct={stats.pendingReviews.deltaPct} icon={ClipboardPlus} tint="clay" />
-            <StatTile label="Approved Reports" value={stats.approvedReports.value} deltaPct={stats.approvedReports.deltaPct} icon={CheckCircle2} tint="success" />
-            <StatTile label="Rejected Reports" value={stats.rejectedReports.value} deltaPct={stats.rejectedReports.deltaPct} icon={XCircle} tint="error" upIsGood={false} />
-            <StatTile label="Urgent Reports" value={stats.urgentReports.value} deltaPct={stats.urgentReports.deltaPct} icon={AlertTriangle} tint="error" upIsGood={false} />
+          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              label="Pending Reviews"
+              value={stats.pendingReviews.value}
+              deltaPct={stats.pendingReviews.deltaPct}
+              icon={ClipboardPlus}
+              tint="clay"
+            />
+            <StatTile
+              label="Approved Reports"
+              value={stats.approvedReports.value}
+              deltaPct={stats.approvedReports.deltaPct}
+              icon={CheckCircle2}
+              tint="success"
+            />
+            <StatTile
+              label="Rejected Reports"
+              value={stats.rejectedReports.value}
+              deltaPct={stats.rejectedReports.deltaPct}
+              icon={XCircle}
+              tint="error"
+              upIsGood={false}
+            />
+            <StatTile
+              label="Urgent Reports"
+              value={stats.urgentReports.value}
+              deltaPct={stats.urgentReports.deltaPct}
+              icon={AlertTriangle}
+              tint="error"
+              upIsGood={false}
+            />
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+          <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">
               <Card className="p-space-4">
-                <div className="mb-space-3 flex flex-wrap items-start justify-between gap-space-3">
+                <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
                   <div>
-                    <h3 className="text-label font-bold text-ink-900">Uploaded Reports (Needs Review)</h3>
-                    <p className="text-hint mt-space-1">Review, approve or return uploaded diagnostic reports.</p>
+                    <h3 className="text-label text-ink-900 font-bold">
+                      Uploaded Reports (Needs Review)
+                    </h3>
+                    <p className="text-hint mt-space-1">
+                      Review, approve or return uploaded diagnostic reports.
+                    </p>
                   </div>
                 </div>
 
-                <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
-                  <FilterSelect value={typeFilter} onChange={setTypeFilter} allLabel="All Report Types" options={typeOptions} />
-                  <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Statuses" options={STATUS_OPTIONS} />
-                  <FilterSelect value={priorityFilter} onChange={setPriorityFilter} allLabel="All Priorities" options={PRIORITY_OPTIONS} />
+                <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
+                  <FilterSelect
+                    value={typeFilter}
+                    onChange={setTypeFilter}
+                    allLabel="All Report Types"
+                    options={typeOptions}
+                  />
+                  <FilterSelect
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    allLabel="All Statuses"
+                    options={STATUS_OPTIONS}
+                  />
+                  <FilterSelect
+                    value={priorityFilter}
+                    onChange={setPriorityFilter}
+                    allLabel="All Priorities"
+                    options={PRIORITY_OPTIONS}
+                  />
                   <div className="relative min-w-50 flex-1">
-                    <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+                    <Search
+                      size={14}
+                      className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
+                    />
                     <input
                       type="text"
                       placeholder="Search by patient name, report ID…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                      className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
                     />
                   </div>
                 </div>
@@ -165,19 +218,24 @@ export default function ReportReviewPage() {
                 />
               </Card>
 
-              <div className="mt-space-4 grid grid-cols-1 gap-space-4 md:grid-cols-2">
+              <div className="mt-space-4 gap-space-4 grid grid-cols-1 md:grid-cols-2">
                 <Card className="p-space-4">
                   <div className="mb-space-3 flex items-center justify-between">
-                    <h3 className="text-label font-bold text-ink-900">Recent Report Activity</h3>
-                    <span className="text-[12px] font-semibold text-ink-400">View all</span>
+                    <h3 className="text-label text-ink-900 font-bold">Recent Report Activity</h3>
+                    <span className="text-ink-400 text-[12px] font-semibold">View all</span>
                   </div>
-                  <div className="divide-y divide-line">
+                  <div className="divide-line divide-y">
                     {RECENT_REPORT_ACTIVITY.map((a) => (
-                      <div key={a.id} className="flex items-start justify-between gap-space-2 py-space-2">
+                      <div
+                        key={a.id}
+                        className="gap-space-2 py-space-2 flex items-start justify-between"
+                      >
                         <div className="min-w-0">
-                          <p className="text-[12px] text-ink-400">{a.time}</p>
-                          <p className="truncate text-[13px] font-semibold text-ink-900">{a.title}</p>
-                          <p className="truncate text-[11.5px] text-ink-400">{a.subtitle}</p>
+                          <p className="text-ink-400 text-[12px]">{a.time}</p>
+                          <p className="text-ink-900 truncate text-[13px] font-semibold">
+                            {a.title}
+                          </p>
+                          <p className="text-ink-400 truncate text-[11.5px]">{a.subtitle}</p>
                         </div>
                         <StatusBadge status={a.status} />
                       </div>
@@ -186,12 +244,27 @@ export default function ReportReviewPage() {
                 </Card>
 
                 <Card className="p-space-4">
-                  <h3 className="text-label mb-space-3 font-bold text-ink-900">Reports by Type (This Month)</h3>
+                  <h3 className="text-label mb-space-3 text-ink-900 font-bold">
+                    Reports by Type (This Month)
+                  </h3>
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={REPORTS_BY_TYPE_THIS_MONTH} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
+                    <BarChart
+                      data={REPORTS_BY_TYPE_THIS_MONTH}
+                      margin={{ top: 4, right: 8, bottom: 0, left: -16 }}
+                    >
                       <CartesianGrid stroke="#e1e0d9" vertical={false} />
-                      <XAxis dataKey="type" tickLine={false} axisLine={{ stroke: "#c3c2b7" }} tick={{ fontSize: 11, fill: "#898781" }} />
-                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#898781" }} allowDecimals={false} />
+                      <XAxis
+                        dataKey="type"
+                        tickLine={false}
+                        axisLine={{ stroke: "#c3c2b7" }}
+                        tick={{ fontSize: 11, fill: "#898781" }}
+                      />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fontSize: 12, fill: "#898781" }}
+                        allowDecimals={false}
+                      />
                       <Tooltip cursor={{ fill: "#00949E", fillOpacity: 0.08 }} />
                       <Bar dataKey="count" fill="#00949E" radius={[4, 4, 0, 0]} maxBarSize={36} />
                     </BarChart>
@@ -201,7 +274,11 @@ export default function ReportReviewPage() {
             </div>
 
             <div>
-              <ReportPreviewPanel report={selected} onApprove={handleApprove} onReturn={handleReturn} />
+              <ReportPreviewPanel
+                report={selected}
+                onApprove={handleApprove}
+                onReturn={handleReturn}
+              />
             </div>
           </div>
         </>

@@ -56,7 +56,11 @@ export function createDoctorColumns({
       cell: ({ row }) => {
         const d = row.original;
         return (
-          <button type="button" onClick={() => onSelect(d)} className="flex items-center gap-space-2 text-left">
+          <button
+            type="button"
+            onClick={() => onSelect(d)}
+            className="gap-space-2 flex items-center text-left"
+          >
             <span
               className={cn(
                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[12px] font-bold",
@@ -66,8 +70,10 @@ export function createDoctorColumns({
               {initials(d.name)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">{d.name}</p>
-              {d.qualification && <p className="truncate text-[11.5px] text-ink-400">{d.qualification}</p>}
+              <p className="text-ink-900 truncate font-semibold">{d.name}</p>
+              {d.qualification && (
+                <p className="text-ink-400 truncate text-[11.5px]">{d.qualification}</p>
+              )}
             </div>
           </button>
         );
@@ -83,7 +89,7 @@ export function createDoctorColumns({
       header: "Department",
       cell: ({ row }) => <span className="text-ink-600">{row.original.department_name}</span>,
     },
-  
+
     {
       id: "leave_balance",
       header: "Leave Balance",
@@ -103,8 +109,8 @@ export function createDoctorColumns({
       cell: ({ row }) => (
         <span
           className={cn(
-            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-            row.original.is_active ? "bg-success-tint text-success" : "bg-black/4 text-ink-600",
+            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+            row.original.is_active ? "bg-success-tint text-success" : "text-ink-600 bg-black/4",
           )}
         >
           {row.original.is_active ? "Available" : "Unavailable"}
@@ -118,10 +124,10 @@ export function createDoctorColumns({
         const d = row.original;
         return (
           <div className="space-y-0.5 text-[12px]">
-            <p className="flex items-center gap-1 text-ink-600">
+            <p className="text-ink-600 flex items-center gap-1">
               <Phone size={11} /> {d.phone || "—"}
             </p>
-            <p className="flex items-center gap-1 text-ink-600">
+            <p className="text-ink-600 flex items-center gap-1">
               <Mail size={11} /> {d.login_email || "No login yet"}
             </p>
           </div>
@@ -138,7 +144,7 @@ export function createDoctorColumns({
           <div onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-600 hover:bg-black/4 hover:text-ink-900"
+                className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
                 aria-label={`Actions for Dr. ${d.name}`}
               >
                 <MoreHorizontal size={16} />
@@ -151,10 +157,16 @@ export function createDoctorColumns({
                   </DropdownMenuItem>
                   {canManage && (
                     <>
-                      <DropdownMenuItem disabled={loadingDoctorForEdit === d.id} onClick={() => onEdit(d)}>
+                      <DropdownMenuItem
+                        disabled={loadingDoctorForEdit === d.id}
+                        onClick={() => onEdit(d)}
+                      >
                         <Pencil size={14} /> Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem disabled={togglingId === d.id} onClick={() => onToggleActive(d)}>
+                      <DropdownMenuItem
+                        disabled={togglingId === d.id}
+                        onClick={() => onToggleActive(d)}
+                      >
                         <Power size={14} /> Mark {d.is_active ? "unavailable" : "available"}
                       </DropdownMenuItem>
                     </>

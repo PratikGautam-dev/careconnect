@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { patientDateOfBirthSchema, patientGenderSchema, patientNameSchema, patientPhoneSchema } from "./patientInfo";
+import {
+  patientDateOfBirthSchema,
+  patientGenderSchema,
+  patientNameSchema,
+  patientPhoneSchema,
+} from "./patientInfo";
 
 // booking_mode is client-side only (not sent to the backend -- see
 // useNewDaycareBooking.ts's handleSubmit) -- it's what decides whether
@@ -18,7 +23,8 @@ export const newDaycareBookingSchema = z
     slot_id: z.string().trim().optional(),
   })
   .refine((v) => v.booking_mode !== "instant" || !!v.slot_id, {
-    message: "Choose an available slot.", path: ["slot_id"],
+    message: "Choose an available slot.",
+    path: ["slot_id"],
   });
 
 export type NewDaycareBookingFormValues = z.infer<typeof newDaycareBookingSchema>;

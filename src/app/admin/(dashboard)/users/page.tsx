@@ -28,15 +28,18 @@ function UsersOverview() {
       <div className="mb-space-5">
         <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Users</h1>
-        <p className="text-[13px] text-ink-600">
-          Staff headcount by hospital. Pick a hospital to see its staff list — read-only here, edit a
-          person&apos;s role or active status from that hospital&apos;s own Staff page.
+        <p className="text-ink-600 text-[13px]">
+          Staff headcount by hospital. Pick a hospital to see its staff list — read-only here, edit
+          a person&apos;s role or active status from that hospital&apos;s own Staff page.
         </p>
       </div>
 
-      <div className="mb-space-4 flex flex-col gap-space-2 sm:flex-row sm:items-center sm:gap-space-3">
+      <div className="mb-space-4 gap-space-2 sm:gap-space-3 flex flex-col sm:flex-row sm:items-center">
         <div className="relative w-full flex-1 sm:max-w-[320px]">
-          <Search size={15} className="absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
+          <Search
+            size={15}
+            className="left-space-3 text-ink-400 absolute top-1/2 -translate-y-1/2"
+          />
           <Input
             placeholder="Search by hospital name"
             value={search}
@@ -44,11 +47,11 @@ function UsersOverview() {
             className="pl-9"
           />
         </div>
-        <div className="flex gap-space-2">
+        <div className="gap-space-2 flex">
           <select
             value={tierFilter}
             onChange={(e) => setTierFilter(e.target.value as typeof tierFilter)}
-            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+            className="border-line bg-card px-space-3 text-ink-900 h-10 flex-1 rounded-md border text-[13.5px] sm:flex-none"
           >
             <option value="">All tiers</option>
             <option value="tier1">Tier 1</option>
@@ -58,7 +61,7 @@ function UsersOverview() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+            className="border-line bg-card px-space-3 text-ink-900 h-10 flex-1 rounded-md border text-[13.5px] sm:flex-none"
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
@@ -67,14 +70,16 @@ function UsersOverview() {
         </div>
       </div>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       {!hospitals ? (
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
       ) : filtered.length === 0 ? (
-        <p className="py-space-4 text-center text-[13px] text-ink-400">No hospitals match this filter.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">
+          No hospitals match this filter.
+        </p>
       ) : (
-        <div className="grid grid-cols-1 gap-space-3 md:grid-cols-2">
+        <div className="gap-space-3 grid grid-cols-1 md:grid-cols-2">
           {filtered.map((h) => (
             <Card
               key={h.id}
@@ -84,28 +89,33 @@ function UsersOverview() {
             >
               <div className="mb-space-3 flex items-start justify-between">
                 <div>
-                  <p className="text-[14.5px] font-semibold text-ink-900">{h.name}</p>
-                  <p className="text-[12px] text-ink-600">{TIER_LABELS[h.data_tier] || h.data_tier}</p>
+                  <p className="text-ink-900 text-[14.5px] font-semibold">{h.name}</p>
+                  <p className="text-ink-600 text-[12px]">
+                    {TIER_LABELS[h.data_tier] || h.data_tier}
+                  </p>
                 </div>
                 <span
                   className={cn(
-                    "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                    h.is_active ? "bg-success-tint text-success" : "bg-black/[0.05] text-ink-400",
+                    "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                    h.is_active ? "bg-success-tint text-success" : "text-ink-400 bg-black/[0.05]",
                   )}
                 >
                   {h.is_active ? "Active" : "Inactive"}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-x-space-4 gap-y-space-2 border-t border-line pt-space-3">
+              <div className="gap-x-space-4 gap-y-space-2 border-line pt-space-3 flex flex-wrap items-center border-t">
                 {h.role_breakdown.map((r) => (
-                  <div key={r.role_id} className="flex items-center gap-space-1.5">
+                  <div key={r.role_id} className="gap-space-1.5 flex items-center">
                     <UsersIcon size={14} className="text-ink-400" />
-                    <span className="text-[13px] text-ink-700">
-                      {r.count} {r.role_name}{r.count === 1 ? "" : "s"}
+                    <span className="text-ink-700 text-[13px]">
+                      {r.count} {r.role_name}
+                      {r.count === 1 ? "" : "s"}
                     </span>
                   </div>
                 ))}
-                <span className="ml-auto text-[12px] font-semibold text-ink-400">{h.total_count} total</span>
+                <span className="text-ink-400 ml-auto text-[12px] font-semibold">
+                  {h.total_count} total
+                </span>
               </div>
             </Card>
           ))}

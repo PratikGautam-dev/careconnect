@@ -1,7 +1,17 @@
 "use client";
 
 import {
-  Building2, Clock, FileText, Mail, Pencil, Phone, ShieldCheck, UserCog, UserPlus, Users, XCircle,
+  Building2,
+  Clock,
+  FileText,
+  Mail,
+  Pencil,
+  Phone,
+  ShieldCheck,
+  UserCog,
+  UserPlus,
+  Users,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -9,14 +19,22 @@ import type { DepartmentDetail } from "@/hooks/useDepartments";
 import { StatusBadge } from "./department-columns";
 import { ToggleRow } from "./settings-ui";
 
-function Row({ icon: Icon, label, value }: { icon?: React.ComponentType<{ size?: number; className?: string }>; label: string; value: React.ReactNode }) {
+function Row({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
-    <div className="flex items-start justify-between gap-space-3 py-space-2 text-[13px]">
-      <span className="flex items-center gap-space-1.5 text-ink-400">
+    <div className="gap-space-3 py-space-2 flex items-start justify-between text-[13px]">
+      <span className="gap-space-1.5 text-ink-400 flex items-center">
         {Icon && <Icon size={13} />}
         {label}
       </span>
-      <span className="max-w-[60%] text-right font-semibold text-ink-900">{value}</span>
+      <span className="text-ink-900 max-w-[60%] text-right font-semibold">{value}</span>
     </div>
   );
 }
@@ -42,12 +60,18 @@ type Props = {
  * anything yet (no separate online booking channel exists in this app),
  * flagged in its own hint text below rather than left unexplained. */
 export function DepartmentDetailsPanel({
-  department, visibilitySaving, onEdit, onAssignDoctor, onManageStaff, onToggleActive, onVisibilityChange,
+  department,
+  visibilitySaving,
+  onEdit,
+  onAssignDoctor,
+  onManageStaff,
+  onToggleActive,
+  onVisibilityChange,
 }: Props) {
   if (!department) {
     return (
       <Card className="p-space-4">
-        <p className="py-space-4 text-center text-[13px] text-ink-400">No department selected.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">No department selected.</p>
       </Card>
     );
   }
@@ -56,52 +80,63 @@ export function DepartmentDetailsPanel({
 
   return (
     <Card className="p-space-4">
-      <div className="mb-space-3 flex items-start justify-between gap-space-2">
-        <h3 className="text-label font-bold text-ink-900">Department Details</h3>
+      <div className="mb-space-3 gap-space-2 flex items-start justify-between">
+        <h3 className="text-label text-ink-900 font-bold">Department Details</h3>
         <StatusBadge isActive={department.is_active} />
       </div>
 
-      <div className="mb-space-3 flex items-start gap-space-3 border-b border-line pb-space-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-600">
+      <div className="mb-space-3 gap-space-3 border-line pb-space-3 flex items-start border-b">
+        <span className="bg-brand-50 text-brand-600 flex h-11 w-11 shrink-0 items-center justify-center rounded-md">
           <Building2 size={20} />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-[14px] font-bold text-ink-900">{department.name}</p>
-          <p className="truncate text-[12px] text-ink-400">
-            {department.doctor_count} doctor{department.doctor_count === 1 ? "" : "s"} · {department.support_staff_count} support staff
+          <p className="text-ink-900 truncate text-[14px] font-bold">{department.name}</p>
+          <p className="text-ink-400 truncate text-[12px]">
+            {department.doctor_count} doctor{department.doctor_count === 1 ? "" : "s"} ·{" "}
+            {department.support_staff_count} support staff
           </p>
         </div>
       </div>
 
       {head ? (
-        <div className="mb-space-3 rounded-md bg-paper p-space-3">
-          <p className="mb-space-1 text-[11px] font-semibold tracking-wide text-ink-400 uppercase">Head of Department</p>
-          <p className="text-[13.5px] font-bold text-ink-900">{head.name}</p>
-          <p className="mb-space-1 text-[12px] text-ink-400">{head.qualification}</p>
+        <div className="mb-space-3 bg-paper p-space-3 rounded-md">
+          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold tracking-wide uppercase">
+            Head of Department
+          </p>
+          <p className="text-ink-900 text-[13.5px] font-bold">{head.name}</p>
+          <p className="mb-space-1 text-ink-400 text-[12px]">{head.qualification}</p>
           {head.phone && (
-            <p className="flex items-center gap-space-1 text-[12px] text-ink-600"><Phone size={11} /> {head.phone}</p>
+            <p className="gap-space-1 text-ink-600 flex items-center text-[12px]">
+              <Phone size={11} /> {head.phone}
+            </p>
           )}
           {head.email && (
-            <p className="flex items-center gap-space-1 text-[12px] text-ink-600"><Mail size={11} /> {head.email}</p>
+            <p className="gap-space-1 text-ink-600 flex items-center text-[12px]">
+              <Mail size={11} /> {head.email}
+            </p>
           )}
         </div>
       ) : (
-        <p className="mb-space-3 text-[12.5px] text-ink-400">No Head of Department set.</p>
+        <p className="mb-space-3 text-ink-400 text-[12.5px]">No Head of Department set.</p>
       )}
 
-      <div className="divide-y divide-line border-b border-line">
+      <div className="divide-line border-line divide-y border-b">
         <Row icon={Building2} label="Floor / Wing" value={department.floor_wing || "—"} />
         <Row icon={Clock} label="Consultation Hours" value={department.consultation_hours || "—"} />
         <Row icon={Users} label="Total Doctors" value={department.doctor_count} />
         <Row icon={UserCog} label="Support Staff" value={department.support_staff_count} />
       </div>
       <div className="py-space-2">
-        <p className="mb-space-1 flex items-center gap-space-1.5 text-[13px] text-ink-400"><FileText size={13} /> Description</p>
-        <p className="text-[13px] text-ink-700">{department.description || "No description added yet."}</p>
+        <p className="mb-space-1 gap-space-1.5 text-ink-400 flex items-center text-[13px]">
+          <FileText size={13} /> Description
+        </p>
+        <p className="text-ink-700 text-[13px]">
+          {department.description || "No description added yet."}
+        </p>
       </div>
 
-      <div className="mt-space-3 border-t border-line pt-space-3">
-        <h4 className="mb-space-1 flex items-center gap-space-1.5 text-[13px] font-bold text-ink-900">
+      <div className="mt-space-3 border-line pt-space-3 border-t">
+        <h4 className="mb-space-1 gap-space-1.5 text-ink-900 flex items-center text-[13px] font-bold">
           <ShieldCheck size={14} className="text-brand-600" /> Patient-Facing Availability
         </h4>
         <ToggleRow
@@ -127,26 +162,36 @@ export function DepartmentDetailsPanel({
         />
       </div>
 
-      <div className="mt-space-4 border-t border-line pt-space-4">
-        <h4 className="mb-space-2 text-[13px] font-bold text-ink-900">Quick Actions</h4>
-        <div className="grid grid-cols-2 gap-space-2">
+      <div className="mt-space-4 border-line pt-space-4 border-t">
+        <h4 className="mb-space-2 text-ink-900 text-[13px] font-bold">Quick Actions</h4>
+        <div className="gap-space-2 grid grid-cols-2">
           <Button type="button" variant="secondary" size="md" onClick={() => onEdit(department)}>
             <Pencil size={13} /> Edit Department
           </Button>
-          <Button type="button" variant="secondary" size="md" onClick={() => onAssignDoctor(department)}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => onAssignDoctor(department)}
+          >
             <UserPlus size={13} /> Assign Doctor
           </Button>
           <Button type="button" variant="secondary" size="md" onClick={() => onEdit(department)}>
             <Clock size={13} /> Manage Timings
           </Button>
-          <Button type="button" variant="secondary" size="md" onClick={() => onManageStaff(department)}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => onManageStaff(department)}
+          >
             <UserCog size={13} /> Manage Staff
           </Button>
         </div>
         <button
           type="button"
           onClick={() => onToggleActive(department)}
-          className="mt-space-2 flex w-full items-center justify-center gap-space-2 rounded-md border border-error/30 bg-error-tint px-space-3 py-space-2 text-[13px] font-semibold text-error hover:bg-error/15"
+          className="mt-space-2 gap-space-2 border-error/30 bg-error-tint px-space-3 py-space-2 text-error hover:bg-error/15 flex w-full items-center justify-center rounded-md border text-[13px] font-semibold"
         >
           <XCircle size={14} />
           {department.is_active ? "Deactivate Department" : "Activate Department"}

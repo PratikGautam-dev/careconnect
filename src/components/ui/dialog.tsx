@@ -45,7 +45,7 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",
-          "overflow-y-auto rounded-lg bg-card p-space-5 shadow-[var(--shadow-lg)] outline-none",
+          "bg-card p-space-5 overflow-y-auto rounded-lg shadow-[var(--shadow-lg)] outline-none",
           "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
         )}
@@ -54,7 +54,7 @@ function DialogContent({
         {children}
         {showClose && (
           <DialogPrimitive.Close
-            className="absolute top-space-4 right-space-4 rounded-md p-space-1 text-ink-400 hover:bg-black/4 hover:text-ink-900"
+            className="top-space-4 right-space-4 p-space-1 text-ink-400 hover:text-ink-900 absolute rounded-md hover:bg-black/4"
             aria-label="Close"
           >
             <X size={16} />
@@ -69,7 +69,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("mb-space-1 pr-space-6 text-[16px] font-bold text-ink-900", className)}
+      className={cn("mb-space-1 pr-space-6 text-ink-900 text-[16px] font-bold", className)}
       {...props}
     />
   );
@@ -79,7 +79,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("mb-space-4 text-[13px] text-ink-600", className)}
+      className={cn("mb-space-4 text-ink-600 text-[13px]", className)}
       {...props}
     />
   );

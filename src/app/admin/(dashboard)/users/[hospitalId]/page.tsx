@@ -17,21 +17,28 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
 
   return (
     <div>
-      <Link href="/admin/users" className="mb-space-4 inline-block text-[13px] font-semibold text-brand-600 hover:underline">
+      <Link
+        href="/admin/users"
+        className="mb-space-4 text-brand-600 inline-block text-[13px] font-semibold hover:underline"
+      >
         ← All hospitals
       </Link>
 
       <div className="mb-space-5">
         <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">{hospitalName || "Staff"}</h1>
-        <p className="text-[13px] text-ink-600">
-          Read-only here — edit a person&apos;s role or active status from that hospital&apos;s own Staff page.
+        <p className="text-ink-600 text-[13px]">
+          Read-only here — edit a person&apos;s role or active status from that hospital&apos;s own
+          Staff page.
         </p>
       </div>
 
-      <div className="mb-space-4 flex flex-col gap-space-2 sm:flex-row sm:items-center sm:gap-space-3">
+      <div className="mb-space-4 gap-space-2 sm:gap-space-3 flex flex-col sm:flex-row sm:items-center">
         <div className="relative w-full flex-1 sm:max-w-[320px]">
-          <Search size={15} className="absolute top-1/2 left-space-3 -translate-y-1/2 text-ink-400" />
+          <Search
+            size={15}
+            className="left-space-3 text-ink-400 absolute top-1/2 -translate-y-1/2"
+          />
           <Input
             placeholder="Search by name or email"
             value={search}
@@ -39,11 +46,11 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
             className="pl-9"
           />
         </div>
-        <div className="flex gap-space-2">
+        <div className="gap-space-2 flex">
           <select
             value={activeFilter}
             onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
-            className="h-10 flex-1 rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:flex-none"
+            className="border-line bg-card px-space-3 text-ink-900 h-10 flex-1 rounded-md border text-[13.5px] sm:flex-none"
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
@@ -52,33 +59,35 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
         </div>
       </div>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <Card className="p-space-4">
         {!staff ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
         ) : staff.length === 0 ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">No staff match this filter.</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">
+            No staff match this filter.
+          </p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="divide-line divide-y">
             {staff.map((s) => (
               <li
                 key={s.id}
                 onClick={() => router.push(`/admin/users/${hospitalId}/${s.id}`)}
-                className="flex cursor-pointer flex-col gap-space-2 py-space-3 hover:bg-black/[0.02] sm:flex-row sm:items-center sm:justify-between"
+                className="gap-space-2 py-space-3 flex cursor-pointer flex-col hover:bg-black/[0.02] sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <p className="text-[13.5px] font-semibold text-ink-900">{s.name}</p>
-                  <p className="text-[12px] text-ink-600">{s.email}</p>
+                  <p className="text-ink-900 text-[13.5px] font-semibold">{s.name}</p>
+                  <p className="text-ink-600 text-[12px]">{s.email}</p>
                 </div>
-                <div className="flex items-center gap-space-3">
-                  <span className="rounded-full bg-brand-50 px-space-2 py-0.5 text-[11px] font-semibold text-brand-700">
+                <div className="gap-space-3 flex items-center">
+                  <span className="bg-brand-50 px-space-2 text-brand-700 rounded-full py-0.5 text-[11px] font-semibold">
                     {s.role_name}
                   </span>
                   <span
                     className={cn(
-                      "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                      s.is_active ? "bg-success-tint text-success" : "bg-black/[0.05] text-ink-400",
+                      "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                      s.is_active ? "bg-success-tint text-success" : "text-ink-400 bg-black/[0.05]",
                     )}
                   >
                     {s.is_active ? "Active" : "Inactive"}

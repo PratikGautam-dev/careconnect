@@ -41,8 +41,13 @@ import { requestInitToAxiosConfig } from "@/lib/apiClient";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-export async function adminFetch(path: string, init?: RequestInit): Promise<
-  { ok: true; data: unknown } | { ok: false; unauthorized: true } | { ok: false; unauthorized: false; error: string }
+export async function adminFetch(
+  path: string,
+  init?: RequestInit,
+): Promise<
+  | { ok: true; data: unknown }
+  | { ok: false; unauthorized: true }
+  | { ok: false; unauthorized: false; error: string }
 > {
   const token = getAdminToken();
   if (!token) return { ok: false, unauthorized: true };
@@ -62,7 +67,8 @@ export async function adminFetch(path: string, init?: RequestInit): Promise<
       }
       const data = err.response.data;
       return {
-        ok: false, unauthorized: false,
+        ok: false,
+        unauthorized: false,
         error: data?.error || (data?.errors || []).join(" ") || "Something went wrong.",
       };
     }

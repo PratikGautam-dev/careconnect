@@ -1,7 +1,19 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Building2, Calendar, CalendarClock, CalendarPlus, History, IdCard, KeyRound, Mail, MapPin, Pencil, Phone } from "lucide-react";
+import {
+  Building2,
+  Calendar,
+  CalendarClock,
+  CalendarPlus,
+  History,
+  IdCard,
+  KeyRound,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+} from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
@@ -10,19 +22,29 @@ import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
 import type { AttendanceStatus } from "@/hooks/useStaffManagement";
 import { AVATAR_TINTS, ATTENDANCE_LABELS, initials, type StaffRow } from "./staff-columns";
 
-function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: React.ReactNode }) {
+function DetailRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between gap-space-3 text-[13px]">
-      <span className="flex items-center gap-space-2 text-ink-400">
+    <div className="gap-space-3 flex items-center justify-between text-[13px]">
+      <span className="gap-space-2 text-ink-400 flex items-center">
         <Icon size={14} className="shrink-0" /> {label}
       </span>
-      <span className="truncate text-right font-medium text-ink-900">{value}</span>
+      <span className="text-ink-900 truncate text-right font-medium">{value}</span>
     </div>
   );
 }
 
 const ATTENDANCE_TEXT: Record<AttendanceStatus, string> = {
-  present: "text-success", on_leave: "text-error", half_day: "text-brand-600",
+  present: "text-success",
+  on_leave: "text-error",
+  half_day: "text-brand-600",
 };
 const ALL_ATTENDANCE_STATUSES: AttendanceStatus[] = ["present", "on_leave", "half_day"];
 
@@ -43,11 +65,20 @@ type Props = {
  * including Leave balance (null for an admin row, since that policy is
  * doctor/receptionist only). Applying for leave happens on a separate
  * page; this panel only shows the balance. */
-export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onEdit, onSetAttendance }: Props) {
+export function StaffDetailPanel({
+  staff,
+  index,
+  canManage,
+  onResetPassword,
+  onEdit,
+  onSetAttendance,
+}: Props) {
   if (!staff) {
     return (
       <Card className="p-space-4">
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Select a staff member to view their profile.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">
+          Select a staff member to view their profile.
+        </p>
       </Card>
     );
   }
@@ -58,8 +89,18 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
   const scheduleHours = formatWorkingHours(staff.working_hours);
 
   const quickActions: QuickAction[] = [
-    { label: "Apply leave", icon: CalendarPlus, disabled: true, title: "Coming soon — no leave workflow exists yet" },
-    { label: "View leave history", icon: History, disabled: true, title: "Coming soon — no leave workflow exists yet" },
+    {
+      label: "Apply leave",
+      icon: CalendarPlus,
+      disabled: true,
+      title: "Coming soon — no leave workflow exists yet",
+    },
+    {
+      label: "View leave history",
+      icon: History,
+      disabled: true,
+      title: "Coming soon — no leave workflow exists yet",
+    },
     ...(canManage
       ? [
           { label: "Edit staff details", icon: Pencil, onClick: () => onEdit(staff) },
@@ -79,18 +120,22 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
         >
           {initials(staff.name)}
         </span>
-        <p className="text-[15px] font-bold text-ink-900">{staff.name}</p>
-        <p className="text-[12px] text-ink-400">Staff ID: {staffDisplayId(staff.id)}</p>
-        <p className="text-[12px] text-ink-400">
+        <p className="text-ink-900 text-[15px] font-bold">{staff.name}</p>
+        <p className="text-ink-400 text-[12px]">Staff ID: {staffDisplayId(staff.id)}</p>
+        <p className="text-ink-400 text-[12px]">
           {staff.role_name} · {staff.department_name || "No department set"}
         </p>
       </div>
 
-      <div className="space-y-space-2 border-t border-line pt-space-3">
+      <div className="space-y-space-2 border-line pt-space-3 border-t">
         <DetailRow icon={Mail} label="Email" value={staff.email} />
         <DetailRow icon={Phone} label="Phone" value={staff.phone || "—"} />
         <DetailRow icon={MapPin} label="Location" value={staff.address || "—"} />
-        <DetailRow icon={Calendar} label="Joined" value={staff.created_at ? formatDate(staff.created_at) : "—"} />
+        <DetailRow
+          icon={Calendar}
+          label="Joined"
+          value={staff.created_at ? formatDate(staff.created_at) : "—"}
+        />
         {/* Employee ID auto-numbering feature -- "—" for a doctor-role row,
             whose employee id lives on its linked doctors row instead. */}
         <DetailRow icon={IdCard} label="Employee ID" value={staff.employee_id || "—"} />
@@ -98,16 +143,16 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
 
       {/* Uniform 2x2 tile grid: Shift hours/Attendance status/Reports to/
           Leave balance, matching DoctorDetailPanel.tsx's own 4-tile grid. */}
-      <div className="mt-space-3 grid grid-cols-2 gap-space-2">
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+      <div className="mt-space-3 gap-space-2 grid grid-cols-2">
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
             <CalendarClock size={12} /> Shift hours
           </p>
-          <p className="text-[13px] font-bold text-ink-900">{scheduleDays || "—"}</p>
-          <p className="text-[11.5px] text-ink-600">{scheduleHours || ""}</p>
+          <p className="text-ink-900 text-[13px] font-bold">{scheduleDays || "—"}</p>
+          <p className="text-ink-600 text-[11.5px]">{scheduleHours || ""}</p>
         </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Attendance status</p>
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Attendance status</p>
           <p className={cn("text-[13px] font-bold", ATTENDANCE_TEXT[staff.attendance_status])}>
             {ATTENDANCE_LABELS[staff.attendance_status]}
           </p>
@@ -118,7 +163,7 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
                   key={s}
                   type="button"
                   onClick={() => onSetAttendance(staff, s)}
-                  className="rounded bg-black/4 px-space-1 py-0.5 text-[10px] font-semibold text-ink-600 hover:bg-black/8"
+                  className="px-space-1 text-ink-600 rounded bg-black/4 py-0.5 text-[10px] font-semibold hover:bg-black/8"
                 >
                   Mark {ATTENDANCE_LABELS[s]}
                 </button>
@@ -126,37 +171,40 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
             </div>
           )}
         </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
             <Building2 size={12} /> Reports to
           </p>
-          <p className="truncate text-[13px] font-bold text-ink-900">{staff.reports_to_name || "—"}</p>
+          <p className="text-ink-900 truncate text-[13px] font-bold">
+            {staff.reports_to_name || "—"}
+          </p>
         </div>
-        <div className="rounded-md border border-line bg-paper p-space-3">
-          <p className="mb-space-1 text-[11px] font-semibold text-ink-400">Leave balance</p>
+        <div className="border-line bg-paper p-space-3 rounded-md border">
+          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Leave balance</p>
           {staff.leave_balance_total != null ? (
             <>
-              <p className="text-[13px] font-bold text-ink-900">
-                {staff.leave_balance_total - (staff.leave_balance_used ?? 0)} / {staff.leave_balance_total} days
+              <p className="text-ink-900 text-[13px] font-bold">
+                {staff.leave_balance_total - (staff.leave_balance_used ?? 0)} /{" "}
+                {staff.leave_balance_total} days
               </p>
-              <p className="text-[11.5px] text-ink-600">remaining this year</p>
+              <p className="text-ink-600 text-[11.5px]">remaining this year</p>
             </>
           ) : (
             <>
-              <p className="text-[13px] font-bold text-ink-400">—</p>
-              <p className="text-[11.5px] text-ink-400">Not tracked for this role</p>
+              <p className="text-ink-400 text-[13px] font-bold">—</p>
+              <p className="text-ink-400 text-[11.5px]">Not tracked for this role</p>
             </>
           )}
         </div>
       </div>
 
       <p className="text-hint mt-space-2">
-        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) -- applying for leave from here is still
-        a later page.
+        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) -- applying for
+        leave from here is still a later page.
       </p>
 
-      <div className="mt-space-4 border-t border-line pt-space-3">
-        <p className="text-label mb-space-2 font-bold text-ink-900">Quick Actions</p>
+      <div className="mt-space-4 border-line pt-space-3 border-t">
+        <p className="text-label mb-space-2 text-ink-900 font-bold">Quick Actions</p>
         <QuickActionList actions={quickActions} />
       </div>
     </Card>

@@ -29,7 +29,10 @@ export type NewDaycareBookingContext = { procedures: Procedure[] };
  * REQUESTED) that shows up in the Daycare appointments page's own approval
  * queue, and a slot only gets picked later, after staff approves it. */
 export function useNewDaycareBooking(
-  open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
+  open: boolean,
+  onBooked?: () => void,
+  initialPatientName?: string,
+  initialPatientPhone?: string,
 ) {
   const router = useRouter();
   const [ctx, setCtx] = useState<NewDaycareBookingContext | null>(null);
@@ -139,9 +142,12 @@ export function useNewDaycareBooking(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        patient_name: parsed.data.patient_name, patient_phone: parsed.data.patient_phone,
-        patient_date_of_birth: parsed.data.patient_date_of_birth, patient_gender: parsed.data.patient_gender,
-        procedure_id: parsed.data.procedure_id, slot_id: parsed.data.slot_id || "",
+        patient_name: parsed.data.patient_name,
+        patient_phone: parsed.data.patient_phone,
+        patient_date_of_birth: parsed.data.patient_date_of_birth,
+        patient_gender: parsed.data.patient_gender,
+        procedure_id: parsed.data.procedure_id,
+        slot_id: parsed.data.slot_id || "",
       }),
     });
     setSubmitting(false);
@@ -159,19 +165,38 @@ export function useNewDaycareBooking(
       toast.error("Couldn't create booking", data.errors[0]);
       return;
     }
-    toast.success(data.procedure_status === "CONFIRMED" ? "Booking confirmed" : "Request submitted");
+    toast.success(
+      data.procedure_status === "CONFIRMED" ? "Booking confirmed" : "Request submitted",
+    );
     setProcedureStatus(data.procedure_status ?? null);
     setSuccess(true);
     onBooked?.();
   }
 
   return {
-    ctx, error, errors, submitting, success, procedureStatus,
-    patientName, setPatientName, patientPhone, setPatientPhone,
-    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
-    procedure, procedureId, setProcedureId,
-    date, setDate, slotId, setSlotId,
-    datesForProcedure, slotsForDate,
+    ctx,
+    error,
+    errors,
+    submitting,
+    success,
+    procedureStatus,
+    patientName,
+    setPatientName,
+    patientPhone,
+    setPatientPhone,
+    patientDateOfBirth,
+    setPatientDateOfBirth,
+    patientGender,
+    setPatientGender,
+    procedure,
+    procedureId,
+    setProcedureId,
+    date,
+    setDate,
+    slotId,
+    setSlotId,
+    datesForProcedure,
+    slotsForDate,
     slotsLoading: isInstant && procedureId != null && slotsByDate === null,
     handleSubmit,
   };

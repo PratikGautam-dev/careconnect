@@ -17,7 +17,8 @@ function formatAuditChanges(entry: AuditEntry): string {
     .map((key) => {
       const before = entry.before_value?.[key];
       const after = entry.after_value?.[key];
-      if (before !== undefined && after !== undefined) return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
+      if (before !== undefined && after !== undefined)
+        return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
       if (after !== undefined) return `${key}: ${JSON.stringify(after)}`;
       return `${key}: ${JSON.stringify(before)}`;
     })
@@ -37,7 +38,7 @@ function AuditLogList() {
 
   return (
     <div>
-      <div className="mb-space-5 flex flex-col items-start gap-space-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-space-5 gap-space-3 flex flex-col items-start sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">
@@ -48,7 +49,7 @@ function AuditLogList() {
         <select
           value={levelFilter}
           onChange={(e) => setLevelFilter(e.target.value as "" | "platform_admin" | "portal")}
-          className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13.5px] text-ink-900 sm:w-auto"
+          className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13.5px] sm:w-auto"
         >
           <option value="">All levels</option>
           <option value="platform_admin">Platform only</option>
@@ -57,29 +58,36 @@ function AuditLogList() {
       </div>
 
       {hospitalIdParam && (
-        <Link href="/admin/audit-log" className="mb-space-4 inline-block text-[12.5px] font-semibold text-brand-600 hover:underline">
+        <Link
+          href="/admin/audit-log"
+          className="mb-space-4 text-brand-600 inline-block text-[12.5px] font-semibold hover:underline"
+        >
           Clear tenant filter — show every tenant
         </Link>
       )}
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <Card className="p-space-4">
         {!entries ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
         ) : entries.length === 0 ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">No activity recorded yet.</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">
+            No activity recorded yet.
+          </p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="divide-line divide-y">
             {entries.map((entry) => (
               <li key={entry.id} className="py-space-3 text-[12.5px]">
-                <div className="flex flex-col gap-space-1 sm:flex-row sm:items-center sm:justify-between sm:gap-space-3">
-                  <div className="flex flex-wrap items-center gap-space-2">
-                    <span className="font-medium text-ink-900">{entry.action}</span>
+                <div className="gap-space-1 sm:gap-space-3 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                  <div className="gap-space-2 flex flex-wrap items-center">
+                    <span className="text-ink-900 font-medium">{entry.action}</span>
                     <span
                       className={cn(
-                        "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                        entry.actor_level === "platform_admin" ? "bg-brand-50 text-brand-700" : "bg-black/[0.05] text-ink-600",
+                        "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                        entry.actor_level === "platform_admin"
+                          ? "bg-brand-50 text-brand-700"
+                          : "text-ink-600 bg-black/[0.05]",
                       )}
                     >
                       {entry.actor_level === "platform_admin" ? "Platform" : "Portal"}
@@ -93,9 +101,11 @@ function AuditLogList() {
                       </Link>
                     )}
                   </div>
-                  <span className="shrink-0 text-ink-400">{entry.created_at}</span>
+                  <span className="text-ink-400 shrink-0">{entry.created_at}</span>
                 </div>
-                {formatAuditChanges(entry) && <p className="mt-space-1 text-ink-600">{formatAuditChanges(entry)}</p>}
+                {formatAuditChanges(entry) && (
+                  <p className="mt-space-1 text-ink-600">{formatAuditChanges(entry)}</p>
+                )}
               </li>
             ))}
           </ul>

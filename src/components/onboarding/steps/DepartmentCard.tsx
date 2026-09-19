@@ -12,8 +12,8 @@ type Props = {
 
 export function DepartmentCard({ deptIndex, department, dispatch }: Props) {
   return (
-    <div className="mb-space-4 rounded-lg border border-line bg-card p-space-4 shadow-[var(--shadow-sm)]">
-      <div className="mb-space-3 flex items-center gap-space-3">
+    <div className="mb-space-4 border-line bg-card p-space-4 rounded-lg border shadow-[var(--shadow-sm)]">
+      <div className="mb-space-3 gap-space-3 flex items-center">
         <Input
           placeholder="Department name"
           value={department.name}
@@ -23,7 +23,7 @@ export function DepartmentCard({ deptIndex, department, dispatch }: Props) {
         <button
           type="button"
           onClick={() => dispatch({ type: "removeDepartment", deptIndex })}
-          className="ml-auto flex shrink-0 items-center gap-1 text-[12.5px] font-semibold text-error hover:underline"
+          className="text-error ml-auto flex shrink-0 items-center gap-1 text-[12.5px] font-semibold hover:underline"
         >
           <Trash2 size={13} /> Remove department
         </button>
@@ -31,14 +31,20 @@ export function DepartmentCard({ deptIndex, department, dispatch }: Props) {
 
       <div className="space-y-space-3">
         {department.doctors.map((doctor, docIndex) => (
-          <DoctorCard key={docIndex} deptIndex={deptIndex} docIndex={docIndex} doctor={doctor} dispatch={dispatch} />
+          <DoctorCard
+            key={docIndex}
+            deptIndex={deptIndex}
+            docIndex={docIndex}
+            doctor={doctor}
+            dispatch={dispatch}
+          />
         ))}
       </div>
 
       <button
         type="button"
         onClick={() => dispatch({ type: "addDoctor", deptIndex })}
-        className="mt-space-3 flex items-center gap-1 text-[13px] font-semibold text-brand-600 hover:underline"
+        className="mt-space-3 text-brand-600 flex items-center gap-1 text-[13px] font-semibold hover:underline"
       >
         <Plus size={14} /> Add doctor
       </button>

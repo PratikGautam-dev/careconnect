@@ -30,7 +30,13 @@ export function useDepartments(ready: boolean) {
   return departments;
 }
 
-export type HeadOfDepartment = { id: string; name: string; qualification: string; phone: string; email: string | null };
+export type HeadOfDepartment = {
+  id: string;
+  name: string;
+  qualification: string;
+  phone: string;
+  email: string | null;
+};
 
 export type DepartmentDetail = {
   id: string;
@@ -126,7 +132,11 @@ export function useDepartmentsAdmin(ready: boolean) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: isActive }),
     });
-    if (!result.ok) return handleFailure(result, isActive ? "Couldn't activate department" : "Couldn't deactivate department");
+    if (!result.ok)
+      return handleFailure(
+        result,
+        isActive ? "Couldn't activate department" : "Couldn't deactivate department",
+      );
     await reload();
     return true;
   }
@@ -142,5 +152,13 @@ export function useDepartmentsAdmin(ready: boolean) {
     return true;
   }
 
-  return { departments, error, reload, createDepartment, updateDepartment, setDepartmentActive, setDepartmentVisibility };
+  return {
+    departments,
+    error,
+    reload,
+    createDepartment,
+    updateDepartment,
+    setDepartmentActive,
+    setDepartmentVisibility,
+  };
 }

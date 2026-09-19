@@ -7,7 +7,11 @@ import type { StaffMember } from "@/hooks/useStaffManagement";
 import type { StaffOption } from "@/hooks/useAddStaff";
 import type { WorkingScheduleValue } from "@/components/portal/WorkingScheduleFields";
 
-const EMPTY_SCHEDULE: WorkingScheduleValue = { working_days: [], shifts: [{ start: "", end: "" }], breaks: [] };
+const EMPTY_SCHEDULE: WorkingScheduleValue = {
+  working_days: [],
+  shifts: [{ start: "", end: "" }],
+  breaks: [],
+};
 
 function toRange(s: string) {
   const [start, end] = s.split("-");
@@ -23,7 +27,11 @@ function toRange(s: string) {
  * row (their department comes from the linked doctor profile, not this
  * field -- see portal/routes/staff.py's own check for why sending it at
  * all would 400). */
-export function useEditStaff(staff: StaffMember | null, onOpenChange: (open: boolean) => void, onSaved?: () => void) {
+export function useEditStaff(
+  staff: StaffMember | null,
+  onOpenChange: (open: boolean) => void,
+  onSaved?: () => void,
+) {
   const router = useRouter();
   const open = staff !== null;
   const departments = useDepartments(open);
@@ -68,8 +76,12 @@ export function useEditStaff(staff: StaffMember | null, onOpenChange: (open: boo
     if (!staff) return;
     setSaving(true);
     setFormError(null);
-    const working_hours = schedule.shifts.filter((s) => s.start && s.end).map((s) => `${s.start}-${s.end}`);
-    const breaks = schedule.breaks.filter((b) => b && b.start && b.end).map((b) => `${b.start}-${b.end}`);
+    const working_hours = schedule.shifts
+      .filter((s) => s.start && s.end)
+      .map((s) => `${s.start}-${s.end}`);
+    const breaks = schedule.breaks
+      .filter((b) => b && b.start && b.end)
+      .map((b) => `${b.start}-${b.end}`);
     const result = await staffFetch(`/api/portal/staff/${staff.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -99,9 +111,22 @@ export function useEditStaff(staff: StaffMember | null, onOpenChange: (open: boo
   }
 
   return {
-    departments, staffOptions,
-    name, setName, phone, setPhone, address, setAddress, departmentId, setDepartmentId, schedule, setSchedule,
-    reportsToId, setReportsToId,
-    formError, saving, handleSave,
+    departments,
+    staffOptions,
+    name,
+    setName,
+    phone,
+    setPhone,
+    address,
+    setAddress,
+    departmentId,
+    setDepartmentId,
+    schedule,
+    setSchedule,
+    reportsToId,
+    setReportsToId,
+    formError,
+    saving,
+    handleSave,
   };
 }

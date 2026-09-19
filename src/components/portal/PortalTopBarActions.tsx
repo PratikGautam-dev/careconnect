@@ -25,14 +25,18 @@ export function PortalTopBarActions() {
   }
 
   return (
-    <div className="flex items-center gap-space-2">
+    <div className="gap-space-2 flex items-center">
       <div className="relative hidden sm:block">
-        <Search size={15} strokeWidth={2} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+        <Search
+          size={15}
+          strokeWidth={2}
+          className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
+        />
         <input
           disabled
           title="Coming soon"
           placeholder="Search patients, appointments, staff…"
-          className="h-9 w-56 cursor-not-allowed rounded-md border border-line bg-card pl-space-7 pr-space-3 text-[13px] text-ink-600 placeholder:text-ink-400 lg:w-72"
+          className="border-line bg-card pl-space-7 pr-space-3 text-ink-600 placeholder:text-ink-400 h-9 w-56 cursor-not-allowed rounded-md border text-[13px] lg:w-72"
         />
       </div>
 
@@ -41,11 +45,11 @@ export function PortalTopBarActions() {
         disabled
         title="Coming soon"
         aria-label="Notifications"
-        className="flex h-9 w-9 shrink-0 cursor-not-allowed items-center justify-center rounded-md border border-line bg-card text-ink-400"
+        className="border-line bg-card text-ink-400 flex h-9 w-9 shrink-0 cursor-not-allowed items-center justify-center rounded-md border"
       >
         <Bell size={16} strokeWidth={2} />
       </button>
-{/* 
+      {/* 
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-space-2 rounded-md border border-line bg-card py-space-1 pl-space-1 pr-space-2 hover:bg-paper">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[12px] font-bold text-brand-700">

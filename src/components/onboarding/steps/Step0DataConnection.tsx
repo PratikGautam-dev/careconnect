@@ -54,27 +54,31 @@ export function Step0DataConnection({ state, dispatch }: Props) {
       <p className="text-eyebrow mb-space-2">Step 0 of 9</p>
       <h2 className="text-display mb-space-2">0. Choose your hospital setup</h2>
       <p className="text-body mb-space-5">
-        Select the option that best describes your current setup. We&apos;ll customize the rest of this wizard
-        around it.
+        Select the option that best describes your current setup. We&apos;ll customize the rest of
+        this wizard around it.
       </p>
 
-      <div className="mb-space-5 grid grid-cols-1 gap-space-4 md:grid-cols-3">
+      <div className="mb-space-5 gap-space-4 grid grid-cols-1 md:grid-cols-3">
         {TIERS.map(({ tier, badge, badgeTone, title, description, cta }) => {
           const selected = state.dataTier === tier;
           return (
             <div
               key={tier}
               className={cn(
-                "flex flex-col rounded-lg border bg-card p-space-4 text-center shadow-[var(--shadow-sm)] transition-all duration-150 ease-(--ease-standard)",
-                selected ? "border-brand-400 ring-2 ring-brand-100" : "border-line",
+                "bg-card p-space-4 flex flex-col rounded-lg border text-center shadow-[var(--shadow-sm)] transition-all duration-150 ease-(--ease-standard)",
+                selected ? "border-brand-400 ring-brand-100 ring-2" : "border-line",
               )}
             >
-              <h3 className="mb-space-2 text-[16px] leading-snug font-bold text-ink-900">{title}</h3>
-              <p className="mb-space-3 text-[13px] leading-relaxed text-ink-600">{description}</p>
+              <h3 className="mb-space-2 text-ink-900 text-[16px] leading-snug font-bold">
+                {title}
+              </h3>
+              <p className="mb-space-3 text-ink-600 text-[13px] leading-relaxed">{description}</p>
               <span
                 className={cn(
-                  "mx-auto mb-space-4 rounded-full px-space-3 py-1 text-[11px] font-bold tracking-wide uppercase",
-                  badgeTone === "brand" ? "bg-brand-50 text-brand-700" : "bg-clay-100 text-clay-700",
+                  "mb-space-4 px-space-3 mx-auto rounded-full py-1 text-[11px] font-bold tracking-wide uppercase",
+                  badgeTone === "brand"
+                    ? "bg-brand-50 text-brand-700"
+                    : "bg-clay-100 text-clay-700",
                 )}
               >
                 {badge}
@@ -82,7 +86,7 @@ export function Step0DataConnection({ state, dispatch }: Props) {
               <button
                 type="button"
                 onClick={() => selectTier(tier)}
-                className="mt-auto rounded-md bg-brand-600 px-space-3 py-space-2 text-[13.5px] font-semibold text-white shadow-[var(--shadow-sm)] transition-colors duration-150 hover:bg-brand-700 active:bg-brand-800"
+                className="bg-brand-600 px-space-3 py-space-2 hover:bg-brand-700 active:bg-brand-800 mt-auto rounded-md text-[13.5px] font-semibold text-white shadow-[var(--shadow-sm)] transition-colors duration-150"
               >
                 {cta}
               </button>
@@ -91,47 +95,53 @@ export function Step0DataConnection({ state, dispatch }: Props) {
         })}
       </div>
 
-      <p className="mb-space-4 text-center text-[12.5px] font-semibold tracking-wide text-ink-400 uppercase">OR</p>
+      <p className="mb-space-4 text-ink-400 text-center text-[12.5px] font-semibold tracking-wide uppercase">
+        OR
+      </p>
 
-      <div className="mb-space-5 rounded-lg border border-line bg-paper p-space-5">
-        <div className="flex flex-col items-center gap-space-3 text-center md:flex-row md:text-left">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+      <div className="mb-space-5 border-line bg-paper p-space-5 rounded-lg border">
+        <div className="gap-space-3 flex flex-col items-center text-center md:flex-row md:text-left">
+          <div className="bg-brand-50 text-brand-600 flex h-11 w-11 shrink-0 items-center justify-center rounded-full">
             <Compass size={20} strokeWidth={2} />
           </div>
           <div className="flex-1">
-            <h4 className="text-[14.5px] font-bold text-ink-900">Help me choose</h4>
-            <p className="text-[13px] text-ink-600">Answer a few questions and we&apos;ll recommend the best setup for you.</p>
+            <h4 className="text-ink-900 text-[14.5px] font-bold">Help me choose</h4>
+            <p className="text-ink-600 text-[13px]">
+              Answer a few questions and we&apos;ll recommend the best setup for you.
+            </p>
           </div>
         </div>
-        <div className="mt-space-4 flex flex-col items-center gap-space-2">
+        <div className="mt-space-4 gap-space-2 flex flex-col items-center">
           <button
             type="button"
             onClick={() => {
               selectTier("tier1");
               setShowRecommendation(true);
             }}
-            className="rounded-md bg-clay-100 px-space-4 py-space-2 text-[13.5px] font-semibold text-clay-700 transition-colors duration-150 hover:bg-clay-100/70"
+            className="bg-clay-100 px-space-4 py-space-2 text-clay-700 hover:bg-clay-100/70 rounded-md text-[13.5px] font-semibold transition-colors duration-150"
           >
             Find my setup
           </button>
           {showRecommendation && (
-            <p className="text-[12.5px] leading-relaxed text-ink-600">
-              Most hospitals should pick <strong className="text-ink-900">Tier 1</strong> — it works immediately
-              with no extra setup. We&apos;ve selected it for you; only switch to Tier 2 or 3 if a separate system
-              already owns your doctors&apos; schedules today.
+            <p className="text-ink-600 text-[12.5px] leading-relaxed">
+              Most hospitals should pick <strong className="text-ink-900">Tier 1</strong> — it works
+              immediately with no extra setup. We&apos;ve selected it for you; only switch to Tier 2
+              or 3 if a separate system already owns your doctors&apos; schedules today.
             </p>
           )}
         </div>
       </div>
 
       {state.dataTier === "tier2" && (
-        <div className="mb-space-5 grid grid-cols-1 gap-space-4 rounded-lg border border-line bg-paper p-space-4 md:grid-cols-2">
+        <div className="mb-space-5 gap-space-4 border-line bg-paper p-space-4 grid grid-cols-1 rounded-lg border md:grid-cols-2">
           <Field label="API base URL" htmlFor="api_base_url" required>
             <Input
               id="api_base_url"
               placeholder="https://api.yourhospital.example"
               value={state.apiBaseUrl}
-              onChange={(e) => dispatch({ type: "set", field: "apiBaseUrl", value: e.target.value })}
+              onChange={(e) =>
+                dispatch({ type: "set", field: "apiBaseUrl", value: e.target.value })
+              }
             />
           </Field>
           <Field label="API key" htmlFor="api_key" required>
@@ -145,10 +155,10 @@ export function Step0DataConnection({ state, dispatch }: Props) {
       )}
 
       {state.dataTier === "tier3" && (
-        <div className="mb-space-5 rounded-lg border border-clay-300 bg-clay-100/40 p-space-4 text-[13.5px] leading-relaxed text-ink-600">
-          Direct database connection is not self-serve — it requires a secure/VPN-reachable connection and a
-          scoped-down database user, set up as a manually-assisted engagement. No fields to fill in here; we&apos;ll
-          be in touch to arrange it after you submit.
+        <div className="mb-space-5 border-clay-300 bg-clay-100/40 p-space-4 text-ink-600 rounded-lg border text-[13.5px] leading-relaxed">
+          Direct database connection is not self-serve — it requires a secure/VPN-reachable
+          connection and a scoped-down database user, set up as a manually-assisted engagement. No
+          fields to fill in here; we&apos;ll be in touch to arrange it after you submit.
         </div>
       )}
     </div>

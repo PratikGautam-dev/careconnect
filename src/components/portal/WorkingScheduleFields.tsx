@@ -34,7 +34,9 @@ export function WorkingScheduleFields({ value, onChange }: Props) {
   function toggleDay(day: string) {
     set(
       "working_days",
-      value.working_days.includes(day) ? value.working_days.filter((d) => d !== day) : [...value.working_days, day],
+      value.working_days.includes(day)
+        ? value.working_days.filter((d) => d !== day)
+        : [...value.working_days, day],
     );
   }
 
@@ -53,8 +55,15 @@ export function WorkingScheduleFields({ value, onChange }: Props) {
     set("shifts", [...value.shifts, { start: "", end: "" }]);
   }
   function removeShift(i: number) {
-    set("shifts", value.shifts.filter((_, idx) => idx !== i));
-    if (value.breaks[i]) set("breaks", value.breaks.filter((_, idx) => idx !== i));
+    set(
+      "shifts",
+      value.shifts.filter((_, idx) => idx !== i),
+    );
+    if (value.breaks[i])
+      set(
+        "breaks",
+        value.breaks.filter((_, idx) => idx !== i),
+      );
   }
 
   function setBreak(i: number, range: TimeRange) {
@@ -65,14 +74,19 @@ export function WorkingScheduleFields({ value, onChange }: Props) {
 
   return (
     <>
-      <div className="mb-space-1 flex items-center justify-between gap-space-3">
+      <div className="mb-space-1 gap-space-3 flex items-center justify-between">
         <p className="text-label">Working days</p>
-        <Button type="button" variant="secondary" size="md" onClick={() => setShowCopyDays((v) => !v)}>
+        <Button
+          type="button"
+          variant="secondary"
+          size="md"
+          onClick={() => setShowCopyDays((v) => !v)}
+        >
           <Copy size={14} /> Copy to other days
         </Button>
       </div>
       <Field>
-        <div className="flex flex-wrap items-center gap-space-2">
+        <div className="gap-space-2 flex flex-wrap items-center">
           {WEEKDAYS.map((day) => {
             const on = value.working_days.includes(day);
             return (
@@ -82,62 +96,93 @@ export function WorkingScheduleFields({ value, onChange }: Props) {
                 onClick={() => toggleDay(day)}
                 className={cn(
                   "flex h-9 w-14 items-center justify-center rounded-md border text-[12.5px] font-semibold transition-colors duration-150",
-                  on ? "border-brand-600 bg-brand-600 text-white" : "border-line bg-card text-ink-600 hover:border-brand-300",
+                  on
+                    ? "border-brand-600 bg-brand-600 text-white"
+                    : "border-line bg-card text-ink-600 hover:border-brand-300",
                 )}
               >
                 {day}
               </button>
             );
           })}
-          <button type="button" onClick={selectWeekdays} className="ml-space-2 text-[12.5px] font-semibold text-brand-600 hover:underline">
+          <button
+            type="button"
+            onClick={selectWeekdays}
+            className="ml-space-2 text-brand-600 text-[12.5px] font-semibold hover:underline"
+          >
             Select weekdays
           </button>
         </div>
         {showCopyDays && (
           <p className="text-hint mt-space-1">
-            &quot;Copy to other days&quot; just means selecting more day pills above — every shift/break already
-            applies uniformly to every checked day.
+            &quot;Copy to other days&quot; just means selecting more day pills above — every
+            shift/break already applies uniformly to every checked day.
           </p>
         )}
       </Field>
 
-      <Field label="Shifts" hint="Break is optional -- leave both times blank if this shift has none.">
+      <Field
+        label="Shifts"
+        hint="Break is optional -- leave both times blank if this shift has none."
+      >
         <div className="space-y-space-2">
           {value.shifts.map((shift, i) => (
-            <div key={i} className="rounded-lg border border-line bg-paper p-space-3">
-              <div className="mb-space-2 flex items-center justify-between gap-space-2">
-                <span className="text-[12.5px] font-semibold text-ink-600">Shift {i + 1}</span>
+            <div key={i} className="border-line bg-paper p-space-3 rounded-lg border">
+              <div className="mb-space-2 gap-space-2 flex items-center justify-between">
+                <span className="text-ink-600 text-[12.5px] font-semibold">Shift {i + 1}</span>
                 {value.shifts.length > 1 && (
-                  <button type="button" onClick={() => removeShift(i)} className="shrink-0 text-ink-400 hover:text-error">
+                  <button
+                    type="button"
+                    onClick={() => removeShift(i)}
+                    className="text-ink-400 hover:text-error shrink-0"
+                  >
                     <Trash2 size={16} />
                   </button>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-space-2">
-                <span className="w-12 shrink-0 text-[12.5px] text-ink-400">Working</span>
-                <Input type="time" value={shift.start} onChange={(e) => setShift(i, { ...shift, start: e.target.value })} className="w-32" />
-                <span className="text-[12.5px] text-ink-400">to</span>
-                <Input type="time" value={shift.end} onChange={(e) => setShift(i, { ...shift, end: e.target.value })} className="w-32" />
+              <div className="gap-space-2 flex flex-wrap items-center">
+                <span className="text-ink-400 w-12 shrink-0 text-[12.5px]">Working</span>
+                <Input
+                  type="time"
+                  value={shift.start}
+                  onChange={(e) => setShift(i, { ...shift, start: e.target.value })}
+                  className="w-32"
+                />
+                <span className="text-ink-400 text-[12.5px]">to</span>
+                <Input
+                  type="time"
+                  value={shift.end}
+                  onChange={(e) => setShift(i, { ...shift, end: e.target.value })}
+                  className="w-32"
+                />
               </div>
-              <div className="mt-space-2 flex flex-wrap items-center gap-space-2">
-                <span className="w-12 shrink-0 text-[12.5px] text-ink-400">Break</span>
+              <div className="mt-space-2 gap-space-2 flex flex-wrap items-center">
+                <span className="text-ink-400 w-12 shrink-0 text-[12.5px]">Break</span>
                 <Input
                   type="time"
                   value={value.breaks[i]?.start || ""}
-                  onChange={(e) => setBreak(i, { start: e.target.value, end: value.breaks[i]?.end || "" })}
+                  onChange={(e) =>
+                    setBreak(i, { start: e.target.value, end: value.breaks[i]?.end || "" })
+                  }
                   className="w-32"
                 />
-                <span className="text-[12.5px] text-ink-400">to</span>
+                <span className="text-ink-400 text-[12.5px]">to</span>
                 <Input
                   type="time"
                   value={value.breaks[i]?.end || ""}
-                  onChange={(e) => setBreak(i, { start: value.breaks[i]?.start || "", end: e.target.value })}
+                  onChange={(e) =>
+                    setBreak(i, { start: value.breaks[i]?.start || "", end: e.target.value })
+                  }
                   className="w-32"
                 />
               </div>
             </div>
           ))}
-          <button type="button" onClick={addShift} className="flex items-center gap-1 text-[12.5px] font-semibold text-brand-600 hover:underline">
+          <button
+            type="button"
+            onClick={addShift}
+            className="text-brand-600 flex items-center gap-1 text-[12.5px] font-semibold hover:underline"
+          >
             <Plus size={13} /> Add another shift
           </button>
         </div>

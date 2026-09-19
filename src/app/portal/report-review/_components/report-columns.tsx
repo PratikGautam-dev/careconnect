@@ -32,7 +32,10 @@ const STATUS_TONE: Record<ReportStatus, "clay" | "success" | "brand"> = {
 
 export function PriorityBadge({ priority }: { priority: ReportPriority }) {
   return (
-    <Badge tone={PRIORITY_TONE[priority]} className={priority === "Urgent" ? "bg-error-tint text-error" : undefined}>
+    <Badge
+      tone={PRIORITY_TONE[priority]}
+      className={priority === "Urgent" ? "bg-error-tint text-error" : undefined}
+    >
       {priority}
     </Badge>
   );
@@ -40,7 +43,10 @@ export function PriorityBadge({ priority }: { priority: ReportPriority }) {
 
 export function StatusBadge({ status }: { status: ReportStatus }) {
   return (
-    <Badge tone={STATUS_TONE[status]} className={status === "Rejected" ? "bg-error-tint text-error" : undefined}>
+    <Badge
+      tone={STATUS_TONE[status]}
+      className={status === "Rejected" ? "bg-error-tint text-error" : undefined}
+    >
       {status}
     </Badge>
   );
@@ -78,7 +84,11 @@ export function createReportColumns({
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <button type="button" onClick={() => onSelect(r)} className="flex items-center gap-space-2 text-left">
+          <button
+            type="button"
+            onClick={() => onSelect(r)}
+            className="gap-space-2 flex items-center text-left"
+          >
             <span
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
@@ -88,8 +98,8 @@ export function createReportColumns({
               {initials(r.patientName)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">{r.patientName}</p>
-              <p className="truncate text-[11.5px] text-ink-400">
+              <p className="text-ink-900 truncate font-semibold">{r.patientName}</p>
+              <p className="text-ink-400 truncate text-[11.5px]">
                 {r.age} yrs, {r.gender}
               </p>
             </div>
@@ -104,35 +114,43 @@ export function createReportColumns({
       cell: ({ row }) => (
         <div>
           <p className="text-ink-900">{row.original.uploadedBy}</p>
-          <p className="text-[11.5px] text-ink-400">({row.original.uploadedByRole})</p>
+          <p className="text-ink-400 text-[11.5px]">({row.original.uploadedByRole})</p>
         </div>
       ),
     },
     { id: "uploadDate", header: "Upload Date", cell: ({ row }) => row.original.uploadDate },
-    { id: "priority", header: "Priority", cell: ({ row }) => <PriorityBadge priority={row.original.priority} /> },
+    {
+      id: "priority",
+      header: "Priority",
+      cell: ({ row }) => <PriorityBadge priority={row.original.priority} />,
+    },
     {
       id: "reviewingDoctor",
       header: "Reviewing Doctor",
       cell: ({ row }) => (
         <div>
           <p className="text-ink-900">{row.original.reviewingDoctor}</p>
-          <p className="text-[11.5px] text-ink-400">({row.original.reviewingDoctorSpecialty})</p>
+          <p className="text-ink-400 text-[11.5px]">({row.original.reviewingDoctorSpecialty})</p>
         </div>
       ),
     },
-    { id: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
+    {
+      id: "status",
+      header: "Status",
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
     {
       id: "actions",
       header: "Actions",
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <div className="flex items-center gap-space-1" onClick={(e) => e.stopPropagation()}>
+          <div className="gap-space-1 flex items-center" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => onSelect(r)}
               title="View report"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-400 hover:bg-black/[0.04] hover:text-ink-900"
+              className="text-ink-400 hover:text-ink-900 flex h-7 w-7 items-center justify-center rounded-md hover:bg-black/[0.04]"
             >
               <Eye size={15} />
             </button>
@@ -141,7 +159,7 @@ export function createReportColumns({
               onClick={() => onApprove(r)}
               disabled={r.status === "Approved"}
               title="Approve"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-success hover:bg-success-tint disabled:pointer-events-none disabled:opacity-40"
+              className="text-success hover:bg-success-tint flex h-7 w-7 items-center justify-center rounded-md disabled:pointer-events-none disabled:opacity-40"
             >
               <Check size={15} />
             </button>
@@ -150,14 +168,14 @@ export function createReportColumns({
               onClick={() => onReturn(r)}
               disabled={r.status === "Rejected"}
               title="Return"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-error hover:bg-error-tint disabled:pointer-events-none disabled:opacity-40"
+              className="text-error hover:bg-error-tint flex h-7 w-7 items-center justify-center rounded-md disabled:pointer-events-none disabled:opacity-40"
             >
               <Undo2 size={15} />
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 title="More actions"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-400 hover:bg-black/[0.04] hover:text-ink-900"
+                className="text-ink-400 hover:text-ink-900 flex h-7 w-7 items-center justify-center rounded-md hover:bg-black/[0.04]"
               >
                 <MoreHorizontal size={15} />
               </DropdownMenuTrigger>

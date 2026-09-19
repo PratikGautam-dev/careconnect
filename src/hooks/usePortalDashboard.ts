@@ -80,5 +80,9 @@ export function usePortalDashboard() {
     },
   });
 
-  return { data: data ?? null, error: queryError ? (queryError as Error).message : null, hospital: session?.hospital ?? null };
+  return {
+    data: data ?? null,
+    error: queryError ? (queryError as Error).message : null,
+    hospital: session?.hospital ?? null,
+  };
 }

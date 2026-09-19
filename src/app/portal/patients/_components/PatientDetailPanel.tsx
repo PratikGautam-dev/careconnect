@@ -18,7 +18,13 @@ import {
   Stethoscope,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
@@ -28,28 +34,51 @@ import type { Patient } from "@/hooks/usePatients";
 import { AVATAR_TINTS, STATUS_LABELS, STATUS_STYLES, initials } from "./patients-columns";
 
 const VISIT_STATUS_STYLES: Record<string, string> = {
-  booked: "bg-success-tint text-success", cancelled: "bg-error-tint text-error",
-  rescheduled: "bg-clay-100 text-clay-700", attended: "bg-success-tint text-success", no_show: "bg-error-tint text-error",
+  booked: "bg-success-tint text-success",
+  cancelled: "bg-error-tint text-error",
+  rescheduled: "bg-clay-100 text-clay-700",
+  attended: "bg-success-tint text-success",
+  no_show: "bg-error-tint text-error",
 };
 const VISIT_STATUS_LABELS: Record<string, string> = {
-  booked: "Confirmed", cancelled: "Cancelled", rescheduled: "Rescheduled", attended: "Attended", no_show: "No-show",
+  booked: "Confirmed",
+  cancelled: "Cancelled",
+  rescheduled: "Rescheduled",
+  attended: "Attended",
+  no_show: "No-show",
 };
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
-  prescription: "Prescription", lab_report: "Lab Report", diagnostic_report: "Diagnostic Report", other: "Other",
+  prescription: "Prescription",
+  lab_report: "Lab Report",
+  diagnostic_report: "Diagnostic Report",
+  other: "Other",
 };
 
 const TABS = ["Overview", "Medical History", "Appointments", "Reports"] as const;
 type Tab = (typeof TABS)[number];
 
-function Section({ icon: Icon, title, editHref, children }: { icon: typeof Cake; title: string; editHref?: string; children: React.ReactNode }) {
+function Section({
+  icon: Icon,
+  title,
+  editHref,
+  children,
+}: {
+  icon: typeof Cake;
+  title: string;
+  editHref?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-md border border-line p-space-3">
+    <div className="border-line p-space-3 rounded-md border">
       <div className="mb-space-2 flex items-center justify-between">
-        <p className="flex items-center gap-space-2 text-[12px] font-bold text-ink-900">
+        <p className="gap-space-2 text-ink-900 flex items-center text-[12px] font-bold">
           <Icon size={13} className="text-brand-600" /> {title}
         </p>
         {editHref && (
-          <Link href={editHref} className="text-[11px] font-semibold text-brand-600 hover:underline">
+          <Link
+            href={editHref}
+            className="text-brand-600 text-[11px] font-semibold hover:underline"
+          >
             Edit
           </Link>
         )}
@@ -63,7 +92,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between text-[12.5px]">
       <span className="text-ink-400">{label}</span>
-      <span className="font-medium text-ink-900">{value}</span>
+      <span className="text-ink-900 font-medium">{value}</span>
     </div>
   );
 }
@@ -89,7 +118,9 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
   if (!patient) {
     return (
       <Card className="p-space-4">
-        <p className="py-space-4 text-center text-[13px] text-ink-400">Select a patient to view their profile.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">
+          Select a patient to view their profile.
+        </p>
       </Card>
     );
   }
@@ -100,7 +131,12 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
   const quickActions: QuickAction[] = [
     { label: "Book Appointment", icon: CalendarPlus, onClick: onBookAppointment },
     { label: "View Reports", icon: FileText, onClick: () => setTab("Reports") },
-    { label: "Send Message", icon: MessageCircle, disabled: true, title: "Coming soon — no patient-facing internal messaging exists yet" },
+    {
+      label: "Send Message",
+      icon: MessageCircle,
+      disabled: true,
+      title: "Coming soon — no patient-facing internal messaging exists yet",
+    },
   ];
 
   return (
@@ -114,13 +150,20 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
         >
           {initials(patient.name)}
         </span>
-        <span className={cn("mb-space-1 rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[patient.status])}>
+        <span
+          className={cn(
+            "mb-space-1 px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+            STATUS_STYLES[patient.status],
+          )}
+        >
           {STATUS_LABELS[patient.status]}
         </span>
-        <p className="text-[15px] font-bold text-ink-900">{patient.name || "—"}</p>
-        <p className="text-[12px] text-ink-400">Patient ID: {patient.patient_display_id || `#${patient.id}`}</p>
+        <p className="text-ink-900 text-[15px] font-bold">{patient.name || "—"}</p>
+        <p className="text-ink-400 text-[12px]">
+          Patient ID: {patient.patient_display_id || `#${patient.id}`}
+        </p>
         {(patient.age != null || patient.gender) && (
-          <p className="text-[12px] text-ink-400">
+          <p className="text-ink-400 text-[12px]">
             {patient.age != null ? `${patient.age} years` : ""}
             {patient.age != null && patient.gender ? ", " : ""}
             {patient.gender || ""}
@@ -128,15 +171,17 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
         )}
       </div>
 
-      <div className="mb-space-3 flex gap-space-1 overflow-x-auto border-b border-line">
+      <div className="mb-space-3 gap-space-1 border-line flex overflow-x-auto border-b">
         {TABS.map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={cn(
-              "shrink-0 border-b-2 px-space-2 pb-space-2 text-[12px] font-semibold whitespace-nowrap",
-              tab === t ? "border-brand-600 text-brand-700" : "border-transparent text-ink-400 hover:text-ink-600",
+              "px-space-2 pb-space-2 shrink-0 border-b-2 text-[12px] font-semibold whitespace-nowrap",
+              tab === t
+                ? "border-brand-600 text-brand-700"
+                : "text-ink-400 hover:text-ink-600 border-transparent",
             )}
           >
             {t}
@@ -155,7 +200,11 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
             </div>
           </Section>
 
-          <Section icon={Phone} title="Contact Information" editHref={`/portal/patients/${patient.id}`}>
+          <Section
+            icon={Phone}
+            title="Contact Information"
+            editHref={`/portal/patients/${patient.id}`}
+          >
             <div className="space-y-space-1">
               <Field label="Phone" value={patient.phone} />
               <Field label="Email" value="—" />
@@ -164,36 +213,42 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
           </Section>
 
           <Section icon={AlertTriangle} title="Allergies">
-            <p className="text-[12px] text-ink-400">Not tracked in this app yet.</p>
+            <p className="text-ink-400 text-[12px]">Not tracked in this app yet.</p>
           </Section>
 
           <Section icon={Heart} title="Current Diagnosis">
-            <p className="text-[12px] text-ink-400">Not tracked in this app yet.</p>
+            <p className="text-ink-400 text-[12px]">Not tracked in this app yet.</p>
           </Section>
 
           <Section icon={Calendar} title="Latest Visit">
             {loading ? (
-              <p className="text-[12px] text-ink-400">Loading…</p>
+              <p className="text-ink-400 text-[12px]">Loading…</p>
             ) : latestVisit ? (
               <>
-                <p className="text-[13px] font-semibold text-ink-900">{formatDate(latestVisit.scheduled_at)}</p>
-                <p className="mb-space-1 text-[12px] text-ink-600">
+                <p className="text-ink-900 text-[13px] font-semibold">
+                  {formatDate(latestVisit.scheduled_at)}
+                </p>
+                <p className="mb-space-1 text-ink-600 text-[12px]">
                   Dr. {latestVisit.doctor_name} ({latestVisit.department_name})
                 </p>
-                <button type="button" onClick={() => setTab("Appointments")} className="text-[11px] font-semibold text-brand-600 hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setTab("Appointments")}
+                  className="text-brand-600 text-[11px] font-semibold hover:underline"
+                >
                   View All
                 </button>
               </>
             ) : (
-              <p className="text-[12px] text-ink-400">No visits yet.</p>
+              <p className="text-ink-400 text-[12px]">No visits yet.</p>
             )}
           </Section>
 
-          <div className="border-t border-line pt-space-3">
-            <p className="text-label mb-space-2 font-bold text-ink-900">Quick Actions</p>
+          <div className="border-line pt-space-3 border-t">
+            <p className="text-label mb-space-2 text-ink-900 font-bold">Quick Actions</p>
             <QuickActionList actions={quickActions} columns={2} size="sm">
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex w-full items-center justify-center gap-space-2 rounded-md px-space-3 py-space-2 text-[12.5px] font-semibold text-ink-900 hover:bg-brand-50 hover:text-brand-700">
+                <DropdownMenuTrigger className="gap-space-2 px-space-3 py-space-2 text-ink-900 hover:bg-brand-50 hover:text-brand-700 flex w-full items-center justify-center rounded-md text-[12.5px] font-semibold">
                   <MoreHorizontal size={14} /> More
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
@@ -212,23 +267,28 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
       {tab === "Medical History" && (
         <div className="space-y-space-2">
           {loading ? (
-            <p className="text-[12px] text-ink-400">Loading…</p>
+            <p className="text-ink-400 text-[12px]">Loading…</p>
           ) : (summary?.notes.length ?? 0) === 0 ? (
-            <p className="py-space-3 text-center text-[12.5px] text-ink-400">No notes recorded yet.</p>
+            <p className="py-space-3 text-ink-400 text-center text-[12.5px]">
+              No notes recorded yet.
+            </p>
           ) : (
             summary!.notes.map((n) => (
-              <div key={n.id} className="rounded-md border border-line p-space-2">
-                <div className="mb-space-1 flex items-center justify-between text-[11px] text-ink-400">
+              <div key={n.id} className="border-line p-space-2 rounded-md border">
+                <div className="mb-space-1 text-ink-400 flex items-center justify-between text-[11px]">
                   <span className="flex items-center gap-1">
                     <Stethoscope size={11} /> {n.doctor_name || "Staff"}
                   </span>
                   <span>{formatShortDateTime(n.created_at)}</span>
                 </div>
-                <p className="text-[12.5px] text-ink-900">{n.note_text}</p>
+                <p className="text-ink-900 text-[12.5px]">{n.note_text}</p>
               </div>
             ))
           )}
-          <Link href={`/portal/patients/${patient.id}`} className="block text-center text-[11px] font-semibold text-brand-600 hover:underline">
+          <Link
+            href={`/portal/patients/${patient.id}`}
+            className="text-brand-600 block text-center text-[11px] font-semibold hover:underline"
+          >
             Add or manage notes on the full record
           </Link>
         </div>
@@ -237,24 +297,31 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
       {tab === "Appointments" && (
         <div className="space-y-space-2">
           {loading ? (
-            <p className="text-[12px] text-ink-400">Loading…</p>
+            <p className="text-ink-400 text-[12px]">Loading…</p>
           ) : (summary?.visit_history.length ?? 0) === 0 ? (
-            <p className="py-space-3 text-center text-[12.5px] text-ink-400">No appointments yet.</p>
+            <p className="py-space-3 text-ink-400 text-center text-[12.5px]">
+              No appointments yet.
+            </p>
           ) : (
             summary!.visit_history.slice(0, 8).map((v) => (
-              <div key={v.id} className="flex items-center justify-between rounded-md border border-line p-space-2">
+              <div
+                key={v.id}
+                className="border-line p-space-2 flex items-center justify-between rounded-md border"
+              >
                 <div className="min-w-0">
-                  <p className="truncate text-[12.5px] font-semibold text-ink-900">
-                    {v.appointment_type_id ? TYPE_LABELS[v.appointment_type_id] || "Appointment" : "Appointment"}
+                  <p className="text-ink-900 truncate text-[12.5px] font-semibold">
+                    {v.appointment_type_id
+                      ? TYPE_LABELS[v.appointment_type_id] || "Appointment"
+                      : "Appointment"}
                   </p>
-                  <p className="truncate text-[11px] text-ink-400">
+                  <p className="text-ink-400 truncate text-[11px]">
                     {formatShortDateTime(v.scheduled_at)} · Dr. {v.doctor_name}
                   </p>
                 </div>
                 <span
                   className={cn(
-                    "shrink-0 rounded-full px-space-2 py-0.5 text-[10.5px] font-semibold",
-                    VISIT_STATUS_STYLES[v.status] || "bg-black/4 text-ink-600",
+                    "px-space-2 shrink-0 rounded-full py-0.5 text-[10.5px] font-semibold",
+                    VISIT_STATUS_STYLES[v.status] || "text-ink-600 bg-black/4",
                   )}
                 >
                   {VISIT_STATUS_LABELS[v.status] || v.status}
@@ -262,7 +329,10 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
               </div>
             ))
           )}
-          <Link href={`/portal/patients/${patient.id}`} className="block text-center text-[11px] font-semibold text-brand-600 hover:underline">
+          <Link
+            href={`/portal/patients/${patient.id}`}
+            className="text-brand-600 block text-center text-[11px] font-semibold hover:underline"
+          >
             View full history
           </Link>
         </div>
@@ -271,26 +341,37 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
       {tab === "Reports" && (
         <div className="space-y-space-2">
           {loading ? (
-            <p className="text-[12px] text-ink-400">Loading…</p>
+            <p className="text-ink-400 text-[12px]">Loading…</p>
           ) : (summary?.documents.length ?? 0) === 0 ? (
-            <p className="py-space-3 text-center text-[12.5px] text-ink-400">No documents uploaded yet.</p>
+            <p className="py-space-3 text-ink-400 text-center text-[12.5px]">
+              No documents uploaded yet.
+            </p>
           ) : (
             summary!.documents.map((d) => (
-              <div key={d.id} className="flex items-center justify-between rounded-md border border-line p-space-2">
-                <div className="flex min-w-0 items-center gap-space-2">
-                  <FileText size={14} className="shrink-0 text-ink-400" />
+              <div
+                key={d.id}
+                className="border-line p-space-2 flex items-center justify-between rounded-md border"
+              >
+                <div className="gap-space-2 flex min-w-0 items-center">
+                  <FileText size={14} className="text-ink-400 shrink-0" />
                   <div className="min-w-0">
-                    <p className="truncate text-[12.5px] font-semibold text-ink-900">{d.file_name}</p>
-                    <p className="text-[11px] text-ink-400">
-                      {DOCUMENT_TYPE_LABELS[d.document_type] || d.document_type} · {formatDate(d.uploaded_at)}
+                    <p className="text-ink-900 truncate text-[12.5px] font-semibold">
+                      {d.file_name}
+                    </p>
+                    <p className="text-ink-400 text-[11px]">
+                      {DOCUMENT_TYPE_LABELS[d.document_type] || d.document_type} ·{" "}
+                      {formatDate(d.uploaded_at)}
                     </p>
                   </div>
                 </div>
-                {d.sent_to_whatsapp_at && <Send size={13} className="shrink-0 text-success" />}
+                {d.sent_to_whatsapp_at && <Send size={13} className="text-success shrink-0" />}
               </div>
             ))
           )}
-          <Link href={`/portal/patients/${patient.id}`} className="block text-center text-[11px] font-semibold text-brand-600 hover:underline">
+          <Link
+            href={`/portal/patients/${patient.id}`}
+            className="text-brand-600 block text-center text-[11px] font-semibold hover:underline"
+          >
             Upload or send reports on the full record
           </Link>
         </div>

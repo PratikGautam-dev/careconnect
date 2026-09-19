@@ -14,14 +14,22 @@ function parseDate(iso: string): Date | null {
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = parseDate(iso);
-  return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : iso;
+  return d
+    ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : iso;
 }
 
 /** "Aug 28, 2026, 3:45 PM". */
 export function formatDateTime(iso: string): string {
   const d = parseDate(iso);
   return d
-    ? d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+    ? d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
     : iso;
 }
 
@@ -29,7 +37,14 @@ export function formatDateTime(iso: string): string {
  * lists scoped to the current/recent period where the year is implied. */
 export function formatShortDateTime(iso: string): string {
   const d = parseDate(iso);
-  return d ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : iso;
+  return d
+    ? d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : iso;
 }
 
 /** "3:45 PM". */
@@ -42,13 +57,25 @@ export function formatTimeOnly(iso: string): string {
  * datetime), parsed at local midnight. */
 export function formatDateHeading(dateStr: string): string {
   const d = parseDate(`${dateStr}T00:00:00`);
-  return d ? d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : dateStr;
+  return d
+    ? d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+    : dateStr;
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 /** "Wednesday, 9 September 2026" -- a page header's date subtitle, computed

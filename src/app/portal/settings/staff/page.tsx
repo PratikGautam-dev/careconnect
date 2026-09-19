@@ -36,9 +36,22 @@ export default function StaffManagementPage() {
   const departments = useDepartments(ready && canView);
 
   const {
-    staff, error, togglingId, load, handleToggleActive, handleSetAttendance,
-    resetPasswordTarget, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
-    resetErrors, resetting, openResetPassword, closeResetPassword, handleResetPassword,
+    staff,
+    error,
+    togglingId,
+    load,
+    handleToggleActive,
+    handleSetAttendance,
+    resetPasswordTarget,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    resetErrors,
+    resetting,
+    openResetPassword,
+    closeResetPassword,
+    handleResetPassword,
   } = useStaffManagement(canView);
 
   const [addStaffOpen, setAddStaffOpen] = useState(false);
@@ -51,7 +64,10 @@ export default function StaffManagementPage() {
   const today = new Date();
 
   const rows: StaffRow[] = useMemo(() => staff || [], [staff]);
-  const departmentOptions = useMemo(() => (departments || []).map((d) => ({ value: d.id, label: d.name })), [departments]);
+  const departmentOptions = useMemo(
+    () => (departments || []).map((d) => ({ value: d.id, label: d.name })),
+    [departments],
+  );
 
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -92,14 +108,22 @@ export default function StaffManagementPage() {
 
       {!ready || !canView ? (
         !ready ? null : (
-          <p className="text-[13px] text-ink-400">You don&apos;t have access to Staff Management.</p>
+          <p className="text-ink-400 text-[13px]">
+            You don&apos;t have access to Staff Management.
+          </p>
         )
       ) : (
         <>
-          {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+          {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-          <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile label="Total Staff" value={staff ? staff.length : null} deltaPct={null} hint="Live count" icon={Users} />
+          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              label="Total Staff"
+              value={staff ? staff.length : null}
+              deltaPct={null}
+              hint="Live count"
+              icon={Users}
+            />
             <StatTile
               label="Active Staff"
               value={staff ? staff.filter((s) => s.is_active).length : null}
@@ -107,17 +131,32 @@ export default function StaffManagementPage() {
               hint={staff ? `of ${staff.length} total` : ""}
               icon={UserCheck}
             />
-            <StatTile label="On Leave" value={staff ? onLeaveCount : null} deltaPct={null} hint="Today" icon={CalendarX} tint="clay" />
-            <StatTile label="Departments" value={staff ? departmentsCovered : null} deltaPct={null} hint="Live count" icon={Building2} />
+            <StatTile
+              label="On Leave"
+              value={staff ? onLeaveCount : null}
+              deltaPct={null}
+              hint="Today"
+              icon={CalendarX}
+              tint="clay"
+            />
+            <StatTile
+              label="Departments"
+              value={staff ? departmentsCovered : null}
+              deltaPct={null}
+              hint="Live count"
+              icon={Building2}
+            />
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+          <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">
               <Card className="p-space-4">
-                <div className="mb-space-3 flex flex-wrap items-start justify-between gap-space-3">
+                <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
                   <div>
-                    <h3 className="text-label font-bold text-ink-900">Staff Directory</h3>
-                    <p className="text-hint mt-space-1">Manage hospital staff, view attendance and manage access.</p>
+                    <h3 className="text-label text-ink-900 font-bold">Staff Directory</h3>
+                    <p className="text-hint mt-space-1">
+                      Manage hospital staff, view attendance and manage access.
+                    </p>
                   </div>
                   <PermissionGate page="staff" action="write">
                     <Button size="md" onClick={() => setAddStaffOpen(true)}>
@@ -126,15 +165,18 @@ export default function StaffManagementPage() {
                   </PermissionGate>
                 </div>
 
-                <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
+                <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
                   <div className="relative min-w-50 flex-1">
-                    <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+                    <Search
+                      size={14}
+                      className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
+                    />
                     <input
                       type="text"
                       placeholder="Search by name, role, department or phone…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                      className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
                     />
                   </div>
                   <FilterSelect
@@ -143,7 +185,12 @@ export default function StaffManagementPage() {
                     allLabel="All Departments"
                     options={departmentOptions}
                   />
-                  <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Status" options={STATUS_OPTIONS} />
+                  <FilterSelect
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    allLabel="All Status"
+                    options={STATUS_OPTIONS}
+                  />
                 </div>
 
                 <DataTable
@@ -161,7 +208,11 @@ export default function StaffManagementPage() {
                   pageSize={10}
                   pageSizeOptions={[10, 25, 50]}
                   loading={!staff}
-                  emptyMessage={staff && staff.length > 0 ? "No staff match your search/filters." : "No staff members yet."}
+                  emptyMessage={
+                    staff && staff.length > 0
+                      ? "No staff match your search/filters."
+                      : "No staff members yet."
+                  }
                 />
               </Card>
             </div>
@@ -184,15 +235,29 @@ export default function StaffManagementPage() {
 
       <EditStaffDialog
         staff={editingStaff}
-        onOpenChange={(open) => { if (!open) setEditingStaff(null); }}
+        onOpenChange={(open) => {
+          if (!open) setEditingStaff(null);
+        }}
         onSaved={load}
       />
 
-      <Dialog open={resetPasswordTarget !== null} onOpenChange={(open) => { if (!open) closeResetPassword(); }}>
+      <Dialog
+        open={resetPasswordTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) closeResetPassword();
+        }}
+      >
         <DialogContent>
-          <DialogTitle>Reset password{resetPasswordTarget ? ` for ${resetPasswordTarget.name}` : ""}</DialogTitle>
-          <form onSubmit={handleResetPassword} className="flex flex-col gap-space-3">
-            <Field label="New password" htmlFor="reset_new_password" required hint="At least 8 characters.">
+          <DialogTitle>
+            Reset password{resetPasswordTarget ? ` for ${resetPasswordTarget.name}` : ""}
+          </DialogTitle>
+          <form onSubmit={handleResetPassword} className="gap-space-3 flex flex-col">
+            <Field
+              label="New password"
+              htmlFor="reset_new_password"
+              required
+              hint="At least 8 characters."
+            >
               <PasswordInput
                 id="reset_new_password"
                 value={newPassword}
@@ -209,17 +274,23 @@ export default function StaffManagementPage() {
               />
             </Field>
             {resetErrors.length > 0 && (
-              <ul className="list-disc pl-space-4 text-[12.5px] font-medium text-error">
+              <ul className="pl-space-4 text-error list-disc text-[12.5px] font-medium">
                 {resetErrors.map((err, i) => (
                   <li key={i}>{err}</li>
                 ))}
               </ul>
             )}
-            <div className="flex gap-space-2">
+            <div className="gap-space-2 flex">
               <Button type="submit" disabled={resetting} size="md">
                 {resetting ? "Resetting…" : "Reset password"}
               </Button>
-              <Button type="button" variant="secondary" size="md" onClick={closeResetPassword} disabled={resetting}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={closeResetPassword}
+                disabled={resetting}
+              >
                 Cancel
               </Button>
             </div>

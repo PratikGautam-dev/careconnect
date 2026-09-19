@@ -31,9 +31,16 @@ type ListProps = {
  * embedding inside a panel that already owns its own heading/wrapper. */
 export function QuickActionList({ actions, columns = 1, size, className, children }: ListProps) {
   return (
-    <div className={cn(columns === 2 ? "grid grid-cols-2 gap-space-2" : "space-y-space-2", className)}>
+    <div
+      className={cn(columns === 2 ? "gap-space-2 grid grid-cols-2" : "space-y-space-2", className)}
+    >
       {actions.map((action) => (
-        <QuickActionButton key={action.label} {...action} size={size} className={action.fullWidth ? "col-span-2" : undefined} />
+        <QuickActionButton
+          key={action.label}
+          {...action}
+          size={size}
+          className={action.fullWidth ? "col-span-2" : undefined}
+        />
       ))}
       {children}
     </div>
@@ -51,10 +58,17 @@ type Props = ListProps & {
 /** Standalone "Quick actions" card -- title + Card wrapper + QuickActionList.
  * Use this for a page's own sidebar card; use QuickActionList directly when
  * embedding inside an existing panel (e.g. a detail-view sidebar). */
-export function QuickActions({ title = "Quick actions", actions, columns, size, className, cardClassName }: Props) {
+export function QuickActions({
+  title = "Quick actions",
+  actions,
+  columns,
+  size,
+  className,
+  cardClassName,
+}: Props) {
   return (
     <Card className={cn("p-space-4", cardClassName)}>
-      <h3 className="text-label mb-space-3 font-bold text-ink-900">{title}</h3>
+      <h3 className="text-label mb-space-3 text-ink-900 font-bold">{title}</h3>
       <QuickActionList actions={actions} columns={columns} size={size} className={className} />
     </Card>
   );

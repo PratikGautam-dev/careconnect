@@ -47,7 +47,9 @@ export function useDoctorLeave(doctorId: string) {
   }
 
   async function handleDelete(leaveId: number) {
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/leave/${leaveId}/delete`, { method: "POST" });
+    const result = await portalFetch(`/api/portal/doctors/${doctorId}/leave/${leaveId}/delete`, {
+      method: "POST",
+    });
     if (result.ok) {
       toast.success("Leave removed");
     } else if (!result.unauthorized) {
@@ -57,8 +59,16 @@ export function useDoctorLeave(doctorId: string) {
   }
 
   return {
-    leave, error,
-    fromDate, setFromDate, toDate, setToDate, reason, setReason, adding,
-    handleAdd, handleDelete,
+    leave,
+    error,
+    fromDate,
+    setFromDate,
+    toDate,
+    setToDate,
+    reason,
+    setReason,
+    adding,
+    handleAdd,
+    handleDelete,
   };
 }

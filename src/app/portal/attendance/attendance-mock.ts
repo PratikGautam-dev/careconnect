@@ -37,4 +37,10 @@ export const STATUS_COLORS: Record<AttendanceStatus, string> = {
 };
 
 export const MONTH_OPTIONS = ["September 2026", "August 2026", "July 2026"];
-export const STATUS_FILTER_OPTIONS: (AttendanceStatus | "all")[] = ["all", "present", "late", "leave", "absent"];
+export const STATUS_FILTER_OPTIONS: (AttendanceStatus | "all")[] = [
+  "all",
+  "present",
+  "late",
+  "leave",
+  "absent",
+];

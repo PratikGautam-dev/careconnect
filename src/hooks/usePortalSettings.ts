@@ -58,11 +58,15 @@ export function usePortalSettings(ready: boolean) {
     }
     // Coerced to "" here so the numeric <Input> below never renders "null".
     const data = result.data as Settings & {
-      followup_fee: number | null; new_consultation_fee: number | null; home_collection_charge: number | null;
+      followup_fee: number | null;
+      new_consultation_fee: number | null;
+      home_collection_charge: number | null;
       max_appointments_per_day: number | null;
     };
     setSettings({
-      ...data, followup_fee: data.followup_fee ?? "", new_consultation_fee: data.new_consultation_fee ?? "",
+      ...data,
+      followup_fee: data.followup_fee ?? "",
+      new_consultation_fee: data.new_consultation_fee ?? "",
       home_collection_charge: data.home_collection_charge ?? "",
       max_appointments_per_day: data.max_appointments_per_day ?? "",
     });

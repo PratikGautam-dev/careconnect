@@ -3,8 +3,17 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
-  Briefcase, Building2, CalendarClock, IdCard, KeyRound, Laptop2,
-  Mail, MapPin, Pencil, Phone, User,
+  Briefcase,
+  Building2,
+  CalendarClock,
+  IdCard,
+  KeyRound,
+  Laptop2,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+  User,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -25,24 +34,32 @@ function initials(name: string): string {
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
 
-function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: React.ReactNode }) {
+function DetailRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between gap-space-3 text-[13px]">
-      <span className="flex items-center gap-space-2 text-ink-400">
+    <div className="gap-space-3 flex items-center justify-between text-[13px]">
+      <span className="gap-space-2 text-ink-400 flex items-center">
         <Icon size={14} className="shrink-0" /> {label}
       </span>
-      <span className="truncate text-right font-medium text-ink-900">{value}</span>
+      <span className="text-ink-900 truncate text-right font-medium">{value}</span>
     </div>
   );
 }
 
 function CardHeading({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
   return (
-    <div className="mb-space-3 flex items-center gap-space-2">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-600">
+    <div className="mb-space-3 gap-space-2 flex items-center">
+      <span className="bg-brand-50 text-brand-600 flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
         <Icon size={15} />
       </span>
-      <h3 className="text-[13.5px] font-bold text-ink-900">{title}</h3>
+      <h3 className="text-ink-900 text-[13.5px] font-bold">{title}</h3>
     </div>
   );
 }
@@ -65,51 +82,62 @@ export default function ProfileSettingsPage() {
   const session = useStaffSession();
   const { profile, error: profileError } = useStaffProfile();
   const {
-    currentPassword, setCurrentPassword,
-    newPassword, setNewPassword,
-    confirmPassword, setConfirmPassword,
-    errors, submitting,
+    currentPassword,
+    setCurrentPassword,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    errors,
+    submitting,
     handleSubmit,
   } = useChangePassword();
 
   return (
     <PortalShell hospital={session?.hospital || null} active="profile-settings">
-      <PageHeader title="Profile" description={session ? `${session.name} — ${session.role_name}` : undefined} />
+      <PageHeader
+        title="Profile"
+        description={session ? `${session.name} — ${session.role_name}` : undefined}
+      />
 
       {profileError ? (
-        <p className="text-[13px] text-error">{profileError}</p>
+        <p className="text-error text-[13px]">{profileError}</p>
       ) : !profile ? (
-        <p className="text-[13px] text-ink-400">Loading…</p>
+        <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
-        <div className="flex flex-col gap-space-4">
-          <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-3">
+        <div className="gap-space-4 flex flex-col">
+          <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-3">
             <Card className="p-space-4 lg:col-span-2">
-              <div className="flex flex-wrap items-start justify-between gap-space-3">
-                <div className="flex items-center gap-space-3">
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[18px] font-bold text-brand-700">
+              <div className="gap-space-3 flex flex-wrap items-start justify-between">
+                <div className="gap-space-3 flex items-center">
+                  <span className="bg-brand-100 text-brand-700 flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-[18px] font-bold">
                     {initials(profile.name)}
                   </span>
                   <div>
-                    <p className="text-[15px] font-bold text-ink-900">
+                    <p className="text-ink-900 text-[15px] font-bold">
                       {profile.is_doctor_role ? `Dr. ${profile.name}` : profile.name}
                     </p>
-                    <p className="text-[12.5px] text-ink-600">{profile.role_name}</p>
-                    {(profile.is_doctor_role ? profile.specialization : profile.department_name) && (
-                      <Badge tone="brand" className="mt-space-1 normal-case tracking-normal">
+                    <p className="text-ink-600 text-[12.5px]">{profile.role_name}</p>
+                    {(profile.is_doctor_role
+                      ? profile.specialization
+                      : profile.department_name) && (
+                      <Badge tone="brand" className="mt-space-1 tracking-normal normal-case">
                         {profile.is_doctor_role ? profile.specialization : profile.department_name}
                       </Badge>
                     )}
                   </div>
                 </div>
                 <Button
-                  type="button" variant="secondary" disabled
+                  type="button"
+                  variant="secondary"
+                  disabled
                   title="Coming soon — self-service profile editing isn't built yet"
                 >
                   <Pencil size={13} /> Edit Profile
                 </Button>
               </div>
 
-              <div className="mt-space-4 space-y-space-2 border-t border-line pt-space-3">
+              <div className="mt-space-4 space-y-space-2 border-line pt-space-3 border-t">
                 <DetailRow icon={IdCard} label="Staff ID" value={profile.employee_id || "—"} />
                 <DetailRow icon={Mail} label="Email" value={profile.email} />
                 <DetailRow icon={Phone} label="Phone" value={profile.phone || "—"} />
@@ -124,78 +152,114 @@ export default function ProfileSettingsPage() {
               <CardHeading icon={Building2} title="Hospital Information" />
               <div className="space-y-space-2">
                 <DetailRow icon={Building2} label="Hospital Name" value={profile.hospital.name} />
-                <DetailRow icon={Briefcase} label="Department" value={profile.department_name || "—"} />
+                <DetailRow
+                  icon={Briefcase}
+                  label="Department"
+                  value={profile.department_name || "—"}
+                />
                 <DetailRow icon={MapPin} label="Location" value={profile.location || "—"} />
-                <DetailRow icon={CalendarClock} label="Joining Date" value={formatDate(profile.created_at)} />
+                <DetailRow
+                  icon={CalendarClock}
+                  label="Joining Date"
+                  value={formatDate(profile.created_at)}
+                />
                 <DetailRow icon={Briefcase} label="Employment Type" value="—" />
               </div>
             </Card>
           </div>
 
           {profile.is_doctor_role && (
-            <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-3">
+            <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-3">
               <div className="lg:col-span-2" />
               <Card className="p-space-4">
                 <div className="mb-space-3 flex items-center justify-between">
                   <CardHeading icon={CalendarClock} title="Consultation Timings" />
-                  <Link href="/portal/schedule" className="text-[12px] font-semibold text-brand-600 hover:underline">
+                  <Link
+                    href="/portal/schedule"
+                    className="text-brand-600 text-[12px] font-semibold hover:underline"
+                  >
                     Manage Schedule
                   </Link>
                 </div>
                 {profile.working_days.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-400">No schedule set yet.</p>
+                  <p className="text-ink-400 text-[12.5px]">No schedule set yet.</p>
                 ) : (
-                  <p className="text-[13px] text-ink-900">
+                  <p className="text-ink-900 text-[13px]">
                     {formatWorkingDays(profile.working_days)}
-                    {formatWorkingHours(profile.working_hours) ? ` · ${formatWorkingHours(profile.working_hours)}` : ""}
+                    {formatWorkingHours(profile.working_hours)
+                      ? ` · ${formatWorkingHours(profile.working_hours)}`
+                      : ""}
                   </p>
                 )}
               </Card>
             </div>
           )}
 
-          <div className={cn("grid grid-cols-1 gap-space-4 md:grid-cols-2", profile.is_doctor_role && "xl:grid-cols-4")}>
+          <div
+            className={cn(
+              "gap-space-4 grid grid-cols-1 md:grid-cols-2",
+              profile.is_doctor_role && "xl:grid-cols-4",
+            )}
+          >
             {profile.is_doctor_role && (
               <Card className="p-space-4">
                 <CardHeading icon={Laptop2} title="Qualifications" />
-                <p className="text-[13px] font-semibold text-ink-900">{profile.qualification || "—"}</p>
+                <p className="text-ink-900 text-[13px] font-semibold">
+                  {profile.qualification || "—"}
+                </p>
               </Card>
             )}
             {profile.is_doctor_role && (
               <Card className="p-space-4">
                 <CardHeading icon={Briefcase} title="Experience" />
-                <p className="text-[20px] font-bold text-ink-900">
+                <p className="text-ink-900 text-[20px] font-bold">
                   {profile.years_experience != null ? profile.years_experience : "—"}
-                  {profile.years_experience != null && <span className="ml-space-1 text-[12px] font-medium text-ink-400">years</span>}
+                  {profile.years_experience != null && (
+                    <span className="ml-space-1 text-ink-400 text-[12px] font-medium">years</span>
+                  )}
                 </p>
-                <p className="text-[11.5px] text-ink-400">Total Clinical Experience</p>
+                <p className="text-ink-400 text-[11.5px]">Total Clinical Experience</p>
               </Card>
             )}
 
             <Card className="p-space-4">
               <CardHeading icon={KeyRound} title="Change Password" />
-              <form onSubmit={handleSubmit} className="flex flex-col gap-space-3">
+              <form onSubmit={handleSubmit} className="gap-space-3 flex flex-col">
                 <Field label="Current password" htmlFor="current_password" required>
                   <PasswordInput
-                    id="current_password" autoComplete="current-password" required
-                    value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                    id="current_password"
+                    autoComplete="current-password"
+                    required
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
                   />
                 </Field>
-                <Field label="New password" htmlFor="new_password" required hint="At least 8 characters.">
+                <Field
+                  label="New password"
+                  htmlFor="new_password"
+                  required
+                  hint="At least 8 characters."
+                >
                   <PasswordInput
-                    id="new_password" autoComplete="new-password" required
-                    value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                    id="new_password"
+                    autoComplete="new-password"
+                    required
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
                   />
                 </Field>
                 <Field label="Confirm new password" htmlFor="confirm_password" required>
                   <PasswordInput
-                    id="confirm_password" autoComplete="new-password" required
-                    value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                    id="confirm_password"
+                    autoComplete="new-password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                   />
                 </Field>
                 {errors.length > 0 && (
-                  <div className="rounded-md border border-error bg-error-tint p-space-3 text-[12.5px] text-error">
-                    <ul className="list-disc pl-space-4">
+                  <div className="border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px]">
+                    <ul className="pl-space-4 list-disc">
                       {errors.map((e, i) => (
                         <li key={i}>{e}</li>
                       ))}

@@ -111,7 +111,12 @@ export function initialWizardState(): WizardState {
     whatsappPhoneNumberId: "",
     appSecret: "",
     enabledFeatures: [
-      "book_doctor_appointment", "tests_diagnostics", "reschedule", "cancel", "view_appointments", "hospital_info",
+      "book_doctor_appointment",
+      "tests_diagnostics",
+      "reschedule",
+      "cancel",
+      "view_appointments",
+      "hospital_info",
       "reception_handoff",
     ],
     tenantType: "hospital",

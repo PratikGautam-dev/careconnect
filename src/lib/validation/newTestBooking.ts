@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { patientDateOfBirthSchema, patientGenderSchema, patientNameSchema, patientPhoneSchema } from "./patientInfo";
+import {
+  patientDateOfBirthSchema,
+  patientGenderSchema,
+  patientNameSchema,
+  patientPhoneSchema,
+} from "./patientInfo";
 
 // Mirrors the WhatsApp Lab Test flow's own basket shape (flows/booking/
 // types/lab.py): test_ids is a list, not a scalar -- a lab-category booking
@@ -18,13 +23,13 @@ export const newTestBookingSchema = z
     collection_address: z.string().trim().optional(),
     collection_pincode: z.string().trim().optional(),
   })
-  .refine(
-    (v) => v.collection_method !== "home" || !!v.collection_address,
-    { message: "Enter an address for home collection.", path: ["collection_address"] },
-  )
-  .refine(
-    (v) => v.collection_method !== "home" || !!v.collection_pincode,
-    { message: "Enter a pincode for home collection.", path: ["collection_pincode"] },
-  );
+  .refine((v) => v.collection_method !== "home" || !!v.collection_address, {
+    message: "Enter an address for home collection.",
+    path: ["collection_address"],
+  })
+  .refine((v) => v.collection_method !== "home" || !!v.collection_pincode, {
+    message: "Enter a pincode for home collection.",
+    path: ["collection_pincode"],
+  });
 
 export type NewTestBookingFormValues = z.infer<typeof newTestBookingSchema>;

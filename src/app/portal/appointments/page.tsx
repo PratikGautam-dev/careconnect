@@ -25,35 +25,27 @@ import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
-import {
-  QuickActions,
-  type QuickAction,
-} from "@/components/portal/QuickActions";
+import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
-import {
-  type Appointment,
-  TYPE_LABELS,
-  useAppointments,
-} from "@/hooks/useAppointments";
-import {
-  createAppointmentColumns,
-  STATUS_LABELS,
-} from "./_components/appointments-columns";
+import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
+import { createAppointmentColumns, STATUS_LABELS } from "./_components/appointments-columns";
 import { RescheduleDialog } from "./_components/RescheduleDialog";
 
 // This page is doctor-appointments-only (see useAppointments(ready, "doctor")
 // below) -- restricted to just those 3 types, same scoping reasoning as that
 // hook call's own comment.
-const DOCTOR_TYPE_OPTIONS = (["new", "followup", "tele"] as const).map(
-  (value) => ({ value, label: TYPE_LABELS[value] }),
-);
-const APPOINTMENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(
-  ([value, label]) => ({ value, label }),
-);
+const DOCTOR_TYPE_OPTIONS = (["new", "followup", "tele"] as const).map((value) => ({
+  value,
+  label: TYPE_LABELS[value],
+}));
+const APPOINTMENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 // Coarser split on top of DOCTOR_TYPE_OPTIONS -- "Walk-in" groups New +
 // Follow-up (both in-person; there's no single appointment_type_id for
 // "not tele"), "Tele" is the same "tele" type again but picked as a mode
@@ -186,8 +178,7 @@ export default function PortalAppointmentsPage() {
   // the whole dataset to compute their numbers from, same as before the
   // table itself became server-paginated.
   const tabCounts = useMemo(() => {
-    if (!allAppointments)
-      return { all: 0, today: 0, upcoming: 0, previous: 0 };
+    if (!allAppointments) return { all: 0, today: 0, upcoming: 0, previous: 0 };
     const now = new Date();
     const counts = {
       all: allAppointments.length,
@@ -211,9 +202,7 @@ export default function PortalAppointmentsPage() {
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    const todayCount = allAppointments.filter((a) =>
-      isSameDate(a.scheduled_at, now),
-    ).length;
+    const todayCount = allAppointments.filter((a) => isSameDate(a.scheduled_at, now)).length;
     const yesterdayCount = allAppointments.filter((a) =>
       isSameDate(a.scheduled_at, yesterday),
     ).length;
@@ -228,9 +217,7 @@ export default function PortalAppointmentsPage() {
   const todaysSchedule = useMemo(() => {
     if (!allAppointments) return [];
     return allAppointments
-      .filter(
-        (a) => isSameDate(a.scheduled_at, today) && a.status !== "cancelled",
-      )
+      .filter((a) => isSameDate(a.scheduled_at, today) && a.status !== "cancelled")
       .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
       .slice(0, 6);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -273,10 +260,10 @@ export default function PortalAppointmentsPage() {
   function renderRowDetail(a: Appointment) {
     if (cancelPanelId === a.id) {
       return (
-        <div className="rounded-lg border border-line bg-paper p-space-3">
+        <div className="border-line bg-paper p-space-3 rounded-lg border">
           <label
             htmlFor={`cancel-msg-${a.id}`}
-            className="mb-space-2 block text-[12px] font-semibold text-ink-600"
+            className="mb-space-2 text-ink-600 block text-[12px] font-semibold"
           >
             Message to send {a.phone} on WhatsApp
           </label>
@@ -285,17 +272,16 @@ export default function PortalAppointmentsPage() {
             value={cancelMessage}
             onChange={(e) => setCancelMessage(e.target.value)}
             rows={2}
-            className="mb-space-2 h-16 w-full resize-none rounded-md border border-line bg-card px-space-3 py-space-2 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+            className="mb-space-2 border-line bg-card px-space-3 py-space-2 text-ink-900 focus:border-brand-400 h-16 w-full resize-none rounded-md border text-[13px] outline-none"
           />
-          <div className="flex gap-space-2">
+          <div className="gap-space-2 flex">
             <Button
               size="md"
               onClick={() => handleCancel(a.id)}
               disabled={cancellingId === a.id}
               className="bg-error hover:bg-error/90 active:bg-error/80"
             >
-              <Send size={13} />{" "}
-              {cancellingId === a.id ? "Cancelling…" : "Send & cancel"}
+              <Send size={13} /> {cancellingId === a.id ? "Cancelling…" : "Send & cancel"}
             </Button>
             <Button
               size="md"
@@ -334,7 +320,9 @@ export default function PortalAppointmentsPage() {
   if (!canView) {
     return (
       <PortalShell hospital={hospital} active="appointments">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Doctor Appointments.</p>
+        <p className="text-ink-400 text-[13px]">
+          You don&apos;t have access to Doctor Appointments.
+        </p>
       </PortalShell>
     );
   }
@@ -357,9 +345,9 @@ export default function PortalAppointmentsPage() {
         }
       />
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Total doctor appointments"
           value={stats?.total ?? null}
@@ -392,16 +380,16 @@ export default function PortalAppointmentsPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
+      <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="space-y-space-4 lg:col-span-2">
-          <div className="flex flex-wrap gap-space-2">
+          <div className="gap-space-2 flex flex-wrap">
             {TABS.map(({ id, label }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setTab(id)}
                 className={cn(
-                  "rounded-full border px-space-3 py-space-1 text-[12.5px] font-semibold transition-colors duration-150",
+                  "px-space-3 py-space-1 rounded-full border text-[12.5px] font-semibold transition-colors duration-150",
                   tab === id
                     ? "border-brand-600 bg-brand-600 text-white"
                     : "border-line bg-card text-ink-600 hover:border-brand-300 hover:bg-brand-50",
@@ -420,7 +408,7 @@ export default function PortalAppointmentsPage() {
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-space-3">
+          <div className="gap-space-3 flex flex-wrap items-center">
             {selectedAppointments.length > 0 && (
               <PermissionGate page="appointments" action="delete">
                 <Button
@@ -437,14 +425,14 @@ export default function PortalAppointmentsPage() {
             <div className="relative min-w-[220px] flex-1">
               <Search
                 size={14}
-                className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400"
+                className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
               />
               <input
                 type="text"
                 placeholder="Search by patient name, doctor, or ID…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
               />
             </div>
             <FilterSelect
@@ -463,10 +451,7 @@ export default function PortalAppointmentsPage() {
               onApply={applyFilters}
               onReset={resetFilters}
               showReset={
-                filtersDirty ||
-                !!searchQuery ||
-                statusFilter !== "all" ||
-                typeFilter !== "all"
+                filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all"
               }
             />
           </div>
@@ -493,38 +478,31 @@ export default function PortalAppointmentsPage() {
         <div className="space-y-space-4">
           <Card className="p-space-4">
             <div className="mb-space-3 flex items-center justify-between">
-              <h3 className="text-label font-bold text-ink-900">
-                Today&apos;s schedule
-              </h3>
+              <h3 className="text-label text-ink-900 font-bold">Today&apos;s schedule</h3>
               <button
                 type="button"
                 onClick={() => setTab("today")}
-                className="text-[12px] font-semibold text-brand-600 hover:underline"
+                className="text-brand-600 text-[12px] font-semibold hover:underline"
               >
                 View all →
               </button>
             </div>
             {todaysSchedule.length === 0 ? (
-              <p className="py-space-2 text-center text-[13px] text-ink-400">
+              <p className="py-space-2 text-ink-400 text-center text-[13px]">
                 Nothing scheduled today.
               </p>
             ) : (
               <ul className="space-y-space-3">
                 {todaysSchedule.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex items-start gap-space-3 text-[12.5px]"
-                  >
-                    <span className="mt-0.5 w-[52px] shrink-0 tabular-nums text-ink-400">
+                  <li key={a.id} className="gap-space-3 flex items-start text-[12.5px]">
+                    <span className="text-ink-400 mt-0.5 w-[52px] shrink-0 tabular-nums">
                       {formatTimeOnly(a.scheduled_at)}
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-ink-900">
+                      <p className="text-ink-900 truncate font-semibold">
                         {a.patient_name || a.phone}
                       </p>
-                      <p className="truncate text-ink-400">
-                        Dr. {a.doctor_name || "—"}
-                      </p>
+                      <p className="text-ink-400 truncate">Dr. {a.doctor_name || "—"}</p>
                     </div>
                   </li>
                 ))}
@@ -561,16 +539,10 @@ export default function PortalAppointmentsPage() {
         onCancel={() => setPendingDelete(null)}
       />
 
-      <NewBookingDialog
-        open={newBookingOpen}
-        onOpenChange={setNewBookingOpen}
-        onBooked={load}
-      />
+      <NewBookingDialog open={newBookingOpen} onOpenChange={setNewBookingOpen} onBooked={load} />
 
       <RescheduleDialog
-        appointment={
-          (appointments || []).find((a) => a.id === reschedulePanelId) ?? null
-        }
+        appointment={(appointments || []).find((a) => a.id === reschedulePanelId) ?? null}
         onOpenChange={(open) => {
           if (!open) closeReschedulePanel();
         }}
@@ -578,18 +550,14 @@ export default function PortalAppointmentsPage() {
         message={rescheduleMessage}
         setMessage={setRescheduleMessage}
         errors={rescheduleErrors}
-        submitting={
-          reschedulePanelId !== null && reschedulingId === reschedulePanelId
-        }
+        submitting={reschedulePanelId !== null && reschedulingId === reschedulePanelId}
         date={rDate}
         setDate={setRDate}
         slotId={rSlotId}
         setSlotId={setRSlotId}
         datesForDoctor={rDatesForDoctor}
         slotsForDate={rSlotsForDate}
-        onSubmit={() =>
-          reschedulePanelId !== null && handleReschedule(reschedulePanelId)
-        }
+        onSubmit={() => reschedulePanelId !== null && handleReschedule(reschedulePanelId)}
       />
     </PortalShell>
   );

@@ -36,8 +36,20 @@ type Props = {
  * single day/evening/night Shift dropdown with the same WorkingScheduleFields
  * days+times+breaks picker doctors use. */
 export function StaffContactFields({
-  hasLinkedDoctor, phone, setPhone, address, setAddress, departmentId, setDepartmentId, departments,
-  schedule, setSchedule, reportsToId, setReportsToId, staffOptions, excludeStaffId,
+  hasLinkedDoctor,
+  phone,
+  setPhone,
+  address,
+  setAddress,
+  departmentId,
+  setDepartmentId,
+  departments,
+  schedule,
+  setSchedule,
+  reportsToId,
+  setReportsToId,
+  staffOptions,
+  excludeStaffId,
 }: Props) {
   return (
     <>
@@ -48,12 +60,16 @@ export function StaffContactFields({
         <Input id="staff_address" value={address} onChange={(e) => setAddress(e.target.value)} />
       </Field>
       {!hasLinkedDoctor && (
-        <Field label="Department" htmlFor="staff_department" hint="A doctor's department comes from their linked doctor profile instead.">
+        <Field
+          label="Department"
+          htmlFor="staff_department"
+          hint="A doctor's department comes from their linked doctor profile instead."
+        >
           <select
             id="staff_department"
             value={departmentId}
             onChange={(e) => setDepartmentId(e.target.value)}
-            className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+            className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
           >
             <option value="">No department</option>
             {(departments || []).map((d) => (
@@ -69,17 +85,19 @@ export function StaffContactFields({
           id="staff_reports_to"
           value={reportsToId}
           onChange={(e) => setReportsToId(e.target.value)}
-          className="h-10 w-full rounded-md border border-line bg-card px-space-3 text-[13px] text-ink-900"
+          className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
         >
           <option value="">Nobody set</option>
-          {staffOptions.filter((s) => s.id !== excludeStaffId).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
+          {staffOptions
+            .filter((s) => s.id !== excludeStaffId)
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
         </select>
       </Field>
-      <div className="mt-space-3 border-t border-line pt-space-4 md:col-span-2">
+      <div className="mt-space-3 border-line pt-space-4 border-t md:col-span-2">
         <SectionHeader
           title="Schedule"
           description="Which days this staff member works, and their shift timings."

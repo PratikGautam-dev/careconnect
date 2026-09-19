@@ -130,7 +130,9 @@ export function usePatients(ready: boolean) {
   // each row) -- not the hospital's full department catalog, which isn't
   // fetched on this page.
   const departmentOptions = useMemo(() => {
-    const names = new Set((patients ?? []).map((p) => p.department_name).filter((n): n is string => !!n));
+    const names = new Set(
+      (patients ?? []).map((p) => p.department_name).filter((n): n is string => !!n),
+    );
     return [...names].sort();
   }, [patients]);
 
@@ -157,7 +159,10 @@ export function usePatients(ready: boolean) {
     return {
       total: list.length,
       active: list.filter((p) => p.status === "active").length,
-      newRegistrations: now === null ? 0 : list.filter((p) => p.created_at && new Date(p.created_at).getTime() >= cutoff).length,
+      newRegistrations:
+        now === null
+          ? 0
+          : list.filter((p) => p.created_at && new Date(p.created_at).getTime() >= cutoff).length,
     };
   }, [patients, now]);
 
@@ -176,7 +181,14 @@ export function usePatients(ready: boolean) {
     setPendingDelete,
     deleting,
     runDelete,
-    departmentFilter, setDepartmentFilter, statusFilter, setStatusFilter, genderFilter, setGenderFilter,
-    departmentOptions, filteredPatients, stats,
+    departmentFilter,
+    setDepartmentFilter,
+    statusFilter,
+    setStatusFilter,
+    genderFilter,
+    setGenderFilter,
+    departmentOptions,
+    filteredPatients,
+    stats,
   };
 }

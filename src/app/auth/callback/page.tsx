@@ -69,8 +69,8 @@ function CallbackContent() {
   }, [params, router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-paper px-space-4">
-      <Card className="w-full max-w-sm p-space-6 text-center">
+    <div className="bg-paper px-space-4 flex min-h-screen items-center justify-center">
+      <Card className="p-space-6 w-full max-w-sm text-center">
         <p className="text-body">Signing you in…</p>
       </Card>
     </div>

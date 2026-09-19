@@ -48,7 +48,7 @@ export function AdminShell({ active, children }: Props) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-paper">
+    <div className="bg-paper flex h-screen overflow-hidden">
       <AdminSidebar
         active={active}
         open={sidebarOpen}
@@ -58,19 +58,21 @@ export function AdminShell({ active, children }: Props) {
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center gap-space-3 border-b border-line bg-card px-space-4 lg:hidden">
+        <header className="gap-space-3 border-line bg-card px-space-4 flex h-14 shrink-0 items-center border-b lg:hidden">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
-            className="-ml-space-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-600 hover:bg-paper"
+            className="-ml-space-2 text-ink-600 hover:bg-paper flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
           >
             <Menu size={20} strokeWidth={2} />
           </button>
-          <span className="truncate text-[14px] font-bold text-ink-900">Platform admin</span>
+          <span className="text-ink-900 truncate text-[14px] font-bold">Platform admin</span>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-space-3 xs:p-space-4 sm:p-space-6">{children}</main>
+        <main className="p-space-3 xs:p-space-4 sm:p-space-6 flex-1 overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );

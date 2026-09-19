@@ -90,7 +90,9 @@ async function tryRefresh(): Promise<string | null> {
   const refreshToken = getStaffRefreshToken();
   if (!refreshToken) return null;
   try {
-    const res = await axios.post(`${API_BASE_URL}/api/portal/staff/refresh`, { refresh_token: refreshToken });
+    const res = await axios.post(`${API_BASE_URL}/api/portal/staff/refresh`, {
+      refresh_token: refreshToken,
+    });
     saveStaffTokens(res.data.access_token, res.data.refresh_token);
     return res.data.access_token as string;
   } catch {
@@ -123,7 +125,11 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
       return { ok: false, unauthorized: false, error: "Network error — check your connection." };
     }
     if (err.response.status !== 401) {
-      return { ok: false, unauthorized: false, error: err.response.data?.error || "Something went wrong." };
+      return {
+        ok: false,
+        unauthorized: false,
+        error: err.response.data?.error || "Something went wrong.",
+      };
     }
 
     token = await tryRefresh();
@@ -141,7 +147,11 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
         clearStaffSession();
         return { ok: false, unauthorized: true };
       }
-      return { ok: false, unauthorized: false, error: retryErr.response.data?.error || "Something went wrong." };
+      return {
+        ok: false,
+        unauthorized: false,
+        error: retryErr.response.data?.error || "Something went wrong.",
+      };
     }
   }
 
@@ -200,8 +210,12 @@ export type StaffAuthResponse = {
   access_token: string;
   refresh_token: string;
   staff: {
-    id: number; name: string; role_id: number; role_name: string;
-    is_doctor_role: boolean; doctor_id: string | null;
+    id: number;
+    name: string;
+    role_id: number;
+    role_name: string;
+    is_doctor_role: boolean;
+    doctor_id: string | null;
     hospital: PortalHospital;
   };
   permissions: StaffPermissions;
@@ -209,9 +223,14 @@ export type StaffAuthResponse = {
 
 export function staffSessionFromAuthResponse(data: StaffAuthResponse): StaffSession {
   return {
-    id: data.staff.id, name: data.staff.name, role_id: data.staff.role_id, role_name: data.staff.role_name,
-    is_doctor_role: data.staff.is_doctor_role, doctor_id: data.staff.doctor_id,
-    hospital: data.staff.hospital, permissions: data.permissions,
+    id: data.staff.id,
+    name: data.staff.name,
+    role_id: data.staff.role_id,
+    role_name: data.staff.role_name,
+    is_doctor_role: data.staff.is_doctor_role,
+    doctor_id: data.staff.doctor_id,
+    hospital: data.staff.hospital,
+    permissions: data.permissions,
   };
 }
 
@@ -247,7 +266,9 @@ export function usePermission(pageKey: string, action: "view" | "write" | "delet
  * order must stay fixed across renders. Callers get `session` once, from
  * their own top-level useStaffSession() call, and pass it in here per item. */
 export function hasPermission(
-  session: StaffSession | null, pageKey: string, action: "view" | "write" | "delete",
+  session: StaffSession | null,
+  pageKey: string,
+  action: "view" | "write" | "delete",
 ): boolean {
   if (!session) return true;
   return !!session.permissions[pageKey]?.[action];

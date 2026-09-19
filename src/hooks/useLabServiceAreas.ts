@@ -57,7 +57,9 @@ export function useLabServiceAreas() {
   async function removeArea(area: ServiceArea) {
     setPendingId(area.id);
     setError(null);
-    const result = await portalFetch(`/api/portal/lab-service-areas/${area.id}`, { method: "DELETE" });
+    const result = await portalFetch(`/api/portal/lab-service-areas/${area.id}`, {
+      method: "DELETE",
+    });
     setPendingId(null);
     if (!result.ok) {
       setError(result.unauthorized ? "Session expired — please log in again." : result.error);
@@ -73,7 +75,8 @@ export function useLabServiceAreas() {
       addMode === "single"
         ? { pincode: newPincode.trim() }
         : { range_start: newRangeStart.trim(), range_end: newRangeEnd.trim() };
-    if (addMode === "single" ? !newPincode.trim() : !(newRangeStart.trim() && newRangeEnd.trim())) return;
+    if (addMode === "single" ? !newPincode.trim() : !(newRangeStart.trim() && newRangeEnd.trim()))
+      return;
     setPendingId("new");
     setError(null);
     const result = await portalFetch("/api/portal/lab-service-areas", {
@@ -96,9 +99,21 @@ export function useLabServiceAreas() {
   }
 
   return {
-    areas, error, pendingId,
-    showAddForm, setShowAddForm, addMode, setAddMode,
-    newPincode, setNewPincode, newRangeStart, setNewRangeStart, newRangeEnd, setNewRangeEnd,
-    toggleActive, removeArea, addArea,
+    areas,
+    error,
+    pendingId,
+    showAddForm,
+    setShowAddForm,
+    addMode,
+    setAddMode,
+    newPincode,
+    setNewPincode,
+    newRangeStart,
+    setNewRangeStart,
+    newRangeEnd,
+    setNewRangeEnd,
+    toggleActive,
+    removeArea,
+    addArea,
   };
 }

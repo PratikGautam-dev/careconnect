@@ -31,21 +31,21 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-space-4"
+      className="p-space-4 fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       onClick={onCancel}
     >
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="w-full max-w-[420px] rounded-lg bg-card p-space-5 shadow-[var(--shadow-lg)]"
+        className="bg-card p-space-5 w-full max-w-[420px] rounded-lg shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="confirm-dialog-title" className="text-[16px] font-semibold text-ink-900">
+        <h2 id="confirm-dialog-title" className="text-ink-900 text-[16px] font-semibold">
           {title}
         </h2>
-        <p className="mt-space-2 text-[13px] text-ink-600">{message}</p>
-        <div className="mt-space-5 flex justify-end gap-space-2">
+        <p className="mt-space-2 text-ink-600 text-[13px]">{message}</p>
+        <div className="mt-space-5 gap-space-2 flex justify-end">
           <Button variant="secondary" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>

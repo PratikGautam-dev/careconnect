@@ -20,7 +20,13 @@ type Action =
   | { type: "setDepartmentName"; deptIndex: number; name: string }
   | { type: "addDoctor"; deptIndex: number }
   | { type: "removeDoctor"; deptIndex: number; docIndex: number }
-  | { type: "setDoctorField"; deptIndex: number; docIndex: number; field: keyof DoctorForm; value: unknown }
+  | {
+      type: "setDoctorField";
+      deptIndex: number;
+      docIndex: number;
+      field: keyof DoctorForm;
+      value: unknown;
+    }
   | { type: "toggleDoctorDay"; deptIndex: number; docIndex: number; day: string }
   | { type: "selectAllWeekdays"; deptIndex: number; docIndex: number }
   | { type: "addShift"; deptIndex: number; docIndex: number }
@@ -31,7 +37,12 @@ type Action =
   | { type: "setBreak"; deptIndex: number; docIndex: number; breakIndex: number; range: TimeRange }
   | { type: "addTopic" }
   | { type: "removeTopic"; topicIndex: number }
-  | { type: "setTopicField"; topicIndex: number; field: "topicLabel" | "answerText"; value: string };
+  | {
+      type: "setTopicField";
+      topicIndex: number;
+      field: "topicLabel" | "answerText";
+      value: string;
+    };
 
 function reducer(draft: WizardState, action: Action) {
   switch (action.type) {
@@ -99,22 +110,36 @@ function reducer(draft: WizardState, action: Action) {
       return;
     }
     case "addShift":
-      draft.departments[action.deptIndex].doctors[action.docIndex].shifts.push({ start: "", end: "" });
+      draft.departments[action.deptIndex].doctors[action.docIndex].shifts.push({
+        start: "",
+        end: "",
+      });
       return;
     case "removeShift":
-      draft.departments[action.deptIndex].doctors[action.docIndex].shifts.splice(action.shiftIndex, 1);
+      draft.departments[action.deptIndex].doctors[action.docIndex].shifts.splice(
+        action.shiftIndex,
+        1,
+      );
       return;
     case "setShift":
-      draft.departments[action.deptIndex].doctors[action.docIndex].shifts[action.shiftIndex] = action.range;
+      draft.departments[action.deptIndex].doctors[action.docIndex].shifts[action.shiftIndex] =
+        action.range;
       return;
     case "addBreak":
-      draft.departments[action.deptIndex].doctors[action.docIndex].breaks.push({ start: "", end: "" });
+      draft.departments[action.deptIndex].doctors[action.docIndex].breaks.push({
+        start: "",
+        end: "",
+      });
       return;
     case "removeBreak":
-      draft.departments[action.deptIndex].doctors[action.docIndex].breaks.splice(action.breakIndex, 1);
+      draft.departments[action.deptIndex].doctors[action.docIndex].breaks.splice(
+        action.breakIndex,
+        1,
+      );
       return;
     case "setBreak":
-      draft.departments[action.deptIndex].doctors[action.docIndex].breaks[action.breakIndex] = action.range;
+      draft.departments[action.deptIndex].doctors[action.docIndex].breaks[action.breakIndex] =
+        action.range;
       return;
     case "addTopic":
       draft.topics.push(emptyTopic());

@@ -10,13 +10,14 @@ import { useLeavePolicy } from "@/hooks/useLeavePolicy";
  * Doctor/receptionist only -- admin approves leave, doesn't accrue an
  * allowance, so there's no third field here for it. */
 export function LeavePolicyManager({ canManage }: { canManage: boolean }) {
-  const { policy, doctorDays, setDoctorDays, staffDays, setStaffDays, saving, error, handleSave } = useLeavePolicy(true);
+  const { policy, doctorDays, setDoctorDays, staffDays, setStaffDays, saving, error, handleSave } =
+    useLeavePolicy(true);
 
-  if (!policy) return <p className="text-[13px] text-ink-400">Loading…</p>;
+  if (!policy) return <p className="text-ink-400 text-[13px]">Loading…</p>;
 
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-space-3">
-      <div className="grid grid-cols-1 gap-x-space-4 sm:grid-cols-2">
+    <form onSubmit={handleSave} className="gap-space-3 flex flex-col">
+      <div className="gap-x-space-4 grid grid-cols-1 sm:grid-cols-2">
         <Field label="Doctor annual leave (days)" htmlFor="doctor_annual_leave_days">
           <Input
             id="doctor_annual_leave_days"
@@ -27,7 +28,11 @@ export function LeavePolicyManager({ canManage }: { canManage: boolean }) {
             disabled={!canManage}
           />
         </Field>
-        <Field label="Staff annual leave (days)" htmlFor="staff_annual_leave_days" hint="Receptionists only -- admin doesn't accrue leave.">
+        <Field
+          label="Staff annual leave (days)"
+          htmlFor="staff_annual_leave_days"
+          hint="Receptionists only -- admin doesn't accrue leave."
+        >
           <Input
             id="staff_annual_leave_days"
             type="number"
@@ -38,7 +43,7 @@ export function LeavePolicyManager({ canManage }: { canManage: boolean }) {
           />
         </Field>
       </div>
-      {error && <p className="text-[12.5px] font-medium text-error">{error}</p>}
+      {error && <p className="text-error text-[12.5px] font-medium">{error}</p>}
       {canManage && (
         <Button type="submit" size="md" disabled={saving} className="self-start">
           {saving ? "Saving…" : "Save leave policy"}

@@ -30,7 +30,10 @@ export type CollectionMethod = "visit" | "home";
  * lazily off the FIRST (anchor) test only, the moment it changes -- see
  * useNewBooking.ts's own comment for why this isn't eager-loaded. */
 export function useNewTestBooking(
-  open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
+  open: boolean,
+  onBooked?: () => void,
+  initialPatientName?: string,
+  initialPatientPhone?: string,
 ) {
   const router = useRouter();
   const [ctx, setCtx] = useState<NewTestBookingContext | null>(null);
@@ -181,14 +184,35 @@ export function useNewTestBooking(
   }
 
   return {
-    ctx, error, errors, submitting, success,
-    patientName, setPatientName, patientPhone, setPatientPhone,
-    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
-    selectedTestIds, selectedTests, category, toggleTest,
-    collectionMethod, setCollectionMethod, collectionAddress, setCollectionAddress,
-    collectionPincode, setCollectionPincode,
-    date, setDate, slotId, setSlotId,
-    datesForSelection, slotsForDate,
+    ctx,
+    error,
+    errors,
+    submitting,
+    success,
+    patientName,
+    setPatientName,
+    patientPhone,
+    setPatientPhone,
+    patientDateOfBirth,
+    setPatientDateOfBirth,
+    patientGender,
+    setPatientGender,
+    selectedTestIds,
+    selectedTests,
+    category,
+    toggleTest,
+    collectionMethod,
+    setCollectionMethod,
+    collectionAddress,
+    setCollectionAddress,
+    collectionPincode,
+    setCollectionPincode,
+    date,
+    setDate,
+    slotId,
+    setSlotId,
+    datesForSelection,
+    slotsForDate,
     slotsLoading: !!anchorTestId && slotsByDate === null,
     handleSubmit,
   };

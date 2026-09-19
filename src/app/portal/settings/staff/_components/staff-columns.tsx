@@ -58,9 +58,7 @@ export function createStaffColumns({
       header: "Employee ID",
       // "—" for a doctor-role row -- its employee id lives on its linked
       // doctors row instead (Employee ID auto-numbering feature).
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.employee_id || "—"}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-600">{row.original.employee_id || "—"}</span>,
     },
     {
       id: "name",
@@ -71,7 +69,7 @@ export function createStaffColumns({
           <button
             type="button"
             onClick={() => onSelect(s)}
-            className="flex items-center gap-space-2 text-left"
+            className="gap-space-2 flex items-center text-left"
           >
             <span
               className={cn(
@@ -81,9 +79,7 @@ export function createStaffColumns({
             >
               {initials(s.name)}
             </span>
-            <span className="truncate font-semibold text-ink-900">
-              {s.name}
-            </span>
+            <span className="text-ink-900 truncate font-semibold">{s.name}</span>
           </button>
         );
       },
@@ -91,17 +87,13 @@ export function createStaffColumns({
     {
       id: "role",
       header: "Role",
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.role_name}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-600">{row.original.role_name}</span>,
     },
     {
       id: "department",
       header: "Department",
       cell: ({ row }) => (
-        <span className="text-ink-600">
-          {row.original.department_name || "—"}
-        </span>
+        <span className="text-ink-600">{row.original.department_name || "—"}</span>
       ),
     },
     {
@@ -112,13 +104,11 @@ export function createStaffColumns({
         return (
           <span
             className={cn(
-              "flex items-center gap-space-1 text-[12.5px] font-semibold whitespace-nowrap",
+              "gap-space-1 flex items-center text-[12.5px] font-semibold whitespace-nowrap",
               ATTENDANCE_TEXT[status],
             )}
           >
-            <span
-              className={cn("h-1.5 w-1.5 rounded-full", ATTENDANCE_DOT[status])}
-            />{" "}
+            <span className={cn("h-1.5 w-1.5 rounded-full", ATTENDANCE_DOT[status])} />{" "}
             {ATTENDANCE_LABELS[status]}
           </span>
         );
@@ -129,7 +119,7 @@ export function createStaffColumns({
       header: "Phone",
       cell: ({ row }) =>
         row.original.phone ? (
-          <span className="flex items-center gap-1 whitespace-nowrap text-ink-600">
+          <span className="text-ink-600 flex items-center gap-1 whitespace-nowrap">
             <Phone size={11} className="text-ink-400" /> {row.original.phone}
           </span>
         ) : (

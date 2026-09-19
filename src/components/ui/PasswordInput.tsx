@@ -5,7 +5,9 @@ import { Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 
-type PasswordInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & { invalid?: boolean };
+type PasswordInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  invalid?: boolean;
+};
 
 /** Password field with a show/hide toggle -- same eye/eye-off pattern
  * /portal/login's own password field established, pulled out here so a form
@@ -16,12 +18,16 @@ export function PasswordInput({ className, ...props }: PasswordInputProps) {
 
   return (
     <div className="relative">
-      <Input type={visible ? "text" : "password"} className={cn("pr-space-9", className)} {...props} />
+      <Input
+        type={visible ? "text" : "password"}
+        className={cn("pr-space-9", className)}
+        {...props}
+      />
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
         tabIndex={-1}
-        className="absolute right-space-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"
+        className="right-space-3 text-ink-400 hover:text-ink-700 absolute top-1/2 -translate-y-1/2"
         aria-label={visible ? "Hide password" : "Show password"}
       >
         {visible ? <EyeOff size={16} /> : <Eye size={16} />}

@@ -1,10 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarCheck, CheckCircle2, Clock, History, ListChecks, MoreVertical, PlayCircle, Video } from "lucide-react";
+import {
+  CalendarCheck,
+  CheckCircle2,
+  Clock,
+  History,
+  ListChecks,
+  MoreVertical,
+  PlayCircle,
+  Video,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AVATAR_TINTS, STATUS_LABELS, STATUS_STYLES, TYPE_ICONS, initials } from "@/app/portal/appointments/_components/appointments-columns";
+import {
+  AVATAR_TINTS,
+  STATUS_LABELS,
+  STATUS_STYLES,
+  TYPE_ICONS,
+  initials,
+} from "@/app/portal/appointments/_components/appointments-columns";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -126,7 +141,7 @@ export function DoctorDashboardView() {
 
   return (
     <>
-      <div className="mb-space-5 flex flex-wrap items-center justify-between gap-space-3">
+      <div className="mb-space-5 gap-space-3 flex flex-wrap items-center justify-between">
         <div>
           <h1 className="text-display">Dashboard</h1>
           <p className="text-body">{formatHeaderDateNoYear(new Date())}</p>
@@ -136,23 +151,25 @@ export function DoctorDashboardView() {
         </Button>
       </div>
 
-      {error && <p className="mb-space-4 text-[13px] text-error">{error}</p>}
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       {delayPanelOpen && (
         <Card className="mb-space-5 p-space-4">
-          <p className="mb-space-1 text-[13.5px] font-semibold text-ink-900">Push back today&apos;s remaining appointments</p>
-          <p className="mb-space-3 text-[12.5px] text-ink-600">
-            Every still-confirmed appointment later today shifts forward by this many minutes, and each patient gets a
-            WhatsApp message with their new time automatically.
+          <p className="mb-space-1 text-ink-900 text-[13.5px] font-semibold">
+            Push back today&apos;s remaining appointments
           </p>
-          <div className="flex flex-wrap items-center gap-space-2">
+          <p className="mb-space-3 text-ink-600 text-[12.5px]">
+            Every still-confirmed appointment later today shifts forward by this many minutes, and
+            each patient gets a WhatsApp message with their new time automatically.
+          </p>
+          <div className="gap-space-2 flex flex-wrap items-center">
             {DELAY_PRESETS.map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setDelayMinutes(String(m))}
                 className={cn(
-                  "h-9 rounded-md border px-space-3 text-[12.5px] font-semibold transition-colors duration-150",
+                  "px-space-3 h-9 rounded-md border text-[12.5px] font-semibold transition-colors duration-150",
                   delayMinutes === String(m)
                     ? "border-brand-600 bg-brand-600 text-white"
                     : "border-line bg-card text-ink-600 hover:border-brand-300",
@@ -173,16 +190,14 @@ export function DoctorDashboardView() {
               {delaying ? "Shifting…" : "Confirm delay"}
             </Button>
           </div>
-          {delayError && <p className="mt-space-2 text-[12.5px] text-error">{delayError}</p>}
-          {delayResult && <p className="mt-space-2 text-[12.5px] font-semibold text-success">{delayResult}</p>}
+          {delayError && <p className="mt-space-2 text-error text-[12.5px]">{delayError}</p>}
+          {delayResult && (
+            <p className="mt-space-2 text-success text-[12.5px] font-semibold">{delayResult}</p>
+          )}
         </Card>
       )}
 
-      {!data ? (
-        <p className="text-[13px] text-ink-400">Loading…</p>
-      ) : (
-        <DashboardBody data={data} />
-      )}
+      {!data ? <p className="text-ink-400 text-[13px]">Loading…</p> : <DashboardBody data={data} />}
     </>
   );
 }
@@ -201,45 +216,72 @@ function DashboardBody({ data }: { data: DashboardData }) {
   const todayByTime = [...data.today_appointments].sort(
     (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
   );
-  const teleconsultationsToday = data.today_appointments.filter((a) => a.appointment_type_id === "tele").length;
+  const teleconsultationsToday = data.today_appointments.filter(
+    (a) => a.appointment_type_id === "tele",
+  ).length;
   const { insights } = data;
 
   return (
     <>
-      <div className="mb-space-5 grid grid-cols-1 gap-space-4 xs:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-space-5 gap-space-4 xs:grid-cols-2 grid grid-cols-1 lg:grid-cols-4">
         <StatTile
-          label="Today's appointments" value={data.stats.today_appointments} deltaPct={null} hint=""
-          icon={CalendarCheck} tint="brand" href="/portal/appointments"
+          label="Today's appointments"
+          value={data.stats.today_appointments}
+          deltaPct={null}
+          hint=""
+          icon={CalendarCheck}
+          tint="brand"
+          href="/portal/appointments"
         />
         <StatTile
-          label="Completed" value={data.stats.attended_today} deltaPct={null} hint=""
-          icon={CheckCircle2} tint="success" href="/portal/appointments"
+          label="Completed"
+          value={data.stats.attended_today}
+          deltaPct={null}
+          hint=""
+          icon={CheckCircle2}
+          tint="success"
+          href="/portal/appointments"
         />
         <StatTile
-          label="Pending consultations" value={data.stats.confirmed_today} deltaPct={null} hint=""
-          icon={Clock} tint="clay" href="/portal/appointments"
+          label="Pending consultations"
+          value={data.stats.confirmed_today}
+          deltaPct={null}
+          hint=""
+          icon={Clock}
+          tint="clay"
+          href="/portal/appointments"
         />
         <StatTile
-          label="Teleconsultations" value={teleconsultationsToday} deltaPct={null} hint=""
-          icon={Video} tint="brand" href="/portal/appointments"
+          label="Teleconsultations"
+          value={teleconsultationsToday}
+          deltaPct={null}
+          hint=""
+          icon={Video}
+          tint="brand"
+          href="/portal/appointments"
         />
       </div>
 
-      <div className="mb-space-5 grid grid-cols-1 gap-space-4 lg:grid-cols-3">
+      <div className="mb-space-5 gap-space-4 grid grid-cols-1 lg:grid-cols-3">
         <Card className="p-space-4 lg:col-span-2">
           <div className="mb-space-3 flex items-center justify-between">
-            <h3 className="text-label font-bold text-ink-900">Today&apos;s appointments</h3>
-            <Link href="/portal/appointments" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+            <h3 className="text-label text-ink-900 font-bold">Today&apos;s appointments</h3>
+            <Link
+              href="/portal/appointments"
+              className="text-brand-600 text-[12.5px] font-semibold hover:underline"
+            >
               View all →
             </Link>
           </div>
           {todayByTime.length === 0 ? (
-            <p className="py-space-4 text-center text-[13px] text-ink-400">Nothing scheduled for today.</p>
+            <p className="py-space-4 text-ink-400 text-center text-[13px]">
+              Nothing scheduled for today.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13.5px]">
                 <thead>
-                  <tr className="border-b border-line text-left text-label text-ink-400">
+                  <tr className="border-line text-label text-ink-400 border-b text-left">
                     <th className="py-space-2 pr-space-3 font-medium">Time</th>
                     <th className="py-space-2 pr-space-3 font-medium">Patient</th>
                     <th className="py-space-2 pr-space-3 font-medium">Type</th>
@@ -249,14 +291,15 @@ function DashboardBody({ data }: { data: DashboardData }) {
                 </thead>
                 <tbody>
                   {todayByTime.map((a) => {
-                    const TypeIcon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+                    const TypeIcon =
+                      (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
                     return (
-                      <tr key={a.id} className="border-b border-line last:border-0">
-                        <td className="whitespace-nowrap py-space-3 pr-space-3 tabular-nums text-ink-600">
+                      <tr key={a.id} className="border-line border-b last:border-0">
+                        <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap tabular-nums">
                           {formatTime(a.scheduled_at)}
                         </td>
                         <td className="py-space-3 pr-space-3">
-                          <div className="flex items-center gap-space-2">
+                          <div className="gap-space-2 flex items-center">
                             <span
                               className={cn(
                                 "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10.5px] font-bold",
@@ -265,20 +308,23 @@ function DashboardBody({ data }: { data: DashboardData }) {
                             >
                               {initials(a.patient_display_id, a.phone)}
                             </span>
-                            <span className="truncate font-semibold text-ink-900">{a.patient_display_id || a.phone}</span>
+                            <span className="text-ink-900 truncate font-semibold">
+                              {a.patient_display_id || a.phone}
+                            </span>
                           </div>
                         </td>
                         <td className="py-space-3 pr-space-3">
-                          <span className="inline-flex items-center gap-space-1.5 whitespace-nowrap text-ink-600">
-                            <TypeIcon size={14} className="shrink-0 text-ink-400" />
-                            {(a.appointment_type_id && TYPE_LABELS[a.appointment_type_id]) || "Consultation"}
+                          <span className="gap-space-1.5 text-ink-600 inline-flex items-center whitespace-nowrap">
+                            <TypeIcon size={14} className="text-ink-400 shrink-0" />
+                            {(a.appointment_type_id && TYPE_LABELS[a.appointment_type_id]) ||
+                              "Consultation"}
                           </span>
                         </td>
                         <td className="py-space-3 pr-space-3">
                           <span
                             className={cn(
-                              "whitespace-nowrap rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
-                              STATUS_STYLES[a.status] || "bg-black/[0.04] text-ink-600",
+                              "px-space-2 rounded-full py-0.5 text-[11px] font-semibold whitespace-nowrap",
+                              STATUS_STYLES[a.status] || "text-ink-600 bg-black/[0.04]",
                             )}
                           >
                             {STATUS_LABELS[a.status] || a.status}
@@ -288,7 +334,7 @@ function DashboardBody({ data }: { data: DashboardData }) {
                           <Link
                             href={`/portal/appointments/${a.id}`}
                             title="View appointment"
-                            className="inline-flex rounded-md p-1 text-ink-400 hover:bg-black/[0.04] hover:text-ink-700"
+                            className="text-ink-400 hover:text-ink-700 inline-flex rounded-md p-1 hover:bg-black/[0.04]"
                           >
                             <MoreVertical size={16} />
                           </Link>
@@ -305,8 +351,11 @@ function DashboardBody({ data }: { data: DashboardData }) {
         <div className="space-y-space-4">
           <Card className="p-space-4">
             <div className="mb-space-3 flex items-center justify-between">
-              <h3 className="text-label font-bold text-ink-900">Today&apos;s schedule</h3>
-              <Link href="/portal/appointments" className="text-[12px] font-semibold text-brand-600 hover:underline">
+              <h3 className="text-label text-ink-900 font-bold">Today&apos;s schedule</h3>
+              <Link
+                href="/portal/appointments"
+                className="text-brand-600 text-[12px] font-semibold hover:underline"
+              >
                 View full schedule →
               </Link>
             </div>
@@ -314,22 +363,41 @@ function DashboardBody({ data }: { data: DashboardData }) {
           </Card>
 
           <Card className="p-space-4">
-            <h3 className="text-label mb-space-3 font-bold text-ink-900">Quick actions</h3>
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Quick actions</h3>
             <QuickActionList actions={quickActions} />
           </Card>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-space-4 lg:grid-cols-3">
+      <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-3">
         <WeeklyTrendChart data={data.weekly_counts} />
 
         <Card className="p-space-4">
-          <h3 className="text-label mb-space-3 font-bold text-ink-900">Patient insights</h3>
-          <div className="grid grid-cols-2 gap-space-4">
-            <InsightStat label="New patients" value={insights.new_patients_this_week} deltaPct={insights.new_patients_this_week_delta_pct} />
-            <InsightStat label="Follow-ups" value={insights.follow_ups_this_week} deltaPct={insights.follow_ups_this_week_delta_pct} />
-            <InsightStat label="Prescriptions issued" value={insights.prescriptions_issued_this_week} deltaPct={null} unavailable />
-            <InsightStat label="Avg consult time" value={insights.avg_consult_minutes} deltaPct={null} unit=" min" unavailable />
+          <h3 className="text-label mb-space-3 text-ink-900 font-bold">Patient insights</h3>
+          <div className="gap-space-4 grid grid-cols-2">
+            <InsightStat
+              label="New patients"
+              value={insights.new_patients_this_week}
+              deltaPct={insights.new_patients_this_week_delta_pct}
+            />
+            <InsightStat
+              label="Follow-ups"
+              value={insights.follow_ups_this_week}
+              deltaPct={insights.follow_ups_this_week_delta_pct}
+            />
+            <InsightStat
+              label="Prescriptions issued"
+              value={insights.prescriptions_issued_this_week}
+              deltaPct={null}
+              unavailable
+            />
+            <InsightStat
+              label="Avg consult time"
+              value={insights.avg_consult_minutes}
+              deltaPct={null}
+              unit=" min"
+              unavailable
+            />
           </div>
         </Card>
 
@@ -340,16 +408,35 @@ function DashboardBody({ data }: { data: DashboardData }) {
 }
 
 function InsightStat({
-  label, value, deltaPct, unit = "", unavailable = false,
+  label,
+  value,
+  deltaPct,
+  unit = "",
+  unavailable = false,
 }: {
-  label: string; value: number | null; deltaPct: number | null; unit?: string; unavailable?: boolean;
+  label: string;
+  value: number | null;
+  deltaPct: number | null;
+  unit?: string;
+  unavailable?: boolean;
 }) {
   return (
     <div className="min-w-0">
       <p className="text-hint truncate">{label}</p>
-      <p className="text-[18px] font-semibold text-ink-900">{value === null ? "—" : `${value.toLocaleString()}${unit}`}</p>
-      <p className={cn("text-[11.5px] font-semibold", deltaPct === null ? "text-ink-400" : deltaPct >= 0 ? "text-success" : "text-error")}>
-        {unavailable ? "Not tracked yet" : deltaPct === null ? "vs last week" : `${deltaPct >= 0 ? "↑" : "↓"} ${Math.abs(deltaPct)}% vs last week`}
+      <p className="text-ink-900 text-[18px] font-semibold">
+        {value === null ? "—" : `${value.toLocaleString()}${unit}`}
+      </p>
+      <p
+        className={cn(
+          "text-[11.5px] font-semibold",
+          deltaPct === null ? "text-ink-400" : deltaPct >= 0 ? "text-success" : "text-error",
+        )}
+      >
+        {unavailable
+          ? "Not tracked yet"
+          : deltaPct === null
+            ? "vs last week"
+            : `${deltaPct >= 0 ? "↑" : "↓"} ${Math.abs(deltaPct)}% vs last week`}
       </p>
     </div>
   );

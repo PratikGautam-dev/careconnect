@@ -53,7 +53,7 @@ export function DaycareCellAction({
     <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-600 hover:bg-black/4 hover:text-ink-900"
+          className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
           aria-label={`Actions for booking ${a.reference_id || a.id}`}
         >
           <MoreHorizontal size={16} />
@@ -81,7 +81,11 @@ export function DaycareCellAction({
                 <DropdownMenuItem disabled={busy} onClick={() => onApproveReschedule(a.id)}>
                   <ThumbsUp size={14} /> Approve reschedule
                 </DropdownMenuItem>
-                <DropdownMenuItem variant="destructive" disabled={busy} onClick={() => onRejectReschedule(a.id)}>
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => onRejectReschedule(a.id)}
+                >
                   <ThumbsDown size={14} /> Reject reschedule
                 </DropdownMenuItem>
               </>
@@ -94,7 +98,11 @@ export function DaycareCellAction({
             )}
 
             {!isTerminal && (
-              <DropdownMenuItem variant="destructive" disabled={busy} onClick={() => onAdvance(a.id, "CANCELLED")}>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={busy}
+                onClick={() => onAdvance(a.id, "CANCELLED")}
+              >
                 <XCircle size={14} /> Cancel booking
               </DropdownMenuItem>
             )}

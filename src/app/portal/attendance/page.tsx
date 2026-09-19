@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BarChart3, CalendarDays, Clock, Download, UserX } from "lucide-react";
-import { Bar, BarChart, Cell, LabelList, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  Cell,
+  LabelList,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,7 +24,12 @@ import { usePermission } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import {
-  MONTH_OPTIONS, STATUS_COLORS, STATUS_FILTER_OPTIONS, STATUS_LABELS, STATUS_STYLES, type AttendanceStatus,
+  MONTH_OPTIONS,
+  STATUS_COLORS,
+  STATUS_FILTER_OPTIONS,
+  STATUS_LABELS,
+  STATUS_STYLES,
+  type AttendanceStatus,
 } from "./attendance-mock";
 
 type ApiAttendanceRecord = {
@@ -110,7 +125,9 @@ export default function AttendancePage() {
   }, [monthRecords, statusFilter]);
 
   const stats = useMemo(() => {
-    const presentDays = monthRecords.filter((r) => r.status === "on_time" || r.status === "half_day").length;
+    const presentDays = monthRecords.filter(
+      (r) => r.status === "on_time" || r.status === "half_day",
+    ).length;
     const lateCheckIns = monthRecords.filter((r) => r.status === "late").length;
     const overtimeMinutes = monthRecords.reduce((sum, r) => sum + r.overtime_minutes, 0);
     // Not yet real -- see this page's own top-of-file note.
@@ -139,7 +156,9 @@ export default function AttendancePage() {
     // days-expected ratio, since that needs a working-days config this
     // computation doesn't have access to.
     const key = monthKey(month);
-    const daysWithCheckIn = new Set((allRecords ?? []).filter((r) => r.check_in_at).map((r) => r.date));
+    const daysWithCheckIn = new Set(
+      (allRecords ?? []).filter((r) => r.check_in_at).map((r) => r.date),
+    );
     const [y, m] = key.split("-").map(Number);
     const daysInMonth = new Date(y, m, 0).getDate();
     const today = new Date();
@@ -164,7 +183,7 @@ export default function AttendancePage() {
   if (!canView) {
     return (
       <PortalShell hospital={hospital} active="attendance">
-        <p className="text-[13px] text-ink-400">You don&apos;t have access to Attendance.</p>
+        <p className="text-ink-400 text-[13px]">You don&apos;t have access to Attendance.</p>
       </PortalShell>
     );
   }
@@ -184,18 +203,27 @@ export default function AttendancePage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={CalendarDays} tint="brand" label="Present days" value={stats.presentDays} />
         <StatCard icon={UserX} tint="error" label="Absent days" value={stats.absentDays} />
         <StatCard icon={Clock} tint="clay" label="Late check-ins" value={stats.lateCheckIns} />
-        <StatCard icon={BarChart3} tint="success" label="Overtime hours" value={stats.overtimeHours} />
+        <StatCard
+          icon={BarChart3}
+          tint="success"
+          label="Overtime hours"
+          value={stats.overtimeHours}
+        />
       </div>
 
-      <div className="mt-space-4 grid grid-cols-1 gap-space-4 lg:grid-cols-2">
+      <div className="mt-space-4 gap-space-4 grid grid-cols-1 lg:grid-cols-2">
         <Card className="p-space-4">
-          <h3 className="text-label mb-space-4 font-bold text-ink-900">Attendance trend (this month)</h3>
+          <h3 className="text-label mb-space-4 text-ink-900 font-bold">
+            Attendance trend (this month)
+          </h3>
           {trend.length === 0 ? (
-            <p className="py-space-8 text-center text-[13px] text-ink-400">No data for this month yet.</p>
+            <p className="py-space-8 text-ink-400 text-center text-[13px]">
+              No data for this month yet.
+            </p>
           ) : (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={trend} margin={{ top: 20, right: 8, bottom: 0, left: -16 }}>
@@ -213,7 +241,12 @@ export default function AttendancePage() {
                   tick={{ fontSize: 12, fill: "#898781" }}
                 />
                 <Bar dataKey="percent" radius={[4, 4, 0, 0]} maxBarSize={64}>
-                  <LabelList dataKey="percent" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 12, fontWeight: 700, fill: "#26251f" }} />
+                  <LabelList
+                    dataKey="percent"
+                    position="top"
+                    formatter={(v: number) => `${v}%`}
+                    style={{ fontSize: 12, fontWeight: 700, fill: "#26251f" }}
+                  />
                   {trend.map((point, i) => (
                     <Cell key={point.week} fill={i === trend.length - 1 ? "#00949E" : "#bfe3e6"} />
                   ))}
@@ -224,11 +257,13 @@ export default function AttendancePage() {
         </Card>
 
         <Card className="p-space-4">
-          <h3 className="text-label mb-space-4 font-bold text-ink-900">Attendance status</h3>
+          <h3 className="text-label mb-space-4 text-ink-900 font-bold">Attendance status</h3>
           {totalDays === 0 ? (
-            <p className="py-space-8 text-center text-[13px] text-ink-400">No data for this month yet.</p>
+            <p className="py-space-8 text-ink-400 text-center text-[13px]">
+              No data for this month yet.
+            </p>
           ) : (
-            <div className="flex items-center gap-space-4">
+            <div className="gap-space-4 flex items-center">
               <div className="relative w-[55%] shrink-0">
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
@@ -248,17 +283,24 @@ export default function AttendancePage() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-[22px] font-bold leading-none text-ink-900">{totalDays}</span>
-                  <span className="text-[11px] text-ink-400">Total days</span>
+                  <span className="text-ink-900 text-[22px] leading-none font-bold">
+                    {totalDays}
+                  </span>
+                  <span className="text-ink-400 text-[11px]">Total days</span>
                 </div>
               </div>
-              <ul className="flex-1 space-y-space-2">
+              <ul className="space-y-space-2 flex-1">
                 {breakdown.map((slice) => (
-                  <li key={slice.status} className="flex items-center gap-space-2 text-[12.5px]">
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_COLORS[slice.status] }} />
-                    <span className="flex-1 text-ink-900">{slice.label}</span>
-                    <span className="w-6 text-right font-semibold text-ink-900">{slice.count}</span>
-                    <span className="w-10 text-right text-ink-400">{Math.round((slice.count / totalDays) * 100)}%</span>
+                  <li key={slice.status} className="gap-space-2 flex items-center text-[12.5px]">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: STATUS_COLORS[slice.status] }}
+                    />
+                    <span className="text-ink-900 flex-1">{slice.label}</span>
+                    <span className="text-ink-900 w-6 text-right font-semibold">{slice.count}</span>
+                    <span className="text-ink-400 w-10 text-right">
+                      {Math.round((slice.count / totalDays) * 100)}%
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -268,30 +310,34 @@ export default function AttendancePage() {
       </div>
 
       <Card className="mt-space-4 p-space-4">
-        <div className="mb-space-3 flex flex-wrap items-center justify-between gap-space-3">
-          <h3 className="text-label font-bold text-ink-900">Attendance records</h3>
-          <div className="flex flex-wrap items-center gap-space-3">
-            <label className="flex items-center gap-space-2 text-[12.5px] text-ink-600">
+        <div className="mb-space-3 gap-space-3 flex flex-wrap items-center justify-between">
+          <h3 className="text-label text-ink-900 font-bold">Attendance records</h3>
+          <div className="gap-space-3 flex flex-wrap items-center">
+            <label className="gap-space-2 text-ink-600 flex items-center text-[12.5px]">
               Month
               <select
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
-                className="h-9 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                className="border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]"
               >
                 {MONTH_OPTIONS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-space-2 text-[12.5px] text-ink-600">
+            <label className="gap-space-2 text-ink-600 flex items-center text-[12.5px]">
               Status
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as AttendanceStatus | "all")}
-                className="h-9 rounded-md border border-line bg-card px-space-2 text-[12.5px] text-ink-900"
+                className="border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]"
               >
                 {STATUS_FILTER_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{s === "all" ? "All" : STATUS_LABELS[s]}</option>
+                  <option key={s} value={s}>
+                    {s === "all" ? "All" : STATUS_LABELS[s]}
+                  </option>
                 ))}
               </select>
             </label>
@@ -299,14 +345,16 @@ export default function AttendancePage() {
         </div>
 
         {allRecords === null ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
         ) : rows.length === 0 ? (
-          <p className="py-space-4 text-center text-[13px] text-ink-400">No attendance records for this filter.</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">
+            No attendance records for this filter.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
-                <tr className="border-b border-line text-left text-label text-ink-400">
+                <tr className="border-line text-label text-ink-400 border-b text-left">
                   <th className="py-space-2 pr-space-3 font-medium">Date</th>
                   <th className="py-space-2 pr-space-3 font-medium">Check-in</th>
                   <th className="py-space-2 pr-space-3 font-medium">Check-out</th>
@@ -317,14 +365,29 @@ export default function AttendancePage() {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.date} className="border-b border-line last:border-0">
-                    <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-900">{r.date}</td>
-                    <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{r.checkIn ?? "-"}</td>
-                    <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{r.checkOut ?? "-"}</td>
-                    <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{r.breakTime ?? "-"}</td>
-                    <td className="py-space-3 pr-space-3 whitespace-nowrap text-ink-600">{r.workingHours ?? "-"}</td>
+                  <tr key={r.date} className="border-line border-b last:border-0">
+                    <td className="py-space-3 pr-space-3 text-ink-900 whitespace-nowrap">
+                      {r.date}
+                    </td>
+                    <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                      {r.checkIn ?? "-"}
+                    </td>
+                    <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                      {r.checkOut ?? "-"}
+                    </td>
+                    <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                      {r.breakTime ?? "-"}
+                    </td>
+                    <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
+                      {r.workingHours ?? "-"}
+                    </td>
                     <td className="py-space-3">
-                      <span className={cn("whitespace-nowrap rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[r.status])}>
+                      <span
+                        className={cn(
+                          "px-space-2 rounded-full py-0.5 text-[11px] font-semibold whitespace-nowrap",
+                          STATUS_STYLES[r.status],
+                        )}
+                      >
                         {STATUS_LABELS[r.status]}
                       </span>
                     </td>
@@ -340,9 +403,15 @@ export default function AttendancePage() {
 }
 
 function StatCard({
-  icon: Icon, tint, label, value,
+  icon: Icon,
+  tint,
+  label,
+  value,
 }: {
-  icon: typeof CalendarDays; tint: "brand" | "error" | "clay" | "success"; label: string; value: number | string;
+  icon: typeof CalendarDays;
+  tint: "brand" | "error" | "clay" | "success";
+  label: string;
+  value: number | string;
 }) {
   const tintClasses: Record<string, string> = {
     brand: "bg-brand-50 text-brand-600",
@@ -352,13 +421,18 @@ function StatCard({
   };
   return (
     <Card className="p-space-4">
-      <div className="flex items-center gap-space-3">
-        <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", tintClasses[tint])}>
+      <div className="gap-space-3 flex items-center">
+        <span
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
+            tintClasses[tint],
+          )}
+        >
           <Icon size={20} strokeWidth={2} />
         </span>
         <div className="min-w-0">
-          <p className="text-label truncate font-medium text-ink-600">{label}</p>
-          <p className="text-[22px] font-bold leading-tight text-ink-900">{value}</p>
+          <p className="text-label text-ink-600 truncate font-medium">{label}</p>
+          <p className="text-ink-900 text-[22px] leading-tight font-bold">{value}</p>
         </div>
       </div>
     </Card>

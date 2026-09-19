@@ -17,7 +17,7 @@ type Props = {
  * so they stretch to fill the bar's full width evenly. */
 export function SettingsTabsNav({ tabs, active, onChange }: Props) {
   return (
-    <div className="mb-space-5 flex flex-wrap gap-space-1 rounded-lg border border-line bg-card p-space-1">
+    <div className="mb-space-5 gap-space-1 border-line bg-card p-space-1 flex flex-wrap rounded-lg border">
       {tabs.map((tab) => {
         const isActive = tab.key === active;
         return (
@@ -26,8 +26,10 @@ export function SettingsTabsNav({ tabs, active, onChange }: Props) {
             type="button"
             onClick={() => onChange(tab.key)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-space-2 rounded-md px-space-3 py-space-2 text-[13px] font-semibold transition-colors duration-150",
-              isActive ? "bg-brand-50 text-brand-700" : "text-ink-400 hover:bg-black/[0.04] hover:text-ink-700",
+              "gap-space-2 px-space-3 py-space-2 flex flex-1 items-center justify-center rounded-md text-[13px] font-semibold transition-colors duration-150",
+              isActive
+                ? "bg-brand-50 text-brand-700"
+                : "text-ink-400 hover:text-ink-700 hover:bg-black/[0.04]",
             )}
           >
             <tab.icon size={15} strokeWidth={2} />

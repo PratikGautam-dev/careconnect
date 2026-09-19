@@ -16,33 +16,38 @@ type IllustrationProps = {
   buttonLabel: string;
 };
 
-function StepIllustration({ iconA: IconA, iconB: IconB, headline, buttonLabel }: IllustrationProps) {
+function StepIllustration({
+  iconA: IconA,
+  iconB: IconB,
+  headline,
+  buttonLabel,
+}: IllustrationProps) {
   return (
-    <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-brand-50 to-paper p-space-5 pt-space-7">
-      <div className="absolute top-space-5 left-space-4 flex flex-col gap-space-3">
+    <div className="from-brand-50 to-paper p-space-5 pt-space-7 relative overflow-hidden rounded-xl bg-gradient-to-br">
+      <div className="top-space-5 left-space-4 gap-space-3 absolute flex flex-col">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#0668E1] shadow-[var(--shadow-sm)]">
           <IconA size={18} />
         </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-success shadow-[var(--shadow-sm)]">
+        <div className="text-success flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-[var(--shadow-sm)]">
           <IconB size={18} />
         </div>
       </div>
-      <div className="ml-space-7 rounded-lg border border-line bg-card p-space-4 shadow-[var(--shadow-md)]">
+      <div className="ml-space-7 border-line bg-card p-space-4 rounded-lg border shadow-[var(--shadow-md)]">
         <div className="mb-space-3 flex gap-1">
-          <span className="h-2 w-2 rounded-full bg-line" />
-          <span className="h-2 w-2 rounded-full bg-line" />
-          <span className="h-2 w-2 rounded-full bg-line" />
+          <span className="bg-line h-2 w-2 rounded-full" />
+          <span className="bg-line h-2 w-2 rounded-full" />
+          <span className="bg-line h-2 w-2 rounded-full" />
         </div>
-        <p className="mb-space-3 text-[14.5px] leading-snug font-bold text-ink-900">{headline}</p>
+        <p className="mb-space-3 text-ink-900 text-[14.5px] leading-snug font-bold">{headline}</p>
         <div className="mb-space-3 space-y-1.5">
-          <div className="h-2 w-4/5 rounded-full bg-line" />
-          <div className="h-2 w-3/5 rounded-full bg-line" />
+          <div className="bg-line h-2 w-4/5 rounded-full" />
+          <div className="bg-line h-2 w-3/5 rounded-full" />
         </div>
-        <span className="inline-block rounded-md bg-brand-600 px-space-3 py-1.5 text-[12px] font-semibold text-white">
+        <span className="bg-brand-600 px-space-3 inline-block rounded-md py-1.5 text-[12px] font-semibold text-white">
           {buttonLabel}
         </span>
       </div>
-      <div className="absolute right-space-4 bottom-space-3 flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white shadow-[var(--shadow-md)]">
+      <div className="right-space-4 bottom-space-3 bg-brand-600 absolute flex h-9 w-9 items-center justify-center rounded-full text-white shadow-[var(--shadow-md)]">
         <ShieldCheck size={16} strokeWidth={2} />
       </div>
     </div>
@@ -93,35 +98,35 @@ export function StepGuide({
       <p className="text-eyebrow mb-space-2">Step {stepNumber} of 9</p>
       <h2 className="text-display mb-space-2">{title}</h2>
       <p className="text-body mb-space-3">{description}</p>
-      <span className="mb-space-5 inline-flex items-center gap-space-1 rounded-full bg-brand-50 px-space-3 py-1 text-[12px] font-semibold text-brand-700">
+      <span className="mb-space-5 gap-space-1 bg-brand-50 px-space-3 text-brand-700 inline-flex items-center rounded-full py-1 text-[12px] font-semibold">
         <Clock size={13} /> {duration}
       </span>
 
-      <div className="grid grid-cols-1 gap-space-6 lg:grid-cols-2">
+      <div className="gap-space-6 grid grid-cols-1 lg:grid-cols-2">
         <div>
           <div>
             {instructions.map((item, i) => (
-              <div key={i} className="relative flex gap-space-3 pb-space-4 last:pb-0">
+              <div key={i} className="gap-space-3 pb-space-4 relative flex last:pb-0">
                 {i < instructions.length - 1 && (
-                  <span className="absolute top-7 bottom-0 left-[13px] w-px bg-line" aria-hidden />
+                  <span className="bg-line absolute top-7 bottom-0 left-[13px] w-px" aria-hidden />
                 )}
-                <span className="z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-brand-200 bg-card text-[11px] font-bold text-brand-700">
+                <span className="border-brand-200 bg-card text-brand-700 z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold">
                   {i + 1}
                 </span>
-                <div className="flex flex-1 items-start gap-space-3 rounded-lg border border-line bg-paper p-space-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-50 text-brand-600">
+                <div className="gap-space-3 border-line bg-paper p-space-3 flex flex-1 items-start rounded-lg border">
+                  <div className="bg-brand-50 text-brand-600 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]">
                     <item.icon size={16} strokeWidth={2} />
                   </div>
                   <div>
-                    <p className="text-[13.5px] font-bold text-ink-900">{item.title}</p>
-                    <p className="text-[12.5px] leading-relaxed text-ink-600">{item.description}</p>
+                    <p className="text-ink-900 text-[13.5px] font-bold">{item.title}</p>
+                    <p className="text-ink-600 text-[12.5px] leading-relaxed">{item.description}</p>
                   </div>
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="mt-space-4 rounded-lg border border-line bg-paper p-space-3">
+          <div className="mt-space-4 border-line bg-paper p-space-3 rounded-lg border">
             <CheckboxRow checked={done} onChange={onDoneChange}>
               I&apos;ve done this
             </CheckboxRow>
@@ -130,7 +135,7 @@ export function StepGuide({
 
         <div>
           {illustrationImageSrc ? (
-            <div className="overflow-hidden rounded-xl border border-line shadow-sm">
+            <div className="border-line overflow-hidden rounded-xl border shadow-sm">
               <Image
                 src={illustrationImageSrc}
                 alt={illustrationImageAlt || ""}
@@ -144,22 +149,28 @@ export function StepGuide({
             illustration && <StepIllustration {...illustration} />
           )}
 
-          <div className="mt-space-4 flex flex-col items-start gap-space-3 rounded-lg border border-line bg-card p-space-4 md:flex-row md:items-center">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+          <div className="mt-space-4 gap-space-3 border-line bg-card p-space-4 flex flex-col items-start rounded-lg border md:flex-row md:items-center">
+            <div className="bg-brand-50 text-brand-600 flex h-10 w-10 shrink-0 items-center justify-center rounded-full">
               <Globe size={18} strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-bold text-ink-900">{resourceLink.title}</p>
-              <p className="text-[12.5px] text-ink-600">{resourceLink.description}</p>
-              <p className="text-[12.5px] font-medium text-brand-600">{resourceLink.displayUrl}</p>
+              <p className="text-ink-900 text-[13.5px] font-bold">{resourceLink.title}</p>
+              <p className="text-ink-600 text-[12.5px]">{resourceLink.description}</p>
+              <p className="text-brand-600 text-[12.5px] font-medium">{resourceLink.displayUrl}</p>
             </div>
-            <Button href={resourceLink.href} target="_blank" rel="noopener noreferrer" size="md" className="w-full shrink-0 md:w-auto">
+            <Button
+              href={resourceLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              size="md"
+              className="w-full shrink-0 md:w-auto"
+            >
               Open Website <ArrowUpRight size={14} />
             </Button>
           </div>
 
           {!illustrationImageSrc && (
-            <div className="mt-space-3 flex items-center gap-space-2 rounded-lg bg-brand-50 p-space-3 text-[12.5px] font-medium text-brand-700">
+            <div className="mt-space-3 gap-space-2 bg-brand-50 p-space-3 text-brand-700 flex items-center rounded-lg text-[12.5px] font-medium">
               <Lock size={14} strokeWidth={2} className="shrink-0" />
               Your data is secure and never shared with third parties.
             </div>
