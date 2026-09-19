@@ -51,18 +51,14 @@ type Props = {
   onManageLeave: (doc: Doctor) => void;
 };
 
-/** Right-rail "selected doctor" profile card -- every field shown is real,
- * including Leave balance (leave_requests + hospitals.doctor_annual_leave_days,
- * migration 20260912065049 -- null for a doctor with no login yet, since
- * there's no identity to attach a leave request to). Applying for leave
- * FROM this panel is still a later page (confirmed with the user) -- only
- * the balance display itself is in scope here. A live "available since
- * HH:MM" check-in doesn't exist either; availability is the real Available/
- * Unavailable toggle only. The Email row and "Create login" quick action
- * are this doctor's unified-login status (login_email/login_staff_id, an
- * outer join to staff_details/identities) -- not a profile contact field,
- * the same login a doctor uses to sign into the shared portal (see the
- * Staff page's own role="doctor" rows). */
+/** Right-rail "selected doctor" profile card -- every field shown is real.
+ * Leave balance is null for a doctor with no login yet, since there's no
+ * identity to attach a leave request to; applying for leave happens on a
+ * separate page. Availability is the real Available/Unavailable toggle
+ * only, no live "available since HH:MM" check-in. The Email row and
+ * "Create login" quick action reflect this doctor's unified-login status
+ * (login_email/login_staff_id) -- the same login used to sign into the
+ * shared portal, not a profile contact field. */
 export function DoctorDetailPanel({
   doctor, index, canManage, onEdit, togglingId, onToggleActive,
   onRunningLate, onCreateLogin, onResetPassword, onManageLeave,

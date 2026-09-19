@@ -1,6 +1,6 @@
 # portal/permissions.py
 """
-Per-role, per-page view/write/delete permissions (docs/rbac-redis-plan.md) --
+Per-role, per-page view/write/delete permissions --
 the direct sibling of portal/capabilities.py, same fixed-set-+-membership-
 tests shape, just one level more granular: capabilities.py gates whole
 PAGES/features on for a TENANT (hospital vs. clinic); this module gates
@@ -49,22 +49,20 @@ PAGE_SETTINGS = "settings"
 PAGE_STAFF = "staff"  # staff management page (create/deactivate staff_users)
 PAGE_ROLES = "roles"  # roles & permissions editor (this module's own admin UI)
 PAGE_SCHEDULE = "schedule"  # a doctor's own working hours/breaks/leave editor
-# Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): the
-# Diagnostic Tests management page (each test carries its own schedule) --
-# same weight as PAGE_DOCTORS, off by default for receptionist/doctor.
+# The Diagnostic Tests management page (each test carries its own schedule)
+# -- same weight as PAGE_DOCTORS, off by default for receptionist/doctor.
 PAGE_DIAGNOSTIC_TESTS = "diagnostic_tests"
-# Leave Requests admin page (migration 20260912065049): review/approve/
+# Leave Requests admin page: review/approve/
 # reject doctor+receptionist leave requests -- admin-only by default, same
 # weight as PAGE_STAFF/PAGE_ROLES (staff-management-adjacent, not a page a
 # receptionist or doctor manages for others).
 PAGE_LEAVE_REQUESTS = "leave_requests"
-# Holiday Application (migration 6eda12041ecf): the self-service SUBMISSION
+# Holiday Application: the self-service SUBMISSION
 # form this same leave_requests table feeds FROM -- any staff member applies
 # for their own leave here, doctor or not, so unlike every other non-admin
 # page above this defaults to view+write for every role, not just one kind.
 PAGE_HOLIDAY_APPLICATION = "holiday_application"
-# Attendance + Check-in/Check-out (frontend-mock pages for now, real wiring
-# a later follow-up): personal, self-service pages every staff member has a
+# Attendance + Check-in/Check-out: personal, self-service pages every staff member has a
 # reason to open for THEIR OWN attendance, same "any role, not just one
 # kind" reasoning as PAGE_HOLIDAY_APPLICATION -- but unlike that one,
 # deliberately OFF for Admin by default (confirmed with the user: an admin
@@ -73,16 +71,16 @@ PAGE_HOLIDAY_APPLICATION = "holiday_application"
 # for their own role via Roles & Permissions like anything else).
 PAGE_ATTENDANCE = "attendance"
 PAGE_CHECK_IN_OUT = "check_in_out"
-# Settings -> Attendance tab (migration 20260918090200): the geofence/IP/
+# Settings -> Attendance tab: the geofence/IP/
 # shift-window CONFIGURATION for the two personal pages above -- admin-
 # sensitive (an unlocked geofence radius would let anyone check in from
 # anywhere), same weight as PAGE_STAFF/PAGE_ROLES, so seeded ONLY for Admin
 # (unlike PAGE_ATTENDANCE/PAGE_CHECK_IN_OUT's own "every role except Admin"
 # backfill above).
 PAGE_ATTENDANCE_SETTINGS = "attendance_settings"
-# Report Review + Report Analytics (migration 20260914150000): both are
-# still frontend-only mock pages (no backend of their own -- confirmed with
-# the user, see report-review/page.tsx's own doc comment), and both
+# Report Review + Report Analytics: both are
+# still frontend-only mock pages (no backend of their own -- see
+# report-review/page.tsx's own doc comment), and both
 # literally reuse /portal/report-review as their href (PortalSidebar.tsx --
 # "Report analytics" was never a second page, just a second nav label
 # pointing at the same route/permission-adjacent concept). Kept as two
@@ -240,9 +238,8 @@ def get_staff_override_matrix(hospital_id: int, staff_id: int) -> dict[str, dict
 
 def has_permission(hospital_id: int, staff_id: int, role_id: int, page_key: str, action: str) -> bool:
     """The check every route calls (via portal/deps.py's require_permission())
-    -- checks this staff member's own override first (dynamic-roles
-    migration's user-level-overrides follow-up: a non-None value here wins
-    outright, regardless of what the role says), and only falls back to the
+    -- checks this staff member's own override first (a non-None value here
+    wins outright, regardless of what the role says), and only falls back to the
     role matrix when the override is absent/None for that cell. An
     unrecognized role_id or page_key still resolves to False (fail closed),
     matching this codebase's general "an unrecognized key is simply never

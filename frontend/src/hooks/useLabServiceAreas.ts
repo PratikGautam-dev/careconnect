@@ -10,9 +10,9 @@ export type ServiceArea = {
   is_active: boolean;
 };
 
-/** Lab Test Phase 2 follow-up: loads + owns every mutation on the hospital-
- * configurable list of PIN codes serviceable for Home Sample Collection --
- * add (single pincode or a range) / toggle-active / remove. */
+/** Loads + owns every mutation on the hospital-configurable list of PIN
+ * codes serviceable for Home Sample Collection -- add (single pincode or
+ * a range) / toggle-active / remove. */
 export function useLabServiceAreas() {
   const [areas, setAreas] = useState<ServiceArea[] | null>(null);
   const [error, setError] = useState<string | null>(null);

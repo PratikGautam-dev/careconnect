@@ -15,8 +15,7 @@ def _hospital_summary(hospital) -> dict:
         "name": hospital.name,
         "data_tier": hospital.data_tier,
         "enabled_features": hospital.enabled_features,
-        # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
-        # lets the portal frontend hide nav entries (e.g. "Doctors" for a
+        # Lets the portal frontend hide nav entries (e.g. "Doctors" for a
         # clinic) instead of only relying on the backend's 403 -- same
         # get_capabilities() the backend routes already gate on, so the two
         # can never disagree.
@@ -28,31 +27,23 @@ def _hospital_summary(hospital) -> dict:
 def _authenticate(authorization: str | None):
     """Returns the Hospital for a valid 'Bearer <token>' header, or None.
 
-    RBAC (docs/rbac-redis-plan.md): the vast majority of portal/routes/*.py
-    files (settings, patients, dashboard, doctors, appointment_types,
-    daycare_duration_options, documents, bookings, handoffs) were written
-    against ONLY this function, before staff_users/JWTs existed, and every
-    one of them just needs a Hospital -- none of them call
-    require_permission(), only (some of them) require_capability(), which is
-    the orthogonal tenant-level gate and is untouched by any of this. Rather
-    than touching every one of those route files to also try
-    get_current_staff(), this function itself now accepts EITHER token: the
-    legacy shared-hospital-password session (_verify_session, tried first
-    since it's cheaper -- no DB round trip) OR a staff JWT (verify_access_token),
-    resolved to that staff member's hospital. This is what makes logging in
-    through the NEW unified staff login work on every existing route
-    immediately, not just the handful (doctor_portal.py, staff_auth.py,
-    roles.py, staff.py) written against get_current_staff() directly.
+    The vast majority of portal/routes/*.py files (settings, patients,
+    dashboard, doctors, appointment_types, daycare_duration_options,
+    documents, bookings, handoffs) call ONLY this function, and every one
+    of them just needs a Hospital -- none of them call
+    require_permission(), only (some of them) require_capability(), which
+    is the orthogonal tenant-level gate. This function accepts EITHER
+    token: a shared-hospital-password session (_verify_session, tried
+    first since it's cheaper -- no DB round trip) OR a staff JWT
+    (verify_access_token), resolved to that staff member's hospital.
 
     Deliberately loses role/doctor_id granularity here -- a staff JWT
-    authenticated through this path is only ever a Hospital, same as the old
-    shared-password token always was, so a receptionist or doctor logging in
-    still gets whatever these NOT-yet-permission-gated routes always granted
-    every authenticated caller. That's an accepted gap for this rollout
-    phase (docs/rbac-redis-plan.md's Phase 6 cleanup is what tightens these
-    routes to require_permission() one at a time), not a regression -- it's
-    exactly the access level the legacy shared password already gave
-    everyone at this hospital."""
+    authenticated through this path is only ever a Hospital, so a
+    receptionist or doctor logging in gets whatever these
+    NOT-yet-permission-gated routes grant every authenticated caller.
+    That's an accepted gap for this rollout, not a regression -- it's
+    exactly the access level a shared password would give everyone at
+    this hospital."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     token = authorization.removeprefix("Bearer ").strip()
@@ -71,17 +62,13 @@ def _authenticate(authorization: str | None):
 
 def _authenticate_with_role(authorization: str | None):
     """Like `_authenticate()`, but also returns doctor_id when the caller is
-    a staff JWT -- None for the legacy shared-hospital-password session,
-    same "no role concept" gap `_authenticate()` already documents. For
-    routes that need to scope data to "this doctor's own" while still
-    accepting that legacy session. Used to also return a bare `role` string
-    alongside doctor_id, but every call site only ever tested `role ==
-    "doctor" and doctor_id is not None` -- redundant with `doctor_id is not
-    None` alone, since doctor-ness is not a role property at all
-    (dynamic-roles migration: any role can optionally have a doctor profile
-    linked), so the name comparison was dropped entirely -- this now
-    survives a renamed role, or a staff member on any role whatsoever being
-    linked to a doctor."""
+    a staff JWT -- None for a shared-hospital-password session, same "no
+    role concept" gap `_authenticate()` already documents. For routes that
+    need to scope data to "this doctor's own" while still accepting that
+    session. Only checks `doctor_id is not None`, not a bare `role`
+    string, since doctor-ness is not a role property at all (any role can
+    optionally have a doctor profile linked), so this works for a staff
+    member on any role whatsoever being linked to a doctor."""
     principal = get_current_staff(authorization)
     if principal is not None:
         return principal.hospital, principal.doctor_id
@@ -92,13 +79,11 @@ def _authenticate_with_role(authorization: str | None):
 
 
 def require_capability(hospital, capability: str) -> JSONResponse | None:
-    """Tenant-type-driven capability gating (tenant-capability-gating-plan.md).
+    """Tenant-type-driven capability gating.
     Deliberately a plain helper following this file's OWN established
     manual-guard-clause idiom (`if hospital is None: return JSONResponse(...)`)
     rather than a FastAPI `Depends(...)` factory -- `_authenticate` above is
-    itself a plain function every route calls manually (ARCHITECTURE_PLAN.md's
-    Phase 6 note: converting to dependency injection is a real behavior-shape
-    change, not a pure move, and out of scope here too) -- so this matches
+    itself a plain function every route calls manually, so this matches
     the pattern already used everywhere else in `portal/routes/*.py` instead
     of introducing a second, inconsistent authorization style.
 
@@ -121,17 +106,14 @@ def require_capability(hospital, capability: str) -> JSONResponse | None:
 
 
 class StaffPrincipal:
-    """The unified, individually-logged-in identity docs/rbac-redis-plan.md
-    introduces -- returned by get_current_staff() below in place of the bare
-    Hospital `_authenticate` returns, since a permission check needs
-    `role_id` (and a Doctor route needs `doctor_id`) that a Hospital alone
-    can't carry. `role_id`/`role_name` (dynamic-roles migration) replace the
-    old bare `role: str` -- `role_id` is what require_permission() actually
-    checks against, `role_name` is a read-only display string (audit logs,
-    error messages) never itself compared for identity; there is
-    deliberately no bare `.role` left on this object, so a call site can't
-    silently keep comparing against a role NAME the way the old fixed-3
-    system did. Deliberately a plain attribute-holding object, not a
+    """The unified, individually-logged-in identity returned by
+    get_current_staff() below in place of the bare Hospital `_authenticate`
+    returns, since a permission check needs `role_id` (and a Doctor route
+    needs `doctor_id`) that a Hospital alone can't carry. `role_id` is what
+    require_permission() actually checks against; `role_name` is a
+    read-only display string (audit logs, error messages) never itself
+    compared for identity -- there is deliberately no bare `.role`, so a
+    call site can't silently compare against a role NAME. Deliberately a plain attribute-holding object, not a
     dataclass/pydantic model -- nothing here is (de)serialized independently
     of the route that builds the JSON response, so there's no validation/
     parsing this would buy over a constructor that just assigns."""
@@ -214,7 +196,7 @@ def get_current_super_admin(authorization: str | None):
     stops working immediately, not at its next natural 15-minute expiry.
     Replaces the X-Admin-Secret/ADMIN_SECRET/TENANTS_ADMIN_SECRET shared-
     secret checks in admin/tenants_api.py, admin/onboarding_api.py,
-    admin/platform_settings_api.py (docs/rbac-redis-plan.md)."""
+    admin/platform_settings_api.py."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     token = authorization.removeprefix("Bearer ").strip()
@@ -228,7 +210,7 @@ def get_current_super_admin(authorization: str | None):
 
 
 def _session_id(authorization: str | None) -> str | None:
-    """Section 12.10's deliberate partial audit trail: real per-staff
+    """A deliberate partial audit trail: real per-staff
     accounts don't exist (portal auth is one shared password per hospital),
     so a note/document can only be traced back to a *login session*, not a
     named person. A hash of the Bearer token (not the raw token) uniquely

@@ -1,14 +1,9 @@
 # portal/routes/diagnostic_tests.py
-"""Portal CRUD for diagnostic_tests, plus their own schedule/slots/leave
-(Diagnostic/Lab Phase 2, docs/per-appointment-type-flow-plan.md Step 5).
-Diagnostic tests/resources merge: a test used to be a thin catalog row
-pointing at a separate diagnostic_resources row that carried the actual
-machine/equipment's schedule -- hospitals always created exactly one
-resource per test 1:1, so that indirection is gone. A test now IS the
-schedulable resource (same weight as a doctor -- MANAGE_DIAGNOSTIC_RESOURCES
-gates every mutation here, not just catalog edits), managed the same way
-doctors.py manages doctors (schedule fields, slots, leave). Test/variant
-merge: a test also carries its own price directly now -- it only ever
+"""Portal CRUD for diagnostic_tests, plus their own schedule/slots/leave.
+A test IS the schedulable resource (same weight as a doctor --
+MANAGE_DIAGNOSTIC_RESOURCES gates every mutation here, not just catalog
+edits), managed the same way doctors.py manages doctors (schedule fields,
+slots, leave). A test also carries its own price directly -- it only ever
 needed exactly one priced option, so the separate variants sub-resource
 (and its endpoints below) is gone too."""
 from datetime import datetime
@@ -148,7 +143,7 @@ async def portal_delete_diagnostic_test(test_id: int, authorization: str | None 
     return JSONResponse({"deleted": True})
 
 
-# --- Leave (moved from the old portal/routes/diagnostic_resources.py) ---
+# --- Leave ---
 
 @router.get("/api/portal/diagnostic-tests/{test_id}/leave")
 async def portal_get_test_leave(test_id: int, authorization: str | None = Header(default=None)):
@@ -195,7 +190,7 @@ async def portal_remove_test_leave(test_id: int, payload: dict, authorization: s
     return JSONResponse({"ok": True})
 
 
-# --- Slots (moved from the old portal/routes/diagnostic_resources.py) ---
+# --- Slots ---
 
 @router.get("/api/portal/diagnostic-tests/{test_id}/slots")
 async def portal_get_test_slots(test_id: int, date: str | None = None, authorization: str | None = Header(default=None)):

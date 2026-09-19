@@ -10,9 +10,9 @@ export type Appointment = {
   video_link: string | null;
 };
 
-/** Item 4 (Spec.md Section 0): loads a specific doctor's own appointments
- * for today, within the existing shared staff portal -- no separate doctor
- * login exists, so this is just a scoped view any staff member can open. */
+/** Loads a specific doctor's own appointments for today, within the shared
+ * staff portal -- no separate doctor login exists, so this is just a
+ * scoped view any staff member can open. */
 export function useDoctorTodayAppointments(doctorId: string) {
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
 

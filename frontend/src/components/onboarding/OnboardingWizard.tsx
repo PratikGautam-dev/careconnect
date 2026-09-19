@@ -46,10 +46,8 @@ export function OnboardingWizard() {
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
   const [success, setSuccess] = useState<OnboardingSuccess | null>(null);
 
-  // Section 15: this wizard is only reachable after Google sign-in now (the
-  // landing page CTA goes through /auth first) -- a direct visit with no
-  // user session (e.g. a stale bookmark) gets bounced back there rather
-  // than letting the form fill out only to fail at the final submit.
+  // This wizard requires a Google sign-in session; bounce back to /auth
+  // (e.g. a stale bookmark) rather than letting the form fail at submit.
   useEffect(() => {
     if (!getUserToken()) router.replace("/auth");
   }, [router]);
@@ -102,11 +100,8 @@ export function OnboardingWizard() {
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitErrors([]);
-    // RBAC (docs/rbac-redis-plan.md): super_admin_token replaces the old
-    // admin_secret wizard field -- this page is now gated behind
-    // AdminSecretGate (see app/admin/onboard-hospital/page.tsx), so the
-    // operator's own super-admin session token is already sitting in
-    // lib/adminAuth.ts by the time anyone reaches this step.
+    // Gated behind AdminSecretGate, so the operator's super-admin session
+    // token is already in lib/adminAuth.ts by the time we reach this step.
     const payload = { ...buildSubmissionPayload(state), super_admin_token: getAdminToken() || "" };
     const result = await submitOnboarding(payload, getUserToken());
     setSubmitting(false);

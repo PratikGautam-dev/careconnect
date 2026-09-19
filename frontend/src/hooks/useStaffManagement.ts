@@ -7,14 +7,9 @@ import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 export type AttendanceStatus = "present" | "on_leave" | "half_day";
 
 // Matches portal/routes/staff.py's _staff_row() -- department_id/
-// department_name/reports_to_id/reports_to_name/phone/address/
-// attendance_status/created_at were all mocked client-side before; they're
-// now real staff_details/identities columns (migration 20260911174439).
-// leave_balance_total/used are real too (migration 20260912065049) --
-// both null for an admin row, since the leave policy is doctor/
-// receptionist only (confirmed with the user, admin approves leave rather
-// than accruing an allowance). Leave request CREATION is still a later
-// page -- see StaffDetailPanel's own note.
+// leave_balance_total/used are both null for an admin row, since the leave
+// policy is doctor/receptionist only (admin approves leave rather than
+// accruing an allowance).
 export type StaffMember = {
   id: number;
   name: string;

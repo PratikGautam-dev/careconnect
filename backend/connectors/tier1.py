@@ -1,8 +1,6 @@
 # connectors/tier1.py
-"""SPEC Section 12.6 Tier 1 — this product's own database. Thin wrapper
-around db/repository.py; the only tier with a real implementation.
-ARCHITECTURE_PLAN.md Phase 2: split out of the former single connectors.py
-module."""
+"""Tier 1 — this product's own database. Thin wrapper
+around db/repository.py; the only tier with a real implementation."""
 import db.repository as repo
 
 from connectors.base import Connector
@@ -22,11 +20,11 @@ from core.redis_client import cache_get_json, cache_set_json
 # No-ops to a live DB read whenever Redis is unset/unreachable
 # (core/redis_client.py's own contract), so this is a pure win with no new
 # failure mode. Doctors use a different, longer-lived cache below (grid
-# cache) now that migration 0032 replaced their pre-generated window with a
-# live computation -- see get_available_slots().
+# cache), since their slots are computed live rather than pre-generated --
+# see get_available_slots().
 _SLOTS_CACHE_TTL_SECONDS = 10
 
-# Doctor grid cache (migration 0032/0033): candidates + overrides, NOT
+# Doctor grid cache: candidates + overrides, NOT
 # filtered by who's currently booked -- the slow-changing half of
 # availability, safe to cache far longer than _SLOTS_CACHE_TTL_SECONDS
 # because it's actively invalidated the moment it could actually change
@@ -273,10 +271,9 @@ class Tier1Connector(Connector):
         if someone else grabbed this exact doctor+slot first (IntegrityError,
         left to propagate uncaught to the caller — same as create_booking),
         the patient keeps their original appointment rather than being left
-        with neither. This ordering is a deliberate Phase 8 fix, now living
-        here instead of split across two separate core/booking_flow.py calls.
+        with neither.
 
-        Patient identity SEPARATION (Spec.md Section 0): patient_id, when
+        patient_id, when
         given, is threaded straight through to create_appointment() so the
         rebooked slot stays tied to the SAME linked patient the original
         appointment belonged to -- without it, a multi-patient phone
@@ -299,11 +296,11 @@ class Tier1Connector(Connector):
         the same way create_procedure_booking() does. See
         connector.request_procedure_reschedule()/confirm_procedure_appointment().
 
-        Diagnostic/Lab Phase 2: diagnostic_test_id/label/price all carry
+        diagnostic_test_id/label/price all carry
         forward the same way -- rescheduling moves the slot, never re-asks
         which test was chosen.
 
-        Lab Test Phase 2 follow-up: collection_method/address/pincode/
+        collection_method/address/pincode/
         home_collection_charge carry forward the same way -- rescheduling
         never re-asks the collection method or basket either. The basket
         itself (a child table, not a column) is copied separately via

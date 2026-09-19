@@ -65,19 +65,16 @@ function formatTime(iso: string) {
 // infra, so a doctor's numbers only update on a manual refresh otherwise.
 const POLL_INTERVAL_MS = 20_000;
 
-/** This doctor's own dashboard content -- shared by the doctor branch of
- * /portal/dashboard and the legacy (unrouted) /doctor/dashboard page.
- * Self-fetches /api/doctor/dashboard; the caller owns auth/guard/shell. */
+/** This doctor's own dashboard content. Self-fetches /api/doctor/dashboard;
+ * the caller owns auth/guard/shell. */
 export function DoctorDashboardView() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // "Running late" -- shifts every remaining still-booked appointment today
+  // "Running late": shifts every remaining still-booked appointment today
   // forward by the chosen number of minutes, with an automated WhatsApp
-  // message sent to each affected patient (backend: POST /api/doctor/
-  // appointments/delay -- already doctor_id-scoped via the caller's own
-  // token, unchanged from the legacy /doctor/appointments page).
+  // message sent to each affected patient.
   const [delayPanelOpen, setDelayPanelOpen] = useState(false);
   const [delayMinutes, setDelayMinutes] = useState("15");
   const [delaying, setDelaying] = useState(false);

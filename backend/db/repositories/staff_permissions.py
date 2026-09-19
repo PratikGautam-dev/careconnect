@@ -1,7 +1,6 @@
 # db/repositories/staff_permissions.py
 """Per-(hospital, staff, page) permission overrides -- a second, finer-
-grained layer sitting on top of role_permissions.py's per-role grid (see
-the approved plan, .claude/plans/federated-enchanting-raven.md). An admin
+grained layer sitting on top of role_permissions.py's per-role grid. An admin
 uses this to grant or revoke ONE action on ONE page for ONE specific staff
 member without touching the rest of their role -- e.g. give one doctor
 `delete` on Appointments while every other doctor keeps view+write only.

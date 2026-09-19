@@ -1,6 +1,5 @@
 # flows/booking/view_appointments.py
-"""ARCHITECTURE_PLAN.md Phase 3b: the "My Appointments" view/manage
-sub-flow, split out of the former single core/booking_flow.py module."""
+"""The "My Appointments" view/manage sub-flow."""
 from datetime import datetime, timedelta
 
 from connectors import Connector
@@ -91,10 +90,10 @@ async def _send_view_appointments(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
     active_patient_id: int | None = None, range_: str = "upcoming",
 ) -> None:
-    """Item 6 (Spec.md Section 0): each listed appointment is now a tappable
+    """Each listed appointment is a tappable
     row (not just a plain-text summary) -- picking one shows THAT
-    appointment's own Cancel/Reschedule quick actions directly. Patient
-    identity SEPARATION: scoped to `active_patient_id` when given (a
+    appointment's own Cancel/Reschedule quick actions directly. Scoped to
+    `active_patient_id` when given (a
     specific family member was selected); None means "show everyone linked
     to this phone" (the natural single-patient case, or the explicit "All"
     choice from the patient selector), with each row prefixed by its own
@@ -133,8 +132,8 @@ async def _send_view_appointments(
         return
     rows = []
     for a in appointments:
-        # Migration 0035: department_id (and doctor_id, since Diagnostic/Lab
-        # Phase 2) can both be None for a resource-bound booking -- fall
+        # department_id (and doctor_id) can both be None for a
+        # resource-bound booking -- fall
         # back to the resource's own name/omit the department prefix rather
         # than literally showing "None".
         who = a.doctor_name or a.diagnostic_test_name

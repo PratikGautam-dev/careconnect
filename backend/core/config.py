@@ -1,12 +1,12 @@
 # core/config.py
 """
-ARCHITECTURE_PLAN.md Phase 0: one centralized place for process-level env
+One centralized place for process-level env
 vars (secrets, tokens, S3/R2 creds, WhatsApp API base identifiers), instead
 of each module doing its own `os.environ.get(...)` at import time. Per-tenant
 config (menu labels, feature toggles, credentials-per-hospital) lives in the
 `hospitals` DB table and is untouched by this file -- see `db/repository.py`.
 
-Deliberately does NOT cover DATABASE_URL, or REDIS_URL for any of the SIX
+Deliberately does NOT cover DATABASE_URL, or REDIS_URL for any of the
 existing hand-rolled call sites (core/chat_history.py's get_history(),
 core/session_store.py's get_session_store(), core/rate_limit.py's
 _build_limiter(), webhook/dispatch.py's _get_redis(), modules/booking/calendar.py's
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     TENANTS_ADMIN_SECRET: str = ""
     PORTAL_SECRET: str = ""
     AUTH_SECRET: str = ""
-    # RBAC (docs/rbac-redis-plan.md): staff JWT access tokens (auth/jwt_session.py)
+    # Staff JWT access tokens (auth/jwt_session.py)
     # and super-admin JWT access tokens are signed with SEPARATE secrets, same
     # "a leaked secret should only forge the one thing it's for" precedent
     # ADMIN_SECRET vs TENANTS_ADMIN_SECRET already established -- a leaked

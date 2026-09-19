@@ -1,5 +1,5 @@
 # auth/refresh_tokens.py
-"""Opaque, Redis-backed refresh tokens (docs/rbac-redis-plan.md) -- pairs
+"""Opaque, Redis-backed refresh tokens -- pairs
 with auth/jwt_session.py's deliberately short (15-min) access tokens: without
 a refresh path, that TTL alone would mean re-entering a password every 15
 minutes, which no one would accept. A refresh token is a random opaque

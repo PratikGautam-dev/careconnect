@@ -1,7 +1,6 @@
 # db/repositories/handoffs.py
 """Human handoff queue -- fed by flows.py's reception_handoff feature and
-core/main.py's unexpected-exception catch. Split out of db/repository.py --
-see ARCHITECTURE_PLAN.md Phase 1."""
+core/main.py's unexpected-exception catch."""
 from datetime import date, datetime, timedelta, timezone
 from typing import cast
 
@@ -11,7 +10,7 @@ from sqlalchemy.engine import CursorResult
 from db.connection import get_session
 from db.orm_models import HandoffMessage, HandoffRequest
 
-# Messages page follow-up: an open handoff with no new activity from either
+# An open handoff with no new activity from either
 # side for this many hours auto-resolves (see auto_resolve_stale_handoffs()
 # below) unless a hospital has its own hospitals.handoff_auto_resolve_hours
 # set. Same "nullable column + code-level default" shape as
@@ -30,8 +29,8 @@ AUTO_RESOLVED_BY = "auto"
 # on handoff_requests for why these two unrelated triggers share one table). ---
 
 def create_handoff_request(hospital_id: int, phone: str, reason: str, message_text: str | None = None) -> dict:
-    """Two-way threading follow-up (Spec.md Section 0): the trigger message
-    is now ALSO inserted as the thread's first inbound handoff_messages row
+    """The trigger message
+    is ALSO inserted as the thread's first inbound handoff_messages row
     -- get_handoff_messages() is the single source of truth for the portal's
     chat thread, not a mix of this row's own message_text plus the table."""
     session = get_session()
@@ -61,12 +60,12 @@ def get_handoff_requests(
 ) -> list[dict]:
     """status=None returns every request regardless of state (for a staff
     member reviewing history); the default "open" is the actual work queue.
-    Item 6 (Spec.md Section 0): date_str ("YYYY-MM-DD"), when given, scopes
-    to requests created on that one calendar day. Item 3: soft-deleted
+    date_str ("YYYY-MM-DD"), when given, scopes
+    to requests created on that one calendar day. Soft-deleted
     requests (deleted_at IS NOT NULL) are always excluded, same convention
     _APPOINTMENT_SELECT enforces for appointments.
 
-    Messages page follow-up: reason ("patient_requested"/"system_error"),
+    reason ("patient_requested"/"system_error"),
     when given, scopes to just that trigger -- the Messages page's "Errored"
     tab passes reason="system_error" with status=None (any status, not just
     open) so a staff member can still see a bot error that's already been
@@ -99,13 +98,12 @@ def get_handoff_requests(
     return [dict(r._mapping) for r in rows]
 
 
-# "Bot stuck on Talk to Reception" follow-up (Spec.md Section 0): an open
-# handoff previously silenced the bot for that phone INDEFINITELY -- no
-# staleness bound at all, so a request staff forgot to resolve (or took
-# hours to get to) left the patient with no way back into the bot, not even
-# the reset-keyword escape hatch (deliberately suppressed for a genuinely
-# ACTIVE handoff, per the earlier explicit request). Deliberately a fixed,
-# generous window independent of the hospital's own (often much shorter,
+# An open handoff, without this staleness bound, would silence the bot for
+# that phone INDEFINITELY, so a request staff forgot to resolve (or took
+# hours to get to) would leave the patient with no way back into the bot,
+# not even the reset-keyword escape hatch (deliberately suppressed for a
+# genuinely ACTIVE handoff). Deliberately a fixed, generous window
+# independent of the hospital's own (often much shorter,
 # e.g. 2-5 minute) session_timeout_minutes -- that setting governs ordinary
 # bot-conversation inactivity, not how long a real human is reasonably given
 # to answer an escalation; conflating the two would make a 2-minute bot
@@ -115,7 +113,7 @@ _HANDOFF_STALE_MINUTES = 60
 
 
 def has_open_handoff(hospital_id: int, phone: str) -> bool:
-    """Item 7 (Spec.md Section 0): checked at the very top of flows.py's
+    """Checked at the very top of flows.py's
     router, before any bot logic (including the reset-keyword escape hatch)
     runs -- once a patient is in an active handoff, the bot must go
     completely silent for that phone, not just skip its own menu."""
@@ -123,11 +121,11 @@ def has_open_handoff(hospital_id: int, phone: str) -> bool:
 
 
 def get_open_handoff(hospital_id: int, phone: str, now: datetime | None = None) -> dict | None:
-    """Two-way threading follow-up: like has_open_handoff() above, but
+    """Like has_open_handoff() above, but
     returns the row (specifically its id) so flows.py can actually record
     the patient's message against it, not just know one exists.
 
-    "Bot stuck on Talk to Reception" follow-up: a row older than
+    A row older than
     _HANDOFF_STALE_MINUTES is treated as if it weren't open anymore FOR
     THIS PURPOSE -- the bot resumes normal service -- but its `status` in
     the DB is left completely untouched (still 'open'), so staff still see
@@ -252,7 +250,7 @@ def bulk_soft_delete_handoffs(hospital_id: int, handoff_ids: list[int]) -> list[
 
 
 def auto_resolve_stale_handoffs(hospital_id: int, threshold_hours: int, now: datetime | None = None) -> list[int]:
-    """Messages page follow-up: auto-resolves every OPEN handoff at this
+    """Auto-resolves every OPEN handoff at this
     hospital whose thread has had no activity (from either side) in the
     last `threshold_hours` -- called per-hospital by
     /internal/auto-resolve-handoffs (webhook/cron_routes.py), same external-

@@ -1,10 +1,9 @@
 # flows/booking/state.py
 """
-ARCHITECTURE_PLAN.md Phase 3b: session-state constants, the step-history
+Session-state constants, the step-history
 stack, and row-id encode/decode helpers for the booking/cancel/reschedule/
 view-appointments/manage-patients state machine. Pure functions and
-constants only -- no WhatsApp/connector/db dependency -- split out of the
-former single core/booking_flow.py module.
+constants only -- no WhatsApp/connector/db dependency.
 """
 from datetime import datetime
 
@@ -16,8 +15,7 @@ STATE_IDLE = "IDLE"
 STATE_AWAITING_APPOINTMENT_TYPE = "AWAITING_APPOINTMENT_TYPE"
 
 
-# docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up: the
-# eligible-consultations LIST step (one row per department's most recent
+# The eligible-consultations LIST step (one row per department's most recent
 # ATTENDED appointment still within the hospital's eligibility window) --
 # replaces the earlier single-visit auto-select + confirm-before-date screen.
 STATE_AWAITING_FOLLOWUP_SELECTION = "AWAITING_FOLLOWUP_SELECTION"
@@ -76,16 +74,14 @@ STATE_AWAITING_PROCEDURE_RESCHEDULE_DATE = "AWAITING_PROCEDURE_RESCHEDULE_DATE"
 STATE_AWAITING_PROCEDURE_RESCHEDULE_SLOT = "AWAITING_PROCEDURE_RESCHEDULE_SLOT"
 
 
-# Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
-# picking which test, before date/time -- see
-# flows/booking/types/_diagnostic_shared.py. Test/variant merge: a test now
-# has exactly one price on itself, so there's no separate variant-pick step
-# anymore -- picking a test goes straight to date selection.
+# Picking which test, before date/time -- see
+# flows/booking/types/_diagnostic_shared.py. A test has exactly one price
+# on itself, so there's no separate variant-pick step -- picking a test
+# goes straight to date selection.
 STATE_AWAITING_DIAGNOSTIC_TEST = "AWAITING_DIAGNOSTIC_TEST"
 
 
-# Lab Test Phase 2 follow-up (business spec Sections 4.1-4.4): unlike
-# Diagnostic Test above, Lab Test is a multi-test BASKET (this state repeats,
+# Unlike Diagnostic Test above, Lab Test is a multi-test BASKET (this state repeats,
 # once per test added) with its own collection-method/home-collection steps
 # before date/time -- see flows/booking/types/lab.py.
 STATE_AWAITING_LAB_TEST = "AWAITING_LAB_TEST"
@@ -143,7 +139,7 @@ CHANGE_TIME = "change_time"
 CHANGE_DIAGNOSTIC_TEST = "change_diagnostic_test"
 
 
-# Lab Test Phase 2 follow-up: jumps back to the collection-method step only
+# Jumps back to the collection-method step only
 # -- there's no single "change test" target for a basket (which of N items?),
 # so re-picking the basket from confirmation isn't offered; a patient who
 # wants a different set of tests uses "Change Appointment Type" instead
@@ -179,7 +175,7 @@ MAX_PATIENT_AGE = 120
 
 FREE_TEXT_INPUT_STATES = {
     STATE_AWAITING_PATIENT_NAME, STATE_AWAITING_PATIENT_AGE,
-    # Lab Test Phase 2 follow-up: PIN code and address are free-text replies,
+    # PIN code and address are free-text replies,
     # same reset-keyword-exemption reasoning as patient name/age above (a
     # PIN code or a street address could itself start with a word this app
     # treats as a reset keyword).
@@ -304,7 +300,7 @@ def _history_pop_to(context: dict, target_state: str) -> dict | None:
 
 def _find_by_id(items: list[dict], item_id: str) -> dict | None:
     """Local replacement for db/repository.py's old find_department()/
-    find_doctor()/find_slot() — the connector interface (Section 12.6.2) only
+    find_doctor()/find_slot() — the connector interface only
     exposes the plural get_*() forms, so validating a tapped id against the
     full list is done here instead. Department/doctor/slot counts per hospital
     are always small, so filtering client-side costs nothing meaningful."""
@@ -312,7 +308,7 @@ def _find_by_id(items: list[dict], item_id: str) -> dict | None:
 
 
 def _date_label(date_str: str) -> str:
-    """"Sat, Aug 8" style day+date label (Section 12.12, reference screenshot).
+    """"Sat, Aug 8" style day+date label.
     Built manually rather than via a single strftime format string because the
     day-of-month-without-a-leading-zero directive isn't portable (%-d is
     Linux/macOS only, Windows needs %#d) -- this avoids the platform split
@@ -339,7 +335,7 @@ def _parse_patient_age(text: str) -> int | None:
 
 
 def _append_closing_message(text: str, closing_message_text: str | None) -> str:
-    """Section 12.13: a hospital's own custom closing/thank-you text is
+    """A hospital's own custom closing/thank-you text is
     APPENDED after the standard success message (booking confirmed, cancelled,
     rescheduled), never replacing it -- e.g. "Thank you for choosing City
     Hospital. For emergencies, call 102." NULL/blank (the default -- most

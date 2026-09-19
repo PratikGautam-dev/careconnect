@@ -7,11 +7,9 @@ import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useLabServiceAreas } from "@/hooks/useLabServiceAreas";
 
-/** Lab Test Phase 2 follow-up: the hospital-configurable list of PIN codes
- * serviceable for Home Sample Collection -- a patient entering an
- * unlisted PIN on WhatsApp is offered Visit Hospital/Lab instead (see
- * flows/booking/types/lab.py). Same simple add/toggle/delete shape as
- * DaycareDurationOptions.tsx, plus a range mode alongside the single-PIN one. */
+/** Hospital-configurable list of PIN codes serviceable for Home Sample
+ * Collection; a patient entering an unlisted PIN is offered Visit
+ * Hospital/Lab instead. Supports both single-PIN and range entry. */
 export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
   const {
     areas, error, pendingId,

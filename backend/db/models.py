@@ -1,8 +1,7 @@
 # db/models.py
 """
-ARCHITECTURE_PLAN.md Phase 1: shared dataclasses, row-mapping helpers,
-exceptions, and cross-domain constants extracted out of db/repository.py's
-former god-file. Anything here is used by more than one file under
+Shared dataclasses, row-mapping helpers, exceptions, and cross-domain
+constants. Anything here is used by more than one file under
 db/repositories/, or is a typed return shape crossing the Connector/portal
 JSON boundary -- domain-specific logic stays in db/repositories/*.py.
 """
@@ -16,24 +15,21 @@ from db.display_ids import PATIENT_DISPLAY_ID_PREFIX, PATIENT_MRN_PREFIX, _next_
 STATUS_BOOKED = "booked"
 STATUS_CANCELLED = "cancelled"
 STATUS_RESCHEDULED = "rescheduled"
-# Item 9 (Spec.md Section 0): real, staff-confirmed statuses -- closes the
-# previously-flagged "no-shows are a heuristic, not a real status" gap
-# (get_dashboard_stats()' "no_shows_today" below is UNCHANGED, still the
-# same time-passed-and-still-booked heuristic -- these two new values don't
-# retroactively reclassify it, they give staff a way to record the real
-# outcome going forward once they confirm it).
+# Real, staff-confirmed statuses -- get_dashboard_stats()' "no_shows_today"
+# is UNCHANGED, still a time-passed-and-still-booked heuristic; these two
+# values don't retroactively reclassify it, they give staff a way to
+# record the real outcome once they confirm it.
 STATUS_ATTENDED = "attended"
 STATUS_NO_SHOW = "no_show"
 
 SOURCE_WHATSAPP = "whatsapp"
 SOURCE_STAFF = "staff"
 
-# Patient identity SEPARATION (Spec.md Section 0): max ACTIVE (not unlinked)
-# patient_links rows one WhatsApp phone number may have per hospital at once.
-# This is now only the SEED default for platform_settings.max_active_patient_
-# links (db/repositories/platform_settings.py) -- a single global value a
-# platform admin can change afterward (confirmed with the user: NOT a
-# per-hospital setting), not the enforced value itself. Enforced in
+# Max ACTIVE (not unlinked) patient_links rows one WhatsApp phone number
+# may have per hospital at once. This is only the SEED default for
+# platform_settings.max_active_patient_links (db/repositories/
+# platform_settings.py) -- a single global value a platform admin can
+# change afterward, not the enforced value itself. Enforced in
 # create_patient_profile() by reading platform_settings at the point of use,
 # not a DB constraint (a COUNT-based cap can't be expressed as a plain CHECK).
 DEFAULT_MAX_ACTIVE_PATIENT_LINKS = 5
@@ -42,9 +38,9 @@ DEFAULT_MAX_ACTIVE_PATIENT_LINKS = 5
 
 
 class QuotaExceededError(IntegrityError):
-    """Section 12.9: raised by create_appointment() specifically when a
+    """Raised by create_appointment() specifically when a
     booking is rejected because the doctor's online_quota/walkin_quota/
-    daily_booking_limit (Section 14.7) is exhausted, as opposed to the exact
+    daily_booking_limit is exhausted, as opposed to the exact
     requested slot being full. Subclasses IntegrityError so every EXISTING
     `except IntegrityError:` call site (core/booking_flow.py's double-booking
     handling) keeps working unchanged with its generic "that slot was just
@@ -53,7 +49,7 @@ class QuotaExceededError(IntegrityError):
 
 
 class DuplicateBookingError(IntegrityError):
-    """Item 5 (Spec.md Section 0): raised by create_appointment() when this
+    """Raised by create_appointment() when this
     phone already has an ACTIVE (status='booked') appointment with the SAME
     doctor and the same patient age on file. Scoped to same-doctor
     specifically -- a patient legitimately booking two different doctors is
@@ -68,8 +64,7 @@ class DuplicateBookingError(IntegrityError):
 
 
 class TooManyLinkedPatientsError(Exception):
-    """Patient identity SEPARATION (Spec.md Section 0): raised by
-    create_patient_profile() when a phone number already has
+    """Raised by create_patient_profile() when a phone number already has
     MAX_ACTIVE_PATIENT_LINKS active (not unlinked) patient_links rows for
     this hospital. Deliberately NOT an IntegrityError subclass -- this isn't
     a booking race to recover from, it's a validation rule flows.py's own
@@ -108,28 +103,26 @@ _APPOINTMENT_SELECT = """
     LEFT JOIN procedures proc ON proc.id = a.procedure_id
     WHERE a.deleted_at IS NULL
 """
-# Item 3 (Spec.md Section 0): every normal read of an appointment excludes a
-# soft-deleted one (deleted_at IS NOT NULL) -- baked into the base SELECT's
-# own WHERE clause so every call site below appends "AND ..." instead of a
-# fresh "WHERE ...", and none of them can forget this filter individually.
-# The one deliberate exception is get_total_bookings_count() (Section 0,
-# platform-admin lifetime usage stat) -- a soft-deleted row still represents
-# a real historical booking event, so that one query is NOT built on this
-# constant.
+# Every normal read of an appointment excludes a soft-deleted one
+# (deleted_at IS NOT NULL) -- baked into the base SELECT's own WHERE
+# clause so every call site below appends "AND ..." instead of a fresh
+# "WHERE ...", and none of them can forget this filter individually. The
+# one deliberate exception is get_total_bookings_count() (a platform-admin
+# lifetime usage stat) -- a soft-deleted row still represents a real
+# historical booking event, so that one query is NOT built on this constant.
 
 
 
 def _derive_hospital_short_code(name: str) -> str:
-    """Patient identity system (Spec.md Section 0), confirmed with the user:
-    auto-derived from the hospital's own `name`, not a new onboarding field.
+    """Auto-derived from the hospital's own `name`, not a new onboarding field.
     Two rules, chosen for a short, deterministic, always->=3-character code:
     - 3+ words: first letter of each of the first 4 words, uppercased (e.g.
       "Metro Lifeline Hospital" -> "MLH").
     - 1-2 words: first 3 letters of the name with spaces removed, uppercased
       (e.g. "Default Hospital" -> "DEF", "DaaPrime" -> "DAA") -- initials
       alone would be only 1-2 characters here, too short to be useful.
-    Deliberately NOT enforced globally unique across hospitals (confirmed
-    with the user) -- see db/schema.sql's patient_id_prefix column comment."""
+    Deliberately NOT enforced globally unique across hospitals -- see
+    db/schema.sql's patient_id_prefix column comment."""
     words = re.findall(r"[A-Za-z0-9]+", name)
     if not words:
         return "HSP"
@@ -195,7 +188,7 @@ class Appointment:
     id: int
     hospital_id: int
     phone: str
-    # Migration 0035: None for a resource-bound booking whose diagnostic/
+    # None for a resource-bound booking whose diagnostic/
     # procedure resource has no department configured.
     department_id: str | None
     department_name: str | None
@@ -208,38 +201,32 @@ class Appointment:
     # column.
     patient_name: str | None = None
     status: str = STATUS_BOOKED
-    # Section 12.9: 'whatsapp' (patient self-booking) or 'staff' (portal.py's
+    # 'whatsapp' (patient self-booking) or 'staff' (portal.py's
     # /portal/new-booking) -- descriptive only, never branched on by booking
     # logic itself (both go through the exact same create_appointment()).
     source: str = "whatsapp"
-    # Section 12.12: the patient-facing reference shown in the WhatsApp
-    # confirmation message. None only for rows booked before this column
-    # existed (never backfilled -- see db/schema.sql's column comment).
+    # The patient-facing reference shown in the WhatsApp confirmation
+    # message. None only for rows booked before this column existed
+    # (never backfilled -- see db/schema.sql's column comment).
     reference_id: str | None = None
-    # Patient identity system (Spec.md Section 0): the owning patient's
-    # PERMANENT display id (patients.patient_display_id, via a.patient_id --
-    # not appointments.reference_id, which is per-booking). None for a row
-    # whose patient_id FK is unset (predates Item 8's denormalization and
-    # hasn't been backfilled) or whose patient hasn't been backfilled yet.
+    # The owning patient's PERMANENT display id (patients.patient_display_id,
+    # via a.patient_id -- not appointments.reference_id, which is
+    # per-booking). None for a row whose patient_id FK is unset or hasn't
+    # been backfilled yet.
     patient_display_id: str | None = None
-    # Patient identity SEPARATION (Spec.md Section 0): appointments.patient_id
-    # itself (was denormalized since Item 8 but never read back onto this
-    # dataclass) -- needed to filter "my appointments" down to one linked
-    # patient, and to carry the SAME patient through a reschedule.
+    # appointments.patient_id itself -- needed to filter "my appointments"
+    # down to one linked patient, and to carry the SAME patient through a
+    # reschedule.
     patient_id: int | None = None
-    # Appointment type step (WhatsApp flow alignment): which of the
-    # hospital's appointment_types this booking is, and (only when that
-    # type's requires_consent was true) when consent was given -- see
-    # db/schema.sql's own comment on appointment_types. None for any
-    # appointment predating this feature (never backfilled -- there's no
-    # correct type to guess for a historical row).
+    # Which of the hospital's appointment_types this booking is, and (only
+    # when that type's requires_consent was true) when consent was given --
+    # see db/schema.sql's own comment on appointment_types. None for any
+    # appointment predating this feature.
     appointment_type_id: str | None = None
     consent_given_at: str | None = None
-    # Tele-consultation Phase 2 (docs/per-appointment-type-flow-plan.md): the
-    # Jitsi Meet URL generated at confirmation time (flows/booking/types/
+    # The Jitsi Meet URL generated at confirmation time (flows/booking/types/
     # tele_consultation.py's on_booking_confirmed hook). None for every
-    # other appointment type, and for any tele booking that predates this
-    # column.
+    # other appointment type.
     video_link: str | None = None
     # When this row was actually booked (distinct from scheduled_at, the
     # appointment's own time) -- the portal's appointments list shows both,
@@ -247,23 +234,22 @@ class Appointment:
     # different situations. NOT NULL/DB-default since schema.sql's baseline,
     # so always present.
     created_at: datetime | None = None
-    # Follow-up validity override (migration 0024): a staff-granted date
+    # A staff-granted date
     # (admin/receptionist only) through which THIS specific attended
     # appointment stays follow-up-eligible even if the hospital's normal
     # followup_validity_days window has already closed. None means no
     # override has ever been granted -- the normal window is all that
     # applies. Only ever meaningful when status == STATUS_ATTENDED.
     followup_override_until: str | None = None
-    # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
-    # the machine/equipment this booking is bound to, and a snapshot of which
+    # The machine/equipment this booking is bound to, and a snapshot of which
     # test/price were chosen at booking time. None for every doctor-bound
     # appointment type, and for a resource-less diagnostic/lab test.
     diagnostic_test_id: int | None = None
     diagnostic_test_name: str | None = None
     diagnostic_test_label: str | None = None
     diagnostic_price: float | None = None
-    # Lab Test Phase 2 follow-up: collection details + the post-booking
-    # report lifecycle, only ever set for a Lab Test booking. The basket
+    # Collection details + the post-booking report lifecycle, only ever
+    # set for a Lab Test booking. The basket
     # itself (N test rows) is fetched separately, via
     # db.get_lab_basket_for_appointment() -- not part of this dataclass.
     collection_method: str | None = None
@@ -353,7 +339,7 @@ class Hospital:
     external_api_key: str | None
     portal_password_hash: str | None
     enabled_features: list[str]
-    # Section 12.13: self-serve bot customization -- see db/schema.sql's
+    # Self-serve bot customization -- see db/schema.sql's
     # column comments for what each controls and its "unset" default.
     feature_labels: dict[str, str]
     closing_message_text: str | None
@@ -361,17 +347,15 @@ class Hospital:
     default_language: str
     language_prompt_enabled: bool
     session_timeout_minutes: int | None
-    # Messages page follow-up: per-hospital threshold (hours) for
+    # Per-hospital threshold (hours) for
     # auto-resolving a handoff with no new activity from either side --
     # NULL means "use the code-level default" (see
     # db/repositories/handoffs.py's DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS),
     # same nullable-plus-code-default shape session_timeout_minutes itself
     # already uses.
     handoff_auto_resolve_hours: int | None
-    # CareConnect architecture doc alignment (Spec.md Section 0): see
-    # db/schema.sql's own column comments for what each controls.
+    # See db/schema.sql's own column comments for what each controls.
     require_patient_confirmation: bool
-    # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
     # tenant_type is descriptive/default-seeding metadata only, never read
     # directly by feature routes; admin_capabilities (parsed JSON list, via
     # backend/portal/capabilities.py's get_capabilities() -- never read as a
@@ -385,11 +369,11 @@ class Hospital:
     # of the three with a default value -- a dataclass field with a default
     # can't precede one without.
     dpdp_consent_required: bool = False
-    # migration 0006 -- global, id-derived (db/display_ids.py); shown to
+    # Global, id-derived (db/display_ids.py); shown to
     # hospital users the same way patients.patient_display_id is shown to
-    # patients. Nullable at the DB level only for the "INSERT can't know its
-    # own id yet" reason that migration's docstring explains -- always set
-    # in practice. Defaulted here (not a real "unset" state) only because
+    # patients. Nullable at the DB level only because an INSERT can't know
+    # its own id yet -- always set in practice. Defaulted here (not a real
+    # "unset" state) only because
     # it's declared after dpdp_consent_required above, which itself needs one.
     display_id: str | None = None
 

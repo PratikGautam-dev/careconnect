@@ -1,8 +1,8 @@
 # connectors/base.py
 """
-SPEC Section 12.6.2: the fixed connector interface. core/booking_flow.py and
+The fixed connector interface. core/booking_flow.py and
 reminders/scheduler.py call ONLY through this interface, never db/repository.py
-directly — a hospital's stored data_tier (Tier 1/2/3, Section 12.6) is
+directly — a hospital's stored data_tier (Tier 1/2/3) is
 resolved to a concrete connector exactly once, at the single dispatch point
 in connectors/dispatch.py (get_connector_for_hospital), called by
 core/main.py right after it resolves the hospital (the webhook handler, the
@@ -17,24 +17,21 @@ _wa_clients, which genuinely needs one WhatsAppClient per hospital's own
 credentials).
 
 Two methods here (get_upcoming_appointments' phone=/offset_hours= modes, and
-mark_reminder_sent) go slightly beyond the 7 names in Section 12.6.2's
-contract as originally listed — reminders/scheduler.py's no-double-send
-guarantee (SPEC Section 4, the Phase 9 follow-up) has no home otherwise, and
+mark_reminder_sent) go slightly beyond the core contract — reminders/scheduler.py's
+no-double-send guarantee has no home otherwise, and
 folding "which appointments are due" into one method with two filtering modes
 was the least-new-surface way to cover both booking_flow.py's (patient-scoped)
 and reminders/scheduler.py's (offset-scoped) needs with a single name.
 
-Section 12.11 (patient name/date-of-birth collection during WhatsApp
-booking) adds `get_patient_info` and a `patient_date_of_birth` param on
-`create_booking` — the "have we already met this patient" read
+`get_patient_info` and a `patient_date_of_birth` param on
+`create_booking` support the "have we already met this patient" read
 core/booking_flow.py needs before deciding whether to ask for a
-name/date-of-birth is exactly the kind of per-tier-varying data
+name/date-of-birth -- exactly the kind of per-tier-varying data
 access this interface exists to abstract (a Tier 2/3 hospital's own system
 may or may not have an equivalent concept), so it goes through here rather
 than booking_flow.py reaching into db/repository.py directly for it.
 
-ARCHITECTURE_PLAN.md Phase 2: split out of the former single connectors.py
-module. This file holds only the abstract contract, the shared "not
+This file holds only the abstract contract, the shared "not
 implemented yet" stub base, and its error type — concrete tiers live in
 connectors/tier1.py, tier2.py, tier3.py; dispatch lives in
 connectors/dispatch.py.
@@ -47,14 +44,14 @@ from db.models import Appointment
 
 
 class ConnectorNotImplementedError(NotImplementedError):
-    """Raised when a hospital is configured for a data_tier (Tier 2/3, SPEC
-    Section 12.6) that has no real connector implementation yet. Deliberately
+    """Raised when a hospital is configured for a data_tier (Tier 2/3)
+    that has no real connector implementation yet. Deliberately
     its own type (not a bare NotImplementedError) so callers/logs can tell
     "this tier isn't built yet" apart from an actual programming bug."""
 
 
 class Connector(abc.ABC):
-    """The fixed contract (SPEC Section 12.6.2)."""
+    """The fixed contract."""
 
     # Deliberately no hospital_id param, unlike every other method here --
     # CareConnect account/identity resolution (db/schema.sql's own comment on
@@ -98,12 +95,9 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def get_available_slots(self, hospital_id: int, doctor_id: str) -> list[dict]: ...
 
-    # Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
-    # the resource-keyed sibling of get_available_slots above. Diagnostic
-    # tests/resources merge: resource_id (here, the param name -- a plain
-    # diagnostic_tests.id, not the old appointments.resource_id column,
-    # since merged into diagnostic_test_id) is the schedulable entity, no
-    # separate resource table anymore.
+    # The resource-keyed sibling of get_available_slots above. resource_id
+    # here is a plain diagnostic_tests.id -- a test is the schedulable
+    # entity, no separate resource table.
     @abc.abstractmethod
     def get_available_resource_slots(self, hospital_id: int, resource_id: int) -> list[dict]: ...
 
@@ -116,8 +110,8 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def get_diagnostic_test_summaries(self, hospital_id: int) -> list[dict]: ...
 
-    # Lab Test Phase 2 follow-up: the hospital-configurable serviceable-PIN-
-    # code list for home sample collection.
+    # The hospital-configurable serviceable-PIN-code list for home sample
+    # collection.
     @abc.abstractmethod
     def get_service_areas(self, hospital_id: int) -> list[dict]: ...
 
@@ -198,8 +192,8 @@ class Connector(abc.ABC):
         self, hospital_id: int, appointment_id: int, diagnostic_test_label: str, diagnostic_price: float | None,
     ) -> None: ...
 
-    # Lab Test Phase 2 follow-up: called once, right after create_booking()
-    # succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
+    # Called once, right after create_booking() succeeds, by
+    # flows/booking/types/lab.py's on_booking_confirmed hook --
     # the basket-specific fields don't need the concurrency-critical
     # create_booking() transaction, same rationale as
     # set_appointment_diagnostic_label_and_price above. basket_items: list of
@@ -213,7 +207,7 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def get_lab_basket_for_appointment(self, hospital_id: int, appointment_id: int) -> list[dict]: ...
 
-    # Lab Test Phase 2 follow-up's post-booking report lifecycle: booked ->
+    # Post-booking report lifecycle: booked ->
     # sample_collected -> processing -> report_ready.
     @abc.abstractmethod
     def set_lab_status(self, hospital_id: int, appointment_id: int, lab_status: str) -> Appointment | None: ...
@@ -313,15 +307,15 @@ class Connector(abc.ABC):
 class _UnimplementedTierConnector(Connector):
     """Shared stub base for tiers with no real connector yet — every method
     raises the same clear, descriptive error rather than building speculative
-    connector logic ahead of a real hospital on that tier existing (SPEC
-    Section 12.6's own guidance: build Tier 2 only against a real hospital's
-    actual API shape; Tier 3 is a manually-assisted case-by-case engagement)."""
+    connector logic ahead of a real hospital on that tier existing -- build
+    Tier 2 only against a real hospital's actual API shape; Tier 3 is a
+    manually-assisted case-by-case engagement."""
 
     _tier_label: str
 
     def _not_implemented(self, method_name: str) -> NoReturn:
         raise ConnectorNotImplementedError(
-            f"{self._tier_label} has no real connector implementation yet (SPEC Section 12.6) — "
+            f"{self._tier_label} has no real connector implementation yet — "
             f"'{method_name}' was called for a hospital configured on this tier. This is expected "
             f"to fail loudly: build the real connector against that hospital's actual system before "
             f"onboarding it onto this tier, rather than guessing at one ahead of time."

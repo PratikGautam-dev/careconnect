@@ -1,6 +1,6 @@
 # slots/scheduler.py
 """
-Periodic top-up job (SPEC Section 12.1.1) that keeps diagnostic/procedure
+Periodic top-up job that keeps diagnostic/procedure
 resources' rolling window of *_slots rows extended as days pass -- same
 pattern as reminders/scheduler.py: a plain function core/main.py's
 /internal/top-up-slots endpoint calls once per active hospital, meant to be
@@ -10,15 +10,13 @@ table's own UNIQUE constraint means re-running this against an
 already-topped-up window never creates duplicate slots, it only adds
 whatever days have newly entered the window since the last run.
 
-Doctors are NOT covered here anymore (migration 0032): a doctor's grid is
+Doctors are NOT covered here: a doctor's grid is
 computed live, on demand, with no persisted window that can ever run dry --
 see db/repositories/doctors.py's compute_doctor_candidate_slots(). Resources
 still use connectors/tier1.py's self-healing top-up (triggered lazily on the
 bot's own slot reads) as their real safety net; this endpoint is only an
 optional pre-warm for them so the first patient of the day doesn't pay the
-generation cost. Found live: nothing was actually hitting this endpoint in
-at least one deployment, which is exactly the gap the self-healing path
-exists to cover -- kept here for resources since they haven't been converted
+generation cost -- kept here for resources since they haven't been converted
 to live computation the way doctors have.
 """
 import db.repository as db

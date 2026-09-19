@@ -1,7 +1,6 @@
 # db/repositories/dashboard.py
-"""Staff dashboard aggregate stats (SPEC Section 12.8) -- portal/routes/dashboard.py's
-/api/portal/dashboard. Split out of db/repository.py -- see
-ARCHITECTURE_PLAN.md Phase 1."""
+"""Staff dashboard aggregate stats -- portal/routes/dashboard.py's
+/api/portal/dashboard."""
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
@@ -11,7 +10,7 @@ from db.connection import get_session
 from db.models import STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED
 from db.orm_models import AppointmentRow, Department, DoctorRow, Identity, StaffDetail
 
-# --- Staff dashboard (SPEC Section 12.8) -- portal.py's /portal/dashboard.
+# --- Staff dashboard -- portal.py's /portal/dashboard.
 # Every query here is hospital_id-scoped, same discipline as everywhere else
 # in this file; the isolation test that matters is at the HTTP layer
 # (tests/test_portal_dashboard.py), not repeated per-function here. ---
@@ -120,7 +119,7 @@ def get_dashboard_stats(hospital_id: int, now: datetime | None = None) -> dict:
 
 
 def get_doctor_dashboard_stats(hospital_id: int, doctor_id: str, now: datetime | None = None) -> dict:
-    """Doctor-portal follow-up: a deliberately smaller stat set than
+    """A deliberately smaller stat set than
     get_dashboard_stats() above -- a single doctor's own day doesn't need
     week-over-week deltas or a department breakdown (they mostly work one
     department already), just today's own numbers plus a forward-looking
@@ -296,12 +295,10 @@ def get_staffing_stats(hospital_id: int) -> dict:
 
 def get_recent_activity_feed(hospital_id: int, limit: int = 10) -> list[dict]:
     """A lightweight "what just happened" feed built entirely from
-    appointments' own status/timestamps -- SPEC Section 12.8 looked for an
-    existing WhatsApp message log to reuse and found none exists (nothing in
-    this build persists inbound/outbound message text, only conversation
-    STATE via core/session_store.py's session store); appointment status changes
-    are the smallest real substitute already captured, so this reuses those
-    rather than adding new message logging.
+    appointments' own status/timestamps -- nothing in this build persists
+    inbound/outbound message text, only conversation STATE via
+    core/session_store.py's session store, so appointment status changes
+    are the smallest real substitute already captured.
 
     Each row contributes exactly ONE event based on its CURRENT status: a
     still-'booked' row's event is "Booked appointment" at created_at; a

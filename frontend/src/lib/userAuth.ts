@@ -1,11 +1,6 @@
-// Section 15: Google OAuth user identity, kept deliberately separate from
-// staffAuth.ts's staff session (its own dedicated "user_token" localStorage
-// key, its own AUTH_SECRET-signed token on the backend). Only reached now
-// for a Google identity with no staff_details row yet -- auth/google_oauth.py's
-// callback issues a real staff session directly (bypassing this file
-// entirely) for anyone who already has one, redirecting straight to the
-// dashboard. This token only exists long enough to get through /api/auth/me
-// and the onboarding wizard's own submission call.
+// Google OAuth user identity token, separate from staffAuth.ts's staff
+// session. Only used for a Google identity with no staff_details row yet,
+// long enough to get through /api/auth/me and the onboarding wizard.
 const TOKEN_KEY = "user_token";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";

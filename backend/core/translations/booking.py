@@ -82,7 +82,7 @@ FOLLOWUP_CONFIRMATION_SUMMARY = "followup_confirmation_summary"
 FOLLOWUP_APPOINTMENT_CONFIRMED = "followup_appointment_confirmed"
 MANAGE_APPOINTMENT_PROMPT = "manage_appointment_prompt"
 
-# --- Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5) ---
+# --- Diagnostic/Lab test selection ---
 SELECT_DIAGNOSTIC_TEST = "select_diagnostic_test"
 VIEW_TESTS_BUTTON = "view_tests_button"
 DIAGNOSTIC_TESTS_SECTION_TITLE = "diagnostic_tests_section_title"
@@ -92,8 +92,7 @@ DIAGNOSTIC_CONFIRMATION_SUMMARY = "diagnostic_confirmation_summary"
 DIAGNOSTIC_BOOKING_CONFIRMED = "diagnostic_booking_confirmed"
 DIAGNOSTIC_AMOUNT_LINE = "diagnostic_amount_line"
 
-# --- Lab Test Phase 2 follow-up (business spec Sections 4.1-4.4): unlike
-# Diagnostic Test above, a Lab Test booking is a multi-test BASKET with its
+# --- Unlike Diagnostic Test above, a Lab Test booking is a multi-test BASKET with its
 # own collection-method (visit vs. home sample)/serviceability/address steps
 # before date/time. See flows/booking/types/lab.py. ---
 SELECT_LAB_TEST = "select_lab_test"
@@ -178,7 +177,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
     VIEW_DOCTORS_BUTTON: {"en": "View Doctors", "hi": "डॉक्टर देखें"},
 
-    # Section 12.12: booking's date/time step is now two separate prompts
+    # Booking's date/time step is two separate prompts
     # (was one combined slot list) -- "select_slot"/"view_slots_button"/
     # "available_slots_section_title" below are kept as-is for the
     # RESCHEDULE flow only (_send_slot_menu), which the reference screenshot
@@ -190,9 +189,6 @@ STRINGS: dict[str, dict[Language, str]] = {
     # ("You have selected Dr. Dr. Anjali Rao."), caught live via a full
     # conversation trace before this shipped.
     DOCTOR_SELECTED_ASK_DATE: {
-        # Previous body (kept for reference, not deleted):
-        # "en": "You have selected {doctor_name}. Now please select a consulting date:",
-        # "hi": "आपने {doctor_name} को चुना है। अब कृपया परामर्श की तारीख चुनें:",
         "en": "✅ {doctor_name} selected\nPlease choose your preferred appointment date.",
         "hi": "✅ {doctor_name} चुने गए\nकृपया अपनी पसंदीदा अपॉइंटमेंट की तारीख चुनें।",
     },
@@ -208,10 +204,9 @@ STRINGS: dict[str, dict[Language, str]] = {
     NEXT_TIMES_ROW: {"en": "▸ More Times", "hi": "▸ और समय"},
     PREVIOUS_TIMES_ROW: {"en": "◂ Previous Times", "hi": "◂ पिछले समय"},
 
-    # --- Booking: daycare duration (Phase 2, docs/per-appointment-type-
-    # flow-plan.md) -- shown right after time-slot selection, daycare only ---
+    # --- Booking: daycare duration -- shown right after time-slot selection, daycare only ---
     CONSULTATION_FEE_LINE: {"en": "💰 Consultation Fee: ₹{amount}\n\n", "hi": "💰 परामर्श शुल्क: ₹{amount}\n\n"},
-    # Migration 0035: omitted entirely (not shown as a blank "Department: ")
+    # Omitted entirely (not shown as a blank "Department: ")
     # for a department-less resource booking -- same conditional-line
     # pattern as CONSULTATION_FEE_LINE above.
     DEPARTMENT_LINE: {"en": "🏥 Department: {department_name}\n", "hi": "🏥 विभाग: {department_name}\n"},
@@ -243,13 +238,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
 
     # --- Booking: patient name + age collection ---
-    # Section 12.13 follow-up: age is BACK in the WhatsApp flow (Section 12.12
-    # had dropped it to match a reference screenshot's exact wording, flagged
-    # in Spec.md as a decision worth confirming -- confirmed the user did
-    # want it, so it's restored here, now also shown on the confirmation card
-    # per that follow-up's own explicit choice).
-    # Patient identity/UX follow-up (Spec.md Section 0): "Almost done!" was
-    # accurate when this was the LAST step before confirmation -- now that
+    # "Almost done!" was accurate when this was the LAST step before confirmation -- now that
     # name/age is asked FIRST (before department selection), that framing
     # was actively misleading, caught live and dropped.
     ASK_BOOKING_FOR: {
@@ -303,47 +292,15 @@ STRINGS: dict[str, dict[Language, str]] = {
     GENDER_OTHER: {"en": "Other", "hi": "अन्य"},
 
     # --- Booking: confirmation ---
-    # Section 12.12: structured "card" style with WhatsApp *bold* markdown and
-    # fixed emoji per field, matching the reference screenshot exactly, with
-    # an added age line (Section 12.13 follow-up, not in the original
-    # reference screenshot but explicitly requested).
-    # Item 10 (Spec.md Section 0): patient name/age moved first, ahead of
-    # department/doctor/date/time -- was department/doctor/date/time then
-    # patient info last.
+    # Structured "card" style with WhatsApp *bold* markdown and fixed emoji
+    # per field, including an age line. Patient name/age comes first, ahead
+    # of department/doctor/date/time.
     # Appointment type step (WhatsApp flow alignment): {appointment_type_label}
     # line added above Patient. Always populated for real traffic --
     # _select_patient_and_continue's booking branch sets STATE_AWAITING_
     # APPOINTMENT_TYPE as the very first booking step now, before this
     # confirmation can ever be reached.
     CONFIRM_BOOKING_SUMMARY: {
-        # Previous body (kept for reference, not deleted -- same
-        # already-established convention as dpdp_consent.py/this hospital's
-        # other recently-restyled templates):
-        # "en": "*Confirm Booking Details:*\n"
-        #       "📋 *Type:* {appointment_type_label}\n"
-        #       "👤 *Patient:* {patient_name}\n"
-        #       "🎂 *Age:* {patient_age}\n"
-        #       "🏥 *Dept:* {department_name}\n"
-        #       "👨‍⚕️ *Doctor:* {doctor_name}\n"
-        #       "📅 *Date:* {date_label}\n"
-        #       "🕐 *Slot:* {time_label}\n\n"
-        #       "Please confirm this appointment:",
-        # "hi": "*बुकिंग विवरण की पुष्टि करें:*\n"
-        #       "📋 *प्रकार:* {appointment_type_label}\n"
-        #       "👤 *मरीज़:* {patient_name}\n"
-        #       "🎂 *उम्र:* {patient_age}\n"
-        #       "🏥 *विभाग:* {department_name}\n"
-        #       "👨‍⚕️ *डॉक्टर:* {doctor_name}\n"
-        #       "📅 *तारीख:* {date_label}\n"
-        #       "🕐 *स्लॉट:* {time_label}\n\n"
-        #       "कृपया इस अपॉइंटमेंट की पुष्टि करें:",
-        # fee_line: "💰 Consultation Fee: ₹{amount}\n\n" when hospital_settings.
-        # new_consultation_fee is configured for a "new" (New Consultation)
-        # booking, "" otherwise (flows/booking/messages.py's _send_confirmation
-        # builds it) -- was a static "₹800 (if applicable)" placeholder before
-        # a real per-hospital fee field existed; now sourced for real, and
-        # omitted entirely (not shown as ₹0) when unset or not a New
-        # Consultation booking.
         "en": (
             "*Confirm Booking Details:*\n"
             "👤 Patient: {patient_name}\n"
@@ -416,7 +373,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "Okay, I've cancelled this booking. Send any message to start over.",
         "hi": "ठीक है, मैंने यह बुकिंग रद्द कर दी है। फिर से शुरू करने के लिए कोई भी संदेश भेजें।",
     },
-    # Item 5 (Spec.md Section 0): shown when create_appointment() raises
+    # Shown when create_appointment() raises
     # DuplicateBookingError -- an active booking with this same doctor (and
     # age on file) already exists, so this attempt is blocked rather than
     # creating a second one.
@@ -433,7 +390,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "You already have an appointment in {department_name} with {doctor_name} on {when} — reply below to manage it.",
         "hi": "आपकी {department_name} में {doctor_name} के साथ {when} को पहले से ही एक अपॉइंटमेंट है — इसे प्रबंधित करने के लिए नीचे उत्तर दें।",
     },
-    # docs/per-appointment-type-flow-plan.md Phase 2: New Consultation-only
+    # New Consultation-only
     # booking rules -- flows/booking/types/new_consultation.py. (The
     # department half is now a same-day-of-booking safety net only --
     # DEPARTMENT_APPOINTMENT_CONFLICT above already blocks this earlier, at
@@ -446,12 +403,8 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "You already have an appointment booked on this day. Please choose a different date, or manage your existing appointment first.",
         "hi": "इस दिन आपकी पहले से ही एक अपॉइंटमेंट बुक है। कृपया कोई और तारीख चुनें, या पहले अपनी मौजूदा अपॉइंटमेंट प्रबंधित करें।",
     },
-    # docs/per-appointment-type-flow-plan.md Phase 2 Step 2:
     # flows/booking/types/followup.py.
     NO_PREVIOUS_APPOINTMENT_FOR_FOLLOWUP: {
-        # Previous body (kept for reference, not deleted):
-        # "en": "We couldn't find any previous completed appointment for you, so Follow-up isn't available yet. Please choose New Consultation instead.",
-        # "hi": "हमें आपकी कोई पिछली पूर्ण अपॉइंटमेंट नहीं मिली, इसलिए फॉलो-अप अभी उपलब्ध नहीं है। कृपया इसके बजाय नई परामर्श चुनें।",
         "en": (
             "No Previous Consultation Found\n"
             "We couldn't find any completed consultation for {name}.\n\n"
@@ -463,8 +416,7 @@ STRINGS: dict[str, dict[Language, str]] = {
             "फॉलो-अप अपॉइंटमेंट केवल पिछले परामर्श के बाद ही बुक की जा सकती है। कृपया इसके बजाय नई परामर्श बुक करें।"
         ),
     },
-    # docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up: the
-    # eligible-consultations list -- one row per department's most recent
+    # The eligible-consultations list -- one row per department's most recent
     # ATTENDED appointment still within the hospital's eligibility window.
     FOLLOWUP_ELIGIBLE_LIST_PROMPT: {
         "en": (
@@ -540,17 +492,16 @@ STRINGS: dict[str, dict[Language, str]] = {
             "हम आपसे मिलने के लिए उत्सुक हैं।"
         ),
     },
-    # Item 6 (Spec.md Section 0): shown after tapping one appointment in "My
+    # Shown after tapping one appointment in "My
     # Appointments" -- the same quick-action buttons item 3/5 use.
     MANAGE_APPOINTMENT_PROMPT: {
         "en": "Your appointment with {doctor_name} — what would you like to do?",
         "hi": "{doctor_name} के साथ आपकी अपॉइंटमेंट — आप क्या करना चाहेंगे?",
     },
 
-    # --- Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md
-    # Step 5): test selection -> date/time (resource-linked) -> confirm.
-    # Test/variant merge: a test carries exactly one price on itself, so
-    # there's no separate options/variant step anymore. ---
+    # --- Test selection -> date/time (resource-linked) -> confirm.
+    # A test carries exactly one price on itself, so there's no separate
+    # options/variant step. ---
     SELECT_DIAGNOSTIC_TEST: {
         "en": "Please select the test you would like to book.",
         "hi": "कृपया वह जांच चुनें जिसे आप बुक करना चाहते हैं।",
@@ -610,7 +561,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         ),
     },
 
-    # --- Lab Test Phase 2 follow-up: multi-test basket -> collection method
+    # --- Multi-test basket -> collection method
     # (visit vs. home sample, serviceability-gated) -> date/time -> confirm,
     # with an itemized price review and a conditional fasting/prep paragraph. ---
     SELECT_LAB_TEST: {
@@ -801,7 +752,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "en": "📝 *Please note:* {instructions}\n\n",
         "hi": "📝 *कृपया ध्यान दें:* {instructions}\n\n",
     },
-    # Migration 0035: omitted entirely for a department-less procedure --
+    # Omitted entirely for a department-less procedure --
     # same conditional-line pattern as order_reference_line/estimate_line
     # above, since a procedure's department can genuinely be unset.
     PROCEDURE_LOCATION_LINE: {"en": "🏥 Location: {department_name}\n", "hi": "🏥 स्थान: {department_name}\n"},

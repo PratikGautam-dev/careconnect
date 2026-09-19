@@ -1,7 +1,6 @@
 # admin/validation.py
 """
-Shared field validators, split out of admin/onboarding.py (Section 15
-follow-up's leftover shared-helpers module) since _validate_doctor_fields
+Shared field validators. _validate_doctor_fields
 and _parse_offsets are imported directly by admin/onboarding_api.py,
 admin/tenants_api.py, and portal/routes/{doctors,settings}.py -- a
 private-function cross-import from admin/onboarding.py into the portal
@@ -42,19 +41,17 @@ def _validate_doctor_fields(
     require_contact_fields: bool = True,
 ) -> tuple[dict | None, list[str], list[str]]:
     """Returns (doctor_dict_or_None, errors, warnings). errors block
-    submission (same as before Section 14.7); warnings (currently just the
-    online/walk-in quota vs. daily_booking_limit check) don't -- the caller
-    still gets a doctor dict back alongside them.
+    submission; warnings (currently just the online/walk-in quota vs.
+    daily_booking_limit check) don't -- the caller still gets a doctor
+    dict back alongside them.
 
-    Migration 20260911190007 (confirmed with the user): specialization/
-    qualification/phone are mandatory on the Doctors page's own Add/Edit
+    specialization/qualification/phone are mandatory on the Doctors page's own Add/Edit
     form and CSV import (portal/routes/doctors.py, the two callers that
     leave require_contact_fields at its True default) -- location stays
     optional regardless. The tenant onboarding wizard (admin/onboarding.py,
     admin/onboarding_api.py) explicitly passes require_contact_fields=False:
     it's a lighter-weight initial-setup flow that never collected phone and
-    doesn't force specialization/qualification either, so this migration
-    doesn't retroactively block hospital onboarding.
+    doesn't force specialization/qualification either.
 
     employee_id is NOT validated here (Employee ID auto-numbering feature,
     confirmed with the user) -- it's generated server-side at create_doctor()
@@ -106,8 +103,8 @@ def _validate_doctor_fields(
 
     slot_duration_minutes = None
     duration_raw = duration_raw.strip()
-    # Migration 20260914120000: left blank, this doctor uses the hospital's
-    # own default_appointment_duration_minutes (Settings -> General ->
+    # Left blank, this doctor uses the hospital's own
+    # default_appointment_duration_minutes (Settings -> General ->
     # Appointment Settings) instead of a hard requirement here.
     if duration_raw:
         try:
@@ -117,7 +114,7 @@ def _validate_doctor_fields(
         except ValueError:
             errors.append(f'{label}: slot duration "{duration_raw}" must be a positive whole number.')
 
-    # --- Section 14.7 fields ---
+    # --- Working hours/breaks fields ---
 
     breaks = [b.strip() for b in breaks_raw.split(",") if b.strip()]
     if breaks:

@@ -21,30 +21,13 @@ const TABS: SettingsTabDef[] = [
 
 const BUILT_TABS: SettingsTabKey[] = ["general", "departments", "notifications", "attendance"];
 
-/** /portal/settings -- being rebuilt tab-by-tab to match a reference
- * mockup. "General" is mostly frontend-mock (a handful of fields wired to
- * real settings -- see GeneralSettingsTab.tsx's own doc comment, which now
- * also carries the real Appointment Types, Diagnostic Tests, Leave Policy,
- * Lab Service Areas, and Google Calendar sections moved over from the
- * legacy page); "Departments" is fully real (see DepartmentsTab.tsx /
- * useDepartmentsAdmin, and portal/routes/departments.py on the backend)
- * since the user explicitly asked for that one to be wired, not mocked;
- * "Notifications" is also real (see NotificationsTab.tsx) -- Notification
- * Preferences + message content (welcome/closing messages, reminders).
- * "Integrations" and "Security" were removed entirely (not just left
- * unbuilt) -- confirmed with the user, since neither had a reference or
- * any real content of its own (Google Calendar, briefly Integrations' only
- * occupant, now lives in General instead). All three of these tabs are
- * real and built, so BUILT_TABS below currently matches TABS exactly --
- * the "not designed yet" fallback stays only as a safety net for a future
- * tab added to TABS without also being wired up here. The former "Hospital
- * Profile" tab was deleted entirely too -- its real Hospital Name +
- * Contact Information fields moved into General, Bed Capacity moved to a
- * "Manage Beds" dialog on the Daycare Appointments page, and the rest was
- * frontend-mock-only with no real field to preserve. The previous fully
- * real, backend-wired settings page is preserved as-is at ../_reference/
- * legacy-general-settings-page.tsx purely for historical reference now
- * that every real section from it has a new home. */
+/** /portal/settings. "General" mixes real fields (Appointment Types,
+ * Diagnostic Tests, Leave Policy, Lab Service Areas, Google Calendar, plus
+ * the fields in GeneralSettingsTab.tsx) with a few frontend-mock-only
+ * ones. "Departments" and "Notifications" are fully real -- see
+ * DepartmentsTab.tsx/useDepartmentsAdmin and NotificationsTab.tsx.
+ * BUILT_TABS matches TABS exactly; the "not designed yet" fallback stays
+ * as a safety net for a future tab added to TABS without being wired up here. */
 export default function PortalSettingsPage() {
   const { hospital, ready } = usePortalGuard();
   const [tab, setTab] = useState<SettingsTabKey>("general");

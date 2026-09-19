@@ -1,9 +1,8 @@
 # webhook/dispatch.py
 """
-ARCHITECTURE_PLAN.md Phase 4: WA-client cache, Redis-backed (with in-memory
+WA-client cache, Redis-backed (with in-memory
 fallback) per-message processing lock, and the actual message dispatch into
-flows.handle_incoming() -- split out of the former single core/main.py
-module. webhook/routes.py's POST /webhook handler calls into this after
+flows.handle_incoming(). webhook/routes.py's POST /webhook handler calls into this after
 parsing/validating the incoming payload; webhook/cron_routes.py's
 /internal/send-reminders also reuses _get_whatsapp_client (one client per
 hospital, reused for the life of the process).
@@ -36,7 +35,7 @@ _redis = None  # None = not yet checked; False = checked and unreachable; client
 _message_locks: dict[str, float] = {}  # "hospital_id:phone" -> lock expiry timestamp
 
 # One WhatsAppClient per hospital, built lazily from that hospital's own DB-stored
-# credentials (SPEC Section 12.2) and reused for the life of the process — avoids
+# credentials and reused for the life of the process — avoids
 # re-creating an httpx.AsyncClient (connection pool) on every message.
 #
 # IMPORTANT — this cache is keyed by hospital.id only, never invalidated, and
@@ -48,8 +47,7 @@ _message_locks: dict[str, float] = {}  # "hospital_id:phone" -> lock expiry time
 # Meta's 401 even after the DB row is fixed — until you restart it. This is
 # the single most likely reason a "I already updated the token in the DB"
 # report doesn't actually resolve a 401: the fix is a process restart, not a
-# second DB update. Verified live (SPEC Section 0's product-readiness pass):
-# a same-process re-fetch after a direct DB update still returns the old
+# second DB update. Verified live: a same-process re-fetch after a direct DB update still returns the old
 # cached client; only a fresh process picks up the new value.
 _wa_clients: dict[int, WhatsAppClient] = {}
 
@@ -102,7 +100,7 @@ def _get_redis():
 def _acquire_message_lock(hospital_id: int, phone: str, ttl: int = 15) -> bool:
     """Try to acquire a processing lock for this (hospital, phone) pair. Returns
     True if acquired. Scoped by hospital_id so the same phone number messaging
-    two different hospitals can never block itself across them (SPEC Section 12.2)."""
+    two different hospitals can never block itself across them."""
     key_suffix = f"{hospital_id}:{phone}"
     r = _get_redis()
     if r:
@@ -135,20 +133,17 @@ async def _process_message(
         phone, hospital.id, hospital.enabled_features, reply,
     )
     HISTORY.add(phone, "user", reply.get("text") or reply.get("title") or f"[{reply.get('type')}]")
-    # SPEC Section 12.6.2: resolve this hospital's data_tier to a concrete
+    # Resolve this hospital's data_tier to a concrete
     # connector exactly once, here, and hand it down -- flow handlers never
     # look at hospital.data_tier themselves.
     connector = get_connector_for_hospital(hospital)
-    # SPEC Section 14.5: flows.py is now the actual conversation entry point
-    # (not a lookup returning someone else's handler) -- it builds the IDLE
-    # main menu from hospital.enabled_features and internally delegates to
-    # core/booking_flow.py's/faq_flow.py's own sub-flow logic once a feature
-    # is selected.
-    # Migration 0014: feature_labels/dpdp_consent_required are now ONE
-    # platform-wide value (db/repositories/platform_settings.py), not a
-    # per-hospital column -- every tenant reads the same platform_settings
-    # row here instead of its own hospital.feature_labels/
-    # dpdp_consent_required.
+    # flows.py builds the IDLE main menu from hospital.enabled_features and
+    # internally delegates to core/booking_flow.py's/faq_flow.py's own
+    # sub-flow logic once a feature is selected.
+    # feature_labels/dpdp_consent_required are ONE platform-wide value
+    # (db/repositories/platform_settings.py), not a per-hospital column --
+    # every tenant reads the same platform_settings row here instead of
+    # its own hospital.feature_labels/dpdp_consent_required.
     platform_settings = db.get_platform_settings()
     await flows.handle_incoming(
         wa, SESSIONS, phone, hospital.id, reply, hospital.name, connector, hospital.enabled_features,

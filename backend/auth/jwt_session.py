@@ -1,5 +1,5 @@
 # auth/jwt_session.py
-"""RBAC staff/super-admin access tokens (docs/rbac-redis-plan.md) -- PyJWT
+"""RBAC staff/super-admin access tokens -- PyJWT
 instead of this codebase's existing custom HMAC "field.field....sig" scheme
 (auth/session.py, auth/doctor_session.py) because a JWT lets the frontend
 (and any future service) inspect hospital_id/role client-side without a

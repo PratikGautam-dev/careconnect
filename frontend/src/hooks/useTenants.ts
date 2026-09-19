@@ -26,9 +26,8 @@ export function useTenants() {
     }
     setTenants((result.data as { tenants: Tenant[] }).tenants);
 
-    // Item 5 (Spec.md Section 0): who's signed in with Google but never
-    // finished onboarding -- a separate, non-fatal fetch, since the main
-    // tenants list is the more important thing on this page to get right.
+    // Who's signed in with Google but never finished onboarding -- a
+    // separate, non-fatal fetch, since the main tenants list matters more.
     const signupsResult = await adminFetch("/api/admin/stalled-signups");
     if (signupsResult.ok) {
       setStalledSignups((signupsResult.data as { users: StalledSignup[] }).users);

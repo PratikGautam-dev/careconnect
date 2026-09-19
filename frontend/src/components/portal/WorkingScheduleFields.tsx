@@ -22,14 +22,8 @@ type Props = {
   onChange: (next: WorkingScheduleValue) => void;
 };
 
-/** "Working days" day-pills + "Shifts" time/break row list -- lifted out of
- * DoctorScheduleForm.tsx (Staff schedule feature) so both Doctors and Staff
- * add/edit forms render the exact same picker instead of drifting into two
- * copies. The "Copy to other days" toggle (previously a separate button in
- * DoctorScheduleForm's own header row, its hint text living inside the
- * Working Days field) moves in here too, whole -- it's about this block
- * specifically, so it travels with it rather than staying split across two
- * files. Everything else is unchanged from the original. */
+/** "Working days" day-pills + "Shifts" time/break row list, shared by both
+ * Doctors and Staff add/edit forms, including the "Copy to other days" toggle. */
 export function WorkingScheduleFields({ value, onChange }: Props) {
   const [showCopyDays, setShowCopyDays] = useState(false);
 

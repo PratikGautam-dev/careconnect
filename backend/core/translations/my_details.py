@@ -1,5 +1,5 @@
 # core/translations/my_details.py
-"""My Details (patient identity system, Spec.md Section 0): a self-service
+"""My Details: a self-service
 "look up my own record" feature, alongside "view appointments" (menu.py)
 rather than replacing it -- that one shows upcoming bookings with cancel/
 reschedule actions; this one shows identity/summary info and any documents
@@ -42,7 +42,7 @@ REPORTS_MENU_VIEW_DIAGNOSTIC_REPORTS = "reports_menu_view_diagnostic_reports"
 REPORTS_MENU_BOOK_REPORT_REVIEW = "reports_menu_book_report_review"
 REPORTS_NO_DOCUMENTS_IN_CATEGORY = "reports_no_documents_in_category"
 
-# Lab Test Phase 2 follow-up: proactive WhatsApp notification, sent the
+# Proactive WhatsApp notification, sent the
 # moment staff upload a lab_report document against a Lab Test appointment
 # (portal/routes/documents.py) -- the last step of the report lifecycle
 # (Booking Confirmed -> Sample Collected -> Lab Processing -> Report Ready ->

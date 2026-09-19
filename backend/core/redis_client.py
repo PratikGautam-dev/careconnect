@@ -1,17 +1,14 @@
 # core/redis_client.py
-"""Shared Redis client (docs/rbac-redis-plan.md) -- this codebase already has
-SIX independent Redis-with-in-memory-fallback implementations (core/rate_limit.py,
-core/session_store.py, core/chat_history.py, webhook/dispatch.py's _get_redis(),
-modules/booking/calendar.py's _get_redis(), and now auth/refresh_tokens.py
-makes it seven without this module), each hand-rolling the same
-`redis.from_url(url); r.ping(); except Exception: fall back` connect dance.
-main.py is NOT one of these -- its `perms:invalidate` pub/sub subscriber
-imports get_redis() from THIS module directly, so it was never a separate
-hand-rolled site to begin with. This module exists so THIS feature (and any
+"""Shared Redis client -- avoids hand-rolling the same
+`redis.from_url(url); r.ping(); except Exception: fall back` connect dance
+independently across core/rate_limit.py, core/session_store.py,
+core/chat_history.py, webhook/dispatch.py's _get_redis(),
+modules/booking/calendar.py's _get_redis(), and auth/refresh_tokens.py.
+main.py's `perms:invalidate` pub/sub subscriber imports get_redis() from
+THIS module directly. This module exists so THIS feature (and any
 future cache/pub-sub/queue need) reaches for one shared thing instead of an
-eighth bespoke implementation -- it deliberately does NOT migrate those six
-existing call sites onto it (a separate, low-risk cleanup later, per the
-plan's own Rollout section); they keep working exactly as they are.
+extra bespoke implementation -- it deliberately does NOT migrate those
+existing call sites onto it; they keep working exactly as they are.
 
 REDIS_URL is read live via core/config.py's get_settings().REDIS_URL on
 every get_redis() call -- NOT a module-level constant, and NOT the raw

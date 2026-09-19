@@ -56,8 +56,7 @@ class TopicIn(BaseModel):
 
 
 class OnboardingSubmission(BaseModel):
-    # RBAC (docs/rbac-redis-plan.md): replaces the old shared ADMIN_SECRET
-    # check -- this is a super_admins JWT (from POST /api/admin/super/login),
+    # A super_admins JWT (from POST /api/admin/super/login),
     # verified via get_current_super_admin() below. Carried in the request
     # BODY rather than the Authorization header (unlike every other
     # get_current_super_admin() call site in this codebase) because this
@@ -91,8 +90,7 @@ class OnboardingSubmission(BaseModel):
     api_key: str = ""
     departments: list[DepartmentIn] = Field(default_factory=list)
     topics: list[TopicIn] = Field(default_factory=list)
-    # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
-    # defaults to "hospital" for backward compatibility -- every existing
+    # Defaults to "hospital" for backward compatibility -- every existing
     # onboarding caller that doesn't know about this field yet keeps getting
     # full admin capabilities, unchanged.
     tenant_type: str = "hospital"
@@ -163,15 +161,12 @@ def _validate_topics(topics: list[TopicIn]) -> tuple[list[dict], list[str]]:
 async def submit_onboarding(
     payload: OnboardingSubmission, request: Request, authorization: str | None = Header(default=None)
 ):
-    # Section 15: two independent gates, not one replacing the other -- a
+    # Two independent gates, not one replacing the other -- a
     # super-admin identity stays required deliberately (this product isn't
-    # open to public self-serve signup yet, only the two tenants actually
-    # running today), while Google sign-in adds the real per-user identity
-    # that alone never gave us (every prior onboarding was anonymous past
-    # the old shared ADMIN_SECRET). Once public signup is ready, the
-    # super-admin check below is the one block to remove. RBAC
-    # (docs/rbac-redis-plan.md): the super-admin token travels in
-    # payload.super_admin_token, not this Authorization header -- see
+    # open to public self-serve signup yet), while Google sign-in adds the
+    # real per-user identity. Once public signup is ready, the
+    # super-admin check below is the one block to remove. The super-admin
+    # token travels in payload.super_admin_token, not this Authorization header -- see
     # OnboardingSubmission's own field docstring for why.
     user = authenticate_user(authorization)
     if user is None:
@@ -187,9 +182,9 @@ async def submit_onboarding(
         errors.append("Hospital name is required.")
     if not whatsapp_phone_number_id:
         errors.append("WhatsApp phone_number_id is required.")
-    # RBAC: every new hospital gets its first staff_users admin row created
+    # Every new hospital gets its first staff_users admin row created
     # right here (below) -- this is that person's real login, so it's
-    # required unconditionally, not gated on "booking" the way the legacy
+    # required unconditionally, not gated on "booking" the way the
     # portal_password check further down still is.
     if not admin_email or "@" not in admin_email:
         errors.append("A valid admin email address is required.")
@@ -217,8 +212,8 @@ async def submit_onboarding(
         errors.extend(dept_errors)
         if not departments:
             errors.append("At least one department with at least one doctor is required.")
-        # RBAC (docs/rbac-redis-plan.md): a bookings portal password is no
-        # longer required here -- admin_email/admin_password (validated
+        # A bookings portal password is not required here --
+        # admin_email/admin_password (validated
         # above) is this hospital's real login going forward. portal_password
         # stays ACCEPTED (below) for anyone who still submits one, but a new
         # hospital onboarded today never needs it.
@@ -270,7 +265,7 @@ async def submit_onboarding(
     roles = db.seed_default_roles(hospital.id)
     db.link_hospital_owner(hospital.id, user.id, role_id=roles["admin"]["id"])
 
-    # RBAC (docs/rbac-redis-plan.md): this hospital's first staff_users
+    # This hospital's first staff_users
     # admin row + the default role_permissions matrix, seeded explicitly
     # right here -- same "write it now, don't rely on a runtime fallback"
     # discipline resolve_default_capabilities()/admin_capabilities already

@@ -90,11 +90,10 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
             {
                 "id": a.id,
                 "phone": a.phone,
-                # Item 3 (Spec.md Section 0): the dashboard's separate "Patients"
-                # widget was merged into this table -- patient name now shown
-                # inline instead of a second, patient-centric list.
+                # Patient name shown inline in this table rather than a
+                # second, separate patient-centric widget.
                 "patient_name": (db.get_patient_by_phone(hospital.id, a.phone) or {}).get("name"),
-                # Patient identity system (Spec.md Section 0): already on the
+                # Already on the
                 # Appointment object itself (via _APPOINTMENT_SELECT's join),
                 # no extra query needed the way patient_name above still does.
                 "patient_display_id": a.patient_display_id,
@@ -103,7 +102,7 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
                 "scheduled_at": a.scheduled_at.isoformat(),
                 "status": a.status,
                 "source": a.source,
-                # Item 9 (Spec.md Section 0): column parity with the full
+                # Column parity with the full
                 # Appointments page, which already surfaces this.
                 "reference_id": a.reference_id,
                 # Column parity with the Doctor appointments table's

@@ -46,9 +46,8 @@ const PRIORITY_OPTIONS = [
  *
  * Reached via two separate sidebar nav items -- "Report review" and
  * "Report analytics" -- pointing at this same route with their own
- * independent page_keys (migration 20260914150000); this page renders for
- * whichever one the signed-in role actually has view access to (a role
- * could plausibly have just one, not both). */
+ * independent page_keys; this page renders for whichever one the
+ * signed-in role has view access to (a role could have just one, not both). */
 export default function ReportReviewPage() {
   const { hospital, ready } = usePortalGuard();
   const canViewReview = usePermission("report-review", "view");

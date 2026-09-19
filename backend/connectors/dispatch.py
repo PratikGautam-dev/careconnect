@@ -1,13 +1,10 @@
 # connectors/dispatch.py
-"""The single connector dispatch point (SPEC Section 12.6.2). core/main.py
+"""The single connector dispatch point. core/main.py
 calls get_connector_for_hospital exactly once per hospital resolution — in
 the webhook handler right after resolving the hospital, and once per
 hospital in the reminder/slot loops — and passes the resulting connector
 down; core/booking_flow.py and reminders/scheduler.py never inspect
-hospital.data_tier themselves.
-
-ARCHITECTURE_PLAN.md Phase 2: split out of the former single connectors.py
-module."""
+hospital.data_tier themselves."""
 from db.models import Hospital
 
 from connectors.base import Connector, ConnectorNotImplementedError

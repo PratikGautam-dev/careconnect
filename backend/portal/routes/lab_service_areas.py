@@ -1,5 +1,5 @@
 # portal/routes/lab_service_areas.py
-"""Portal CRUD for lab_service_areas -- Lab Test Phase 2 follow-up's
+"""Portal CRUD for lab_service_areas -- the
 serviceable-PIN-code list for home sample collection. Same shape as
 portal/routes/daycare_duration_options.py, reusing manage_appointment_types
 (same portal screen area, no new capability needed for a small config list)."""

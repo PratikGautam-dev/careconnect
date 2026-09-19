@@ -11,14 +11,14 @@ appointment_type_id="tele" (context["appointment_type_id"] is never
 touched by either sub-path), so on_booking_confirmed below always fires --
 a follow-up-style tele booking still gets a Meet link, same as a new one.
 
-Phase 2: attach a video-call link to the booking notification via the
+Attaches a video-call link to the booking notification via the
 on_booking_confirmed hook -- book.py's shared _create_booking_and_notify
 calls this right after connector.create_booking() succeeds, and merges
 whatever dict it returns into the notification context. Every other type
 leaves on_booking_confirmed unset (None), so their notifications are
 untouched.
 
-Google Meet integration (Spec.md Section 0): if this appointment's HOSPITAL
+Google Meet integration: if this appointment's HOSPITAL
 has an admin-connected Google account (modules/google_calendar.py,
 auth/google_calendar_oauth.py -- one connection per hospital, used for every
 doctor there, not a per-doctor connection), a real Calendar event with a

@@ -1,5 +1,5 @@
 # modules/google_calendar.py
-"""Google Meet integration (Spec.md Section 0): creates a real Google
+"""Google Meet integration: creates a real Google
 Calendar event (with a Meet link) for a tele-consultation appointment, using
 the ONE Google account a hospital's admin has connected on the hospital's
 own behalf (auth/google_calendar_oauth.py, db/repositories/google_calendar.py)

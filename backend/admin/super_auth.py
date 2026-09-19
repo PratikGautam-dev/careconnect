@@ -1,9 +1,9 @@
 # admin/super_auth.py
-"""Individual super-admin login (docs/rbac-redis-plan.md), replacing the
+"""Individual super-admin login, replacing the
 X-Admin-Secret/ADMIN_SECRET/TENANTS_ADMIN_SECRET shared-secret gates with a
 real per-operator account and audit trail. Own rate-limit scope ("super_admin_login",
 distinct from "admin_secret"/"tenants_admin_secret" so this doesn't share a
-lockout bucket with the now-legacy secret checks it's replacing) and own JWT
+lockout bucket with those secret checks) and own JWT
 secret (SUPER_ADMIN_JWT_SECRET) -- typ="super_admin" tokens verify only
 against get_current_super_admin() (portal/deps.py), never the staff-portal
 get_current_staff(), same structural non-interchangeability

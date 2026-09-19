@@ -33,9 +33,8 @@ export const SOURCE_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
   staff: "Walk-in",
 };
-// Lab Test Phase 2 follow-up's report lifecycle -- report_ready is never
-// advanced from here (only automatically, by uploading a lab_report
-// document against the appointment), so it has no "next" label.
+// report_ready is only reached automatically (by uploading a lab_report
+// document), never advanced from here, so it has no "next" label.
 export const LAB_STATUS_LABELS: Record<string, string> = {
   booked: "Booked",
   sample_collected: "Sample Collected",

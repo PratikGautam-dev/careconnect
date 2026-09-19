@@ -1,15 +1,14 @@
 # db/repositories/faq.py
-"""FAQ topics -- the faq_flow_type's entire data model (SPEC Section 14.2).
-Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
+"""FAQ topics -- the faq_flow_type's entire data model."""
 from sqlalchemy import func, insert, select
 
 from db.connection import get_session
 from db.orm_models import FaqTopic
 
-# --- FAQ topics (SPEC Section 14.2, the FAQ flow_type's entire data model) ---
+# --- FAQ topics (the FAQ flow_type's entire data model) ---
 
 def get_faq_topics(hospital_id: int) -> list[dict]:
-    """faq_flow.py's topic menu (Section 14.2) -- ordered by display_order,
+    """faq_flow.py's topic menu -- ordered by display_order,
     then id as a tiebreaker (display_order isn't unique, ties are expected)."""
     session = get_session()
     rows = session.execute(
@@ -40,8 +39,8 @@ def find_faq_topic(hospital_id: int, topic_id: str) -> dict | None:
 def create_faq_topic(
     hospital_id: int, topic_label: str, answer_text: str, display_order: int | None = None,
 ) -> dict:
-    """admin/onboarding.py's wizard Step 7 topic/answer builder (Section 14.3,
-    faq-flow tenants only). display_order defaults to "append at the end" of
+    """admin/onboarding.py's wizard Step 7 topic/answer builder
+    (faq-flow tenants only). display_order defaults to "append at the end" of
     this hospital's existing topics, so onboarding-time topics keep the order
     they were entered in without the caller having to compute indices itself."""
     session = get_session()

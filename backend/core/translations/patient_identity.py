@@ -1,5 +1,5 @@
 # core/translations/patient_identity.py
-"""Patient identity SEPARATION (Spec.md Section 0): the shared "who is this
+"""The shared "who is this
 for" selector, duplicate-patient detection, the structured relationship
 field, and the single-linked-patient confirmation. Split out from
 manage_patients.py (adjacent file) since that one is specifically the
@@ -112,8 +112,7 @@ STRINGS: dict[str, dict[Language, str]] = {
         "hi": "{name} इस अस्पताल में आपकी मरीज़ सूची में पहले से मौजूद हैं -- उन्हें दोबारा जोड़ने की ज़रूरत नहीं है।",
     },
 
-    # CareConnect architecture doc alignment (Spec.md Section 0): resolution
-    # now happens ONCE per conversation, before the main menu --
+    # Resolution happens ONCE per conversation, before the main menu --
     # patient_selector_prompt below replaces the 4 action-specific
     # patient_selector_prompt_* keys above (still left in place, unreachable
     # but harmless, same "orphaned key" precedent CHANGE_LANGUAGE_ROW's own
@@ -122,10 +121,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     # patient_display_id (e.g. DCCP-2026-00003) shown to the patient -- NEVER
     # the real clinical mrn (db/models.py's _generate_patient_identifiers,
     # MRN-<hospital short code>-<seq>), which is an internal hospital record
-    # never surfaced over WhatsApp. "mrn" was previously used as both the
-    # label text AND the kwarg name at every call site below even though the
-    # value passed was always patient_display_id -- renamed throughout to
-    # avoid that confusion.
+    # never surfaced over WhatsApp.
     PATIENT_CODE_LABEL: {"en": "Patient ID:", "hi": "पेशेंट आईडी:"},
     PATIENT_SELECTOR_PROMPT: {
         "en": "Who are you accessing CareConnect for?",
@@ -155,7 +151,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
     DUPLICATE_LINK_BUTTON: {"en": "Link Existing", "hi": "लिंक करें"},
 
-    # --- Section 17: structured relationship field (RELATIONSHIP_OPTIONS in
+    # --- Structured relationship field (RELATIONSHIP_OPTIONS in
     # db/repository.py is the single source of truth these keys mirror) ---
     ASK_RELATIONSHIP: {
         "en": "What is this patient's relationship to you?",
@@ -172,7 +168,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     RELATIONSHIP_GUARDIAN: {"en": "Guardian", "hi": "अभिभावक"},
     RELATIONSHIP_OTHER: {"en": "Other", "hi": "अन्य"},
 
-    # --- Section 11: optional single-linked-patient confirmation
+    # --- Optional single-linked-patient confirmation
     # (hospitals.require_patient_confirmation, default off) ---
     # Used as the main menu LIST's own body text for this specific case
     # (overriding _send_menu_list's generic patient-header + "How can we

@@ -1,6 +1,5 @@
-"""Shared login/secret-check rate limiting -- audit follow-up (Spec.md
-Section 0): portal login, ADMIN_SECRET, and TENANTS_ADMIN_SECRET previously
-allowed unlimited guesses. Same Redis-with-in-memory-fallback pattern as
+"""Shared login/secret-check rate limiting for portal login, ADMIN_SECRET,
+and TENANTS_ADMIN_SECRET. Same Redis-with-in-memory-fallback pattern as
 core/session_store.py's session store (connect once, fall back silently if Redis
 isn't reachable), just a per-key failure counter instead of session state.
 

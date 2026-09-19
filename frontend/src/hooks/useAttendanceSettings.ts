@@ -12,12 +12,10 @@ export type AttendanceSettings = {
   attendance_shift_end: string;
   attendance_early_checkin_minutes: number;
   attendance_late_threshold_minutes: number;
-  // Migration 20260919080000: replaces a fixed "HH:MM" cutoff (couldn't
-  // correctly serve two staff on different shifts) with a GRACE PERIOD
-  // applied on top of each staff member's OWN shift end (StaffDetail.
-  // working_hours, falling back to attendance_shift_end when unset).
-  // null/"" means auto-checkout is off -- no code-level default, same
-  // "NULL means no cap" convention as max_appointments_per_day.
+  // A GRACE PERIOD applied on top of each staff member's OWN shift end
+  // (StaffDetail.working_hours, falling back to attendance_shift_end when
+  // unset) -- correctly serves staff on different shifts, unlike a fixed
+  // "HH:MM" cutoff. null/"" means auto-checkout is off.
   attendance_auto_checkout_grace_minutes: number | "";
   /** Read-only -- the caller's own IP as the backend sees it right now
    * (core/rate_limit.py's client_ip()), so a non-technical admin standing

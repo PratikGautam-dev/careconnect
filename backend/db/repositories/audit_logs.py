@@ -1,5 +1,5 @@
 # db/repositories/audit_logs.py
-"""Two-level audit trail (tenant-capability-gating-plan.md's follow-up):
+"""Two-level audit trail:
 'platform_admin' entries record TENANTS_ADMIN_SECRET-gated changes to a
 tenant (admin/tenants_api.py); 'portal' entries record an authenticated
 tenant's own staff-portal mutations (doctor/department CRUD, appointment-type

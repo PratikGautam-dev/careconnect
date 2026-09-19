@@ -1,10 +1,9 @@
 # flows/booking/dispatch.py
-"""ARCHITECTURE_PLAN.md Phase 3b: the _HANDLERS state-dispatch table and
+"""The _HANDLERS state-dispatch table and
 handle_incoming(), the module's own standalone entry point -- superseded
 for real traffic by flows/router.py (see that module's docstring), but
 still exercised directly by tests/test_booking_flow.py and friends as a
-standalone unit of the state machine. Split out of the former single
-core/booking_flow.py module; this is the one file that imports every
+standalone unit of the state machine. This is the one file that imports every
 sub-flow module, by design (everything else stays one-directional)."""
 import logging
 
@@ -136,11 +135,11 @@ async def handle_incoming(
     Entry point: look up the patient's current session (sessions.get already
     resets stale/timed-out sessions to IDLE) and dispatch to the matching
     state handler. hospital_id scopes every database read/write AND every
-    session store read/write this message triggers (SPEC Section 12.2) —
+    session store read/write this message triggers —
     resolved per-message in core/main.py from the incoming webhook's
-    phone_number_id (Phase 9), not a value fixed once at startup.
+    phone_number_id, not a value fixed once at startup.
 
-    connector (SPEC Section 12.6.2) is resolved once by core/main.py from the
+    connector is resolved once by core/main.py from the
     hospital's stored data_tier and passed in here; defaults to a Tier 1
     connector so every pre-existing caller (including the whole test suite)
     keeps working unchanged for Tier 1 hospitals without passing one.

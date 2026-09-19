@@ -2,22 +2,19 @@
 """
 Seed data. Two kinds:
 
-- seed_default_hospital(): the one real hospital this build actually serves,
-  carried over verbatim from the old mock_data.py's DEPARTMENTS/DOCTORS_BY_DEPARTMENT.
-  Real per-hospital department/doctor rows come from Phase 3's ERP wiring or the
-  Section 12.1 onboarding wizard; this is the Tier 1 stand-in for that.
+- seed_default_hospital(): the one real hospital this build actually serves.
+  Real per-hospital department/doctor rows normally come from the
+  onboarding wizard; this is the stand-in for that.
 
 - seed_test_hospital(): a second, entirely fake hospital used ONLY by
-  tests/conftest.py to prove multi-tenant isolation (SPEC Section 12.2/Phase 9)
-  — never called from init_db_on_connection, so it never exists in a real
-  deployment's database.
+  tests/conftest.py to prove multi-tenant isolation -- never called from
+  init_db_on_connection, so it never exists in a real deployment's database.
 
-Every seeded doctor gets the same working pattern (all 7 days, 10:00-11:00 and
-15:00-16:00, 60-minute slots -- exactly the old hardcoded _SLOT_TIMES) so
-db.repository.get_slots() keeps returning the same "10:00"/"15:00" slots
-existing tests already expect -- computed live from this same working-pattern
-config every time (migration 0032), not pre-generated at seed time, so
-nothing here needs to touch slot generation at all anymore.
+Every seeded doctor gets the same working pattern (all 7 days, 10:00-11:00
+and 15:00-16:00, 60-minute slots) so db.repository.get_slots() keeps
+returning the same "10:00"/"15:00" slots existing tests already expect --
+computed live from this same working-pattern config every time, not
+pre-generated at seed time.
 """
 from db.display_ids import GLOBAL_SCOPE_KEY, HOSPITAL_PREFIX, generate_yearly_display_id_conn
 from db.repositories.appointment_types import DEFAULT_APPOINTMENT_TYPES
@@ -141,8 +138,8 @@ def seed_test_hospital(
     hospital_name: str = "Test Hospital 2",
     whatsapp_phone_number_id: str = "TEST_HOSPITAL_2_PHONE_ID",
 ) -> int:
-    """A second hospital purely for multi-tenant isolation tests (SPEC Phase 9)
-    — a fake phone_number_id, no real Meta credentials, never wired to an
+    """A second hospital purely for multi-tenant isolation tests --
+    a fake phone_number_id, no real Meta credentials, never wired to an
     actual number. Only tests/conftest.py calls this."""
     row = conn.execute("SELECT id FROM hospitals WHERE name = ?", (hospital_name,)).fetchone()
     if row:

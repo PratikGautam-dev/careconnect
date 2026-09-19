@@ -74,7 +74,7 @@ def _followup_valid_until(a, followup_validity_days: int | None) -> str | None:
     """Only meaningful for an ATTENDED appointment -- the date through which
     a follow-up can still be booked against THIS visit: its own scheduled_at
     + the hospital's followup_validity_days, extended (never shortened) by a
-    staff-granted followup_override_until (migration 0024) if later. None
+    staff-granted followup_override_until if later. None
     when followup_validity_days wasn't supplied (most call sites don't need
     it) or the appointment isn't attended."""
     if followup_validity_days is None or a.status != db.STATUS_ATTENDED:
@@ -94,7 +94,7 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         "department_name": a.department_name,
         "doctor_id": a.doctor_id,
         "doctor_name": a.doctor_name,
-        # Diagnostic/Lab reschedule follow-up: None for a doctor consultation,
+        # None for a doctor consultation,
         # set (with doctor_id/doctor_name both None) for a resource-bound
         # diagnostic/lab booking -- the frontend needs this to tell the two
         # apart and render/reschedule against the right one.
@@ -103,20 +103,15 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         "scheduled_at": a.scheduled_at.isoformat(),
         "status": a.status,
         "source": a.source,
-        # Item 8 (Spec.md Section 0): now surfaced to the frontend -- was
-        # generated and stored since Section 12.12 but never actually
-        # returned by this JSON shape.
         "reference_id": a.reference_id,
-        # Patient identity system (Spec.md Section 0): the owning patient's
+        # The owning patient's
         # PERMANENT Patient ID (patients.patient_display_id, via
-        # appointments.patient_id) -- was denormalized onto `appointments`
-        # itself back in Item 8 (patient_id/patient_name/patient_phone) but
-        # never actually surfaced anywhere, frontend included, until now.
-        # Deliberately the same id shown on /portal/patients, not a
-        # different one -- both read through Appointment.patient_display_id/
-        # patients.patient_display_id, never a second identifier.
+        # appointments.patient_id). Deliberately the same id shown on
+        # /portal/patients, not a different one -- both read through
+        # Appointment.patient_display_id/patients.patient_display_id, never
+        # a second identifier.
         "patient_display_id": a.patient_display_id,
-        # Tele-consultation Phase 2 (confirmed with the user directly): the
+        # The
         # staff portal is how a doctor actually gets the video link -- there's
         # no doctor login/notification channel of its own in this codebase.
         # appointment_type_id lets the frontend show the link only for a
@@ -127,14 +122,14 @@ def _appointment_json(a, followup_validity_days: int | None = None) -> dict:
         # When this row was actually booked, distinct from scheduled_at (the
         # appointment's own time) -- the portal list shows both.
         "created_at": a.created_at.isoformat() if a.created_at else None,
-        # Follow-up validity override (migration 0024): the raw staff-granted
+        # The raw staff-granted
         # date (None if never granted) and the fully-resolved date a
         # follow-up can still be booked against this visit through (None
         # unless the caller passed followup_validity_days -- see
         # _followup_valid_until's own docstring).
         "followup_override_until": a.followup_override_until,
         "followup_valid_until": _followup_valid_until(a, followup_validity_days),
-        # Lab Test Phase 2 follow-up: None for every non-Lab-Test appointment
+        # None for every non-Lab-Test appointment
         # (and any Lab Test booking predating this column) -- the frontend
         # only shows the lab-status column/advance action when this is set.
         "lab_status": a.lab_status,
@@ -253,7 +248,7 @@ async def portal_bookings_calendar(
 
 @router.get("/api/portal/bookings/needs-attendance-review")
 async def portal_bookings_needing_attendance_review(authorization: str | None = Header(default=None)):
-    """Item 9 (Spec.md Section 0): appointments whose scheduled time has
+    """Appointments whose scheduled time has
     passed but are still status='booked' -- the real, staff-actionable list
     behind the dashboard's existing no-show heuristic, for the appointments
     page to prompt "Did the patient visit?" against."""
@@ -360,7 +355,7 @@ async def portal_mark_attendance(
 
 @router.post("/api/portal/bookings/{appointment_id}/delete")
 async def portal_delete_booking(appointment_id: int, authorization: str | None = Header(default=None)):
-    """Item 3 (Spec.md Section 0): soft-delete only, per this project's
+    """Soft-delete only, per this project's
     standing never-hard-delete-appointments convention -- db.soft_delete_
     appointment()'s own guard refuses a still-'booked' row (cancel it
     first), surfaced here as a clear 400 rather than a generic failure."""
@@ -618,7 +613,7 @@ async def portal_cancel_booking(
     page pre-fills this with a default "your appointment has been cancelled"
     message that staff can edit to add a reason before sending.
 
-    Audit follow-up (Spec.md Section 0): routes through
+    Routes through
     connectors.get_connector_for_hospital() rather than calling
     db.cancel_appointment() directly -- core/booking_flow.py's WhatsApp-side
     cancel already went through the connector; this staff-portal path was the
@@ -680,7 +675,7 @@ async def portal_reschedule_booking(
     picker, since staff can just pick a different slot from the same form
     and resubmit, unlike a WhatsApp conversation mid-flow).
 
-    Diagnostic/Lab reschedule follow-up: a resource-bound appointment
+    A resource-bound appointment
     (appointment.diagnostic_test_id set, no doctor at all) has no department/
     doctor to validate -- diagnostic_test_id is trusted straight off the
     ORIGINAL appointment (never taken from the payload), same "fixed, not
@@ -991,8 +986,8 @@ async def portal_create_new_test_booking(payload: dict, authorization: str | Non
             # which is exactly what _apply_category_filter()'s "diagnostic"
             # category scoping matches on. Left unset (NULL), this
             # appointment would have folded into the "doctor" category
-            # instead -- NULL appointment_type_id is the legacy-row
-            # convention, and a resource-bound booking is never legacy.
+            # instead -- NULL appointment_type_id means an older row
+            # predating this column, and a resource-bound booking is never that.
             appointment_type_id=anchor["category"],
             diagnostic_test_id=anchor["id"],
             diagnostic_test_label=anchor["name"], diagnostic_price=anchor.get("price"),
@@ -1130,14 +1125,13 @@ async def portal_create_new_daycare_booking(payload: dict, authorization: str | 
     return JSONResponse({"ok": True, "procedure_status": created.procedure_status})
 
 
-# --- Follow-up validity override (migration 0024) -- both routes below are
+# --- Follow-up validity override -- both routes below are
 # admin/receptionist-only in practice (require_permission's "write" action on
 # "appointments", which by default excludes neither role but a hospital can
 # restrict via Roles & Permissions), unlike every other route in this file,
 # which still only checks hospital-level auth (see portal/deps.py's
-# _authenticate docstring on why the rest of this file hasn't been migrated
-# yet). New routes, so there's no legacy-shared-password caller depending on
-# reaching them without a real staff login. ---
+# _authenticate docstring for why). New routes, so there's no
+# shared-password caller depending on reaching them without a real staff login. ---
 
 @router.post("/api/portal/bookings/{appointment_id}/followup/extend")
 async def portal_extend_followup_validity(
@@ -1194,16 +1188,14 @@ async def portal_book_followup_now(
     if source_appointment is None or source_appointment.status != db.STATUS_ATTENDED:
         return JSONResponse({"error": "No such attended appointment to follow up on."}, status_code=404)
     if source_appointment.doctor_id is None:
-        # "Follow-up" is a doctor-consultation-only appointment_type_id
-        # (docs/per-appointment-type-flow-plan.md's fixed catalog has no
-        # test-category equivalent) -- a resource-bound (Diagnostics/Lab)
+        # "Follow-up" is a doctor-consultation-only appointment_type_id --
+        # a resource-bound (Diagnostics/Lab)
         # visit has no doctor_id at all, and this route always passes
         # `doctor_id=source_appointment.doctor_id` through with no
         # diagnostic_test_id equivalent, so silently proceeding would create
         # a new appointment with doctor_id/department_id/diagnostic_test_id
-        # all NULL -- the exact
-        # invalid, DB-constraint-violating shape that crashed the app on
-        # 2026-09-11. Reject outright instead of creating it.
+        # all NULL -- an invalid, DB-constraint-violating shape. Reject
+        # outright instead of creating it.
         return JSONResponse({"error": "This is a test booking, not a doctor visit — there's no follow-up concept for it."}, status_code=400)
 
     slot_id = (payload or {}).get("scheduled_at") or ""

@@ -1,6 +1,5 @@
 # db/repositories/patient_records.py
-"""Patient visit history, visit notes, and document uploads (Section
-12.10). Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
+"""Patient visit history, visit notes, and document uploads."""
 from datetime import datetime
 from typing import cast
 
@@ -76,7 +75,7 @@ def get_patient_visit_notes(hospital_id: int, patient_id: int) -> list[dict]:
 
 
 def get_patient_visit_notes_by_doctor(hospital_id: int, patient_id: int, doctor_id: str) -> list[dict]:
-    """Doctor-portal follow-up: the /doctor/patients/[id] page's own note
+    """The /doctor/patients/[id] page's own note
     history -- only notes THIS doctor wrote (PatientVisitNote.doctor_id is
     set on every note added via /api/doctor/appointments/{id}/notes), not
     every note any staff member has ever added for this patient. Same

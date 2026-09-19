@@ -1,5 +1,5 @@
 # portal/routes/staff.py
-"""Staff Management admin UI's backend (docs/rbac-redis-plan.md) -- list,
+"""Staff Management admin UI's backend -- list,
 create, and deactivate/reactivate staff_users rows for the caller's own
 hospital. Distinct from portal/routes/staff_auth.py (login/refresh/logout,
 unauthenticated-caller-facing) -- this is the admin-facing CRUD surface.
@@ -28,15 +28,13 @@ def _split_csv(value: str | None) -> list[str]:
 
 
 def _staff_row(staff: dict, leave_usage: dict[int, int], leave_policy: dict) -> dict:
-    # Leave balance (migration 20260912065049) is receptionist-role only
-    # (confirmed with the user) -- an admin row gets None/None here, shown
-    # as "not tracked" on the frontend, same as this staff list already
-    # does for every field a given role doesn't have. Matched by role NAME
-    # (dynamic-roles migration) -- "receptionist-ness" has no structural/FK
-    # flag on roles, so a hospital that renames this role loses leave
-    # tracking for it -- an accepted, pre-existing-shape limitation this
-    # migration doesn't attempt to fix (same posture as
-    # db/repositories/users.py's get_owners_for_hospital()).
+    # Leave balance is receptionist-role only -- an admin row gets
+    # None/None here, shown as "not tracked" on the frontend, same as this
+    # staff list already does for every field a given role doesn't have.
+    # Matched by role NAME -- "receptionist-ness" has no structural/FK flag
+    # on roles, so a hospital that renames this role loses leave tracking
+    # for it, same accepted limitation as
+    # db/repositories/users.py's get_owners_for_hospital().
     tracked = staff["role_name"].lower() == "receptionist"
     return {
         "id": staff["id"], "name": staff["name"], "email": staff["email"],

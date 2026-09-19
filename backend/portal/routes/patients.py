@@ -48,13 +48,12 @@ async def portal_delete_patients(payload: dict, authorization: str | None = Head
     return JSONResponse({"deleted": deleted})
 
 
-# --- Patient detail: demographics, visit history, notes, documents
-# (Section 12.10) ---
+# --- Patient detail: demographics, visit history, notes, documents ---
 
 def _patient_json(p: dict) -> dict:
     return {
         "id": p["id"], "phone": p["phone"], "name": p["name"],
-        # Patient identity system (Spec.md Section 0): the permanent,
+        # The permanent,
         # human-readable id (PAT-<hospital short code>-<seq>) -- None only
         # for a patient predating the backfill, which db/init_db.py's
         # _backfill_patient_display_ids() catches up on every startup.
@@ -62,9 +61,8 @@ def _patient_json(p: dict) -> dict:
         "mrn": p.get("mrn"),
         "date_of_birth": p.get("date_of_birth"), "gender": p.get("gender"), "address": p.get("address"),
         "created_at": p["created_at"],
-        # CareConnect architecture doc alignment (Spec.md Section 0), Section
-        # 18's Patient Master state model -- "active" for every patient that
-        # predates this column too (db/schema.sql's own default).
+        # "active" for every patient that predates this column too
+        # (db/schema.sql's own default).
         "status": p.get("status", "active"),
     }
 
@@ -129,8 +127,7 @@ async def portal_update_patient(patient_id: int, payload: dict, authorization: s
 
 @router.post("/api/portal/patients/{patient_id}/status")
 async def portal_set_patient_status(patient_id: int, payload: dict, authorization: str | None = Header(default=None)):
-    """CareConnect architecture doc alignment (Spec.md Section 0), Section
-    18: staff-side way to block/reactivate a patient record -- a hospital-
+    """Staff-side way to block/reactivate a patient record -- a hospital-
     level fact about the PATIENT, independent of any phone's own link to
     them (db.set_patient_status()'s own docstring). "active" un-blocks."""
     hospital = _authenticate(authorization)

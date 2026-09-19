@@ -1,5 +1,5 @@
 # db/repositories/google_calendar.py
-"""Google Meet integration (Spec.md Section 0): storage for one HOSPITAL's
+"""Google Meet integration: storage for one HOSPITAL's
 optional Google Calendar connection -- one admin-connected account per
 hospital, used for every doctor's tele-consultation Meet links (confirmed
 with the user: not one connection per doctor). A row's mere EXISTENCE means

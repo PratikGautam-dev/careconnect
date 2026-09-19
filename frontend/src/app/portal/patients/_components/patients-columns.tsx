@@ -48,11 +48,9 @@ type CreatePatientColumnsOptions = {
   onSelect: (patient: Patient) => void;
 };
 
-/** Column definitions for the /portal/patients DataTable. The reference
- * mockup's Status pill has a 3rd "Follow-up Due" state with no backend
- * concept behind it (no due-date/recall field exists anywhere on a patient
- * or visit) -- this only ever renders the real active/inactive/blocked
- * enum, see the page's own note in docs/portal-ui-audit.md. */
+/** Column definitions for the /portal/patients DataTable. The Status pill
+ * only renders the real active/inactive/blocked enum -- there's no
+ * due-date/recall field to back a "Follow-up Due" state. */
 export function createPatientColumns({
   selected,
   toggleSelected,

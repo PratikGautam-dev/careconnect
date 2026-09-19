@@ -1,13 +1,12 @@
 # flows/booking/types/_diagnostic_shared.py
-"""Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
-test -> resource-linked date/time -> confirm. Shared by diagnostic.py and
+"""Test -> resource-linked date/time -> confirm. Shared by diagnostic.py and
 lab.py -- they're structurally identical, differing only in which
 `diagnostic_tests.category` they list (which is exactly their own
 appointment_type_id, "diagnostic"/"lab", read back off context).
 
-Test/variant merge: a test carries exactly one price on itself now (no
-separate diagnostic_test_variants row to pick between), so there's no
-variant-selection step anymore -- picking a test goes straight to date
+A test carries exactly one price on itself (no separate
+diagnostic_test_variants row to pick between), so there's no
+variant-selection step -- picking a test goes straight to date
 selection.
 
 messages.py/book.py imports are lazy (inside functions), same

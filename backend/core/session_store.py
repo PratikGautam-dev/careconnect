@@ -2,17 +2,16 @@ import json
 import os
 import time
 
-# --- Conversation state (SPEC Section 3.3 state machine) ---
+# --- Conversation state machine ---
 # Same storage mechanism as message history (chat_history.py, Redis with
 # in-memory fallback), just a separate key namespace/shape: {"state": str,
 # "context": dict, "language": str | None, "updated_at": epoch}.
 #
-# Keyed by (hospital_id, phone), not phone alone (SPEC Section 12.2 multi-tenant
-# routing, Phase 9) — two different hospitals could otherwise collide if the same
-# phone number ever messaged both, resuming one hospital's conversation state
-# inside another's.
+# Keyed by (hospital_id, phone), not phone alone -- two different hospitals
+# could otherwise collide if the same phone number ever messaged both,
+# resuming one hospital's conversation state inside another's.
 #
-# `language` (language-selection follow-up) is deliberately a TOP-LEVEL session
+# `language` is deliberately a TOP-LEVEL session
 # field, not nested inside `context` -- several state transitions in
 # core/booking_flow.py rebuild `context` from scratch rather than spreading the
 # old one (e.g. _handle_awaiting_department's `new_context = {"department_id":
@@ -31,7 +30,7 @@ import time
 # a clean slate, which is what makes a new/returning-after-a-gap conversation
 # get asked again -- "each fresh conversation" per the feature's own intent.
 #
-# Section 12.13: .get() takes an optional per-call timeout_seconds, since a
+# .get() takes an optional per-call timeout_seconds, since a
 # hospital can override the fixed 30-min SESSION_TIMEOUT_SECONDS default
 # (hospitals.session_timeout_minutes) -- this ONE store instance is shared
 # across every hospital, so the override has to travel with each call rather
@@ -54,7 +53,7 @@ class InMemorySessionStore:
         self._timeout = timeout_seconds
 
     def get(self, hospital_id: int, phone: str, timeout_seconds: int | None = None) -> dict:
-        # Section 12.13: a hospital can override the fixed 30-min default
+        # A hospital can override the fixed 30-min default
         # (hospitals.session_timeout_minutes, 5-120) -- passed in per-call
         # since this ONE store instance is shared across every hospital, not
         # constructed fresh per hospital.
@@ -77,8 +76,7 @@ class InMemorySessionStore:
     ) -> None:
         existing = self._store.get((hospital_id, phone))
         resolved_language = language if language is not None else (existing.get("language") if existing else None)
-        # CareConnect architecture doc alignment (Spec.md Section 0), Section
-        # 13's "Active Patient Context" -- a TOP-LEVEL session field, same
+        # "Active Patient Context" -- a TOP-LEVEL session field, same
         # treatment as `language` above and for the exact same reason: many
         # state transitions rebuild `context` from scratch rather than
         # spreading the old one, so a value nested in `context` would
@@ -110,22 +108,22 @@ class InMemorySessionStore:
             existing["active_patient_id"] = None
 
     def reset(self, hospital_id: int, phone: str, keep_language: bool = True, keep_active_patient: bool = True) -> None:
-        """Section 12.11 established preserving language across every
+        """Language is preserved across every
         reset(), so a patient is only asked once per genuinely fresh
-        conversation, not after every booking/cancel/reset -- still the
-        default here (keep_language=True). Follow-up (Spec.md Section 0):
-        the ONE exception is a just-COMPLETED booking specifically --
+        conversation, not after every booking/cancel/reset -- the
+        default here (keep_language=True).
+        The ONE exception is a just-COMPLETED booking specifically --
         core/booking_flow.py's confirm-success path passes
         keep_language=False so the language picker is shown again next time,
         while every other reset() call site (cancel, decline, FAQ exit,
         stale-session cleanup, ...) is untouched and keeps preserving it.
 
-        active_patient_id (Section 13) is likewise preserved by default --
+        active_patient_id is likewise preserved by default --
         resolved once per conversation, not re-asked after every single
         action. keep_active_patient=False is the same kind of narrow,
         deliberate exception keep_language=False already is: a fully
         COMPLETED booking (flows/booking/book.py's
-        _create_booking_and_notify(), confirmed with the user) now clears it
+        _create_booking_and_notify()) clears it
         too, alongside language -- so returning to the menu afterward and
         touching anything patient-scoped forces a fresh patient
         confirmation/selection, not a silent reuse of whichever patient the

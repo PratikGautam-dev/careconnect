@@ -1,6 +1,5 @@
 # db/repositories/slots.py
-"""A doctor's bookable slots, computed live (migration 0032) -- split out of
-db/repository.py, see ARCHITECTURE_PLAN.md Phase 1.
+"""A doctor's bookable slots, computed live.
 
 get_doctor_grid() is the one place that merges doctors.py's live-computed
 candidates with doctor_slot_overrides' exceptions (blocked/custom-added) --
@@ -77,13 +76,11 @@ def filter_grid_to_available(hospital_id: int, doctor_id: str, grid: list[dict],
     """The live, never-cached half of availability -- booked state changes on
     every booking, so connectors/tier1.py caches get_doctor_grid()'s output
     (the slow-changing part) but always calls this fresh on top of it.
-    max_bookings_per_slot (Phase 8, extended by Section 14.7: default 1
-    means "any booked appointment at all"; >1 keeps offering the slot until
-    that many patients have booked it) and the `scheduled_at >= now` filter
-    (compute_doctor_candidate_slots() already excludes today/the past for
-    normal-pattern candidates, but a custom-added override could be for any
-    date) both matter here, same as this function's pre-migration-0032
-    equivalent."""
+    max_bookings_per_slot (default 1 means "any booked appointment at
+    all"; >1 keeps offering the slot until that many patients have booked
+    it) and the `scheduled_at >= now` filter (compute_doctor_candidate_slots()
+    already excludes today/the past for normal-pattern candidates, but a
+    custom-added override could be for any date) both matter here."""
     session = get_session()
     doctor_row = session.execute(
         select(DoctorRow.max_bookings_per_slot).where(DoctorRow.hospital_id == hospital_id, DoctorRow.id == doctor_id)
@@ -119,8 +116,7 @@ def filter_grid_to_available(hospital_id: int, doctor_id: str, grid: list[dict],
 
 def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[dict]:
     """Convenience wrapper for callers that don't need the grid/booked-state
-    split connectors/tier1.py's caching relies on (tests, portal code, etc.)
-    -- same signature and output shape as before migration 0032."""
+    split connectors/tier1.py's caching relies on (tests, portal code, etc.)."""
     grid = get_doctor_grid(hospital_id, doctor_id, get_future_booking_days(hospital_id), now=now)
     return filter_grid_to_available(hospital_id, doctor_id, grid, now=now)
 
@@ -128,8 +124,7 @@ def get_slots(hospital_id: int, doctor_id: str, now: datetime | None = None) -> 
 def get_doctor_slots_for_admin(
     hospital_id: int, doctor_id: str, date_str: str | None = None, now: datetime | None = None,
 ) -> list[dict]:
-    """Item 1 (Spec.md Section 0) + "view all slots" follow-up: every slot in
-    this doctor's grid, blocked or not and booked or not -- the admin/portal
+    """Every slot in this doctor's grid, blocked or not and booked or not -- the admin/portal
     view for manually blocking/removing individual slots needs to see all of
     them, unlike get_slots() above (the bot/staff-booking-facing list, which
     only ever shows what's actually still offerable).
@@ -180,13 +175,13 @@ def set_slot_blocked(
     rejection a caller should show as a clear message, not a 500. Also
     refuses (either direction) if scheduled_at isn't actually a slot this
     doctor's grid ever offers -- there being no persisted row to look up
-    anymore (migration 0032) means "does this slot exist" has to be checked
-    against the live grid instead of a simple row lookup.
+    means "does this slot exist" has to be checked against the live grid
+    instead of a simple row lookup.
 
-    Unblocking an already-not-blocked slot still succeeds (matches this
-    function's pre-migration-0032 contract) -- and if the resulting override
-    row represents nothing anymore (not custom, not blocked), it's deleted
-    rather than kept, so this table only ever holds real exceptions."""
+    Unblocking an already-not-blocked slot still succeeds, and if the
+    resulting override row represents nothing anymore (not custom, not
+    blocked), it's deleted rather than kept, so this table only ever holds
+    real exceptions."""
     session = get_session()
     if blocked:
         existing = session.execute(
@@ -233,8 +228,8 @@ def set_slot_blocked(
 
 
 def add_custom_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
-    """Add/remove-slot follow-up (Spec.md Section 0): a genuinely one-off
-    extra slot outside the doctor's normal computed working-hours pattern
+    """A genuinely one-off extra slot outside the doctor's normal computed
+    working-hours pattern
     (e.g. a special Saturday clinic, or filling in a date that computes
     none at all) -- distinct from set_slot_blocked() above, which only ever
     toggles an already-offerable slot. ON CONFLICT DO UPDATE (rather than DO
@@ -257,14 +252,12 @@ def remove_slot(hospital_id: int, doctor_id: str, scheduled_at: str) -> bool:
     """The other half of add/remove: takes a slot out of the offered set
     outright -- gone from get_slots() AND the admin view, unlike
     set_slot_blocked() above which keeps it visible for later unblocking.
-    A normal-pattern slot has no persisted row to delete (migration 0032),
-    so this is recorded as its own exclusion (migration 0034's `excluded`
-    column) rather than a DELETE -- otherwise the live computation would
-    just regenerate the slot on the very next read. Refuses to remove a
-    slot with a real BOOKED appointment on it, same guard set_slot_blocked()
-    already uses, and refuses a scheduled_at that isn't currently a valid
-    grid entry at all (matches this function's pre-migration-0032 contract
-    of only ever affecting a real, existing slot)."""
+    A normal-pattern slot has no persisted row to delete, so this is
+    recorded as its own exclusion (the `excluded` column) rather than a
+    DELETE -- otherwise the live computation would just regenerate the
+    slot on the very next read. Refuses to remove a slot with a real
+    BOOKED appointment on it, same guard set_slot_blocked() already uses,
+    and refuses a scheduled_at that isn't currently a valid grid entry at all."""
     session = get_session()
     existing = session.execute(
         select(AppointmentRow.id).where(

@@ -74,16 +74,13 @@ type Props = {
   onBookAppointment: () => void;
 };
 
-/** Right-rail "selected patient" panel (mockup layout: avatar/status header,
- * Overview/Medical History/Appointments/Reports tabs). Overview only shows
- * demographic/contact fields this schema actually has (DOB/gender/phone/
- * address, all real) -- Blood Group, Marital Status, Email, and Allergies/
- * Current Diagnosis aren't tracked anywhere in this app (confirmed: no
- * column, no table, deliberately out of scope per migration 0001's schema
- * comment), shown as "—"/an explanatory note rather than invented. The
- * other 3 tabs are real (this patient's actual notes/visits/documents, via
- * usePatientSummary -- the same GET the full /portal/patients/[id] page
- * uses) but read-only here; editing any of it stays on that full page. */
+/** Right-rail "selected patient" panel: avatar/status header, Overview/
+ * Medical History/Appointments/Reports tabs. Overview only shows fields
+ * this schema tracks (DOB/gender/phone/address) -- Blood Group, Marital
+ * Status, Email, and Allergies/Current Diagnosis show "—" since there's no
+ * column for them. The other 3 tabs are read-only previews of this
+ * patient's real notes/visits/documents (via usePatientSummary); editing
+ * stays on the full /portal/patients/[id] page. */
 export function PatientDetailPanel({ patient, index, onBookAppointment }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("Overview");

@@ -1,7 +1,6 @@
 # db/repositories/hospitals.py
 """Hospital CRUD, multi-tenant routing lookups, and the staff-portal login
-password hash (SPEC Section 12.2). Split out of db/repository.py -- see
-ARCHITECTURE_PLAN.md Phase 1."""
+password hash."""
 import hashlib
 import hmac
 import json as json_lib
@@ -33,7 +32,7 @@ _HOSPITAL_COLUMNS = (
     HospitalRow.handoff_auto_resolve_hours,
 )
 
-# --- Hospitals (SPEC Section 12.2: multi-tenant routing, Phase 9) ---
+# --- Hospitals: multi-tenant routing ---
 
 _PBKDF2_ITERATIONS = 100_000
 
@@ -41,7 +40,7 @@ _PBKDF2_ITERATIONS = 100_000
 def hash_portal_password(password: str) -> str:
     """Salted PBKDF2-SHA256, stdlib only (no new dependency for what's still a
     'basic protection, not production-grade auth' project) -- used for the
-    Section 12.7 hospital-staff bookings portal login, which is stored as an
+    hospital-staff bookings portal login, which is stored as an
     irreversible hash (unlike access_token/app_secret, which the app must be
     able to read back to call Meta's API with -- a login password never needs
     to be reversed, only verified, so there's no reason to store it in a
@@ -138,8 +137,8 @@ def _row_to_hospital(row) -> Hospital:
 
 
 def find_hospital_by_phone_number_id(phone_number_id: str) -> Hospital | None:
-    """The entry point for per-message multi-tenant routing (SPEC Section 12.2):
-    given the phone_number_id from an incoming webhook's `metadata`, resolve which
+    """The entry point for per-message multi-tenant routing: given the
+    phone_number_id from an incoming webhook's `metadata`, resolve which
     hospital received it. Only active hospitals are matched — a deactivated
     hospital's number should be treated the same as an unrecognized one."""
     session = get_session()
@@ -163,9 +162,8 @@ def get_active_hospitals() -> list[Hospital]:
 
 def get_all_hospitals() -> list[Hospital]:
     """Every hospital regardless of is_active -- admin/onboarding.py's tenant
-    list page (Section 12.1 follow-up: closing the "onboarding is self-serve,
-    correcting it isn't" gap) needs to show every onboarded tenant, not just
-    active ones, so there's somewhere to find a deactivated tenant's id too."""
+    list page needs to show every onboarded tenant, not just active ones,
+    so there's somewhere to find a deactivated tenant's id too."""
     session = get_session()
     rows = session.execute(select(*_HOSPITAL_COLUMNS).order_by(HospitalRow.id)).all()
     return [_row_to_hospital(r._mapping) for r in rows]
@@ -218,47 +216,40 @@ def create_hospital(
     admin_capabilities: list[str] | None = None,
     dpdp_consent_required: bool = False,
 ) -> Hospital:
-    """Onboarding wizard's entry point (SPEC Section 12.1, Phase 10). Raises
-    db.connection.IntegrityError if whatsapp_phone_number_id is already used by
-    another hospital -- db/schema.sql's UNIQUE constraint is the actual guard
-    against breaking Phase 9's per-message routing, not application logic;
-    callers (admin/onboarding.py) are responsible for catching it.
+    """Onboarding wizard's entry point. Raises db.connection.IntegrityError
+    if whatsapp_phone_number_id is already used by another hospital --
+    db/schema.sql's UNIQUE constraint is the actual guard against breaking
+    per-message routing, not application logic; callers
+    (admin/onboarding.py) are responsible for catching it.
 
-    data_tier (Section 12.6, Step 0 of the wizard as of Section 14.6's
-    reorder): "tier1" (default, this product's own database), "tier2"
+    data_tier: "tier1" (default, this product's own database), "tier2"
     (external_api_base_url/external_api_key are only stored here -- no
     connector logic reads them yet), or "tier3" (direct DB connection, not
     self-serve -- neither field is meaningful for it).
 
-    portal_password (Section 12.7): plaintext in, hashed before storage --
-    optional at onboarding time (a hospital can set it later via the edit
-    form); left unset, the bookings portal simply has no way to log into that
-    hospital yet.
+    portal_password: plaintext in, hashed before storage -- optional at
+    onboarding time (a hospital can set it later via the edit form); left
+    unset, the bookings portal simply has no way to log into that hospital yet.
 
-    enabled_features (Section 14.5): the set of patient-facing capabilities
-    this hospital's WhatsApp number offers (e.g. ["booking","reschedule",
-    "cancel","faq"]) -- flows.py's IDLE main menu shows only these. Replaces
-    the earlier single-value flow_type (Section 14.1); defaults to an empty
-    list (no capabilities enabled) rather than guessing "booking", since an
-    empty set is a safe, honest default a caller has to deliberately override,
-    not a value that quietly implies functionality nothing configured yet.
+    enabled_features: the set of patient-facing capabilities this
+    hospital's WhatsApp number offers (e.g. ["booking","reschedule",
+    "cancel","faq"]) -- flows.py's IDLE main menu shows only these.
+    Defaults to an empty list (no capabilities enabled) rather than
+    guessing "booking", since an empty set is a safe, honest default a
+    caller has to deliberately override.
 
     feature_labels/closing_message_text/business_hours_text/default_language/
-    language_prompt_enabled/session_timeout_minutes (Section 12.13): self-serve
-    bot customization, all optional -- see db/schema.sql's column comments.
+    language_prompt_enabled/session_timeout_minutes: self-serve bot
+    customization, all optional -- see db/schema.sql's column comments.
     Every one defaults to "unset" (None, or True for language_prompt_enabled)
-    here too, same reasoning as enabled_features above: a hospital that never
-    touches its settings page keeps the exact fixed default behavior.
+    here too, same reasoning as enabled_features above.
 
-    tenant_type/admin_capabilities (tenant-capability-gating-plan.md):
-    admin_capabilities is stored EXACTLY as given -- this function doesn't
-    resolve DEFAULT_CAPABILITIES_BY_TYPE itself (that policy decision lives
-    in backend/portal/capabilities.py, imported by the onboarding API layer
-    that actually calls this with an already-resolved list), same
-    "repository function stores what it's told, doesn't compute defaults"
-    precedent enabled_features already sets. None stores NULL (falls back
-    to the type default at read time, backend/portal/capabilities.py's
-    get_capabilities())."""
+    tenant_type/admin_capabilities: admin_capabilities is stored EXACTLY as
+    given -- this function doesn't resolve DEFAULT_CAPABILITIES_BY_TYPE
+    itself (that policy decision lives in backend/portal/capabilities.py,
+    imported by the onboarding API layer that actually calls this with an
+    already-resolved list). None stores NULL (falls back to the type
+    default at read time, backend/portal/capabilities.py's get_capabilities())."""
     session = get_session()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])
@@ -371,28 +362,26 @@ def update_hospital(
     just changed keeps using its OLD cached client until the process restarts.
     See core/main.py's _wa_clients comment and the post-edit confirmation page.
 
-    enabled_features (Section 14.5) defaults to an empty list like
-    create_hospital(), but every caller (admin/onboarding.py's edit-tenant
-    route, portal.py's settings route) passes the hospital's own current
-    value through explicitly -- neither exposes a way to CHANGE which
-    features are enabled yet, so an edit to something else must never
-    silently reset a tenant's real feature set back to empty.
+    enabled_features defaults to an empty list like create_hospital(), but
+    every caller (admin/onboarding.py's edit-tenant route, portal.py's
+    settings route) passes the hospital's own current value through
+    explicitly -- neither exposes a way to CHANGE which features are
+    enabled yet, so an edit to something else must never silently reset a
+    tenant's real feature set back to empty.
 
     feature_labels/closing_message_text/business_hours_text/default_language/
-    language_prompt_enabled/session_timeout_minutes (Section 12.13): same
-    "every caller passes the hospital's own current value through explicitly"
-    discipline as enabled_features -- ONLY portal/routes/settings.py's settings save
-    endpoint actually changes these; every other caller (admin edit-tenant
-    forms, portal.py's own settings route for the still-unmigrated fields)
-    passes the hospital's existing values straight through so an unrelated
-    edit can never silently wipe a tenant's customizations back to defaults.
+    language_prompt_enabled/session_timeout_minutes: same "every caller
+    passes the hospital's own current value through explicitly" discipline
+    as enabled_features -- ONLY portal/routes/settings.py's settings save
+    endpoint actually changes these; every other caller passes the
+    hospital's existing values straight through so an unrelated edit can
+    never silently wipe a tenant's customizations back to defaults.
 
-    tenant_type/admin_capabilities (tenant-capability-gating-plan.md): same
-    "every caller passes the hospital's own current value through
-    explicitly" discipline -- only admin/tenants_api.py's tenant-edit
-    endpoint actually changes these (the tenant/platform admin flipping a
-    clinic's capability set); every other caller passes the hospital's
-    existing tenant_type/admin_capabilities straight through."""
+    tenant_type/admin_capabilities: same discipline -- only
+    admin/tenants_api.py's tenant-edit endpoint actually changes these (the
+    tenant/platform admin flipping a clinic's capability set); every other
+    caller passes the hospital's existing tenant_type/admin_capabilities
+    straight through."""
     session = get_session()
     offsets_json = json_lib.dumps(reminder_offsets_hours or [24])
     features_json = json_lib.dumps(enabled_features or [])

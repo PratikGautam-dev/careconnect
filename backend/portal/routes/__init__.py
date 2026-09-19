@@ -39,18 +39,15 @@ router.include_router(lab_service_areas_router)
 router.include_router(settings_router)
 router.include_router(handoffs_router)
 # Doctor self-service: a separate /api/doctor/* surface, not /api/portal/*,
-# gated by _require_doctor() (a staff_users row with role="doctor",
-# docs/rbac-redis-plan.md's unified login) -- the old dedicated
-# DOCTOR_SECRET-token login this used to fall back to has been removed
-# (that credential path was never wired into the frontend; the unified
-# staff login below is the only way a doctor gets in now).
+# Gated by _require_doctor() (a staff_users row with role="doctor",
+# unified login) -- the unified staff login below is the only way a
+# doctor gets in.
 router.include_router(doctor_portal_router)
-# RBAC (docs/rbac-redis-plan.md): unified staff login (every role,
-# including doctor) + the roles/permissions and staff-management admin UIs.
+# Unified staff login (every role, including doctor) + the
+# roles/permissions and staff-management admin UIs.
 router.include_router(staff_auth_router)
 router.include_router(staff_router)
 router.include_router(roles_router)
 router.include_router(leave_requests_router)
-# Real check-in/check-out, backing the previously frontend-mock
-# /portal/check-in-out + /portal/attendance pages.
+# Check-in/check-out, backing the /portal/check-in-out + /portal/attendance pages.
 router.include_router(attendance_router)

@@ -4,10 +4,7 @@ import { toast } from "@/lib/toast";
 
 export type PlatformSettings = {
   max_active_patient_links: number;
-  // Migration 0014: moved off hospitals.feature_labels/dpdp_consent_required
-  // -- ONE value applied to every hospital's WhatsApp bot now, not a
-  // per-tenant self-serve setting (frontend/src/app/portal/settings/page.tsx
-  // no longer has these two sections).
+  // One value applied to every hospital's WhatsApp bot, not a per-tenant setting.
   feature_labels: Record<string, string>;
   feature_default_labels: Record<string, string>;
   dpdp_consent_required: boolean;

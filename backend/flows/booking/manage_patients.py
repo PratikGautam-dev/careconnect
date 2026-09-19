@@ -1,7 +1,6 @@
 # flows/booking/manage_patients.py
-"""ARCHITECTURE_PLAN.md Phase 3b: view/add/unlink the patients linked to a
-phone (Spec.md Section 0) -- split out of the former single
-core/booking_flow.py module. Add reuses STATE_AWAITING_PATIENT_NAME/AGE
+"""View/add/unlink the patients linked to a
+phone. Add reuses STATE_AWAITING_PATIENT_NAME/AGE
 (patient_flow_next="manage_patients"), handled by flows.booking.book, same
 as booking's implicit-first-profile and selector "+ Add Patient" paths."""
 from connectors import Connector

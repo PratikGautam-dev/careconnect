@@ -1,14 +1,13 @@
 # reminders/scheduler.py
 """
-Reminder scheduler (SPEC Section 3.5).
+Reminder scheduler.
 
 Designed to run on a fixed interval via an *external* trigger — POST
-/internal/send-reminders in core/main.py, meant to be hit by a cron job — rather
-than an in-process scheduler, matching SPEC Section 6's serverless-first infra
-choice (no long-running worker process to babysit).
+/internal/send-reminders in core/main.py, meant to be hit by a cron job —
+rather than an in-process scheduler (no long-running worker process to babysit).
 
-Reaches appointment data ONLY through the connector interface (SPEC Section
-12.6.2, connectors.py), never db/repository.py directly — same rule as
+Reaches appointment data ONLY through the connector interface
+(connectors.py), never db/repository.py directly — same rule as
 core/booking_flow.py. `connector` defaults to a Tier 1 connector so every
 pre-existing caller (including the test suite) keeps working unchanged.
 """
@@ -26,15 +25,15 @@ async def send_reminders(
     wa: WhatsAppClient, hospital_id: int, offsets_hours: list[float], connector: Connector | None = None
 ) -> int:
     """
-    A hospital can configure multiple reminder offsets (SPEC Section 4's
-    reminder_offsets_hours, e.g. [24, 1] for a 24h-before AND a 1h-before
+    A hospital can configure multiple reminder offsets
+    (reminder_offsets_hours, e.g. [24, 1] for a 24h-before AND a 1h-before
     reminder) — each is its own independent pass: find appointments due for
     *that* offset that haven't had a reminder sent for it yet, message each
     patient, and record it (connector.mark_reminder_sent) so a repeat call
     (e.g. the next hourly cron tick, or this same offset appearing twice in a
     misconfigured list) doesn't double-send.
 
-    connector (SPEC Section 12.6.2) is resolved once by core/main.py from the
+    connector is resolved once by core/main.py from the
     hospital's stored data_tier and passed in here; defaults to a Tier 1
     connector for backward compatibility with pre-existing callers/tests.
 
@@ -54,9 +53,8 @@ async def send_reminders(
             # Meta will reject the send. Swap this for a template send (SPEC Section
             # 3.2/3.5) before this goes anywhere near production — we don't have an
             # approved template yet.
-            # Migration 0035: department_id (and doctor_id, since Diagnostic/
-            # Lab Phase 2) can both be None for a resource-bound booking --
-            # fall back to the resource's own name/omit the department
+            # department_id (and doctor_id) can both be None for a
+            # resource-bound booking -- fall back to the resource's own name/omit the department
             # parenthetical rather than literally interpolating "None".
             who = appt.doctor_name or appt.diagnostic_test_name
             department_part = f" ({appt.department_name})" if appt.department_name else ""
@@ -65,8 +63,7 @@ async def send_reminders(
                 f"{department_part} on {appt.scheduled_at.strftime('%A, %d %B at %H:%M')}. "
                 f"Message us here if you need to reschedule or cancel."
             )
-            # Tele-consultation Phase 2 (confirmed with the user directly):
-            # the video link is deliberately withheld from the immediate
+            # The video link is deliberately withheld from the immediate
             # booking confirmation and only surfaces here, close to the
             # actual slot -- a patient can't casually share/join a "live"
             # room hours or days early. video_link is None for every other

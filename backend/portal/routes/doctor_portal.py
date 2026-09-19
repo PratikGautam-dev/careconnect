@@ -5,14 +5,13 @@ this doctor's own schedule/leave/running-late-delay -- the ones with no
 /api/portal/* surface the way a hospital-wide resource can. Gated by
 `_require_doctor()` below, not `_authenticate`.
 
-Every other /api/doctor/* route that USED to live here (a full appointment
-list/detail, a patients list/detail, attendance, visit notes -- anything
-that's really just "the shared hospital-wide resource, filtered to one
-doctor") has been deleted: /api/portal/bookings, /api/portal/bookings/
-{id}, and /api/portal/patients(+{id}) now do that same doctor_id-scoping
-inline (see their own docstrings in bookings.py/patients.py), so keeping a
-second, structurally-separate copy here was pure duplication. See
-docs/rbac-redis-plan.md for the consolidation history.
+Any route that's really just "the shared hospital-wide resource, filtered
+to one doctor" (a full appointment list/detail, a patients list/detail,
+attendance, visit notes) doesn't live here: /api/portal/bookings,
+/api/portal/bookings/{id}, and /api/portal/patients(+{id}) do that same
+doctor_id-scoping inline (see their own docstrings in
+bookings.py/patients.py), so this file doesn't keep a second,
+structurally-separate copy.
 
 The one rule every route below still follows, without exception: doctor_id
 is read ONLY from `_require_doctor()`'s verified token, never from a path,
@@ -64,7 +63,7 @@ def _require_doctor(authorization: str | None):
 
 @router.get("/api/doctor/dashboard")
 async def doctor_dashboard(authorization: str | None = Header(default=None)):
-    """Doctor-portal follow-up: a smaller, doctor-scoped counterpart to
+    """A smaller, doctor-scoped counterpart to
     /api/portal/dashboard -- same visual language (StatTile cards, a weekly
     trend line) on the frontend, but every number here is this doctor's own,
     never hospital-wide. The calendar view lives at its own endpoint (see
@@ -97,8 +96,8 @@ async def doctor_dashboard(authorization: str | None = Header(default=None)):
 async def doctor_appointments_calendar(
     year: int | None = None, month: int | None = None, authorization: str | None = Header(default=None),
 ):
-    """Doctor-portal follow-up: replaces the dashboard's old 30-day status
-    donut with an actual month calendar of this doctor's own appointments --
+    """An actual month calendar of this doctor's own appointments,
+    instead of a 30-day status donut --
     defaults to the current month, navigable via year/month query params."""
     ctx, err = _require_doctor(authorization)
     if err:
@@ -258,22 +257,21 @@ async def doctor_update_schedule(payload: dict, authorization: str | None = Head
     return JSONResponse({"doctor": updated})
 
 
-# A doctor no longer self-adds/deletes doctor_leave rows directly here --
-# migration 6eda12041ecf made the Holiday Application page (POST /api/
-# portal/leave-requests/mine) the ONE way any staff member requests leave,
-# subject to admin approval; approving a full-day request is what now
-# populates doctor_leave (portal/routes/leave_requests.py's _decide()), not
-# this route. doctor_schedule() above still returns `leave` read-only, so
+# A doctor doesn't self-add/delete doctor_leave rows directly here -- the
+# Holiday Application page (POST /api/portal/leave-requests/mine) is the
+# ONE way any staff member requests leave, subject to admin approval;
+# approving a full-day request is what populates doctor_leave
+# (portal/routes/leave_requests.py's _decide()), not this route.
+# doctor_schedule() above still returns `leave` read-only, so
 # the Schedule page keeps showing upcoming leave -- it just can't be
 # self-edited from here anymore. Admin can still directly manage a
 # doctor's doctor_leave rows outside the approval workflow via
 # portal/routes/doctors.py's own /api/portal/doctors/{id}/leave(/range)
 # routes, unaffected by this.
 
-# Google Meet integration (Spec.md Section 0): the "Connect Google Calendar"
-# status/disconnect routes used to live here, per-doctor -- moved to
-# portal/routes/settings.py as /api/portal/calendar/status and /disconnect,
-# admin-gated (require_permission(principal, "settings", "write")), since
-# the connection is now one per HOSPITAL (an admin connects it once, used
-# for every doctor's tele-consultation Meet links), not something each
-# doctor manages on their own schedule page.
+# Google Meet integration's "Connect Google Calendar" status/disconnect
+# routes live at portal/routes/settings.py as /api/portal/calendar/status
+# and /disconnect, admin-gated (require_permission(principal, "settings",
+# "write")), since the connection is one per HOSPITAL (an admin connects
+# it once, used for every doctor's tele-consultation Meet links), not
+# something each doctor manages on their own schedule page.

@@ -1,4 +1,4 @@
-# --- Human handoff queue (Section 14.5 follow-up) ---
+# --- Human handoff queue ---
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 
@@ -14,9 +14,9 @@ async def portal_get_handoffs(
     status: str = "open", date: str | None = None, reason: str | None = None,
     authorization: str | None = Header(default=None),
 ):
-    """Item 6 (Spec.md Section 0): date ("YYYY-MM-DD"), when given, scopes
+    """date ("YYYY-MM-DD"), when given, scopes
     to requests created that one calendar day -- status filtering
-    (open/resolved/all) already existed. Messages page follow-up: reason
+    (open/resolved/all) already existed. reason
     ("system_error"), when given, is the "Errored" tab -- passed with
     status="all" by the frontend so an already-resolved bot error still
     shows up, not just currently-open ones."""
@@ -107,7 +107,7 @@ async def portal_reply_handoff(handoff_id: int, payload: dict, authorization: st
     resolve the handoff -- a staff member may reply more than once before
     marking it done, e.g. asking a clarifying question first).
 
-    Two-way threading follow-up (Spec.md Section 0): now also records the
+    Also records the
     reply as an outbound handoff_messages row -- ONLY after the WhatsApp
     send actually succeeds, so the thread never shows a reply that wasn't
     really delivered."""
@@ -134,7 +134,7 @@ async def portal_reply_handoff(handoff_id: int, payload: dict, authorization: st
 
 @router.get("/api/portal/handoffs/{handoff_id}/messages")
 async def portal_get_handoff_messages(handoff_id: int, authorization: str | None = Header(default=None)):
-    """Two-way threading follow-up: the full ordered thread for one handoff
+    """The full ordered thread for one handoff
     -- single source of truth for the portal's chat-thread UI."""
     hospital = _authenticate(authorization)
     if hospital is None:

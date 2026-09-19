@@ -18,7 +18,6 @@ export type Patient = {
   gender: string | null;
   address: string | null;
   created_at: string;
-  // CareConnect architecture doc alignment (Spec.md Section 0), Section 18.
   status: "active" | "blocked" | "inactive";
 };
 
@@ -36,12 +35,11 @@ export type Visit = {
   appointment_type_id: string | null;
   video_link: string | null;
   created_at: string | null;
-  // Follow-up validity override (migration 0024) -- only ever set/meaningful
-  // for a status === "attended" visit. followup_valid_until is the fully-
-  // resolved date a follow-up can still be booked against THIS visit through
-  // (normal hospital-wide window, extended by followup_override_until when
-  // that's later); followup_override_until is the raw staff-granted date
-  // (null if never granted).
+  // Only ever set/meaningful for a status === "attended" visit.
+  // followup_valid_until is the fully-resolved date a follow-up can still
+  // be booked against THIS visit through (normal hospital-wide window,
+  // extended by followup_override_until when that's later);
+  // followup_override_until is the raw staff-granted date (null if never granted).
   followup_valid_until: string | null;
   followup_override_until: string | null;
 };
@@ -153,9 +151,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   const [sendingDocId, setSendingDocId] = useState<number | null>(null);
   const [sendError, setSendError] = useState<Record<number, string>>({});
 
-  // Follow-up validity override (migration 0024) -- admin/receptionist-only
-  // (backend-gated; the page hides these behind PermissionGate write on
-  // "appointments" too) "Extend" (grant extra days, patient books it
+  // Admin/receptionist-only "Extend" (grant extra days, patient books it
   // themselves on WhatsApp) and "Book now" (staff books it directly,
   // ignoring the window) actions, one shared panel per attended visit row.
   const [followupPanelId, setFollowupPanelId] = useState<number | null>(null);

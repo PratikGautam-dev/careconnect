@@ -1,11 +1,8 @@
 # portal/routes/staff_auth.py
-"""Unified staff login (docs/rbac-redis-plan.md) -- Admin/Receptionist/
-Doctor all authenticate here now. Replaces both the old shared hospital-wide
+"""Unified staff login -- Admin/Receptionist/
+Doctor all authenticate here. Distinct from the shared hospital-wide
 password (portal/routes/auth.py's /api/portal/login, kept alive unchanged
-for anyone not yet migrated to a staff_users row) and the old dedicated
-doctor login (a separate DOCTOR_SECRET-token /api/doctor/login, since
-removed -- it was never wired into the frontend, so this unified path was
-already the only one actually reachable for a doctor).
+for anyone not yet migrated to a staff_users row).
 
 email is globally unique (staff_users.email, ux_staff_users_email) so login
 is email+password alone, no hospital selector -- the caller learns

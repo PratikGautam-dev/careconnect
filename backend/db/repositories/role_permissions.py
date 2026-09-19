@@ -1,6 +1,5 @@
 # db/repositories/role_permissions.py
-"""Per-(hospital, role_id, page) permission grid (dynamic-roles migration --
-see the approved plan, .claude/plans/federated-enchanting-raven.md) -- one
+"""Per-(hospital, role_id, page) permission grid -- one
 row per cell, not a JSON blob, since portal/permissions.py's
 get_permission_matrix() reads this on every permission check (Redis-cached
 by portal/permission_cache.py, so the row-per-cell shape isn't a per-request

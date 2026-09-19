@@ -1,10 +1,10 @@
 # db/repositories/attendance.py
-"""Real staff check-in/check-out attendance -- the backend behind the
-previously frontend-mock /portal/check-in-out (self-service) and
-/portal/attendance (hospital roll-up) pages. One row per (staff, date) in
-`attendance_records` (migration 20260918090100), gated on the way in by the
-geofence/IP/shift-window policy a hospital configures via Settings ->
-Attendance (db/repositories/hospital_settings.py's attendance_* columns).
+"""Staff check-in/check-out attendance -- the backend behind
+/portal/check-in-out (self-service) and /portal/attendance (hospital
+roll-up) pages. One row per (staff, date) in `attendance_records`, gated
+on the way in by the geofence/IP/shift-window policy a hospital
+configures via Settings -> Attendance (db/repositories/hospital_settings.py's
+attendance_* columns).
 
 Geofence + IP verification are each independently optional (see
 _verify_geofence/_verify_ip below) -- a hospital that hasn't configured

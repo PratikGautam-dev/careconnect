@@ -40,13 +40,12 @@ function formatShort(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
-/** Doctor/staff self-service leave application (migration 6eda12041ecf) --
- * submits into the SAME leave_requests table the admin Leave Requests page
- * reviews, so a submission here shows up there immediately, pending
- * approval. Not doctor-only: any signed-in staff member with the
- * "holiday_application" permission (view+write for every role by default)
- * can use this. Self-fetches /api/portal/leave-requests/mine; the caller
- * owns auth/guard/shell. */
+/** Doctor/staff self-service leave application -- submits into the same
+ * leave_requests table the admin Leave Requests page reviews, so a
+ * submission here shows up there immediately, pending approval. Any
+ * signed-in staff member with the "holiday_application" permission can
+ * use this. Self-fetches /api/portal/leave-requests/mine; the caller owns
+ * auth/guard/shell. */
 export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
   const { requests, balance, error, submitting, submit } = useHolidayApplication(true);
 

@@ -75,22 +75,16 @@ function monthKey(m: string): string {
 
 /** /portal/attendance -- a personal attendance summary (stat tiles, this
  * month's trend, a status breakdown donut, and a day-by-day record table).
- * Present/Late/working-hours/overtime are REAL now, from db/repositories/
- * attendance.py's attendance_records (fetched via GET /api/portal/
- * attendance/summary) -- Absent days and the Leave slice are NOT: this
- * feature has no way yet to tell "no check-in row" apart from "not a
- * working day" or "on approved leave" (needs cross-referencing a staff
- * member's working_days and the existing Leave Requests table, a separate
- * follow-up), so both always report 0 rather than a fabricated number. The
- * weekly trend is a best-effort proxy for the same reason: % of elapsed
- * days in that week with a check-in, not a true "days worked / days
- * expected" ratio. Month/Status remain real client-side filters, now over
- * the real fetched records instead of a mock array.
+ * Present/Late/working-hours/overtime come from attendance_records.
+ * Absent days and the Leave slice always report 0 rather than a
+ * fabricated number, since there's no way yet to tell "no check-in row"
+ * apart from "not a working day" or "on approved leave". The weekly trend
+ * is a best-effort proxy for the same reason: % of elapsed days in that
+ * week with a check-in, not a true "days worked / days expected" ratio.
  *
- * Gated by the real "attendance" page_key (migration 20260914130000) --
- * view+write for every role except the seeded Admin role by default,
- * editable per-hospital via Settings -> Roles & Permissions like any other
- * page. */
+ * Gated by the "attendance" page_key -- view+write for every role except
+ * the seeded Admin role by default, editable per-hospital via
+ * Settings -> Roles & Permissions like any other page. */
 export default function AttendancePage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("attendance", "view");

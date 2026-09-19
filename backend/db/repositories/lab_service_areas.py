@@ -1,6 +1,6 @@
 # db/repositories/lab_service_areas.py
-"""Lab Test Phase 2 follow-up: the hospital-configurable list of PIN codes
-serviceable for home sample collection. Same "hospital-editable catalog"
+"""The hospital-configurable list of PIN codes serviceable for home sample
+collection. Same "hospital-editable catalog"
 shape as db/repositories/daycare_duration_options.py -- a hospital adds/
 removes its own serviceable areas, starting from an empty list (there's no
 sensible universal default the way daycare durations have one).

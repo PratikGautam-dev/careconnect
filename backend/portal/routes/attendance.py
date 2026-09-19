@@ -1,10 +1,10 @@
 # portal/routes/attendance.py
-"""Real check-in/check-out endpoints behind the previously frontend-mock
-/portal/check-in-out page -- see db/repositories/attendance.py for the
+"""Check-in/check-out endpoints behind the /portal/check-in-out page --
+see db/repositories/attendance.py for the
 geofence/IP verification + shift-status logic these routes just validate
 input for and delegate to.
 
-Gated by the real "check_in_out" page_key (migration 20260914130000) via
+Gated by the "check_in_out" page_key via
 get_current_staff()/require_permission(), same pattern portal/routes/
 settings.py's own Google Calendar routes use -- this is inherently a
 per-STAFF action (whose own attendance), not a per-hospital one, so it needs

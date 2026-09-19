@@ -36,17 +36,9 @@ const TIER_LABELS: Record<string, string> = {
 export default function PortalDashboardPage() {
   // Doctors get their own dashboard content (today's appointments, their own
   // stats) instead of the hospital-wide widgets below -- same shared
-  // PortalShell/nav either way, per the RBAC-driven consolidation.
-  //
-  // useStaffSession (not getStaffSession directly): null on the server AND
-  // on the client's own first render, so both agree on rendering
-  // HospitalDashboard first -- getStaffSession() itself returns the real
-  // session immediately client-side, which for a doctor account used to
-  // swap in an entirely different component tree (DoctorDashboardView) on
-  // the very first client render than what the server had sent, a much
-  // bigger hydration mismatch than a mismatched text node. The real
-  // session (and DoctorDashboardView, if applicable) arrives an instant
-  // later as a normal client-only update.
+  // PortalShell/nav either way. Session is null on the server and on the
+  // client's first render, so both agree on rendering HospitalDashboard
+  // first; the real session arrives an instant later as a client-only update.
   const session = useStaffSession();
   if (session?.is_doctor_role) {
     return (

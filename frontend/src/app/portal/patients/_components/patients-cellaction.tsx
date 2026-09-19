@@ -18,15 +18,11 @@ type PatientCellActionProps = {
   onDelete: (patient: Patient) => void;
 };
 
-/** Single combined actions menu (View Details / Delete) -- replaces the two
- * separate trailing columns the hand-rolled table used to render. Stops
- * propagation on its own wrapper so opening the menu (or picking an item in
- * it) doesn't also trigger the row's own onRowClick selection.
- *
- * "View Details" navigates straight to the full /portal/patients/[id]
- * record -- row-click/the name link still open the page's own side panel
- * (a quicker glance without leaving the list), but this menu item is the
- * explicit "take me to the record" action. */
+/** Combined actions menu (View Details / Delete). Stops propagation on its
+ * own wrapper so opening the menu (or picking an item) doesn't also
+ * trigger the row's onRowClick selection. "View Details" navigates
+ * straight to the full /portal/patients/[id] record, distinct from
+ * row-click/the name link which open the page's own side panel instead. */
 export function PatientCellAction({ patient, onDelete }: PatientCellActionProps) {
   const router = useRouter();
   return (

@@ -9,11 +9,8 @@ import { StaffCellAction } from "./staff-cellaction";
 
 export { AVATAR_TINTS };
 
-// StaffMember (useStaffManagement.ts) is the row type directly now --
-// department/attendance/phone/address/reports-to are all real
-// staff_details/identities columns (migration 20260911174439), not mocked.
-// Only leave balance/leave workflow remain unbuilt (StaffDetailPanel's own
-// note there).
+// StaffMember (useStaffManagement.ts) is the row type -- department/
+// attendance/phone/address/reports-to are all real columns.
 export type StaffRow = StaffMember;
 
 export const ATTENDANCE_LABELS: Record<AttendanceStatus, string> = {

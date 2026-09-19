@@ -12,12 +12,9 @@ import { SectionHeader } from "./settings-ui";
 /** Settings -> Attendance tab: the geofence (hospital location + allowed
  * radius), allowed Wi-Fi/IP ranges, and shift window (start/end, early
  * check-in, late threshold, optional auto-checkout) that /portal/check-in-
- * out's real Check In/Check Out now validate every attempt against
- * (db/repositories/attendance.py). Admin-only by default (the real
- * "attendance_settings" page_key, migration 20260918090200) -- an unlocked
- * geofence radius would let anyone check in from anywhere, so this is
- * gated more strictly than the personal Attendance/Check-in-out pages
- * themselves. */
+ * out validates every attempt against. Admin-only by default -- an
+ * unlocked geofence radius would let anyone check in from anywhere, so
+ * this is gated more strictly than the personal Attendance pages themselves. */
 export function AttendanceSettingsTab() {
   const canView = usePermission("attendance_settings", "view");
   const canWrite = usePermission("attendance_settings", "write");

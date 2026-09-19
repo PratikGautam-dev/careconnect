@@ -6,13 +6,11 @@ import { Card } from "@/components/ui/Card";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { googleLoginUrl } from "@/lib/userAuth";
 
-// Section 15: the single sign-in entry point for BOTH "set up your hospital"
-// (landing page CTA) and "hospital login" (/portal/login's primary action)
-// -- Google OAuth doesn't naturally distinguish sign-up from sign-in the way
-// a password form does, so there's one button here, and /auth/callback
-// decides where to send someone afterward based on how many hospitals their
-// Google account already owns (0 = onboarding wizard, 1 = straight into
-// that hospital, 2+ = a picker).
+// Single sign-in entry point for both "set up your hospital" and "hospital
+// login" -- Google OAuth doesn't distinguish sign-up from sign-in, so
+// /auth/callback decides where to send someone based on how many
+// hospitals their Google account already owns (0 = onboarding wizard, 1 =
+// straight into that hospital, 2+ = a picker).
 function AuthContent() {
   const params = useSearchParams();
   const error = params.get("error");

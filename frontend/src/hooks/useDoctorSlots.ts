@@ -8,17 +8,14 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Item 1 (Spec.md Section 0) + add/remove follow-up: a manual per-slot
-// override on top of the normal generated availability -- distinct from
-// DoctorLeaveManager (whole days) and the doctor's own active/inactive
-// switch (the whole doctor). Block/unblock toggles an already-generated
-// slot's availability without deleting it; Add/Remove actually creates or
-// deletes a doctor_slots row -- for a genuinely one-off extra slot (e.g. a
-// special clinic day) or permanently dropping one, not just hiding it.
-// "View all slots" mode (vs. the original one-date-at-a-time view) lists
+// A manual per-slot override on top of the normal generated availability,
+// distinct from DoctorLeaveManager (whole days) and the doctor's own
+// active/inactive switch (the whole doctor). Block/unblock toggles an
+// already-generated slot's availability without deleting it; Add/Remove
+// actually creates or deletes a doctor_slots row, for a genuinely one-off
+// extra slot or permanently dropping one. "View all slots" mode lists
 // every upcoming slot across the doctor's whole generated window, grouped
-// by date, so removing a specific slot doesn't require already knowing
-// which date it falls on.
+// by date, so removing a specific slot doesn't require knowing its date.
 export function useDoctorSlots(doctorId: string) {
   const [date, setDate] = useState(todayIso());
   const [viewAll, setViewAll] = useState(false);

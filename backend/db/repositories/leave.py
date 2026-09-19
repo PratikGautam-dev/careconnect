@@ -1,6 +1,5 @@
 # db/repositories/leave.py
-"""Doctor whole-day leave (Section 14.7). Split out of db/repository.py --
-see ARCHITECTURE_PLAN.md Phase 1."""
+"""Doctor whole-day leave."""
 from datetime import date, timedelta
 
 from typing import cast
@@ -13,7 +12,7 @@ from db.connection import get_session
 from db.orm_models import DoctorLeave
 from db.repositories.doctors import invalidate_doctor_slots_cache
 
-# --- Doctor leave (Section 14.7 -- whole-day unavailability) ---
+# --- Doctor leave (whole-day unavailability) ---
 
 def get_doctor_leave(hospital_id: int, doctor_id: str) -> list[dict]:
     session = get_session()
@@ -32,7 +31,7 @@ def create_doctor_leave(hospital_id: int, doctor_id: str, leave_date: str, reaso
     NOTHING rather than erroring, since a staff member re-submitting a date
     they already marked isn't a real problem.
 
-    No slot regeneration needed (migration 0032): a doctor's grid is
+    No slot regeneration needed: a doctor's grid is
     computed live and already reads doctor_leave fresh every time
     (db/repositories/doctors.py's compute_doctor_candidate_slots()) -- this
     date takes effect on the very next read. Only the cached grid needs
@@ -54,10 +53,10 @@ _MAX_LEAVE_RANGE_DAYS = 366
 def create_doctor_leave_range(
     hospital_id: int, doctor_id: str, from_date: str, to_date: str, reason: str | None = None,
 ) -> list[str]:
-    """Item 10 (Spec.md Section 0): From/To range with one Confirm, instead
-    of adding leave dates one at a time. Composes with the existing
-    exclusion logic unchanged -- compute_doctor_candidate_slots() (Section
-    14.7) already skips any date present in doctor_leave, so a doctor
+    """A From/To range instead of adding leave dates one at a time.
+    Composes with the existing exclusion logic unchanged --
+    compute_doctor_candidate_slots() already skips any date present in
+    doctor_leave, so a doctor
     automatically shows as unavailable for booking across the whole range
     the moment these rows exist; no SEPARATE availability-toggle mechanism
     is needed (a global is_active flip would be wrong here anyway -- it

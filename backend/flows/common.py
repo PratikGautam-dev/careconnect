@@ -1,11 +1,10 @@
 # core/flow_common.py
 """
-Shared helpers used by every flow_type handler module (SPEC Section 14.1) --
+Shared helpers used by every flow_type handler module --
 core/booking_flow.py and faq_flow.py both import from here rather than each
-reimplementing the same fixes. Extracted out of core/booking_flow.py
-specifically because Section 14's second flow type (FAQ) is exactly the case
-this was for: a fix made once, in one flow, needs to actually apply to every
-flow, not just the one it happened to be found in first.
+reimplementing the same fixes: a fix made once, in one flow, needs to
+actually apply to every flow, not just the one it happened to be found in
+first.
 """
 import logging
 
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 # every section (core/whatsapp.py:send_list()'s own docstring already says
 # so) -- nothing enforced that until this was found live: a doctor with a long
 # working-hour range and a short slot duration can easily generate 100+
-# bookable slots (Section 12.1.1), and an unenforced-limit send silently fails
+# bookable slots, and an unenforced-limit send silently fails
 # end to end -- send_list() catches the resulting 400 from Meta, logs it, and
 # returns without raising, so the patient just sees nothing, with no error
 # surfaced anywhere they'd see it. cap_rows() is the one place this gets
@@ -50,7 +49,7 @@ RESET_KEYWORDS = {
     "hi", "hello", "hey", "menu", "start", "restart", "cancel",
     "नमस्ते", "हाय", "मेनू", "शुरू", "रीस्टार्ट",
 }
-# "cancel" (Spec.md Section 0 follow-up) is free-text ONLY -- it's checked by
+# "cancel" is free-text ONLY -- it's checked by
 # is_reset_keyword() below, which only ever matches reply["type"] == "text".
 # The explicit button-based cancel flow (booking confirmation's Cancel
 # button, core/booking_flow.py's CONFIRM_NO) is a distinct interactive_reply

@@ -1,8 +1,6 @@
 # webhook/cron_routes.py
 """
-ARCHITECTURE_PLAN.md Phase 4: the two external-cron-triggered endpoints
-(reminders, slot top-up) -- split out of the former single core/main.py
-module.
+The two external-cron-triggered endpoints (reminders, slot top-up).
 """
 import logging
 
@@ -27,8 +25,8 @@ router = APIRouter()
 
 @router.post("/internal/send-reminders")
 async def trigger_reminders(request: Request):
-    """Hit by an external cron job (SPEC Section 3.5) — not an in-process scheduler.
-    Loops over every active hospital (SPEC Section 12.2), sending each one's
+    """Hit by an external cron job — not an in-process scheduler.
+    Loops over every active hospital, sending each one's
     reminders with its own credentials and its own reminder_offsets_hours."""
     secret = request.headers.get("X-Internal-Secret", "")
     if secret != INTERNAL_SECRET:
@@ -36,7 +34,7 @@ async def trigger_reminders(request: Request):
 
     sent_by_hospital = {}
     for hospital in db.get_active_hospitals():
-        # SPEC Section 12.6.2: resolved once per hospital, same as the webhook
+        # Resolved once per hospital, same as the webhook
         # handler above -- one hospital with no working connector must not
         # stop every other hospital's reminders from sending. The whole
         # per-hospital attempt (dispatch AND the actual send) is guarded,
@@ -55,7 +53,7 @@ async def trigger_reminders(request: Request):
 
 @router.post("/internal/top-up-slots")
 async def trigger_slot_top_up(request: Request):
-    """Hit by an external cron job (SPEC Section 12.1.1), same pattern as
+    """Hit by an external cron job, same pattern as
     /internal/send-reminders above. Loops every active hospital and extends
     each of its doctors' rolling doctor_slots window forward as days pass."""
     secret = request.headers.get("X-Internal-Secret", "")
@@ -71,7 +69,7 @@ async def trigger_slot_top_up(request: Request):
 
 @router.post("/internal/auto-resolve-handoffs")
 async def trigger_handoff_auto_resolve(request: Request):
-    """Messages page follow-up: hit by an external cron job, same pattern as
+    """Hit by an external cron job, same pattern as
     /internal/send-reminders/top-up-slots above. Auto-resolves every OPEN
     handoff with no activity from either side past each hospital's own
     handoff_auto_resolve_hours (or DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS if

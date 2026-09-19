@@ -12,13 +12,10 @@ export type WhatsAppConfig = {
   lastSyncedAt: string;
 };
 
-// "Advance Booking Limit" isn't here -- it's the real `future_booking_days`
-// settings field (usePortalSettings), wired directly in GeneralSettingsTab
-// instead of duplicated as mock state. Same for "Default Appointment
-// Duration" / "Buffer Time Between Appointments" / "Maximum Appointments
-// Per Day" (migration 20260914120000) -- all three are now real,
-// backend-enforced settings (default_appointment_duration_minutes/
-// buffer_minutes/max_appointments_per_day), not mock state either.
+// Advance Booking Limit, Default Appointment Duration, Buffer Time Between
+// Appointments, and Maximum Appointments Per Day are real backend-enforced
+// settings (usePortalSettings), wired directly in GeneralSettingsTab
+// instead of duplicated as mock state here.
 export type AppointmentSettingsMock = {
   allowOnlineAppointments: boolean;
   sendReminders: boolean;
@@ -50,11 +47,9 @@ export type GeneralSettingsState = {
   security: SecuritySettingsMock;
 };
 
-/** Seed values for the General settings tab -- mirrors the reference
- * screenshot exactly. None of this is backed by a real endpoint yet (unlike
- * /portal/settings' existing form, see _reference/legacy-general-settings-
- * page.tsx), so it's local state the tab itself owns; Save/Reset just reset
- * this object, they don't call the API. */
+/** Seed values for the General settings tab. None of this is backed by a
+ * real endpoint yet, so it's local state the tab itself owns; Save/Reset
+ * just reset this object, they don't call the API. */
 export function initialGeneralSettings(): GeneralSettingsState {
   return {
     branding: {
@@ -89,10 +84,9 @@ export function initialGeneralSettings(): GeneralSettingsState {
   };
 }
 
-// Both now drive the real default_appointment_duration_minutes/
-// buffer_minutes settings fields (migration 20260914120000) -- kept as
-// preset dropdown options, same "not exhaustive, withValue() adds the
-// current real value in if it's not one of these" convention as
+// Preset dropdown options for default_appointment_duration_minutes/
+// buffer_minutes -- not exhaustive; withValue() adds the current real
+// value in if it's not one of these, same convention as
 // ADVANCE_BOOKING_DAYS_OPTIONS/SESSION_TIMEOUT_OPTIONS below.
 export const DURATION_MINUTES_OPTIONS = [15, 30, 45, 60];
 export const BUFFER_MINUTES_OPTIONS = [0, 5, 10, 15, 30];

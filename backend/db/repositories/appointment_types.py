@@ -39,8 +39,8 @@ TESTS_DIAGNOSTICS_CATEGORY = frozenset({"diagnostic", "lab", "daycare"})
 REPORT_REVIEW_TYPE_ID = "second_opinion"
 
 # Which of the fixed catalog's types are ACTIVE by default per tenant_type
-# (tenant-capability-gating-plan.md's same "default-by-type, editable later"
-# shape as DEFAULT_CAPABILITIES_BY_TYPE in portal/capabilities.py). A row is
+# (same "default-by-type, editable later" shape as
+# DEFAULT_CAPABILITIES_BY_TYPE in portal/capabilities.py). A row is
 # still created for every type on every tenant regardless -- only is_active
 # differs -- so a clinic that later upgrades to hospital (or just wants one
 # hospital-only type turned on) is a pure is_active flip via the portal, never

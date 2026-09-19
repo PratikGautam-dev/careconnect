@@ -1,8 +1,7 @@
 # webhook/routes.py
 """
-ARCHITECTURE_PLAN.md Phase 4: the landing page, /health, and the inbound
-WhatsApp webhook (GET verification + POST message receipt) -- split out of
-the former single core/main.py module. Message *processing* itself (the
+The landing page, /health, and the inbound
+WhatsApp webhook (GET verification + POST message receipt). Message *processing* itself (the
 WA-client cache, lock, and flows.handle_incoming() dispatch) lives in
 webhook/dispatch.py; this file is just the HTTP boundary.
 """
@@ -34,12 +33,10 @@ VERIFY_TOKEN = _settings.WHATSAPP_VERIFY_TOKEN
 router = APIRouter()
 
 
-# Section 15 follow-up: this used to serve a full marketing landing page
-# (hero, phone mockup, feature list) -- genuinely redundant now that the
-# Next.js frontend (frontend/src/app/page.tsx, deployed on Vercel) IS the
-# real public-facing site; nobody should be landing on the backend's own
-# root URL as an end user. What's left is a minimal internal page with just
-# two buttons through to the admin/onboarding.py's own minimal entry
+# The Next.js frontend (frontend/src/app/page.tsx) is the real
+# public-facing site; nobody should be landing on the backend's own root
+# URL as an end user. This is a minimal internal page with just
+# two buttons through to admin/onboarding.py's own minimal entry
 # points -- useful if you only have the backend's URL on hand, nothing more.
 @router.get("/", response_class=HTMLResponse)
 async def landing_page():
@@ -96,7 +93,7 @@ async def receive_message(request: Request):
         entry = data["entry"][0]
         change = entry["changes"][0]["value"]
 
-        # SPEC Section 12.2: resolve which hospital this message is *for* (the
+        # Resolve which hospital this message is *for* (the
         # WhatsApp number that received it, from `metadata` — not the sender's
         # number, which is `message["from"]` below) BEFORE trusting/validating
         # anything else in the payload. This is a structural read of routing
@@ -115,7 +112,7 @@ async def receive_message(request: Request):
             )
             return Response(status_code=200)
 
-        # Each hospital has its own app_secret (SPEC Section 4's app_secret_ref) —
+        # Each hospital has its own app_secret —
         # verify against *that* hospital's secret, not a single global one. A
         # payload signed with hospital A's secret can never pass for hospital B's
         # phone_number_id, even though both are handled by this one endpoint.
@@ -132,7 +129,7 @@ async def receive_message(request: Request):
 
         message = change["messages"][0]
         phone = message["from"]
-        # SPEC Section 12.9's phone-validation follow-up: not a real defense
+        # Not a real defense
         # against a malicious payload (that's the HMAC signature check above,
         # already passed by this point -- forging `from` requires already
         # having this hospital's app_secret, at which point phone format is
@@ -184,17 +181,15 @@ async def receive_message(request: Request):
     try:
         await _process_message(wa, hospital, phone, reply, provider_user_id=provider_user_id, username=username)
     except ConnectorNotImplementedError:
-        # SPEC Section 12.6.2: this hospital is configured for a tier with no
+        # This hospital is configured for a tier with no
         # real connector yet -- a real, loud problem, but not one that should
         # ever crash the webhook itself (same "always ack Meta with 200"
         # pattern as every other failure mode in this handler).
         logger.error("Hospital %s has no working connector for data_tier -- message from %s dropped", hospital.id, phone)
     except Exception:
         # Any OTHER unexpected failure while processing this message (a real
-        # bug, not a known/handled case) -- previously propagated uncaught
-        # with no patient-facing reply and no record anywhere of what
-        # happened. Now: log it loudly, queue it in the human-handoff table
-        # (Section 14.5 follow-up) so staff see it in the portal, and tell
+        # bug, not a known/handled case): log it loudly, queue it in the
+        # human-handoff table so staff see it in the portal, and tell
         # the patient a person's been notified instead of leaving them with
         # silence. The queue-and-reply half is wrapped in its own try/except
         # -- it must never itself raise past this handler (that would defeat

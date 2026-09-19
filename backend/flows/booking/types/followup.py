@@ -1,8 +1,7 @@
 # flows/booking/types/followup.py
 """Follow-up: shows every department's most recent ATTENDED appointment
 still within the hospital's eligibility window (hospital_settings.
-followup_validity_days, docs/per-appointment-type-flow-plan.md Phase 2 Step
-2 follow-up), lets the patient pick one, then skips department/doctor
+followup_validity_days), lets the patient pick one, then skips department/doctor
 selection entirely and jumps straight to date selection -- floored to
 strictly after that previous visit's own date, since a follow-up can't
 predate the visit it follows. Confirmation and success then show Follow-up's

@@ -17,10 +17,9 @@ export type Appointment = {
   department_name: string | null;
   doctor_id: string | null;
   doctor_name: string | null;
-  // Diagnostic/Lab reschedule follow-up: set (doctor_id/doctor_name both
-  // null) for a resource-bound booking -- an MRI machine or lab collection
-  // point, not a doctor. Diagnostic tests/resources merge: this is a
-  // diagnostic_tests.id now -- a test IS the schedulable resource.
+  // Null (with doctor_id/doctor_name also null) for a resource-bound
+  // booking -- an MRI machine or lab collection point, not a doctor. Set
+  // to a diagnostic_tests.id, since a test is itself the schedulable resource.
   diagnostic_test_id: number | null;
   diagnostic_test_name: string | null;
   scheduled_at: string;
@@ -31,12 +30,11 @@ export type Appointment = {
   appointment_type_id: string | null;
   video_link: string | null;
   created_at: string | null;
-  // Lab Test Phase 2 follow-up: null for every non-Lab-Test appointment.
+  // Null for every non-Lab-Test appointment.
   lab_status: string | null;
-  // Daycare/Procedure rebuild: null for every non-procedure appointment.
-  // scheduled_at above is a PLACEHOLDER (request creation time) until
-  // procedure_status reaches "CONFIRMED" -- don't display it as a real
-  // slot before then.
+  // Null for every non-procedure appointment. scheduled_at above is a
+  // PLACEHOLDER (request creation time) until procedure_status reaches
+  // "CONFIRMED" -- don't display it as a real slot before then.
   procedure_id: number | null;
   procedure_name: string | null;
   procedure_status: string | null;
@@ -64,24 +62,20 @@ export type SlotsByDate = Record<string, Slot[]>;
 export type NewBookingContext = {
   departments: Department[];
   doctors_by_department: Record<string, Doctor[]>;
-  // Diagnostic/Lab reschedule follow-up: the resource-bound equivalent of
-  // doctors_by_department above -- a resource has no department picker of
-  // its own in this dialog, so just a flat list. Slots for a specific
-  // doctor/resource are fetched separately, on demand, via
-  // GET /api/portal/new-booking/slots?doctor_id=/?diagnostic_test_id= (see
-  // fetchSlotsByDate below) -- not eager-loaded here for every doctor/
-  // resource, which is what this endpoint used to do before it became slow
-  // enough to notice.
+  // The resource-bound equivalent of doctors_by_department above -- a
+  // resource has no department picker of its own in this dialog, so just
+  // a flat list. Slots for a specific doctor/resource are fetched
+  // separately, on demand, via GET /api/portal/new-booking/slots?doctor_id=
+  // /?diagnostic_test_id= (see fetchSlotsByDate below), not eager-loaded
+  // here for every doctor/resource.
   resources: Resource[];
 };
 
 /** Fetches available slots for exactly ONE doctor, ONE resource, or ONE
- * (instant-booking) procedure (pass exactly one), grouped by date -- the
- * lazy counterpart to the context endpoint above. Shared by every consumer
- * that used to read ctx.slots_by_doctor[id]/slots_by_resource[id] out of
- * the old eager all-at-once context: NewBookingDialog/NewTestBookingDialog/
- * NewDaycareBookingDialog (via their own hooks), RescheduleDialog (below),
- * and the patient page's follow-up "Book now" panel (usePatientDetail.ts). */
+ * (instant-booking) procedure (pass exactly one), grouped by date. Shared
+ * by NewBookingDialog/NewTestBookingDialog/NewDaycareBookingDialog (via
+ * their own hooks), RescheduleDialog (below), and the patient page's
+ * "Book now" panel (usePatientDetail.ts). */
 export async function fetchSlotsByDate(
   router: ReturnType<typeof useRouter>, opts: { doctorId?: string; resourceId?: string; procedureId?: string },
 ): Promise<SlotsByDate | null> {
@@ -97,10 +91,9 @@ export async function fetchSlotsByDate(
   return (result.data as { slots_by_date: SlotsByDate }).slots_by_date;
 }
 
-// docs/per-appointment-type-flow-plan.md's fixed catalog (db/repositories/
-// appointment_types.py's DEFAULT_APPOINTMENT_TYPES) -- there's no portal CRUD
-// for appointment types (seeded once, at onboarding), so this mirrors that
-// same fixed id->label mapping rather than fetching it from a new endpoint.
+// Mirrors db/repositories/appointment_types.py's DEFAULT_APPOINTMENT_TYPES
+// fixed id->label mapping -- there's no portal CRUD for appointment types
+// (seeded once, at onboarding), so this doesn't fetch from an endpoint.
 export const TYPE_LABELS: Record<string, string> = {
   new: "New Consultation",
   followup: "Follow-up",
@@ -112,23 +105,17 @@ export const TYPE_LABELS: Record<string, string> = {
 };
 
 // Mirrors backend/db/repositories/appointments.py's own
-// _apply_category_filter -- "doctor"/"diagnostic" is the same 2-way split
-// the WhatsApp booking menu and the portal sidebar (Doctor appointments /
-// Diagnostic & lab / Report review) use; "daycare" is its own further split
-// out of what used to be lumped into "diagnostic" (Daycare/Procedure
-// rebuild), since it now has its own sidebar section. Scoping by category
-// happens server-side (get_appointments_page's own `category` param) --
-// this type just labels which scope a page's hook call wants.
+// Matches _apply_category_filter's split: "doctor"/"diagnostic"/"daycare"
+// mirror the WhatsApp booking menu and portal sidebar sections. Scoping by
+// category happens server-side (get_appointments_page's `category` param)
+// -- this type just labels which scope a page's hook call wants.
 export type AppointmentCategory = "all" | "doctor" | "diagnostic" | "daycare";
 
-// Shared vocabulary for every list page's tab pills (appointments/page.tsx's
-// Today/Upcoming/Completed/Cancelled, diagnostic/page.tsx's own
-// Diagnostics/Lab tests/Completed/Pending/Cancelled) -- each page still owns
-// its own tab id/label list (they differ per page), it just needs to be
-// drawn from this set so tabToServerParams below knows every id. Resolving
-// a tab to server params (rather than filtering the loaded page client-side,
-// like both pages used to) is what keeps a tab pill meaning "every matching
-// row", not just whichever ones landed on the current 10-row page.
+// Shared vocabulary for every list page's tab pills; each page owns its
+// own tab id/label list, drawn from this set so tabToServerParams below
+// knows every id. Resolving a tab to server params (rather than filtering
+// client-side) keeps a tab pill meaning "every matching row", not just
+// whichever ones landed on the current page.
 export type AppointmentTab =
   | "all" | "today" | "upcoming" | "previous"
   | "completed" | "cancelled" | "pending" | "diagnostics" | "lab";
@@ -362,9 +349,8 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     refetchSummary();
   }, [refetch, refetchSummary]);
 
-  // Shared success/error-toast handling for the many fire-and-forget row
-  // actions below (attendance, lab status, procedure actions, delete) --
-  // every one of them used to just no-op on failure with zero feedback.
+  // Shared success/error-toast handling for the fire-and-forget row
+  // actions below (attendance, lab status, procedure actions, delete).
   function afterAction(result: Awaited<ReturnType<typeof portalFetch>>, successMessage: string, failureMessage: string): boolean {
     if (result.ok) {
       toast.success(successMessage);
@@ -378,10 +364,9 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     return false;
   }
 
-  // Item 9 (Spec.md Section 0): closes the "no-shows are a heuristic, not a
-  // real status" gap -- a still-'booked' appointment whose scheduled time
-  // has already passed gets an inline "Did the patient visit?" prompt,
-  // computed from fields the list already has (no separate fetch needed).
+  // A still-'booked' appointment whose scheduled time has already passed
+  // gets an inline "Did the patient visit?" prompt, computed from fields
+  // the list already has (no separate fetch needed).
   async function handleAttendance(id: number, attended: boolean) {
     setMarkingAttendanceId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/attendance`, {
@@ -393,10 +378,10 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     if (afterAction(result, attended ? "Marked as attended" : "Marked as no-show", "Couldn't update attendance")) load();
   }
 
-  // Lab Test Phase 2 follow-up: advances booked -> sample_collected ->
-  // processing one step at a time -- report_ready is never set from here,
-  // only automatically, by uploading a lab_report document against the
-  // appointment (the Patients page's document upload, not this list).
+  // Advances booked -> sample_collected -> processing one step at a time
+  // -- report_ready is only set automatically, by uploading a lab_report
+  // document against the appointment (the Patients page's document
+  // upload, not this list).
   const [advancingLabStatusId, setAdvancingLabStatusId] = useState<number | null>(null);
   async function handleAdvanceLabStatus(id: number) {
     setAdvancingLabStatusId(id);
@@ -452,10 +437,9 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     if (afterAction(result, "Reschedule rejected", "Couldn't reject reschedule")) load();
   }
 
-  // Item 3 (Spec.md Section 0): soft-delete only, per this project's
-  // never-hard-delete convention -- restricted server-side to non-'booked'
-  // rows (cancel it first), same guard reflected here by only offering the
-  // button once status !== "booked".
+  // Soft-delete only, restricted server-side to non-'booked' rows (cancel
+  // it first), same guard reflected here by only offering the button once
+  // status !== "booked".
   async function handleDelete(id: number) {
     if (!window.confirm("Delete this appointment record? This can't be undone from the portal.")) return;
     setDeletingId(id);
@@ -541,10 +525,9 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     setRResourceId(resourceId);
     setRDate("");
     setRSlotId("");
-    // Fixed to THIS appointment's own doctor/resource (never user-picked --
-    // see rDoctorId/rResourceId's own comment above), so only that one
-    // entity's slots are fetched -- not every doctor/resource in the
-    // hospital, which /new-booking/context used to eager-load for this.
+    // Fixed to THIS appointment's own doctor/resource (never user-picked),
+    // so only that one entity's slots are fetched, not every doctor/
+    // resource in the hospital.
     setRescheduleSlotsByDate(null);
     const slots = await fetchSlotsByDate(router, { doctorId: doctorId || undefined, resourceId: resourceId || undefined });
     setRescheduleSlotsByDate(slots ?? {});
@@ -582,10 +565,9 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     load();
   }
 
-  // Diagnostic/Lab reschedule follow-up: a resource-bound appointment has no
-  // doctor at all -- rResourceId is set instead of rDoctorId when the panel
-  // opens (see openReschedulePanel), but rescheduleSlotsByDate already holds
-  // whichever one's slots regardless (fetchSlotsByDate takes exactly one).
+  // A resource-bound appointment has no doctor at all -- rResourceId is set
+  // instead of rDoctorId when the panel opens, but rescheduleSlotsByDate
+  // already holds whichever one's slots regardless.
   const rDatesForDoctor = rescheduleSlotsByDate ? Object.keys(rescheduleSlotsByDate).sort() : [];
   const rSlotsForDate = rDate && rescheduleSlotsByDate ? rescheduleSlotsByDate[rDate] || [] : [];
 

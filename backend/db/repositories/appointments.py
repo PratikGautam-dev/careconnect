@@ -1,7 +1,6 @@
 # db/repositories/appointments.py
 """Appointment booking, cancellation, rescheduling, and lookups -- the core
-booking data path both the WhatsApp flow and the staff portal go through.
-Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1."""
+booking data path both the WhatsApp flow and the staff portal go through."""
 from datetime import date, datetime, time, timedelta
 from typing import cast
 
@@ -35,10 +34,10 @@ def _appointment_select_stmt():
     (via row._mapping) onto the Appointment dataclass unchanged -- it only
     needs dict-like column access, not a particular ORM/raw origin.
 
-    Diagnostic/Lab Phase 2: doctor/resource joins are both LEFT -- a booking
-    has exactly one of doctor_id/diagnostic_test_id set, never both. Migration 0035:
-    the department join is LEFT too now -- a resource-bound booking can have
-    no department configured at all."""
+    Doctor/resource joins are both LEFT -- a booking has exactly one of
+    doctor_id/diagnostic_test_id set, never both. The department join is
+    LEFT too -- a resource-bound booking can have no department configured
+    at all."""
     return (
         select(
             AppointmentRow.id, AppointmentRow.hospital_id, AppointmentRow.phone, AppointmentRow.patient_name,
@@ -124,9 +123,9 @@ def _upsert_patient(
         conn.execute(
             "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, row["id"]),
         )
-        # Possible-duplicate review flag (Section 0 follow-up) -- only on
-        # this fresh-INSERT branch, never the lookup-and-UPDATE branch above
-        # (that row's identity is already settled). See patients.py's
+        # Possible-duplicate review flag -- only on this fresh-INSERT
+        # branch, never the lookup-and-UPDATE branch above (that row's
+        # identity is already settled). See patients.py's
         # _flag_duplicate_if_matches() for the matching rules.
         _flag_duplicate_if_matches(conn, hospital_id, row["id"], name, phone, date_of_birth, gender)
         return {
@@ -165,8 +164,7 @@ def create_appointment(
     QuotaExceededError if the daily_booking_limit or the source's
     online/walkin quota is exhausted for that date.
 
-    Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5):
-    exactly one of doctor_id/diagnostic_test_id is ever set (appointments_
+    Exactly one of doctor_id/diagnostic_test_id is ever set (appointments_
     doctor_or_resource_or_procedure_chk enforces this at the DB level too) --
     a resource-bound booking runs the identical advisory-lock/quota/ordinal
     logic below, keyed on diagnostic_test_id against diagnostic_tests' own
@@ -281,8 +279,7 @@ def create_appointment(
                 kind = "Online booking" if source == SOURCE_WHATSAPP else "Walk-in"
                 raise QuotaExceededError(f"{kind} quota full for this doctor today.")
 
-        # Appointment Settings card (migration 20260914120000): a hospital-
-        # wide daily cap, checked alongside (not instead of) the per-doctor/
+        # A hospital-wide daily cap, checked alongside (not instead of) the per-doctor/
         # per-resource daily_booking_limit above -- whichever check fails
         # first blocks the booking.
         max_appointments_per_day = get_max_appointments_per_day(hospital_id)
@@ -326,7 +323,7 @@ def create_appointment(
                     existing_by_patient[0]["id"],
                 )
         elif doctor_id is not None and effective_name is not None and effective_date_of_birth is not None:
-            # Legacy path (staff portal, no patient_id): compare against
+            # Staff portal path (no patient_id): compare against
             # each existing booking's own denormalized name/date_of_birth, so
             # a different family member (different name or DOB) still gets through.
             existing_appointments = conn.execute(
@@ -376,9 +373,9 @@ def create_appointment(
 
 
 def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link: str) -> None:
-    """Tele-consultation Phase 2: called once, right after create_appointment()
-    succeeds, by flows/booking/types/tele_consultation.py's on_booking_confirmed
-    hook -- every other appointment type never calls this, so their rows keep
+    """Called once, right after create_appointment() succeeds, by
+    flows/booking/types/tele_consultation.py's on_booking_confirmed hook --
+    every other appointment type never calls this, so their rows keep
     video_link NULL. Same "small single-purpose UPDATE" shape as
     cancel_appointment()/mark_rescheduled() above."""
     conn = get_connection()
@@ -392,16 +389,12 @@ def set_appointment_video_link(hospital_id: int, appointment_id: int, video_link
 def set_appointment_diagnostic_label_and_price(
     hospital_id: int, appointment_id: int, diagnostic_test_label: str, diagnostic_price: float | None,
 ) -> None:
-    """Diagnostic/Lab Phase 2: called once, right after create_appointment()
-    succeeds, by flows/booking/types/_diagnostic_shared.py's
-    on_booking_confirmed hook -- same shape as set_appointment_duration()
-    above. diagnostic_test_id itself is set at INSERT time
-    (create_appointment()), not here, since it participates in the booking
-    transaction's own advisory-lock/double-booking logic -- this only ever
-    has label/price left to set post-hoc (used to also re-set
-    diagnostic_test_id to the same value create_appointment() already wrote,
-    back when it was still a second, separate column -- see the merge
-    migration's own docstring)."""
+    """Called once, right after create_appointment() succeeds, by
+    flows/booking/types/_diagnostic_shared.py's on_booking_confirmed hook --
+    same shape as set_appointment_duration() above. diagnostic_test_id
+    itself is set at INSERT time (create_appointment()), not here, since it
+    participates in the booking transaction's own advisory-lock/
+    double-booking logic -- this only ever has label/price left to set post-hoc."""
     conn = get_connection()
     conn.execute(
         "UPDATE appointments SET diagnostic_test_label = ?, diagnostic_price = ? "
@@ -415,10 +408,10 @@ def set_appointment_lab_order_details(
     hospital_id: int, appointment_id: int, collection_method: str, collection_address: str | None,
     collection_pincode: str | None, home_collection_charge: float | None, basket_items: list[dict],
 ) -> None:
-    """Lab Test Phase 2 follow-up: called once, right after create_appointment()
-    succeeds, by flows/booking/types/lab.py's on_booking_confirmed hook --
-    same "safe post-hoc hook, doesn't need the concurrency-critical
-    transaction" rationale as set_appointment_diagnostic_label_and_price() above.
+    """Called once, right after create_appointment() succeeds, by
+    flows/booking/types/lab.py's on_booking_confirmed hook -- same "safe
+    post-hoc hook, doesn't need the concurrency-critical transaction"
+    rationale as set_appointment_diagnostic_label_and_price() above.
     Sets lab_status to 'booked' (the start of the report lifecycle) and
     bulk-inserts the basket into appointment_lab_tests. `basket_items`: list
     of {diagnostic_test_id, test_label, price}."""
@@ -481,7 +474,7 @@ def get_lab_basket_for_appointment(hospital_id: int, appointment_id: int) -> lis
 
 
 def set_lab_status(hospital_id: int, appointment_id: int, lab_status: str) -> Appointment | None:
-    """Lab Test Phase 2 follow-up's report lifecycle. Staff advance
+    """Report lifecycle. Staff advance
     booked -> sample_collected -> processing manually (portal/routes/
     bookings.py); report_ready is set automatically instead, the moment a
     lab_report document is uploaded against this appointment (portal/routes/
@@ -518,10 +511,9 @@ def create_procedure_appointment(
     procedure = get_procedure(hospital_id, procedure_id)
     if procedure is None:
         raise ValueError(f"procedure_id {procedure_id} not found for hospital {hospital_id}")
-    # Migration 0035: procedures.department_id is already optional (like
-    # diagnostic_resources') -- appointments.department_id being nullable now
-    # too means an unconfigured procedure genuinely records no department,
-    # instead of the arbitrary first-department fallback this used to need.
+    # procedures.department_id is optional (like diagnostic_resources'),
+    # and appointments.department_id is nullable too, so an unconfigured
+    # procedure genuinely records no department.
     department_id = procedure["department_id"]
     scheduled_at_iso = scheduled_at.isoformat()
 
@@ -594,10 +586,9 @@ def create_procedure_request(
     procedure = get_procedure(hospital_id, procedure_id)
     if procedure is None:
         raise ValueError(f"procedure_id {procedure_id} not found for hospital {hospital_id}")
-    # Migration 0035: procedures.department_id is already optional (like
-    # diagnostic_resources') -- appointments.department_id being nullable now
-    # too means an unconfigured procedure genuinely records no department,
-    # instead of the arbitrary first-department fallback this used to need.
+    # procedures.department_id is optional (like diagnostic_resources'),
+    # and appointments.department_id is nullable too, so an unconfigured
+    # procedure genuinely records no department.
     department_id = procedure["department_id"]
 
     if patient_id is not None:
@@ -789,10 +780,8 @@ def get_appointments_for_account_in_range(
     appointment for every patient CURRENTLY linked to this account at this
     hospital, regardless of which phone booked it.
 
-    Two deliberate consequences of the join, confirmed acceptable: (1) a
-    handful of legacy pre-multi-patient-identity appointments with NULL
-    patient_id can't match this join and are excluded (they showed up under
-    the old phone-keyed query; negligible/historical); (2) unlinking a
+    Two deliberate consequences of the join: (1) appointments with NULL
+    patient_id can't match this join and are excluded; (2) unlinking a
     patient from the account also drops their appointments from this view,
     matching "who is currently under this account" (same framing as Manage
     Patients), not "who was ever linked".
@@ -857,9 +846,8 @@ def get_followup_eligible_appointments(
 ) -> list[Appointment]:
     """One row per department: that department's most recent STATUS_ATTENDED
     appointment, only if still within validity_days of its own scheduled_at
-    (docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up --
-    hospital_settings.followup_validity_days) OR a staff-granted
-    followup_override_until (migration 0024) hasn't passed yet -- an
+    (hospital_settings.followup_validity_days) OR a staff-granted
+    followup_override_until hasn't passed yet -- an
     admin/receptionist override widens the window for one specific visit,
     it never narrows it. Newest first. Dedup by department_id happens here
     in Python, not a SQL window function -- one patient's attended-
@@ -884,8 +872,8 @@ def get_followup_eligible_appointments(
     seen_departments: set[str] = set()
     for row in rows:
         appt = _row_to_appointment(row._mapping)
-        # Migration 0035: department_id can be None (a department-less
-        # resource booking) -- never dedup those against each other, only a
+        # department_id can be None (a department-less resource booking) --
+        # never dedup those against each other, only a
         # real shared department_id means "already covered".
         if appt.department_id is not None:
             if appt.department_id in seen_departments:
@@ -984,8 +972,7 @@ def get_todays_appointments_for_hospital(hospital_id: int, now: datetime | None 
 
 
 def get_hospital_booked_appointments_today_count(hospital_id: int, now: datetime | None = None) -> int:
-    """Appointment Settings card (migration 20260914120000): backs the
-    "X out of Y" progress bar next to max_appointments_per_day on Settings
+    """Backs the "X out of Y" progress bar next to max_appointments_per_day on Settings
     -> General. A lightweight COUNT(*), not get_todays_appointments_for_
     hospital() -- that one fetches every full row across every status,
     more than this needs. Counts BOOKED only, same status create_appointment()'s
@@ -1007,8 +994,8 @@ def get_hospital_booked_appointments_today_count(hospital_id: int, now: datetime
 def _apply_category_filter(stmt, category: str | None):
     """Shared by get_appointments_page()/get_appointments_for_month() --
     "doctor" | "diagnostic" | "daycare", mirroring the frontend's own
-    matchesCategory() (useAppointments.ts). "doctor" also includes legacy
-    rows with no appointment_type_id at all (they predate the column).
+    matchesCategory() (useAppointments.ts). "doctor" also includes older
+    rows with no appointment_type_id at all.
     "daycare" is its own category, fully split out of "diagnostic" -- the
     portal's Daycare appointments page is its own sidebar section, so
     "diagnostic" here excludes it (unlike TESTS_DIAGNOSTICS_CATEGORY, which
@@ -1080,10 +1067,8 @@ def get_appointments_page(
     still-'booked' row).
 
     `category` ("doctor" | "diagnostic") mirrors the frontend's own
-    matchesCategory() (useAppointments.ts) -- "doctor" also includes legacy
-    rows with no appointment_type_id at all (they predate the column), same
-    as that client-side check did back when this endpoint returned its
-    whole unfiltered list for the page to filter itself.
+    matchesCategory() (useAppointments.ts) -- "doctor" also includes older
+    rows with no appointment_type_id at all.
 
     search is the same ILIKE-across-columns pattern
     db/repositories/patients.py's search_patients() and staff_users.py's
@@ -1186,7 +1171,7 @@ def get_doctor_appointments_today(hospital_id: int, doctor_id: str, now: datetim
 
 
 def get_doctor_appointments(hospital_id: int, doctor_id: str, limit: int = 500) -> list[Appointment]:
-    """Doctor-portal follow-up: this doctor's own full appointment history
+    """This doctor's own full appointment history
     (any status, any date -- not just today), most recent first. The
     /doctor/appointments page's list, same "every appointment this scope
     owns" shape get_all_appointments_for_hospital() gives the shared staff
@@ -1204,7 +1189,7 @@ def get_doctor_appointments(hospital_id: int, doctor_id: str, limit: int = 500) 
 
 
 def get_doctor_appointments_for_patient(hospital_id: int, doctor_id: str, patient_id: int) -> list[Appointment]:
-    """Doctor-portal follow-up: the /doctor/patients/[id] detail page's own
+    """The /doctor/patients/[id] detail page's own
     appointment-history list -- deliberately scoped to appointments WITH
     THIS DOCTOR only, not the patient's whole hospital history (which may
     include other doctors) -- same "personalised, not just filtered"
@@ -1224,7 +1209,7 @@ def get_doctor_appointments_for_patient(hospital_id: int, doctor_id: str, patien
 
 
 def get_doctor_weekly_appointment_counts(hospital_id: int, doctor_id: str, now: datetime | None = None) -> list[dict]:
-    """Doctor-portal follow-up: same one-point-per-day-for-the-last-7-days
+    """Same one-point-per-day-for-the-last-7-days
     shape as get_weekly_appointment_counts() (dashboard.py), doctor_id-scoped
     instead of hospital-wide, for the doctor dashboard's own trend chart."""
     now = now or datetime.now()
@@ -1247,7 +1232,7 @@ def get_doctor_weekly_appointment_counts(hospital_id: int, doctor_id: str, now: 
 def get_doctor_appointments_for_month(
     hospital_id: int, doctor_id: str, year: int, month: int,
 ) -> list[Appointment]:
-    """Doctor-portal follow-up: every one of this doctor's appointments
+    """Every one of this doctor's appointments
     falling within one calendar month (year/month, 1-12), for the dashboard's
     calendar view -- replaces the 30-day status donut with something a
     doctor can actually navigate month-to-month. Bounds computed the same
@@ -1271,7 +1256,7 @@ def get_doctor_appointments_for_month(
 def get_doctor_appointments_for_range(
     hospital_id: int, doctor_id: str, start_date: date, end_date: date,
 ) -> list[Appointment]:
-    """Doctor-portal follow-up: every one of this doctor's appointments
+    """Every one of this doctor's appointments
     falling within an arbitrary inclusive [start_date, end_date] range (both
     `date` objects) -- the Schedule page's Week view needs a 7-day window
     that doesn't line up with calendar-month boundaries the way
@@ -1295,7 +1280,7 @@ def get_doctor_appointments_for_range(
 def delay_doctor_remaining_today_appointments(
     hospital_id: int, doctor_id: str, minutes: int, now: datetime | None = None,
 ) -> list[tuple[Appointment, datetime]]:
-    """"Running late" follow-up: shifts every one of this doctor's still-
+    """"Running late": shifts every one of this doctor's still-
     'booked' appointments later TODAY (scheduled_at > now, same calendar
     day) forward by `minutes` -- the actual feature is "I'm running late,
     push everyone after me back," not a general bulk-reschedule tool, so

@@ -1,5 +1,5 @@
 # portal/routes/leave_requests.py
-"""Leave Requests admin page's backend (migration 20260912065049) -- list/
+"""Leave Requests admin page's backend -- list/
 approve/reject doctor+receptionist leave requests for the caller's own
 hospital, plus the admin-configurable annual leave policy (doctor/
 receptionist only -- see db/repositories/leave_requests.py's own docstring
@@ -9,7 +9,7 @@ Review (list/approve/reject/policy) is gated by
 require_permission(principal, "leave_requests", ...) -- admin gets view+
 write by default, off for receptionist/doctor.
 
-Migration 6eda12041ecf added the OTHER side of this same table: self-
+The OTHER side of this same table is self-
 service submission, the Holiday Application page (my_leave_requests()/
 submit_leave_request() below) -- gated by a SEPARATE page key,
 "holiday_application", which defaults to view+write for every role

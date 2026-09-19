@@ -1,6 +1,5 @@
 # flows/booking/cancel.py
-"""ARCHITECTURE_PLAN.md Phase 3b: the cancel sub-flow (SPEC Section 3.3/5),
-split out of the former single core/booking_flow.py module."""
+"""The cancel sub-flow."""
 from connectors import Connector
 from core.translations import t
 from core.translations.cancel_reschedule import (
@@ -34,13 +33,12 @@ async def _start_cancel_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
     active_patient_id: int | None = None,
 ) -> None:
-    """Patient identity SEPARATION (Spec.md Section 0): a "whose
+    """A "whose
     appointments" pre-step, only shown when this phone has more than one
-    active linked patient -- the single-patient case (every phone before
-    this section, and any phone with just one linked patient) goes straight
-    to _start_cancel_flow_for_patient() below, zero added friction.
+    active linked patient -- a phone with just one linked patient goes
+    straight to _start_cancel_flow_for_patient() below, zero added friction.
 
-    CareConnect architecture doc alignment (Spec.md Section 0): when
+    When
     `active_patient_id` is given (flows.py's real-traffic path, already
     resolved up front), skip this module's own per-feature selector
     entirely -- see _start_booking_flow()'s own docstring for the full

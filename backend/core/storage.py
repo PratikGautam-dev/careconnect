@@ -1,10 +1,6 @@
 # core/storage.py
 """
-Section 12.10: private object storage for patient documents -- checked this
-repo and Spec.md for any prior S3/object-storage setup (the "DAAP Engage doc"
-mentioned when this was scoped isn't part of this codebase, and no
-boto3/storage dependency existed before this file) -- nothing existed, adding
-fresh here.
+Private object storage for patient documents.
 
 Same "real backend, graceful local fallback" shape as core/session_store.py's
 Redis-with-in-memory-fallback session store: `get_storage()` returns

@@ -8,35 +8,30 @@ export type Settings = {
   welcome_message_text: string;
   reminder_offsets_hours: string;
   reminder_template_name: string;
-  // Section 12.13: self-serve bot customization.
   enabled_features: string[];
   closing_message_text: string;
   business_hours_text: string;
   default_language: "en" | "hi";
   language_prompt_enabled: boolean;
   session_timeout_minutes: number;
-  // CareConnect architecture doc alignment (Spec.md Section 0).
   require_patient_confirmation: boolean;
 
   handoff_auto_resolve_hours: number;
 
-  // docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up: fees are
-  // "" (unset -- no fee line shown) or a numeric string, since a plain
-  // `number` type can't represent "no value entered" as distinct from 0.
+  // Fees are "" (unset -- no fee line shown) or a numeric string, since a
+  // plain `number` type can't represent "no value entered" as distinct from 0.
   followup_validity_days: number;
   followup_fee: number | "";
   new_consultation_fee: number | "";
-  // Lab Test Phase 2 follow-up: flat fee added to a home-collection Lab Test
-  // booking's price review, same "" (unset) convention as the two fees above.
+  // Flat fee added to a home-collection Lab Test booking's price review,
+  // same "" (unset) convention as the two fees above.
   home_collection_charge: number | "";
-  // Live-found bug follow-up: how many days ahead doctor/resource/procedure
-  // slots are generated -- always has a value (defaults server-side), same
-  // "plain number" convention as followup_validity_days above.
+  // How many days ahead doctor/resource/procedure slots are generated --
+  // always has a value (defaults server-side).
   future_booking_days: number;
 
-  // Appointment Settings card (migration 20260914120000): the first two
-  // always have a value (30/0 code defaults, same "plain number" convention
-  // as future_booking_days above). max_appointments_per_day uses the ""
+  // default_appointment_duration_minutes/buffer_minutes always have a
+  // value (30/0 code defaults). max_appointments_per_day uses the ""
   // (unset) convention like the fees above -- no cap configured is a real,
   // common state, not something to default away. appointments_today_count
   // is read-only, live data for the progress bar -- never sent back on save.
@@ -61,9 +56,7 @@ export function usePortalSettings(ready: boolean) {
       else setError(result.error);
       return;
     }
-    // followup_fee/new_consultation_fee come back as `null` when unset (no
-    // default to fall back to, unlike e.g. session_timeout_minutes) --
-    // coerced to "" here so the numeric <Input> below never renders "null".
+    // Coerced to "" here so the numeric <Input> below never renders "null".
     const data = result.data as Settings & {
       followup_fee: number | null; new_consultation_fee: number | null; home_collection_charge: number | null;
       max_appointments_per_day: number | null;
@@ -99,15 +92,11 @@ export function usePortalSettings(ready: boolean) {
       }
       return;
     }
-    // Settings-not-updating bug fix (Spec.md Section 0): the form used to
-    // just flip a "Saved." flag and trust its own local (optimistic) state
-    // as still-accurate -- but the backend can NORMALIZE a submitted value
-    // (e.g. an emptied/garbled "Reminder offsets" field is coerced to a
-    // default of "24", not stored as empty) without the page ever finding
-    // out, so what was displayed after a save could silently diverge from
-    // what was actually persisted. Re-fetching here (instead of trusting
-    // the just-submitted `settings` object) makes the displayed values
-    // always match the real stored ones.
+    // The backend can NORMALIZE a submitted value (e.g. an emptied/garbled
+    // "Reminder offsets" field is coerced to a default of "24") without
+    // the page finding out, so re-fetch here rather than trusting the
+    // just-submitted `settings` object, keeping displayed values in sync
+    // with what was actually persisted.
     await load();
     setSaving(false);
     setSaved(true);

@@ -11,18 +11,13 @@ import { toast } from "@/lib/toast";
 import { initialGeneralSettings, type NotificationPreferencesMock } from "./general-settings-mock";
 import { SectionHeader, ToggleRow } from "./settings-ui";
 
-/** Notifications tab -- two cards. "Notification Preferences" is the same
- * frontend-only mock toggle set that used to live in GeneralSettingsTab
- * (moved, not duplicated -- General still owns Session/Security). "Message
- * Templates & Content" is real, wired to the same usePortalSettings the
- * legacy page used: what patients actually see in a WhatsApp message
- * (welcome text, reminder copy/timing, closing message) -- distinct from
- * Preferences' on/off switches, this is the message CONTENT itself.
- * Privacy notice text was removed entirely (backend included -- see
- * flows/patient_identity/consent.py) since every hospital now just gets the
- * generic default consent notice; there's no longer a way to customize it.
- * See ../_reference/legacy-general-settings-page.tsx for the remaining
- * fields' original home. */
+/** Notifications tab -- two cards. "Notification Preferences" is a
+ * frontend-only mock toggle set. "Message Templates & Content" is real,
+ * wired to usePortalSettings: what patients actually see in a WhatsApp
+ * message (welcome text, reminder copy/timing, closing message) --
+ * distinct from Preferences' on/off switches, this is the message CONTENT
+ * itself. There's no way to customize the consent notice text; every
+ * hospital gets the generic default. */
 export function NotificationsTab() {
   const [notifications, setNotifications] = useState<NotificationPreferencesMock>(
     initialGeneralSettings().notifications,

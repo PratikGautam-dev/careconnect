@@ -39,12 +39,10 @@ import { AVATAR_TINTS, initials } from "@/app/portal/patients/_components/patien
 import { FILTERS, useMessages } from "@/hooks/useMessages";
 import { MessagePatientPanel } from "./_components/MessagePatientPanel";
 
-// Reference-layout tabs (Spec.md-style follow-up): "Patients" is the only
-// one with a real data source -- handoffs are always patient-initiated
-// WhatsApp conversations. Doctors/Staff/System have no messaging model in
-// this app at all yet (no doctor<->staff chat, no system-notification
-// inbox), so they stay visible per the mockup but show an honest "not built
-// yet" empty state instead of fabricating conversations.
+// "Patients" is the only tab with a real data source -- handoffs are always
+// patient-initiated WhatsApp conversations. Doctors/Staff/System have no
+// messaging model in this app (no doctor<->staff chat, no system
+// notification inbox), so they show an honest "not built yet" empty state.
 const CONVERSATION_TABS = [
   { key: "patients", label: "Patients", icon: UserRound },
   { key: "doctors", label: "Doctors", icon: Building2 },

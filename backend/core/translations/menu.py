@@ -82,8 +82,7 @@ STRINGS: dict[str, dict[Language, str]] = {
     LANGUAGE_PICKER_BUTTON_EN: {"en": "English", "hi": "English"},
     LANGUAGE_PICKER_BUTTON_HI: {"en": "हिन्दी", "hi": "हिन्दी"},
 
-    # Section 12.12: two-line body (greeting + call-to-action) matching the
-    # reference screenshot -- \n renders as a real line break in a WhatsApp
+    # Two-line body (greeting + call-to-action) -- \n renders as a real line break in a WhatsApp
     # list/text message body.
     WELCOME_MENU: {
         "en": "How can we assist you today?\nPlease select an option:",
@@ -108,10 +107,8 @@ STRINGS: dict[str, dict[Language, str]] = {
     },
     FEATURE_RECEPTION_HANDOFF: {"en": "Talk to Reception", "hi": "रिसेप्शन से बात करें"},
     FEATURE_FAQ: {"en": "FAQ / Information", "hi": "सामान्य प्रश्न"},
-    # CareConnect architecture doc alignment (Spec.md Section 0), Section 20's
-    # exact menu list -- "reports_prescriptions" replaces "my_details" (same
-    # underlying feature, renamed+rescoped -- see db/init_db.py's own
-    # migration); "consent_privacy" is new.
+    # "reports_prescriptions" replaces "my_details" (same underlying
+    # feature, renamed+rescoped); "consent_privacy" is new.
     FEATURE_REPORTS_PRESCRIPTIONS: {"en": "Reports & Prescriptions", "hi": "रिपोर्ट और पर्चे"},
     FEATURE_CONSENT_PRIVACY: {"en": "Consent & Privacy", "hi": "सहमति और गोपनीयता"},
     FEATURE_MANAGE_LANGUAGE: {"en": "Manage Language", "hi": "भाषा प्रबंधित करें"},

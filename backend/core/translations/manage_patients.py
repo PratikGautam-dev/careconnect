@@ -1,7 +1,6 @@
 # core/translations/manage_patients.py
-"""Manage Patients (Spec.md Section 0): add/remove the patients linked to
-this phone. Redesigned (confirmed with the user) from a single "tap a
-patient to act on them" list into a 2-button Remove Patient/Add Patient
+"""Manage Patients: add/remove the patients linked to
+this phone. A 2-button Remove Patient/Add Patient
 entry point -- Remove Patient shows the patient list ONLY when removing;
 there is no separate "switch active patient" action here anymore (that's
 handled entirely by the patient-selector/resolution flow shown before the
@@ -53,9 +52,6 @@ STRINGS: dict[str, dict[Language, str]] = {
               "होंगे — आप उन्हें कभी भी दोबारा जोड़ सकते हैं।",
     },
     PATIENT_UNLINKED: {
-        # Previous body (kept for reference, not deleted):
-        # "en": "{patient_name} has been removed from this number.",
-        # "hi": "{patient_name} को इस नंबर से हटा दिया गया है।",
         "en": (
             "✅ {patient_name} has been removed from this WhatsApp number.\n\n"
             "Their Patient ID, medical records, and appointment history remain unchanged."

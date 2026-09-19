@@ -1,9 +1,6 @@
 # db/repositories/roles.py
-"""Dynamic RBAC (see the approved plan, .claude/plans/federated-enchanting-
-raven.md) -- a hospital's own admin-defined roles, replacing the old fixed
-admin/receptionist/doctor vocabulary. Split out as its own repository file,
-following the doctors.py/hospitals.py precedent, rather than folded into
-role_permissions.py (a different table/concern) or staff_users.py (roles
+"""Dynamic RBAC -- a hospital's own admin-defined roles. Kept separate from
+role_permissions.py (a different table/concern) and staff_users.py (roles
 are not staff)."""
 from typing import cast
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Local-dev-only convenience seed for the RBAC rollout (docs/rbac-redis-plan.md)
--- creates a super admin AND a hospital admin with FIXED, known credentials
+Local-dev-only convenience seed -- creates a super admin AND a hospital admin
+with FIXED, known credentials
 (printed below) so you can log into both dashboards without going through
 onboarding by hand. Unlike scripts/seed_super_admin.py (interactive password
 prompt, meant for a real operator account), this is deliberately
@@ -60,8 +60,8 @@ def _clear_existing_accounts() -> None:
     """Wipes every staff (StaffDetail) and super-admin (SuperAdminDetail)
     identity -- deliberately ALL of them, not just rows matching this file's
     current EMAIL constants, so this is a genuine reset regardless of what
-    email a previous run used. Migration 0016: staff/super-admin accounts
-    now live as an Identity row plus an extension row (StaffDetail/
+    email a previous run used. Staff/super-admin accounts
+    live as an Identity row plus an extension row (StaffDetail/
     SuperAdminDetail), so clearing one means deleting both -- the extension
     row first (its FK points at identities.id), then the Identity row
     itself. Deliberately does NOT touch any OAuth hospital-owner identity

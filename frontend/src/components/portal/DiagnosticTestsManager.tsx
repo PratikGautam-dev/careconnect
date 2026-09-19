@@ -86,14 +86,9 @@ function ScheduleFields({
   );
 }
 
-// Diagnostic tests/resources merge (docs/per-appointment-type-flow-plan.md
-// Step 5): a test now carries its own schedule directly (working days/
-// hours/breaks/capacity/leave) instead of linking to a separate resource --
-// hospitals always created exactly one resource per test anyway. Test/
-// variant merge: a test also carries its own price directly now -- it only
-// ever needed exactly one priced option, so there's no separate
-// options/variants list to manage either. Same open, hospital-editable
-// catalog shape as DaycareDurationOptions.
+// Each test carries its own schedule (working days/hours/breaks/capacity/
+// leave) and its own single price directly, rather than linking to a
+// separate resource or options/variants list.
 export function DiagnosticTestsManager({ canManage }: { canManage: boolean }) {
   const {
     category, setCategory, tests, error, expandedId, setExpandedId,

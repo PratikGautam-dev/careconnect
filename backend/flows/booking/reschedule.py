@@ -1,8 +1,6 @@
 # flows/booking/reschedule.py
-"""ARCHITECTURE_PLAN.md Phase 3b: the reschedule sub-flow (SPEC Section
-3.3/5) -- date/time steps reuse the booking flow's own _send_date_menu/
-_send_time_menu, scoped to the appointment's existing doctor. Split out of
-the former single core/booking_flow.py module."""
+"""The reschedule sub-flow -- date/time steps reuse the booking flow's own
+_send_date_menu/_send_time_menu, scoped to the appointment's existing doctor."""
 from datetime import datetime
 
 from connectors import Connector
@@ -32,11 +30,10 @@ async def _start_reschedule_flow_for_appointment(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, appt, connector: Connector, language: str = "en",
 ) -> None:
     """Same as _start_cancel_flow_for_appointment above, for reschedule --
-    jumps straight to this appointment's doctor's date list (Item 3, Spec.md
-    Section 0), scoped to the appointment's existing doctor (no re-picking
-    department/doctor).
+    jumps straight to this appointment's doctor's date list, scoped to the
+    appointment's existing doctor (no re-picking department/doctor).
 
-    Diagnostic/Lab Phase 2: a resource-bound appointment (appt.diagnostic_test_id
+    A resource-bound appointment (appt.diagnostic_test_id
     set) reschedules against that SAME resource's own calendar instead --
     it never re-picks a test/variant, only a new date/time.
 
@@ -67,7 +64,7 @@ async def _start_reschedule_flow_for_appointment(
         "doctor_id": appt.doctor_id,
         "doctor_name": display_name,
         "resource_id": appt.diagnostic_test_id,
-        # Patient identity SEPARATION (Spec.md Section 0): carries the
+        # Carries the
         # ORIGINAL appointment's own patient through the reschedule -- without
         # this, a multi-patient phone rescheduling would have no way to know
         # which linked family member's appointment is being moved.
@@ -83,12 +80,11 @@ async def _start_reschedule_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
     active_patient_id: int | None = None,
 ) -> None:
-    """Patient identity SEPARATION (Spec.md Section 0): same "whose
+    """Same "whose
     appointments" pre-step as cancel above, only shown when >1 active
     patient is linked.
 
-    CareConnect architecture doc alignment (Spec.md Section 0): see
-    _start_cancel_flow()'s own docstring -- identical `active_patient_id`
+    See _start_cancel_flow()'s own docstring -- identical `active_patient_id`
     short-circuit for flows.py's real-traffic path."""
     if active_patient_id is not None:
         await _start_reschedule_flow_for_patient(wa, sessions, phone, hospital_id, connector, active_patient_id, language=language)
@@ -143,7 +139,7 @@ async def _handle_awaiting_reschedule_date(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Item 3 (Spec.md Section 0), reschedule's own date-picking step, mirrors
+    """Reschedule's own date-picking step, mirrors
     the booking flow's _handle_awaiting_date -- no name/age involved here, so
     it's simpler: a picked date just moves on to that date's time list.
     Reschedule doesn't use the booking flow's full history-stack Back
@@ -153,7 +149,7 @@ async def _handle_awaiting_reschedule_date(
     selection is enough to make that button do something rather than
     silently no-op.
 
-    Diagnostic/Lab Phase 2: context["resource_id"], when set, means this is a
+    context["resource_id"], when set, means this is a
     resource-bound reschedule -- same branch shape as the booking flow's own
     _handle_awaiting_date."""
     doctor_id = context.get("doctor_id")
@@ -191,13 +187,11 @@ async def _handle_awaiting_reschedule_slot(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Item 3 (Spec.md Section 0): now the TIME step for context['date'],
+    """The TIME step for context['date'],
     mirroring the booking flow's _handle_awaiting_time_slot -- no name/age
-    involved here either, so a picked time goes straight to reschedule
-    confirm.
+    involved here either, so a picked time goes straight to reschedule confirm.
 
-    Diagnostic/Lab Phase 2: same context["resource_id"] branch as
-    _handle_awaiting_reschedule_date above."""
+    Same context["resource_id"] branch as _handle_awaiting_reschedule_date above."""
     doctor_id = context.get("doctor_id")
     resource_id = context.get("resource_id")
     doctor_name = context.get("doctor_name", "")
@@ -280,8 +274,6 @@ async def _handle_awaiting_reschedule_confirm(
                 # patient's original appointment intact rather than with neither.
                 await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_RESCHEDULE_SLOT, connector, language=language)
                 return
-            # Tele-consultation Phase 2 follow-up (confirmed with the user
-            # directly, after real-world testing surfaced this exact gap):
             # reschedule_booking() creates a genuinely NEW appointment row
             # that inherits the OLD row's appointment_type_id -- a
             # rescheduled tele-consultation stays type "tele" but its new

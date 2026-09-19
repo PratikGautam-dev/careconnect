@@ -11,13 +11,12 @@ AUDIO_NOT_SUPPORTED = "audio_not_supported"
 SYSTEM_ERROR_NOTIFY = "system_error_notify"
 
 STRINGS: dict[str, dict[Language, str]] = {
-    # "Go back" navigation (Spec.md Section 0 follow-up): one shared button
+    # "Go back" navigation: one shared button
     # label -- the 3rd button on the confirmation card (Meta's 3-button max),
-    # and (a later UX follow-up, Spec.md Section 0) the department/doctor/
-    # date/time menus' own follow-up Back-button message (_send_back_button),
-    # sent as its own message right after the list rather than a row inside
-    # it. Reused as that message's body text too -- no separate prompt line,
-    # no "◀" arrow, both dropped per the user's own request.
+    # and the department/doctor/date/time menus' own Back-button message
+    # (_send_back_button), sent as its own message right after the list
+    # rather than a row inside it. Reused as that message's body text too
+    # -- no separate prompt line, no "◀" arrow.
     # Reused as both this message's body text AND its one button's label.
     BACK_OPTION: {"en": "Back", "hi": "पीछे"},
 

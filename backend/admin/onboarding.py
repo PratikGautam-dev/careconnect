@@ -1,12 +1,10 @@
 # admin/onboarding.py
 """
-Section 15 follow-up: the real onboarding UI is the Next.js wizard
+The real onboarding UI is the Next.js wizard
 (frontend/src/components/onboarding/OnboardingWizard.tsx, submitting to
 admin/onboarding_api.py's JSON endpoint) and the real platform-admin tenant
 UI is the Next.js pages under frontend/src/app/admin/ (submitting to
-admin/tenants_api.py). This module used to ALSO serve a full parallel
-server-rendered HTML wizard and HTML tenant list/edit pages -- genuinely
-redundant once the Next.js versions existed, so removed. What's left:
+admin/tenants_api.py). What's left in this module:
 
 1. Shared validation/parsing helpers still specific to onboarding/tenant-admin
    (_build_departments, _build_faq_topics, _mask_secret, check_admin_secret/
@@ -40,8 +38,7 @@ ADMIN_SECRET = _settings.ADMIN_SECRET
 
 
 def check_admin_secret(secret: str, request: Request) -> bool:
-    """Timing-safe (hmac.compare_digest) and rate-limited (audit follow-up,
-    Spec.md Section 0) -- shared by every ADMIN_SECRET check in this module
+    """Timing-safe (hmac.compare_digest) and rate-limited -- shared by every ADMIN_SECRET check in this module
     plus admin/onboarding_api.py's JSON equivalent, so the lockout is one
     counter per caller IP regardless of which of the two entry points
     (HTML wizard vs JSON API) they're hitting."""
@@ -81,7 +78,7 @@ def _build_departments(
     order, with doctor_department_index[i] naming which department_name[]
     entry doctor i belongs to (recomputed by the page's JS immediately before
     submit, so it always reflects current on-screen card order/removals).
-    Returns (departments, errors, warnings) -- Section 14.7's quota-vs-limit
+    Returns (departments, errors, warnings) -- the quota-vs-limit
     check is a warning, not an error (see _validate_doctor_fields)."""
     departments = [{"name": n.strip(), "doctors": []} for n in department_name]
     errors: list[str] = []
@@ -137,7 +134,7 @@ def _build_departments(
 
 def _build_faq_topics(topic_label: list[str], topic_answer: list[str]) -> tuple[list[dict], list[str]]:
     """Reconstructs topic/answer pairs from the wizard's repeatable topic-card
-    fields (Step 8, faq-flow tenants — Section 14.3), mirroring
+    fields (faq-flow tenants only), mirroring
     _build_departments()'s "skip a card that's entirely empty, error on one
     that's half-filled" shape. Positional pairing (topic_label[i] with
     topic_answer[i]) matches DOM submit order, same as the doctor-card arrays."""
@@ -195,7 +192,7 @@ def _button_page(eyebrow: str, title: str, description: str, button_label: str, 
 @router.get("/admin/onboard-hospital", response_class=HTMLResponse)
 async def admin_page(request: Request):
     """Minimal entry point -- the real guided wizard (Google sign-in +
-    ADMIN_SECRET, Section 15) lives at {FRONTEND_ORIGIN}/auth. Ungated:
+    ADMIN_SECRET) lives at {FRONTEND_ORIGIN}/auth. Ungated:
     there's nothing sensitive on this page, only a link onward to where the
     real gates are enforced."""
     return _button_page(

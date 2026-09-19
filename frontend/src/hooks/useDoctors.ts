@@ -22,12 +22,10 @@ export type Doctor = {
   years_experience: number | null;
   working_days: string[];
   working_hours: string[];
-  // Migration 20260911190007: phone is mandatory (confirmed with the user,
-  // alongside specialization/qualification above); location stays optional.
+  // Mandatory; location stays optional.
   phone: string;
-  // Employee ID auto-numbering feature -- server-generated (EMP-DC-NNNNN),
-  // never part of the editable Add/Edit form; read-only display only
-  // (doctors-columns.tsx, DoctorDetailPanel.tsx).
+  // Server-generated (EMP-DC-NNNNN), never part of the editable Add/Edit
+  // form; read-only display only (doctors-columns.tsx, DoctorDetailPanel.tsx).
   employee_id: string;
   location: string | null;
   login_staff_id: number | null;
@@ -67,21 +65,18 @@ export function useDoctors(ready: boolean) {
   const [doctorForm, setDoctorForm] = useState<DoctorScheduleFormState>(emptyDoctorScheduleForm());
   const [doctorErrors, setDoctorErrors] = useState<string[]>([]);
   const [savingDoctor, setSavingDoctor] = useState(false);
-  // Doctor-editing follow-up (Spec.md Section 0) -- previously add-only;
-  // editing an EXISTING doctor's working hours/breaks/quotas was a known,
-  // explicitly flagged gap. Reuses the exact same DoctorScheduleForm the
-  // "Add doctor" flow already uses -- editingDoctorId non-null is what
-  // distinguishes "save" meaning POST /api/portal/doctors (create) vs
-  // POST /api/portal/doctors/{id} (update).
+  // Reuses the same DoctorScheduleForm the "Add doctor" flow uses --
+  // editingDoctorId non-null is what distinguishes "save" meaning POST
+  // /api/portal/doctors (create) vs POST /api/portal/doctors/{id} (update).
   const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
   const [loadingDoctorForEdit, setLoadingDoctorForEdit] = useState<string | null>(null);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  // Item 2 (Spec.md Section 0): search (name/specialization) + active/
-  // inactive filter, computed client-side (a hospital's own doctor list is
-  // small -- no need for a server round trip per keystroke).
+  // Search (name/specialization) + active/inactive filter, computed
+  // client-side -- a hospital's own doctor list is small enough that a
+  // server round trip per keystroke isn't needed.
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
 
@@ -175,11 +170,10 @@ export function useDoctors(ready: boolean) {
     load();
   }
 
-  // Doctor-editing follow-up: fetches the full record (working days/hours/
-  // breaks/quotas -- get_all_doctors_for_hospital()'s list-page shape above
-  // doesn't carry these) and maps it into the same form shape "Add doctor"
-  // uses, splitting each stored "HH:MM-HH:MM" string back into a shift/break
-  // row.
+  // Fetches the full record (working days/hours/breaks/quotas --
+  // get_all_doctors_for_hospital()'s list-page shape above doesn't carry
+  // these) and maps it into the same form shape "Add doctor" uses,
+  // splitting each stored "HH:MM-HH:MM" string back into a shift/break row.
   async function handleEditDoctor(doc: Doctor) {
     setLoadingDoctorForEdit(doc.id);
     const result = await portalFetch(`/api/portal/doctors/${doc.id}`);

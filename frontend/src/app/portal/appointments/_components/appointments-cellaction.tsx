@@ -17,9 +17,8 @@ type AppointmentCellActionProps = {
   appointment: Appointment;
   /** "appointments" (doctor) or "diagnostic_appointments" (Lab &
    * Diagnostic) -- this menu is shared by both categories' own columns
-   * file, and each now has its own independently-permissioned page_key
-   * (migration 20260914140000), so the Delete gate below can't hardcode
-   * one string for both callers. */
+   * file, and each has its own independently-permissioned page_key, so the
+   * Delete gate below can't hardcode one string for both callers. */
   permissionPage: "appointments" | "diagnostic_appointments";
   cancelPanelId: number | null;
   reschedulePanelId: number | null;

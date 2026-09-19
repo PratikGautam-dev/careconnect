@@ -1,13 +1,11 @@
 # db/repositories/users.py
-"""Google-OAuth user accounts and hospital-ownership links (Section 15).
+"""Google-OAuth user accounts and hospital-ownership links.
 
-Migration 0016 pointed these at db.orm_models.Identity instead of the
-historical UserAccount table. Migration 0018 went further and folded
-hospital ownership into StaffDetail (role='admin') instead of a separate
-HospitalOwner table -- confirmed with the user, no identity actually owns
-more than one hospital in practice, so a dedicated M:M table was pure
-redundancy with StaffDetail's own (identity_id, hospital_id, role) shape,
-and there is deliberately no separate 'owner' role: a hospital's role
+Hospital ownership lives on StaffDetail (role='admin') rather than a
+separate HospitalOwner table -- no identity actually owns more than one
+hospital in practice, so a dedicated M:M table would be pure redundancy
+with StaffDetail's own (identity_id, hospital_id, role) shape, and there
+is deliberately no separate 'owner' role: a hospital's role
 vocabulary is exactly admin/receptionist/doctor, centralized on StaffDetail,
 whether the account was created by Google sign-in or by an admin through
 the staff-management UI. Every function here keeps its exact name and
@@ -76,8 +74,8 @@ def get_or_create_user_for_google_login(google_id: str, email: str, name: str | 
     via /admin/edit-tenant's owner-assignment field, before this person ever
     signed in with Google) and backfill google_id onto it rather than
     creating a second, disconnected row for the same person; otherwise this
-    is a genuinely new identity. Since email is now globally unique across
-    every principal kind (migration 0016), an email match here could in
+    is a genuinely new identity. Since email is globally unique across
+    every principal kind, an email match here could in
     principle land on a staff/super-admin identity with no google_id yet --
     backfilling google_id onto it is still correct (same person, same
     email, now also has an OAuth path in) rather than a bug to guard
@@ -98,13 +96,13 @@ def get_or_create_user_for_google_login(google_id: str, email: str, name: str | 
 def link_hospital_owner(hospital_id: int, user_id: int, role_id: int | None = None) -> None:
     """Idempotent: re-linking an already-owned hospital (e.g. a duplicate
     onboarding submit) is a harmless no-op, not a duplicate row -- same
-    reasoning as doctor_leave's UNIQUE(doctor_id, date). Writes StaffDetail
-    now, not a separate HospitalOwner table (migration 0018) -- identity_id
+    reasoning as doctor_leave's UNIQUE(doctor_id, date). Writes StaffDetail,
+    not a separate HospitalOwner table -- identity_id
     is StaffDetail's PK (1:1: one identity, one hospital), so this can only
     ever create ONE row per identity, ever; a second call for a DIFFERENT
     hospital_id on an identity that already has a staff_details row is a
     no-op, not a second link -- consistent with "one identity, one
-    hospital", confirmed with the user. `role_id` defaults to this
+    hospital". `role_id` defaults to this
     hospital's own "Admin"-named role (resolved by name, same accepted
     limitation get_owners_for_hospital() documents) -- no caller has ever
     passed an explicit role, there's still no separate 'owner' role."""
@@ -173,7 +171,7 @@ def get_owners_for_hospital(hospital_id: int) -> list[User]:
 
 
 def assign_hospital_owner_by_email(hospital_id: int, email: str) -> User:
-    """admin/tenants_api.py's migration tool (Section 15): a platform admin
+    """admin/tenants_api.py's migration tool: a platform admin
     assigns ownership of an already-onboarded hospital (e.g. hospital #1,
     DaaPrime -- onboarded before Google sign-in existed) to a Google account
     by email, without that person needing to have signed in yet. Creates a
@@ -189,7 +187,7 @@ def assign_hospital_owner_by_email(hospital_id: int, email: str) -> User:
 
 
 def get_users_without_hospital() -> list[User]:
-    """Item 5 (Spec.md Section 0): platform-admin visibility into stalled
+    """Platform-admin visibility into stalled
     signups -- someone signed in with Google (a real identities row with
     google_id set exists) but never finished onboarding a hospital (no
     staff_details row links them to one, in any role). Filtered to

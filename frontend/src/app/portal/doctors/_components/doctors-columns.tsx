@@ -31,15 +31,11 @@ type CreateDoctorColumnsOptions = {
 };
 
 /** Column definitions for the /portal/doctors DataTable. Availability only
- * ever reflects the real is_active flag (Available/Unavailable) -- there's
- * no real-time presence tracking in this schema, so the reference mockup's
- * finer In Consultation/In Surgery states aren't shown here (see the page's
- * own note). Contact's email row shows this doctor's unified-login email
- * (login_email, null until a login is created -- see the detail panel's own
- * "Create login" action); phone is real too (migration 20260911190007).
- * Leave Balance is real too (migration 20260912065049) -- "—" for a doctor
- * with no login yet, since there's no identity to attach a leave request
- * to. */
+ * reflects the real is_active flag (Available/Unavailable) -- there's no
+ * real-time presence tracking, so finer states like In Consultation aren't
+ * shown. Contact's email row shows login_email (null until a login is
+ * created). Leave Balance shows "—" for a doctor with no login yet, since
+ * there's no identity to attach a leave request to. */
 export function createDoctorColumns({
   onSelect,
   canManage,

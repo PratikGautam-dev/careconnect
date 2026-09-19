@@ -7,9 +7,8 @@ admin/onboarding.py's server-rendered /admin/tenants and /admin/edit-tenant
 routes but as JSON, reusing that module's exact validation/masking helpers
 and db/repository.py's update_hospital() rather than duplicating them.
 
-RBAC (docs/rbac-redis-plan.md): gated by get_current_super_admin() -- an
-individual super_admins account's JWT, replacing the shared
-TENANTS_ADMIN_SECRET/X-Admin-Secret header this file used before. Every
+Gated by get_current_super_admin() -- an
+individual super_admins account's JWT. Every
 route below still re-verifies on every request (never trusted from
 client-side "logged in" state), same "basic protection, not
 production-grade auth" posture as before, just with a real per-operator
@@ -36,10 +35,8 @@ router = APIRouter()
 
 
 def _actor_label(super_admin: dict) -> str:
-    """audit_logs.actor_label real-identity population (docs/rbac-redis-plan.md's
-    "Existing schema changes" note) -- now that platform-admin actions carry
-    a real super_admins row, replaces the old literal "platform admin"
-    string every call site in this file used to pass."""
+    """audit_logs.actor_label real-identity population -- platform-admin
+    actions carry a real super_admins row's name/email, not a generic label."""
     return f'{super_admin["name"]} <{super_admin["email"]}>'
 
 
@@ -68,23 +65,21 @@ def _tenant_detail(h) -> dict:
         "external_api_key": h.external_api_key or "",
         "has_portal_password": bool(h.portal_password_hash),
         "is_active": h.is_active,
-        # Section 15: which Google account(s), if any, own this hospital's
+        # Which Google account(s), if any, own this hospital's
         # portal -- empty for hospitals onboarded before Google sign-in
         # existed (hospital #1, DaaPrime), which still fall back to
         # portal_password_hash login until an owner is assigned below.
         "owners": [{"id": u.id, "email": u.email, "name": u.name} for u in db.get_owners_for_hospital(h.id)],
-        # Feature-toggle follow-up (Spec.md Section 0): enabled_features was
-        # only ever SET once, at onboarding -- confirmed there was no way
-        # anywhere in this app to turn a feature on/off for an
-        # already-onboarded tenant afterward (portal/routes/settings.py's own settings
+        # enabled_features is only ever SET once, at onboarding -- there's
+        # no way anywhere else in this app to turn a feature on/off for an
+        # already-onboarded tenant (portal/routes/settings.py's own settings
         # endpoint deliberately never touches it, grouping it with
-        # credentials as operator-only). This is the fix -- an operator can
-        # now toggle any REAL_FEATURES key here. feature_default_labels
+        # credentials as operator-only). This endpoint lets an operator
+        # toggle any REAL_FEATURES key here. feature_default_labels
         # mirrors portal/routes/settings.py's own settings endpoint, for a readable
         # checklist label per key.
         "enabled_features": h.enabled_features,
         "feature_default_labels": {key: t(f"feature_{key}", "en") for key in REAL_FEATURES},
-        # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
         # get_capabilities() resolves the type default whenever
         # admin_capabilities is unset (None), so this always reflects the
         # EFFECTIVE set, not just whatever's literally in the column --
@@ -122,7 +117,7 @@ async def list_tenants(request: Request, authorization: str | None = Header(defa
 
 @router.get("/api/admin/stalled-signups")
 async def list_stalled_signups(request: Request, authorization: str | None = Header(default=None)):
-    """Item 5 (Spec.md Section 0): who's signed in with Google but never
+    """Who's signed in with Google but never
     finished onboarding a hospital -- db.get_users_without_hospital() is
     already the correct query (a user row with zero hospital_users links),
     this just exposes it to the platform-admin frontend."""
@@ -136,7 +131,7 @@ async def list_stalled_signups(request: Request, authorization: str | None = Hea
 
 @router.get("/api/admin/stats/total-bookings")
 async def get_total_bookings_stat(request: Request, authorization: str | None = Header(default=None)):
-    """Item 7 (Spec.md Section 0): platform-wide lifetime "how many times has
+    """Platform-wide lifetime "how many times has
     this application been used for booking" -- every appointments row ever
     inserted, across every hospital, regardless of current status or later
     soft-deletion (db.get_total_bookings_count()'s own docstring has the
@@ -170,7 +165,6 @@ class TenantUpdatePayload(BaseModel):
     api_base_url: str = ""
     api_key: str = ""
     enabled_features: list[str] = []
-    # Tenant-type-driven capability gating (tenant-capability-gating-plan.md).
     tenant_type: str = "hospital"
     admin_capabilities: list[str] = []
 
@@ -298,7 +292,7 @@ async def update_tenant(
     if new_access_token != hospital.access_token or whatsapp_phone_number_id != hospital.whatsapp_phone_number_id:
         invalidate_whatsapp_client(tenant_id)
 
-    # Audit trail (tenant-capability-gating-plan.md's follow-up): only the
+    # Audit trail: only the
     # access/billing-relevant fields that actually changed, not the full
     # before/after row (name/phone_number_id churn isn't interesting; secrets
     # are handled by db.repositories.audit_logs' own redaction regardless of
@@ -332,7 +326,7 @@ class AssignOwnerPayload(BaseModel):
 async def assign_tenant_owner(
     tenant_id: int, payload: AssignOwnerPayload, request: Request, authorization: str | None = Header(default=None)
 ):
-    """Section 15's migration tool for hospitals onboarded before Google
+    """A migration tool for hospitals onboarded before Google
     sign-in existed (hospital #1, DaaPrime): links a hospital to a Google
     account by email alone, without that person needing to have signed in
     yet -- db.assign_hospital_owner_by_email() creates a placeholder users

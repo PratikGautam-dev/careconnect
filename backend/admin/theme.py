@@ -2,11 +2,9 @@
 """
 The one shared design system for every admin/staff-facing page — the
 onboarding wizard (admin/onboarding.py), the platform-admin tenant list/edit
-pages (admin/onboarding.py, Section 12.1 follow-up), and the hospital-staff
-bookings portal (portal.py, Section 12.7). Originally lived inline in
-admin/onboarding.py as `_STYLE`; pulled out here once a second module
-(portal.py) needed the exact same look rather than a re-implementation that
-would inevitably drift from it.
+pages, and the hospital-staff bookings portal (portal.py). Pulled out
+here so a second module (portal.py) needing the same look doesn't drift
+into a re-implementation of it.
 
 Design reference (current, replacing the earlier sage/clay/Fraunces pass):
 14 reference mockups (design-reference/ — "DAAP CareConnect") — deep forest
@@ -242,10 +240,10 @@ STYLE = _FONT_LINKS + """
      off-white row, bold label + muted subtext, green circular checkmark. */
   .ok-box { background: var(--success-tint); border: 1px solid var(--success); border-radius: var(--radius); padding: 20px; }
 
-  /* --- Added for /admin/tenants, /admin/edit-tenant, and portal.py (Section
-     12.1 follow-up / Section 12.7) -- card-based list rows, status pills,
-     stat tiles, and a login card, all built on the same tokens above rather
-     than one-off colors, so a new page never looks bolted-on. */
+  /* --- Shared by /admin/tenants, /admin/edit-tenant, and portal.py --
+     card-based list rows, status pills, stat tiles, and a login card, all
+     built on the same tokens above rather than one-off colors, so a new
+     page never looks bolted-on. */
   .page-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
   .page-header h2 { margin: 0; }
   .card-list { display: flex; flex-direction: column; gap: 10px; }
@@ -267,7 +265,7 @@ STYLE = _FONT_LINKS + """
   .pill-active, .pill-booked { background: var(--success-tint); color: var(--success); }
   .pill-inactive, .pill-cancelled { background: var(--error-tint); color: var(--error); }
   .pill-rescheduled { background: var(--clay-tint); color: var(--clay); }
-  /* Section 12.9: staff-created ("walk-in") vs. patient-self-booked
+  /* Staff-created ("walk-in") vs. patient-self-booked
      ("WhatsApp") -- descriptive only, same tokens as the status pills above. */
   .pill-source-staff { background: var(--clay-tint); color: var(--clay); }
   .pill-source-whatsapp { background: var(--success-tint); color: var(--success); }
@@ -281,7 +279,7 @@ STYLE = _FONT_LINKS + """
   .stat-tile .stat-value { font-family: var(--font-display); font-weight: 700; font-size: 26px; color: var(--ink); }
   .stat-tile .stat-label { font-size: 12px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
 
-  /* Section 12.8: the staff dashboard's own sidebar layout -- scoped to
+  /* The staff dashboard's own sidebar layout -- scoped to
      /portal/dashboard only (every other portal.py page keeps .shell.no-rail's
      single-column layout with the horizontal .brand-nav strip; rebuilding
      every existing page around a permanent sidebar was out of scope here).

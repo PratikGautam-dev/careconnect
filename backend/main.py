@@ -1,14 +1,11 @@
 # app.py
 """
-ARCHITECTURE_PLAN.md Phase 4: the composition root -- FastAPI app
-construction, middleware, lifespan, and include_router calls only. Split
-out of the former single core/main.py module, which mixed this with
-webhook routing, the WA-client cache, and message locking (now
-webhook/routes.py, webhook/dispatch.py, webhook/cron_routes.py).
+The composition root -- FastAPI app construction, middleware, lifespan,
+and include_router calls only. Webhook routing, the WA-client cache, and
+message locking live in webhook/routes.py, webhook/dispatch.py,
+webhook/cron_routes.py.
 
-Deployment note: the ASGI app is now `main:app`, not `core.main:app` -- see
-ARCHITECTURE_PLAN.md's Phase A/Phase 4 status notes for what else that
-touches (Dockerfile CMD, railway.toml startCommand).
+Deployment note: the ASGI app is `main:app` (Dockerfile CMD, railway.toml startCommand).
 """
 import logging
 import os
@@ -57,7 +54,7 @@ import webhook.dispatch  # noqa: F401
 from db.init_db import init_db
 
 # Creates the schema + seeds the one real hospital from .env if not already present
-# (idempotent, safe on every startup — SPEC Section 12.6 Tier 1).
+# (idempotent, safe on every startup).
 init_db()
 
 from webhook.cron_routes import router as cron_router
@@ -193,7 +190,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Section 15: only used by auth/google_oauth.py's Google OAuth handshake to hold the
+# Only used by auth/google_oauth.py's Google OAuth handshake to hold the
 # short-lived state/nonce Authlib generates between /auth/google/login and
 # /auth/google/callback -- both routes are on THIS backend's own origin
 # (see auth/google_oauth.py's module docstring), so this cookie is same-origin
@@ -215,7 +212,7 @@ app.include_router(google_calendar_oauth_router)
 app.include_router(webhook_router)
 app.include_router(cron_router)
 
-# RBAC (docs/rbac-redis-plan.md): a background subscriber on the
+# A background subscriber on the
 # `perms:invalidate` Redis pub/sub channel -- portal/permission_cache.py's
 # invalidate() (called by PUT /api/portal/roles/permissions) already clears
 # ITS OWN process's local cache directly; this subscriber is what makes an

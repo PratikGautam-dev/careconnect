@@ -61,7 +61,7 @@ PATIENT_MRN_PREFIX = "MRN"  # followed by the hospital's own short code, not thi
 # number -- see _generate_patient_identifiers()'s own docstring.
 
 # Appointment reference id (generate_reference_id() below) -- APT-<DDMMYY>-<NNN>,
-# e.g. APT-130826-001 (Item 8, Spec.md Section 0). Predates the DCC- naming
+# e.g. APT-130826-001. Predates the DCC- naming
 # convention and is shown directly to patients/staff on confirmations
 # (tests assert this exact "APT-" prefix) -- deliberately NOT renamed, and
 # deliberately NOT moved onto code_sequences (see module docstring).
@@ -189,12 +189,8 @@ def _next_daily_reference_sequence(conn, hospital_id: int, day: str) -> int:
 
 
 def _generate_reference_id(conn, hospital_id: int, now: datetime | None = None) -> str:
-    """Item 8 (Spec.md Section 0): structured, human-readable format --
-    APT-<DDMMYY>-<NNN>, e.g. APT-130826-001 -- replacing the old
-    apt_<millisecond-epoch> format (Section 12.12). A later Item 2 follow-up
-    (Spec.md Section 0) switched the date part from a month-ABBREVIATION
-    (DDMMMYY, e.g. 13AUG26) to fully numeric DDMMYY (e.g. 130826), confirmed
-    with the user directly rather than assumed. Sequence is PER HOSPITAL PER
+    """Structured, human-readable format -- APT-<DDMMYY>-<NNN>, e.g.
+    APT-130826-001. Sequence is PER HOSPITAL PER
     DAY (reference_id_counters' composite PK), not globally sequential across
     tenants, and resets to 001 each new calendar day. Based on the booking's
     CREATION time (when create_appointment() runs), not the appointment's

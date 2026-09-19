@@ -40,11 +40,9 @@ type Props = {
 };
 
 /** Right-rail "selected staff" profile card -- every field here is real,
- * including Leave balance (leave_requests + hospitals.staff_annual_leave_days,
- * migration 20260912065049 -- null for an admin row, since that policy is
- * doctor/receptionist only). Applying for leave FROM this panel is still a
- * later page (confirmed with the user) -- only the balance display itself
- * is in scope here. */
+ * including Leave balance (null for an admin row, since that policy is
+ * doctor/receptionist only). Applying for leave happens on a separate
+ * page; this panel only shows the balance. */
 export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onEdit, onSetAttendance }: Props) {
   if (!staff) {
     return (
@@ -98,11 +96,8 @@ export function StaffDetailPanel({ staff, index, canManage, onResetPassword, onE
         <DetailRow icon={IdCard} label="Employee ID" value={staff.employee_id || "—"} />
       </div>
 
-      {/* One uniform 2x2 tile grid -- Shift hours used to be its own
-          full-width box above this grid; folded in as a same-size tile so
-          all four (Shift hours/Attendance status/Reports to/Leave balance)
-          read as one consistent set, matching DoctorDetailPanel.tsx's own
-          4-tile grid. */}
+      {/* Uniform 2x2 tile grid: Shift hours/Attendance status/Reports to/
+          Leave balance, matching DoctorDetailPanel.tsx's own 4-tile grid. */}
       <div className="mt-space-3 grid grid-cols-2 gap-space-2">
         <div className="rounded-md border border-line bg-paper p-space-3">
           <p className="mb-space-1 flex items-center gap-space-1 text-[11px] font-semibold text-ink-400">

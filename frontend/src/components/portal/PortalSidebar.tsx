@@ -36,22 +36,12 @@ import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
 import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 
-// Menu list/order matches the reference dashboard mockup (visual pass
-// only, per the conversation -- deeper wiring for the items with no href
-// below is deliberate follow-up work, not done here). Items with no href
-// render as disabled "Coming soon" rows (see the .filter/.map below) --
-// there's no backend yet for billing. Billing is additionally `hidden`
-// (explicit instruction: hide it, don't delete it -- kept here so
-// re-enabling later is a one-line flip). Leave requests (migration
-// 20260912065049) is real now. Doctor/Daycare/Lab & Diagnostic Appointments
-// each have their OWN real page_key now (migration 20260914140000 --
-// confirmed with the user a role might get one category without the other
-// two, so they can no longer share one "appointments" permission). Report
-// review AND Report analytics (both still frontend-only mock data, sharing
-// /portal/report-review as their href -- "Report analytics" was never a
-// second page, just a second nav label) are likewise real, independent
-// page_keys now (migration 20260914150000), gated by hasPermission below
-// like every other real nav item.
+// Items with no href render as disabled "Coming soon" rows (see the
+// .filter/.map below) -- there's no backend yet for billing. Billing is
+// additionally `hidden` (kept, not deleted, so re-enabling is a one-line
+// flip). Report review and Report analytics share /portal/report-review
+// as their href -- "Report analytics" is a second nav label, not a second
+// page. All real nav items are gated by hasPermission below.
 const NAV_ITEMS = [
   {
     key: "dashboard",
@@ -61,13 +51,8 @@ const NAV_ITEMS = [
     pageKey: "dashboard",
   },
 
-  // Doctor/Daycare/Lab & Diagnostic Appointments used to all share ONE
-  // pageKey ("appointments") -- confirmed with the user this was wrong,
-  // since a role might reasonably get one category without the other two.
-  // Each now has its own real page_key (migration 20260914140000), cloned
-  // from "appointments"' existing values per hospital/role so nothing any
-  // hospital already granted changes on its own -- only a future edit via
-  // Roles & Permissions can diverge them.
+  // Doctor/Daycare/Lab & Diagnostic Appointments each have their own
+  // page_key, since a role may reasonably get one category without the others.
   {
     key: "appointments",
     label: "Doctor Appointments",
@@ -196,10 +181,8 @@ const NAV_ITEMS = [
     pageKey: "check_in_out",
   },
 
-  // Self-service submission (migration 6eda12041ecf) that feeds the review
-  // queue above -- ANY role, not just doctor (its default permission is
-  // view+write for every role), since any staff member applies for their
-  // own leave.
+  // Self-service leave submission, open to any role (not just doctor)
+  // since any staff member can apply for their own leave.
   {
     key: "holiday-application",
     label: "Holiday Application",

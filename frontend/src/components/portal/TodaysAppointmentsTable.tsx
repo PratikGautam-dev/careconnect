@@ -24,11 +24,8 @@ type Appointment = {
 };
 
 // Same columns/styling as the Doctor appointments table (appointments-
-// columns.tsx) -- this widget is a read-only preview of it, so it reuses
-// that table's exact status/type/avatar treatment rather than keeping its
-// own drifted copy (Item 9, Spec.md Section 0). No select/Actions column
-// here -- managing a booking happens on the full page this links to, not
-// from a dashboard preview row.
+// columns.tsx), minus select/Actions -- managing a booking happens on the
+// full page this links to, not from a dashboard preview row.
 const columns: ColumnDef<Appointment>[] = [
   {
     id: "reference_id",

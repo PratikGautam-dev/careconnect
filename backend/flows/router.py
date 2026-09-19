@@ -1,17 +1,15 @@
 # flows.py
 """
-SPEC Section 14.5: the feature-toggle router -- supersedes Section 14.1's
-single flow_type dispatch. A hospital enables a SET of patient-facing
-capabilities (hospitals.enabled_features, Section 14.5) rather than picking
-one exclusive conversation shape; this module is now the actual conversation
+The feature-toggle router. A hospital enables a SET of patient-facing
+capabilities (hospitals.enabled_features) rather than picking
+one exclusive conversation shape; this module is the actual conversation
 entry point core/main.py calls (not just a lookup table), because building
 the IDLE main menu is inherently a cross-cutting concern once more than one
 feature can be enabled at once -- no single flow module can own it anymore.
 
 How it works:
 - IDLE (or an unrecognized/stale state): resolves the active patient first
-  (core/patient_identity.py, CareConnect architecture doc alignment -- see
-  _enter_idle()'s own docstring), then shows a WhatsApp list built from
+  (core/patient_identity.py -- see _enter_idle()'s own docstring), then shows a WhatsApp list built from
   whichever of the hospital's enabled_features are real, tapping a row hands
   the conversation to that feature's own entry point.
 - A state that belongs to core/booking_flow.py's own state machine
@@ -48,7 +46,7 @@ core/patient_identity.py (re-exported here for every existing importer that
 already does `from flows import REAL_FEATURES` etc.) -- see that module's own
 docstring for why.
 
-Section 12.11 (language selection): this module owns the ONE language-
+This module owns the ONE language-
 selection decision point -- STATE_AWAITING_LANGUAGE, entered whenever a
 session reaches true IDLE with no language chosen yet (first contact, or a
 genuinely expired/new session; core/session_store.py's session store preserves an
@@ -144,7 +142,7 @@ async def _send_language_picker(wa: WhatsAppClient, phone: str, default_language
     module docstring). Body text is bilingual on purpose -- we don't know
     the patient's language yet, so the prompt itself can't be in only one.
 
-    Section 12.13: default_language (set via /portal/settings) decides which
+    default_language (set via /portal/settings) decides which
     button is listed FIRST -- WhatsApp buttons have no concept of a
     "pre-selected" option, so leading with the hospital's preferred language
     is the only real way to "default to" it."""
@@ -196,24 +194,22 @@ async def _enter_idle(
     router used to jump straight to _send_dynamic_menu -- first contact, a
     reset keyword, a stale/unrecognized tap, GOTO_MAIN_MENU.
 
-    Section 12.13: language_prompt_enabled=False (a hospital that only ever
+    language_prompt_enabled=False (a hospital that only ever
     wants one language, set via /portal/settings) skips the picker entirely
     -- every fresh conversation goes straight to patient resolution/the menu
     in default_language, the same as if the patient had tapped that language
     on the picker.
 
-    CareConnect architecture doc alignment (Spec.md Section 0), Sections 5/19:
-    once language is settled, patient identity is resolved (or an
+    Once language is settled, patient identity is resolved (or an
     interstitial registration/confirmation/selection message is sent)
     BEFORE the main menu is ever shown -- for every hospital, not gated on
-    which features are enabled (confirmed with the user). Only once
+    which features are enabled. Only once
     core/patient_identity.py returns an actual resolved patient (not None --
     None means it already sent its own message and this call must stop) does
     the menu itself get shown, now with that patient's "Patient: X / Patient
-    Code: Y" header (Section 20).
+    Code: Y" header.
 
-    Language-persistence follow-up (confirmed with the user): `language`
-    being None here no longer means "show the picker" outright -- it means
+    `language` being None here doesn't mean "show the picker" outright -- it means
     "not known for THIS session" (a fresh session, or one that just timed
     out). The CareConnect account itself may already have a language saved
     from a previous conversation (_handle_awaiting_language persists it
@@ -473,7 +469,7 @@ async def _handle_awaiting_reports_document(
     if document is None or document["patient_id"] != patient_id:
         # Stale/unrecognized tap, or the list went stale between send and
         # reply -- re-fetch and re-show fresh rather than acting on a stale
-        # id (Phase 8's established "recheck dynamic data" discipline). Same
+        # id. Same
         # filtered category as the list that was actually shown, not the
         # unfiltered combined list.
         document_type = context.get("document_type")
@@ -512,10 +508,9 @@ async def _start_feature(
     faq -> faq_flow.py's FAQ_ACTIVE loop) or are simple one-shot replies that
     immediately return to IDLE (view_appointments, hospital_info).
 
-    CareConnect architecture doc alignment (Spec.md Section 0): every
-    patient-scoped branch now threads `active_patient_id` (resolved once,
-    up front, by _enter_idle() -- Section 13's "Active Patient Context")
-    into the sub-flow instead of letting it re-derive identity itself."""
+    Every patient-scoped branch threads `active_patient_id` (resolved once,
+    up front, by _enter_idle() -- the "Active Patient Context") into the
+    sub-flow instead of letting it re-derive identity itself."""
     if key == "book_doctor_appointment":
         await start_booking_flow(
             wa, sessions, phone, hospital_id, connector, language=language, active_patient_id=active_patient_id,
@@ -581,7 +576,7 @@ async def _start_feature(
         return
     if key == "hospital_info":
         sessions.reset(hospital_id, phone)
-        # Section 12.13: a hospital's own business_hours_text (set via
+        # A hospital's own business_hours_text (set via
         # /portal/settings), appended as an extra informational line -- purely
         # display, never enforced against real doctor slot availability.
         info_text = t(HOSPITAL_INFO_TEXT, language)
@@ -628,27 +623,25 @@ async def handle_incoming(
     username: str | None = None,
     dpdp_consent_required: bool = False,
 ) -> None:
-    """The real conversation entry point (SPEC Section 14.5) -- core/main.py
-    calls this directly now, passing the resolved hospital's enabled_features
+    """The real conversation entry point -- core/main.py
+    calls this directly, passing the resolved hospital's enabled_features
     alongside everything core/booking_flow.py's handle_incoming() already
     needed. Defaults enabled_features to [] (not "booking") so a caller that
     forgets to pass it gets an honest "nothing enabled" menu rather than a
     guessed one -- matching db.create_hospital()'s own default.
 
-    Section 12.13: feature_labels/closing_message_text/business_hours_text/
+    feature_labels/closing_message_text/business_hours_text/
     welcome_message_text/default_language/language_prompt_enabled are all
     self-serve bot customization (hospitals.<field>, set via /portal/
     settings) -- every one defaults to "no customization" (None/{}/en/True)
-    so a caller that doesn't pass them (including the whole
-    pre-Section-12.13 test suite) gets byte-for-byte the same fixed behavior
-    as before this section. welcome_message_text specifically drives the
+    so a caller that doesn't pass them gets a fixed default behavior.
+    welcome_message_text specifically drives the
     greeting line patient_identity's single/multi-patient-confirm screens
     show (falling back to "🏥 Welcome to {hospital_name}" when unset, never
     a hardcoded platform brand name).
 
-    require_patient_confirmation (CareConnect architecture doc alignment,
-    Spec.md Section 0): same "self-serve bot customization, defaults to
-    off/unset" treatment.
+    require_patient_confirmation: same "self-serve bot customization,
+    defaults to off/unset" treatment.
 
     provider_user_id/username (CareConnect account/identity layer,
     db/schema.sql's own comment on care_connect_accounts): CONTACT
@@ -663,20 +656,17 @@ async def handle_incoming(
     defaults to off" treatment as require_patient_confirmation."""
     connector = connector or _DEFAULT_CONNECTOR
     connector.identify_contact(provider_user_id or phone, phone_number=phone, username=username)
-    # Item 7 (Spec.md Section 0): a real production bug -- once a patient's
+    # Once a patient's
     # "Talk to Reception" request is open, the bot must go completely silent
     # for that phone (including the reset-keyword escape hatch below, which
     # is exactly what a patient typing "hi" mid-handoff was tripping) until
     # staff resolve it. Checked before anything else touches session state,
     # so a stale/expired session can't accidentally re-engage the bot either.
     #
-    # Two-way threading follow-up: previously this just silenced the bot and
-    # dropped the message -- it was written into core/session_store.py's generic,
-    # hospital-agnostic HISTORY buffer (core/main.py's own doing, before this
-    # function is even called) but nothing ever read that buffer, so a
-    # patient's follow-up messages during an active handoff were effectively
-    # lost to staff. Now recorded as a real inbound handoff_messages row
-    # against the open handoff, so it shows up in the portal's thread.
+    # Recorded as a real inbound handoff_messages row against the open
+    # handoff, so it shows up in the portal's thread -- not just silenced
+    # and dropped into core/session_store.py's generic, hospital-agnostic
+    # HISTORY buffer, which nothing else reads.
     open_handoff = db.get_open_handoff(hospital_id, phone)
     if open_handoff is not None:
         message_text = reply.get("text") or reply.get("title") or f"[{reply.get('type')}]"
@@ -687,7 +677,7 @@ async def handle_incoming(
         )
         return
     enabled_features = enabled_features or []
-    # Section 12.13: a hospital's own session_timeout_minutes (5-120) overrides
+    # A hospital's own session_timeout_minutes (5-120) overrides
     # core/session_store.py's fixed 30-min default -- None (never customized) keeps
     # today's behavior exactly, since sessions.get() itself falls back to its
     # own constructor-time default when timeout_seconds isn't passed.
@@ -709,7 +699,7 @@ async def handle_incoming(
             dpdp_consent_required=dpdp_consent_required, welcome_message_text=welcome_message_text,
         )
 
-    # Items 3/5/6 (Spec.md Section 0): quick-action ids embedding a specific
+    # Quick-action ids embedding a specific
     # appointment id -- attached to the booking-success message, the
     # duplicate-booking block message, and My Appointments' inline actions.
     # Checked BEFORE the reset-keyword/state dispatch below (and regardless

@@ -49,7 +49,7 @@ async def portal_upload_patient_document(
         uploaded_by_session_id=_session_id(authorization), document_type=document_type,
     )
 
-    # Lab Test Phase 2 follow-up's report lifecycle: uploading a lab_report
+    # Report lifecycle: uploading a lab_report
     # against a Lab Test appointment (lab_status is not None) IS the
     # "report_ready" trigger -- no separate staff action, so "report ready"
     # always means an actual report exists. Best-effort: a WhatsApp delivery

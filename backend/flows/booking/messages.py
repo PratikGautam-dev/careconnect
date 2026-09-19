@@ -1,10 +1,9 @@
 # flows/booking/messages.py
 """
-ARCHITECTURE_PLAN.md Phase 3b: WA message/menu builders shared across the
+WA message/menu builders shared across the
 booking/cancel/reschedule/view-appointments/manage-patients sub-flows
 (patient selector, slot-taken recovery, back-navigation, appointment
-selection, confirmation cards, ...), split out of the former single
-core/booking_flow.py module.
+selection, confirmation cards, ...).
 
 _select_patient_and_continue routes onward into cancel.py/reschedule.py/
 manage_patients.py/view_appointments.py -- imported LAZILY inside that one
@@ -107,10 +106,10 @@ from flows.booking.types.registry import get_type_flow
 logger = logging.getLogger(__name__)
 
 async def _send_back_button(wa: WhatsAppClient, phone: str, language: str = "en") -> None:
-    """UX follow-up (Spec.md Section 0), confirmed with the user: "Back" used
-    to be the last ROW inside the department/doctor/date/time list itself
-    (_cap_rows_with_back, now removed) -- WhatsApp's `list` message type has
-    no way to attach a separate button to the SAME message, so showing Back
+    """"Back" is sent as its own buttons message, not the last ROW inside
+    the department/doctor/date/time list itself -- WhatsApp's `list`
+    message type has no way to attach a separate button to the SAME
+    message, so showing Back
     visually apart from the real options means sending it as its own
     follow-up buttons message immediately after the list, not folding it
     into one. Same BACK_ID either way -- every handler's `if reply["id"] ==
@@ -131,8 +130,7 @@ async def _reject_if_patient_link_invalid(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, patient_id: int | None, connector: Connector,
     language: str = "en",
 ) -> bool:
-    """CareConnect architecture doc alignment (Spec.md Section 0), Section
-    14's patient-context validation -- re-checked here, right before the
+    """Re-checked here, right before the
     actual WRITE, not just at selection time: a link resolved several
     messages ago in a multi-step flow could have been unlinked (or the
     patient blocked) in between.
@@ -147,7 +145,7 @@ async def _reject_if_patient_link_invalid(
     _upsert_patient()) -- re-validating THAT patient_id here would
     incorrectly block a patient from cancelling/rescheduling their own
     completely legitimate, pre-existing appointment. Booking confirmation
-    has no such legacy-data ambiguity: active_patient_id there is only ever
+    has no such ambiguity: active_patient_id there is only ever
     set by a resolution that just happened in this exact conversation.
 
     Returns True (and has already reset the session + replied) if the check
@@ -380,8 +378,7 @@ async def _handle_awaiting_patient_selection(
                 return
     # Stale/unrecognized tap, or the list went stale between send and reply
     # (a patient was unlinked meanwhile) -- re-fetch and re-show fresh rather
-    # than acting on a stale id (Phase 8's established "recheck dynamic
-    # data" discipline).
+    # than acting on a stale id.
     patients = connector.list_active_patients(hospital_id, phone)
     if len(patients) <= 1 and next_action != "booking":
         # Down to (at most) one patient since this selector was sent --
@@ -421,10 +418,10 @@ async def _send_slot_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str | None, doctor_name: str, connector: Connector,
     language: str = "en",
 ) -> None:
-    """RESCHEDULE flow's own step only, as of Section 12.12 -- see the module
-    docstring/state-constants comment for why booking itself now uses the
+    """RESCHEDULE flow's own step only -- see the module
+    docstring/state-constants comment for why booking itself uses the
     date/time-split _send_date_menu/_send_time_menu below instead."""
-    assert doctor_id is not None  # this legacy path is never reached for a resource-bound booking
+    assert doctor_id is not None  # this path is never reached for a resource-bound booking
     # get_available_slots() returns soonest-first (db.get_slots()'s ORDER BY
     # scheduled_at) -- capping to _MAX_LIST_ROWS keeps the soonest bookable
     # times, not an arbitrary/later slice.
@@ -443,20 +440,19 @@ async def _send_date_menu(
     language: str = "en", min_date: str | None = None, resource_id: str | None = None,
     procedure_id: int | None = None,
 ) -> None:
-    """Section 12.12, booking flow's step 1 of the date/time split: the
+    """Booking flow's step 1 of the date/time split: the
     distinct dates (soonest first, since get_available_slots() is already
     sorted that way) this doctor has ANY bookable slot on, capped to Meta's
     10-row limit -- a doctor's grid computes up to future_booking_days ahead
     (db/repositories/hospital_settings.py, default 14), so this can
     legitimately exceed 10 distinct dates for a doctor who works every day.
 
-    min_date (Follow-up only, docs/per-appointment-type-flow-plan.md Phase 2
-    Step 2 follow-up): dates strictly AFTER this "YYYY-MM-DD" string are kept
-    -- a follow-up must be booked after the visit it follows, never on the
-    same day or earlier. String comparison is safe since dates are always
-    this ISO shape. None (every other type) means no floor at all.
+    min_date (Follow-up only): dates strictly AFTER this "YYYY-MM-DD" string
+    are kept -- a follow-up must be booked after the visit it follows, never
+    on the same day or earlier. String comparison is safe since dates are
+    always this ISO shape. None (every other type) means no floor at all.
 
-    resource_id (Diagnostic/Lab Phase 2): when given, slots come from this
+    resource_id: when given, slots come from this
     resource's own calendar instead of doctor_id's -- doctor_name is still
     used as the display name either way (a resource's own name, passed in
     that same param, by callers that set resource_id).
@@ -492,12 +488,11 @@ async def _send_time_menu(
     wa: WhatsAppClient, phone: str, hospital_id: int, doctor_id: str | None, date_str: str, connector: Connector,
     language: str = "en", resource_id: str | None = None, procedure_id: int | None = None, page: int = 0,
 ) -> int:
-    """Section 12.12, step 2 of the date/time split: just this doctor's slots
+    """Step 2 of the date/time split: just this doctor's slots
     ON date_str, row title is the bare time (the date's already been picked,
     showing it again in every row would be redundant) -- e.g. a doctor with
     two shifts and a short slot duration can easily have 20+ times in one
-    day, which used to just get silently truncated to the first 10 (earliest)
-    times by _cap_rows below with no way to see the rest. Now paginated in
+    day, so this paginates in
     fixed _TIME_SLOTS_PAGE_SIZE-sized pages once the full list exceeds one
     screen, with Previous/Next nav rows (flows/booking/state.py's
     PREV_TIMES_ID/NEXT_TIMES_ID) filling in whichever end(s) have more.
@@ -507,8 +502,7 @@ async def _send_time_menu(
     matters if the slot list shrank (another booking/cancellation) between
     renders and a stale requested page would otherwise be out of range.
 
-    resource_id (Diagnostic/Lab Phase 2)/procedure_id (Daycare/Procedure
-    rebuild): same override as _send_date_menu."""
+    resource_id/procedure_id: same override as _send_date_menu."""
     if procedure_id is not None:
         slots = connector.get_procedure_available_slots(hospital_id, procedure_id)
     elif resource_id is not None:
@@ -550,9 +544,8 @@ async def _notify_no_doctors_available(
 ) -> None:
     sessions.reset(hospital_id, phone)
     await wa.send_text(phone, t(NO_DOCTORS_AVAILABLE, language, department_name=department_name))
-    # Item 9 (Spec.md Section 0): a genuine dead end (this department has no
-    # doctors) previously left the patient with nothing to do next but
-    # message again from scratch -- the main menu is the recovery path for
+    # A genuine dead end (this department has no doctors) -- the main menu
+    # is the recovery path for
     # every negative-outcome case that ISN'T specifically "pick another
     # slot" (that's item 1's own alternate-slot recovery, _handle_slot_taken
     # above). "the hospital" matches this file's own existing fallback
@@ -575,12 +568,12 @@ async def _handle_slot_taken(
     language: str = "en",
 ) -> None:
     """Shared recovery path for a double-booking race hit during booking OR
-    reschedule confirmation (SPEC Phase 8): tell the patient, then either
+    reschedule confirmation: tell the patient, then either
     re-show a fresh list that no longer offers the just-taken slot, or, if
     that emptied the doctor's availability out entirely, the same "no slots
     available" fallback used elsewhere.
 
-    Section 12.12, extended by Item 3 (Spec.md Section 0): target_state tells
+    target_state tells
     this which flow is recovering -- STATE_AWAITING_TIME_SLOT (booking) and
     STATE_AWAITING_RESCHEDULE_SLOT (reschedule, since its own date/time split)
     both now mean "pick a time for context['date']", so both re-show just
@@ -628,12 +621,10 @@ async def _handle_slot_taken(
 
 
 async def _send_confirmation(wa: WhatsAppClient, phone: str, hospital_id: int, context: dict, language: str = "en") -> None:
-    """Section 12.12: structured card matching the reference screenshot --
-    see core/translations.py's confirm_booking_summary. Age (Section 12.13
-    follow-up) is included too, even though the original reference
-    screenshot didn't have it -- explicitly requested.
+    """Structured card -- see core/translations.py's confirm_booking_summary.
+    Age is included too.
 
-    patient_code (Patient Code line, confirmed with the user) is the same
+    patient_code (Patient Code line) is the same
     patient_display_id shown everywhere else in the app -- fetched fresh
     here via active_patient_id rather than threaded through context, since
     nothing upstream of this call currently stashes it there.
@@ -719,8 +710,7 @@ async def _send_change_selection_menu(
         rows.append({"id": CHANGE_DIAGNOSTIC_TEST, "title": t(CHANGE_DIAGNOSTIC_TEST_OPTION, language)})
     if flow.has_step(STATE_AWAITING_COLLECTION_METHOD):
         rows.append({"id": CHANGE_COLLECTION_METHOD, "title": t(CHANGE_COLLECTION_METHOD_OPTION, language)})
-    # Previously a dead end -- every row here picked a field to change, with
-    # no way out except actually picking one. GOTO_MAIN_MENU is intercepted
+    # GOTO_MAIN_MENU is intercepted
     # globally (flows/router.py's handle_incoming, before any state
     # dispatch), so this abandons the in-progress booking rather than
     # returning to the confirmation card underneath -- same trade-off
@@ -818,11 +808,10 @@ async def _send_appointment_selection_menu(
     wa: WhatsAppClient, phone: str, appointments: list, body_key: str, language: str = "en",
     patient_names: dict[int, str] | None = None,
 ) -> None:
-    """Patient identity SEPARATION (Spec.md Section 0): `patient_names`, when
+    """`patient_names`, when
     given (a multi-patient phone viewing an unfiltered "All" list), prefixes
     each row with that appointment's own patient name so it's unambiguous
-    whose appointment is whose -- omitted entirely for the common
-    single-patient case, unchanged from before this section."""
+    whose appointment is whose -- omitted entirely for the common single-patient case."""
     rows = []
     for a in appointments:
         title = a.doctor_name
@@ -880,7 +869,7 @@ def _find_selected_appointment(hospital_id: int, phone: str, reply: dict, connec
     pattern as slot selection. connector.get_upcoming_appointments(phone=...)
     already only returns booked, future, phone-owned appointments, so a row id
     guessed/replayed from a different hospital's conversation (or a different
-    patient's) can never resolve here (SPEC Section 12.2)."""
+    patient's) can never resolve here."""
     if reply["type"] != "interactive_reply":
         return None
     appt_id = _parse_appointment_row_id(reply["id"])

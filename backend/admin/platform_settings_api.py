@@ -2,9 +2,8 @@
 """JSON API for the platform/super admin's GLOBAL settings -- as opposed to
 admin/tenants_api.py, which lists/edits one tenant's own row at a time, this
 file is for values that apply identically across every hospital and have no
-per-tenant override (confirmed with the user: max_active_patient_links is
-NOT a hospital-configurable field). RBAC (docs/rbac-redis-plan.md): gated by
-the same get_current_super_admin() tenants_api.py now uses -- this is
+per-tenant override (max_active_patient_links is NOT a hospital-configurable
+field). Gated by the same get_current_super_admin() tenants_api.py uses -- this is
 exactly the kind of cross-tenant, higher-blast-radius surface that
 individual-account gate exists for, and a separate check for a second admin
 page would just be one more thing to keep in sync (the same super admin
@@ -23,11 +22,8 @@ router = APIRouter()
 
 class PlatformSettingsUpdatePayload(BaseModel):
     max_active_patient_links: int
-    # Migration 0014: WhatsApp menu label overrides and the DPDP Act consent
-    # gate moved here from hospitals.feature_labels/dpdp_consent_required --
-    # ONE value for every tenant, not a per-hospital setting anymore (see
-    # that migration's docstring). feature_labels defaults to {} the same
-    # way the old per-hospital form did.
+    # WhatsApp menu label overrides and the DPDP Act consent gate: ONE
+    # value for every tenant, not a per-hospital setting.
     feature_labels: dict[str, str] = {}
     dpdp_consent_required: bool = False
 

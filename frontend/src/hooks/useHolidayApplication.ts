@@ -14,12 +14,11 @@ export type SubmitLeaveRequestInput = {
   reason: string;
 };
 
-/** Holiday Application page (migration 6eda12041ecf) -- ANY staff member's
- * (doctor or not) own leave requests + balance, and the submit action.
- * Feeds the SAME leave_requests table the admin Leave Requests page
+/** Any staff member's own leave requests + balance, and the submit action.
+ * Feeds the same leave_requests table the admin Leave Requests page
  * (useLeaveRequests.ts) reviews -- gated by a separate permission
  * ("holiday_application", not "leave_requests"), since submitting your own
- * leave and reviewing everyone else's are two different capabilities. */
+ * leave and reviewing everyone else's are different capabilities. */
 export function useHolidayApplication(canView: boolean) {
   const router = useRouter();
   const [requests, setRequests] = useState<LeaveRequestRow[] | null>(null);

@@ -1,15 +1,12 @@
 # db/repositories/super_admins.py
-"""Individual platform-operator accounts (docs/rbac-redis-plan.md), replacing
-the X-Admin-Secret/ADMIN_SECRET/TENANTS_ADMIN_SECRET shared-secret gates.
+"""Individual platform-operator accounts, replacing the
+X-Admin-Secret/ADMIN_SECRET/TENANTS_ADMIN_SECRET shared-secret gates.
 
-Migration 0016: reads/writes db.orm_models.Identity + SuperAdminDetail now,
-not the historical SuperAdmin table (kept, untouched, as a backup -- see
-that migration's own docstring). Every function here keeps the exact same
-name and dict shape ({id, email, password_hash, name, is_active,
-token_version}) callers (admin/super_auth.py, portal/deps.py) already
-expect -- only the underlying tables changed. "id" here is identities.id,
-the same id issue_access_token()/JWT claims already treat as this
-principal's identifier.
+Reads/writes db.orm_models.Identity + SuperAdminDetail. Every function
+here returns the same dict shape ({id, email, password_hash, name,
+is_active, token_version}) callers (admin/super_auth.py, portal/deps.py)
+expect. "id" here is identities.id, the same id issue_access_token()/JWT
+claims already treat as this principal's identifier.
 
 A super admin identity is one with a matching SuperAdminDetail row --
 deliberately a JOIN, not a flag on Identity, for the safety reasoning
@@ -57,8 +54,7 @@ def get_super_admin_by_email(email: str) -> dict | None:
     deactivated" reasoning staff_users.get_staff_user_by_email() documents.
     The JOIN to SuperAdminDetail is what makes this "get a super admin by
     email" rather than "get any identity by email" -- an OAuth hospital
-    owner or hospital staff member sharing that email (see migration 0016's
-    merge-by-email note) never matches here."""
+    owner or hospital staff member sharing that email never matches here."""
     session = get_session()
     row = session.execute(
         select(*_SUPER_ADMIN_COLUMNS)

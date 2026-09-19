@@ -1,7 +1,6 @@
 # flows/booking/__init__.py
 """
-ARCHITECTURE_PLAN.md Phase 3b: core/booking_flow.py (1873 ln) has been
-physically split into this package:
+This package is organized as:
 
   state.py             STATE_* constants, FREE_TEXT_INPUT_STATES, the
                         step-history stack, row-id encode/decode helpers

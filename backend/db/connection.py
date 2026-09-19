@@ -1,7 +1,6 @@
 # db/connection.py
 """
-Thin connection layer — the only place that knows this is Postgres (SPEC
-Section 6/12.6: moved off SQLite before real production load, onto Neon).
+Thin connection layer — the only place that knows this is Postgres.
 Swapping the backend again later means changing this file and db/schema.sql,
 not touching db/repository.py's callers (core/booking_flow.py,
 reminders/scheduler.py, slots/scheduler.py) — those only ever call

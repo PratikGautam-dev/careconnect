@@ -67,11 +67,7 @@ export type WizardState = {
   portalPassword: string;
   departments: DepartmentForm[];
   topics: TopicForm[];
-  // RBAC (docs/rbac-redis-plan.md): this hospital's first staff_users admin
-  // login -- replaces the old shared portalPassword as the real ongoing
-  // login. portalPassword above is still collected/sent (still accepted
-  // during the dual-path migration window) but is no longer the field
-  // required for onboarding to succeed.
+  // This hospital's first staff_users admin login, used for ongoing sign-in.
   adminEmail: string;
   adminPassword: string;
 };

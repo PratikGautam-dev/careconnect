@@ -1,8 +1,6 @@
 # portal/routes/appointment_types.py
-"""Portal CRUD for appointment_types -- the gap tenant-capability-gating-
-plan.md itself flagged ("no CRUD for appointment_types yet at all -- only
-seeded at onboarding"). This is the literal "toggle a feature on/off per
-tenant" mechanism for tenant-shaped features like the hospital-only
+"""Portal CRUD for appointment_types. This is the "toggle a feature on/off
+per tenant" mechanism for tenant-shaped features like the hospital-only
 'daycare' type (db/repositories/appointment_types.py's
 DEFAULT_ACTIVE_TYPES_BY_TENANT_TYPE): every tenant already has a row for
 every type (is_active differs by tenant_type at seed time), so turning one on

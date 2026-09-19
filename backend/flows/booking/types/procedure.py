@@ -131,7 +131,7 @@ async def _on_procedure_type_selected(
 
 
 def _resolve_department(connector, hospital_id: int, procedure: dict) -> tuple[str | None, str]:
-    """Migration 0035: appointments.department_id is nullable -- a procedure
+    """appointments.department_id is nullable -- a procedure
     with no department configured (or one that no longer exists) genuinely
     books with none, matching _diagnostic_shared.py's
     resolve_resource_and_advance_to_date()."""

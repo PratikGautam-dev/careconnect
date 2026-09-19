@@ -34,11 +34,10 @@ export type LeaveRequestSummary = {
   on_leave_today: number;
 };
 
-/** Leave Requests admin page (migration 20260912065049) -- loads the
- * pending/approved/rejected review queue for the caller's own hospital and
- * owns the approve/reject actions. The rows it reviews are now real,
- * submitted through the Holiday Application page (useHolidayApplication.ts,
- * migration 6eda12041ecf) -- any staff member, not just a doctor. */
+/** Leave Requests admin page -- loads the pending/approved/rejected review
+ * queue for the caller's own hospital and owns the approve/reject actions.
+ * Rows are submitted through the Holiday Application page
+ * (useHolidayApplication.ts) by any staff member, not just a doctor. */
 export function useLeaveRequests(canView: boolean) {
   const router = useRouter();
 

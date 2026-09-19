@@ -1,14 +1,11 @@
 # db/repositories/doctors.py
-"""Departments, doctors, and doctor-slot candidate computation (Section
-12.1/14.7). Split out of db/repository.py -- see ARCHITECTURE_PLAN.md Phase 1.
+"""Departments, doctors, and doctor-slot candidate computation.
 
-compute_doctor_candidate_slots() (below generate_slots_for_doctor's old
-location) replaces what used to be a bulk INSERT into a doctor_slots table --
-found to scale badly (one row for every possible future slot, pre-generated
-ahead of time) and to be the root cause of a stale-window bug: a doctor's
-bookable grid is now computed in memory, live, from this same working_days/
-working_hours/slot_duration_minutes/breaks/doctor_leave config every time
-it's needed (db/repositories/slots.py), so there's no window that can ever
+compute_doctor_candidate_slots() computes a doctor's bookable grid in
+memory, live, from working_days/working_hours/slot_duration_minutes/
+breaks/doctor_leave config every time it's needed (db/repositories/
+slots.py), rather than pre-generating and storing every possible future
+slot, so there's no window that can ever
 run dry. create_doctor()/update_doctor() below no longer generate or delete
 any slot rows at all -- there's nothing left to generate ahead of time."""
 import uuid
@@ -41,7 +38,7 @@ def invalidate_doctor_slots_cache(hospital_id: int, doctor_id: str) -> None:
 # --- Departments / doctors ---
 
 def get_departments(hospital_id: int) -> list[dict]:
-    """The connector interface's own get_departments() (Section 12.6.2) --
+    """The connector interface's own get_departments() --
     the WhatsApp bot's booking flow reads the department picker menu through
     this one function (connectors/tier1.py -> here), so filtering to
     is_active/show_on_frontend/whatsapp_booking_enabled here is the single
@@ -73,10 +70,9 @@ def get_all_departments_for_hospital(hospital_id: int) -> list[dict]:
     non-doctor rows there, enforced by ck_staff_details_department_doctor_
     role) and the head doctor's own name/qualification/phone/email via an
     outer join (None when head_doctor_id is unset). "Email" is the head
-    doctor's own portal-login email (identities.email via staff_details --
-    doctors.email was dropped in migration 20260911190251, every doctor
-    login now goes through the unified staff login), so it's None for a
-    head doctor with no portal login of their own, same as
+    doctor's own portal-login email (identities.email via staff_details,
+    since every doctor login goes through the unified staff login), so
+    it's None for a head doctor with no portal login of their own, same as
     get_all_doctors_for_hospital()'s own login_email column."""
     session = get_session()
     head_doctor = aliased(DoctorRow)
@@ -136,7 +132,7 @@ def find_department(hospital_id: int, department_id: str) -> dict | None:
 
 
 def get_doctors(hospital_id: int, department_id: str) -> list[dict]:
-    """The connector interface's own get_doctors() (Section 12.6.2) -- both
+    """The connector interface's own get_doctors() -- both
     the WhatsApp bot's booking flow AND the staff portal's new-booking page
     read doctor lists through this one function, so excluding is_active=FALSE
     doctors here is the single enforcement point for "staff turned this
@@ -273,21 +269,19 @@ def create_doctor(
     columns (db/repositories/slots.py's get_doctor_grid()). A doctor with no
     working_days/working_hours simply computes zero candidate slots.
 
-    breaks (Section 14.7, e.g. ["11:20-11:40"]) is comma-stored exactly like
+    breaks (e.g. ["11:20-11:40"]) is comma-stored exactly like
     working_hours, and applies the same way -- uniformly across every working
     day, not per-specific-day. effective_from has no effect on a brand-new
     doctor (nothing to preserve yet) -- it only matters on update_doctor().
 
-    specialization/qualification/phone default to "" (not None) since
-    migration 20260911190007 made all of them NOT NULL -- the Doctors page's
-    own Add/Edit form (admin/validation.py's _validate_doctor_fields) is what
-    actually requires a real value; callers that don't collect these at all
-    (CSV import defaults aside, onboarding, tests) still work unchanged, just
-    persisting an empty string instead of NULL.
+    specialization/qualification/phone default to "" (not None) since these
+    columns are NOT NULL -- the Doctors page's own Add/Edit form
+    (admin/validation.py's _validate_doctor_fields) is what actually
+    requires a real value; callers that don't collect these at all still
+    work unchanged, just persisting an empty string instead of NULL.
 
-    employee_id is NOT a caller-supplied argument (Employee ID auto-numbering
-    feature, confirmed with the user) -- generated here, server-side, via
-    the shared per-hospital, never-resetting code_sequences counter
+    employee_id is NOT a caller-supplied argument -- generated here,
+    server-side, via the shared per-hospital, never-resetting code_sequences counter
     (db/display_ids.py's generate_employee_id_session), same
     "EMP-DC-00001, EMP-DC-00002, ..." scheme update_doctor() below never
     touches (assigned once, like patient_display_id)."""
@@ -321,17 +315,15 @@ _DOCTOR_FULL_COLUMNS = (
 
 def get_doctor_full(hospital_id: int, doctor_id: str) -> dict | None:
     """Every column, not just {id, name} like get_doctors()/find_doctor() --
-    portal.py's doctor-edit form (Section 12.7 follow-up: self-serve doctor
-    management) needs the full working pattern to pre-fill, and needs
-    department_id from the doctor_id alone (the edit URL only carries the
-    doctor's id, not which department it's under).
+    portal.py's doctor-edit form needs the full working pattern to pre-fill,
+    and needs department_id from the doctor_id alone (the edit URL only
+    carries the doctor's id, not which department it's under).
 
     Also carries this doctor's unified-login status via an outer join to
     staff_details/identities (login_staff_id/login_email/login_active are
     all None when no staff_details row is linked to this doctor_id yet) --
     the Doctors page's detail panel uses this to show "Create login" vs the
-    real login state, replacing the old dedicated doctors.email/password_hash
-    columns (migration 20260912xxxxxx dropped them, see its own docstring)."""
+    real login state."""
     session = get_session()
     row = session.execute(
         select(
@@ -357,8 +349,8 @@ def _parse_doctor_row(d: dict) -> dict:
 
 def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
     """Every doctor at this hospital with its department name attached --
-    portal.py's doctors list page (Section 12.7 follow-up), one query instead
-    of walking get_departments() -> get_doctors() per department. Deliberately
+    one query instead of walking get_departments() -> get_doctors() per
+    department. Deliberately
     NOT filtered by is_active -- this is the management view, so an inactive
     doctor must still show up (with its off state) so staff can toggle it
     back on; get_doctors() is the one that hides them from bookable lists.
@@ -407,7 +399,7 @@ def get_all_doctors_for_hospital(hospital_id: int) -> list[dict]:
 
 def get_doctors_on_leave_today_count(hospital_id: int, today: date | None = None) -> int:
     """Doctors list page's "On leave" stat tile -- distinct doctors with a
-    doctor_leave row for today's date (Section 14.7's whole-day leave)."""
+    doctor_leave row for today's date."""
     session = get_session()
     today = today or date.today()
     return session.execute(
@@ -472,16 +464,14 @@ def update_doctor(
     the actual guard, not application logic" discipline as every other
     hospital-scoped write here.
 
-    Section 14.7: if effective_from is a FUTURE date, the submitted pattern
-    is queued into the pending_* columns instead of overwriting the active
-    one -- compute_doctor_candidate_slots() below keeps serving the CURRENT
-    pattern for near-term dates and switches to the pending one once its own
-    date arrives, so a schedule change meant to start next month doesn't
-    retroactively change next week's availability. effective_from=None (or a
-    non-future date) applies the submitted pattern immediately and clears
-    any previously-queued pending change (this submission supersedes it) --
-    matches the exact pre-migration-0032 behavior, just computed live now
-    instead of via regenerating persisted rows."""
+    If effective_from is a FUTURE date, the submitted pattern is queued
+    into the pending_* columns instead of overwriting the active one --
+    compute_doctor_candidate_slots() below keeps serving the CURRENT
+    pattern for near-term dates and switches to the pending one once its
+    own date arrives, so a schedule change meant to start next month
+    doesn't retroactively change next week's availability. effective_from
+    =None (or a non-future date) applies the submitted pattern immediately
+    and clears any previously-queued pending change."""
     today = date.today()
     is_future_change = effective_from is not None and date.fromisoformat(effective_from) > today
     values = {
@@ -539,7 +529,7 @@ def _pattern_for_date(doctor_row: DoctorRow, d: date, default_duration_minutes: 
     brand-new doctor whose effective_from hasn't arrived yet, or an
     incompletely-configured doctor).
 
-    `default_duration_minutes` (migration 20260914120000, this hospital's
+    `default_duration_minutes` (this hospital's
     default_appointment_duration_minutes) fills in for a doctor's own
     slot_duration_minutes/pending_slot_duration_minutes when that's NULL --
     "this doctor hasn't explicitly set their own slot duration" -- rather
@@ -570,14 +560,12 @@ def compute_doctor_candidate_slots(
     """The doctor's bookable grid for the next `days_ahead` days, computed
     live from working_days/working_hours/slot_duration_minutes/breaks/
     doctor_leave (and pending_* -- see _pattern_for_date()) -- ISO
-    scheduled_at strings only, no DB write. Replaces the old
-    generate_slots_for_doctor()'s bulk INSERT into a doctor_slots table
-    (removed in migration 0032, found to scale badly and be the root cause
-    of a stale-window bug). db/repositories/slots.py's get_doctor_grid() is
-    the only caller, merging this with doctor_slot_overrides (blocked/
-    custom-added exceptions) to build the final grid.
+    scheduled_at strings only, no DB write. db/repositories/slots.py's
+    get_doctor_grid() is the only caller, merging this with
+    doctor_slot_overrides (blocked/custom-added exceptions) to build the
+    final grid.
 
-    Section 14.7 features, all read from the doctor's own row:
+    Features, all read from the doctor's own row:
     - breaks: any candidate overlapping a break window is skipped entirely
       (breaks apply uniformly to every working day, not a specific one).
     - doctor_leave: any date present there is skipped entirely.
@@ -585,8 +573,7 @@ def compute_doctor_candidate_slots(
       first, since candidates are built in ascending time order) -- doesn't
       affect other dates.
 
-    Appointment Settings card (migration 20260914120000): `step` between
-    consecutive candidates is slot_duration + this hospital's buffer_minutes
+    `step` between consecutive candidates is slot_duration + this hospital's buffer_minutes
     (default 0, unchanged behavior), and a doctor with no explicit
     slot_duration_minutes of their own uses this hospital's
     default_appointment_duration_minutes instead (_pattern_for_date)."""

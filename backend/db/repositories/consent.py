@@ -13,9 +13,9 @@ from db.repositories.accounts import _get_or_create_account_in_session
 
 def has_agreed_to_dpdp_consent(hospital_id: int, phone: str) -> bool:
     """True only if this (hospital, phone) has an on-file AGREED decision.
-    A phone that has never been asked, or that previously tapped "I Do Not
-    Agree" (never persisted -- see record_dpdp_consent()'s own docstring),
-    both return False here, so both get asked again on their next fresh
+    A phone that has never been asked, or that tapped "I Do Not Agree"
+    (never persisted -- see record_dpdp_consent()'s own docstring), both
+    return False here, so both get asked again on their next fresh
     conversation."""
     session = get_session()
     row = session.execute(

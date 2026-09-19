@@ -37,11 +37,10 @@ type CreateVisitHistoryColumnsOptions = {
   notesByVisit: (visitId: number) => Note[];
 };
 
-/** Column definitions for the patient detail page's visit-history DataTable
- * -- same 10 columns the hand-rolled table used to render directly. Follow-
- * up and Notes stay as their own columns (not combined into one actions
- * menu) since both show real at-a-glance info -- valid-until date, note
- * count -- alongside their toggle, not just a bare action. */
+/** Column definitions for the patient detail page's visit-history DataTable.
+ * Follow-up and Notes stay as their own columns (not combined into one
+ * actions menu) since both show real at-a-glance info -- valid-until date,
+ * note count -- alongside their toggle, not just a bare action. */
 export function createVisitHistoryColumns({
   followupPanelId, onOpenFollowup, onCloseFollowup,
   expandedVisit, setExpandedVisit, notesByVisit,

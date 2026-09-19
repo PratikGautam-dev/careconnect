@@ -11,15 +11,14 @@ export type Handoff = {
   status: "open" | "resolved";
   created_at: string;
   resolved_at: string | null;
-  // Messages page follow-up: "auto" for the scheduler
-  // (/internal/auto-resolve-handoffs), a staff session's hashed token for a
-  // real manual resolve, or null (never resolved, or predates this column).
+  // "auto" for the scheduler (/internal/auto-resolve-handoffs), a staff
+  // session's hashed token for a manual resolve, or null (never resolved).
   resolved_by: string | null;
 };
 
-// Two-way threading follow-up (Spec.md Section 0): a handoff's full
-// conversation, not just its trigger message -- direction distinguishes a
-// patient's own message (inbound) from a staff reply (outbound).
+// A handoff's full conversation, not just its trigger message --
+// direction distinguishes a patient's own message (inbound) from a staff
+// reply (outbound).
 export type HandoffMessage = {
   id: number;
   direction: "inbound" | "outbound";
@@ -27,8 +26,8 @@ export type HandoffMessage = {
   created_at: string;
 };
 
-// Messages page follow-up: "Errored" is a peer tab, not a status -- it shows
-// every system_error-triggered conversation regardless of resolved state
+// "Errored" is a peer tab, not a status -- it shows every
+// system_error-triggered conversation regardless of resolved state
 // (status="all"), since a bot error worth following up on doesn't stop
 // being worth seeing just because it auto-resolved or got marked resolved.
 export const FILTERS = [
@@ -38,12 +37,11 @@ export const FILTERS = [
   { key: "all", label: "All", status: "all", reason: null },
 ] as const;
 
-// Item 4 (Spec.md Section 0): new incoming handoff requests don't push to
-// this tab -- there's no websocket/SSE infra in this app -- so poll instead
-// of requiring a manual refresh, same pattern /portal/dashboard already
-// uses. A plain re-fetch + re-render is enough here: `load()` only replaces
-// the `handoffs` list, never `replyText` (separate local state), so a poll
-// firing mid-type never loses what staff is typing.
+// New incoming handoff requests don't push to this tab -- there's no
+// websocket/SSE infra in this app -- so poll instead of requiring a
+// manual refresh. `load()` only replaces the `handoffs` list, never
+// `replyText` (separate local state), so a poll firing mid-type never
+// loses what staff is typing.
 const POLL_INTERVAL_MS = 12_000;
 
 /** Loads + owns every mutation on the /portal/messages (handoffs) page:
@@ -61,10 +59,7 @@ export function useMessages(ready: boolean) {
   const [threadError, setThreadError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  // Item 6 (Spec.md Section 0): status filtering already existed (the
-  // Open/Resolved/All tabs above) -- this adds a date filter alongside it.
   const [dateFilter, setDateFilter] = useState("");
-  // Messages page follow-up: multi-select + bulk resolve/delete.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkActing, setBulkActing] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -215,10 +210,9 @@ export function useMessages(ready: boolean) {
     setThread((result.data as { messages: HandoffMessage[] }).messages);
   }, [router]);
 
-  // Two-way threading follow-up: while a conversation is open, poll its
-  // thread too (same reasoning POLL_INTERVAL_MS already documents for the
-  // list itself) -- a patient's follow-up messages must show up without a
-  // manual refresh, same as new handoffs appearing in the left list do.
+  // While a conversation is open, poll its thread too -- a patient's
+  // follow-up messages must show up without a manual refresh, same as new
+  // handoffs appearing in the left list do.
   useEffect(() => {
     if (selectedId === null) {
       setThread(null);

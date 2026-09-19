@@ -12,32 +12,27 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from db.connection import get_session
 from db.orm_models import HospitalSettings
 
-# Follow-up eligibility window (docs/per-appointment-type-flow-plan.md Phase 2
-# Step 2 follow-up): the code-level default when a hospital's own
-# followup_validity_days is NULL (never configured).
+# The code-level default when a hospital's own followup_validity_days is
+# NULL (never configured).
 DEFAULT_FOLLOWUP_VALIDITY_DAYS = 30
 
-# Slot-generation window (migration 0031): the code-level default when a
-# hospital's own future_booking_days is NULL (never configured) -- matches
-# every generate_slots_for_*() function's old hardcoded _SLOT_DAYS_AHEAD, so
-# a hospital that never touches this setting sees no behavior change.
+# The code-level default when a hospital's own future_booking_days is NULL
+# (never configured).
 DEFAULT_FUTURE_BOOKING_DAYS = 14
 
-# Appointment Settings card (migration 20260914120000): the code-level
-# default when a hospital's own default_appointment_duration_minutes is
-# NULL (never configured) -- applied to any doctor whose own
-# slot_duration_minutes is also unset (db/repositories/doctors.py).
+# The code-level default when a hospital's own
+# default_appointment_duration_minutes is NULL (never configured) --
+# applied to any doctor whose own slot_duration_minutes is also unset
+# (db/repositories/doctors.py).
 DEFAULT_APPOINTMENT_DURATION_MINUTES = 30
-# Same convention for buffer_minutes -- NULL means no gap between slots,
-# unchanged from the behavior before this setting existed.
+# NULL means no gap between slots.
 DEFAULT_BUFFER_MINUTES = 0
 
-# Settings -> Attendance tab (migration 20260918090000): code-level defaults
-# applied only once a hospital HAS set attendance_latitude/longitude (the
-# radius/window default in when just the location was configured) -- unlike
-# the fields above, there's no meaningful default for the geofence/IP
-# checks themselves being "on" (see db/repositories/attendance.py's
-# check_in(), which skips a check entirely when its own setting is NULL).
+# Settings -> Attendance tab: code-level defaults applied only once a
+# hospital HAS set attendance_latitude/longitude -- unlike the fields
+# above, there's no meaningful default for the geofence/IP checks
+# themselves being "on" (see db/repositories/attendance.py's check_in(),
+# which skips a check entirely when its own setting is NULL).
 DEFAULT_ATTENDANCE_ALLOWED_RADIUS_METERS = 150
 DEFAULT_ATTENDANCE_EARLY_CHECKIN_MINUTES = 30
 DEFAULT_ATTENDANCE_LATE_THRESHOLD_MINUTES = 10

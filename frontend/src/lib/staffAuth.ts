@@ -5,12 +5,9 @@ import type { PortalHospital } from "@/lib/portalAuth";
 
 const ACCESS_KEY = "staff_access_token";
 const REFRESH_KEY = "staff_refresh_token";
-// Legacy, (unused-doctor)-only key -- see getStaffSession()'s own docstring.
 const SESSION_KEY = "staff_session";
 
-// Dynamic-roles migration: roles are admin-defined per hospital now, no
-// more fixed "admin"/"receptionist"/"doctor" string union -- see
-// frontend/src/hooks/usePortalRoles.ts's Role type for the fetched shape.
+// Roles are admin-defined per hospital; see usePortalRoles.ts's Role type for the fetched shape.
 export type StaffPermissions = Record<string, { view: boolean; write: boolean; delete: boolean }>;
 
 export type StaffSession = {
@@ -58,9 +55,8 @@ export function getStaffRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 
-/** Reads the legacy localStorage-cached session -- only useDoctorGuard.ts
- * (unused-doctor-exclusive) still calls this. The live app reads
- * useStaffSession() below instead, which is never backed by this key. */
+/** Reads the localStorage-cached session used by useDoctorGuard.ts; other
+ * pages should use useStaffSession() below instead. */
 export function getStaffSession(): StaffSession | null {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem(SESSION_KEY);

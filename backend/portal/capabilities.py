@@ -1,6 +1,6 @@
 # portal/capabilities.py
 """
-Tenant-type-driven capability gating (tenant-capability-gating-plan.md).
+Tenant-type-driven capability gating.
 
 Every tenant is a row in `hospitals` -- there's no separate tenant table.
 Today every authenticated staff-portal session gets full access to every
@@ -23,8 +23,7 @@ MANAGE_APPOINTMENT_TYPES = "manage_appointment_types"
 MANAGE_BOOKINGS = "manage_bookings"
 MANAGE_SETTINGS = "manage_settings"
 MANAGE_STAFF = "manage_staff"
-# Diagnostic/Lab Phase 2 (docs/per-appointment-type-flow-plan.md Step 5): a
-# diagnostic test is a schedulable entity of the same weight as a doctor
+# A diagnostic test is a schedulable entity of the same weight as a doctor
 # (tests/resources merged into one entity -- a test carries its own
 # schedule directly, there's no separate resource) -- hospital-tier only,
 # same default tier as MANAGE_DOCTORS/MANAGE_DEPARTMENTS. Gates every
@@ -74,7 +73,7 @@ def has_capability(hospital: Hospital, capability: str) -> bool:
 
 
 def resolve_default_capabilities(tenant_type: str) -> list[str]:
-    """Onboarding's own explicit-write helper (Section 4 of the plan): a new
+    """Onboarding's own explicit-write helper: a new
     hospital gets its admin_capabilities set EXPLICITLY at creation time
     from this default (passed straight into db.create_hospital()'s own
     admin_capabilities param, which json-encodes it), rather than left NULL

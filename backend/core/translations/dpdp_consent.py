@@ -7,11 +7,10 @@ exact copy in dpdp_consent_body was given verbatim, not drafted -- do not
 reword without checking with the user first, since this is compliance-facing
 text.
 
-Also holds Section 20's "Consent & Privacy" menu item -- kept intentionally
+Also holds the "Consent & Privacy" menu item -- kept intentionally
 minimal (a real status display + one genuine toggle, not a full legal
 consent-management platform). Service consent and marketing consent are
-shown/controlled separately, never bundled, per the doc's own explicit
-instruction."""
+shown/controlled separately, never bundled."""
 from core.translations._common import Language
 
 
@@ -28,18 +27,6 @@ CONSENT_MARKETING_DISABLE = "consent_marketing_disable"
 
 STRINGS: dict[str, dict[Language, str]] = {
     DPDP_CONSENT_BODY: {
-        # Previous body (kept for reference, not deleted -- see this
-        # module's docstring on why this copy isn't reworded casually):
-        # "en": (
-        #     "Welcome to the {hospital_name} Booking Bot!\n\n"
-        #     "Your privacy is important to us. In compliance with the Digital Personal Data Protection (DPDP) Act, "
-        #     "we need your explicit consent before we begin:\n\n"
-        #     "* We will securely store your name, phone number, age, and doctor preferences to manage your "
-        #     "appointments and send medical reminders.\n"
-        #     "* Your data remains strictly confidential and will never be shared with third parties.\n"
-        #     "* You can request the removal of your data at any time by texting \"DELETE\".\n\n"
-        #     "Please select an option below to proceed:"
-        # ),
         "en": (
             "🔐 Your Privacy Matters\n\n"
             "To book and manage your appointment, {hospital_name} may collect information such as your name, "
@@ -66,11 +53,6 @@ STRINGS: dict[str, dict[Language, str]] = {
     DPDP_AGREE_BUTTON: {"en": "I Agree", "hi": "मैं सहमत हूँ"},
     DPDP_DECLINE_BUTTON: {"en": "I Do Not Agree", "hi": "मैं सहमत नहीं हूँ"},
     DPDP_DECLINED_MESSAGE: {
-        # Previous body (kept for reference, not deleted -- see this
-        # module's docstring on why this copy isn't reworded casually):
-        # "en": "We understand — but to keep your information safe, we do need your consent to our data privacy "
-        #       "(DPDP) terms before we can continue. Let's start over: please pick your language below whenever "
-        #       "you're ready to agree.",
         "en": (
             "We respect your choice.\n\n"
             "We will not continue with the WhatsApp appointment-booking process.\n\n"
@@ -79,10 +61,6 @@ STRINGS: dict[str, dict[Language, str]] = {
             "You can review our Privacy Notice here:\n"
             "[Privacy Notice]"
         ),
-        # Previous body (kept for reference, not deleted -- see this
-        # module's docstring on why this copy isn't reworded casually):
-        # "hi": "हम समझते हैं — लेकिन आपकी जानकारी सुरक्षित रखने के लिए, आगे बढ़ने से पहले हमें डेटा गोपनीयता (DPDP) "
-        #       "शर्तों पर आपकी सहमति चाहिए। आइए फिर से शुरू करें: जब आप सहमत होने के लिए तैयार हों, तो नीचे अपनी भाषा चुनें।",
         "hi": (
             "हम आपकी पसंद का सम्मान करते हैं।\n\n"
             "हम व्हाट्सएप अपॉइंटमेंट-बुकिंग प्रक्रिया को आगे नहीं बढ़ाएंगे।\n\n"

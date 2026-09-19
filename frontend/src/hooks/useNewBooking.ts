@@ -18,9 +18,7 @@ export type NewBookingContext = {
  * resets the moment it closes, so reopening always starts from a clean
  * form rather than showing the last attempt's leftover values/errors.
  * Slots for the picked doctor are fetched separately, lazily, the moment
- * doctorId changes -- not eager-loaded for every doctor up front (that's
- * what /new-booking/context used to do, and why this dialog used to be
- * slow to open). */
+ * doctorId changes -- not eager-loaded for every doctor up front. */
 export function useNewBooking(
   open: boolean, onBooked?: () => void, initialPatientName?: string, initialPatientPhone?: string,
 ) {

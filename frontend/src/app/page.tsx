@@ -14,8 +14,7 @@ const FEATURES = [
 export default function LandingPage() {
   return (
     <>
-    {/* Top nav: brand mark left, hospital login as a real button top-right
-        -- previously just a small text link buried under the hero CTAs. */}
+    {/* Top nav: brand mark left, hospital login as a button top-right. */}
     <header className="flex flex-wrap items-center justify-between gap-space-3 px-space-4 py-space-4 md:px-space-7 lg:px-space-9">
       <BrandMark />
       <div className="flex items-center gap-space-2">

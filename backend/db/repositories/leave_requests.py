@@ -1,13 +1,12 @@
 # db/repositories/leave_requests.py
-"""Leave Requests admin page (migration 20260912065049) -- doctors and
-receptionists can have a leave_requests row, reviewed by an admin into one
-of pending/approved/rejected. Migration 6eda12041ecf wired up the
-doctor/staff self-service side of this (the Holiday Application page,
-portal/routes/leave_requests.py's my_leave_requests()/submit_leave_request())
--- create_leave_request() below is what that route calls.
+"""Leave Requests admin page -- doctors and receptionists can have a
+leave_requests row, reviewed by an admin into one of
+pending/approved/rejected. The doctor/staff self-service side (the
+Holiday Application page, portal/routes/leave_requests.py's
+my_leave_requests()/submit_leave_request()) calls create_leave_request() below.
 
-Not the same thing as db/repositories/leave.py's doctor_leave (Section
-14.7) -- that's a simpler "block this doctor's bookable slots on this
+Not the same thing as db/repositories/leave.py's doctor_leave -- that's a
+simpler "block this doctor's bookable slots on this
 whole day" scheduling mechanism with no approval workflow or balance,
 predating this feature. The two ARE connected in one direction though:
 approving a full-day leave request auto-creates the matching doctor_leave

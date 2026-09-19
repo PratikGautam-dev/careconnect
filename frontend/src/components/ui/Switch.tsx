@@ -28,9 +28,8 @@ type SwitchProps = {
   "aria-label"?: string;
 };
 
-/** Shared on/off toggle -- replaces the hand-rolled `role="switch"` button
- * that used to be copy-pasted (with tiny drifting inconsistencies) across
- * doctor/staff active-toggles, appointment types, and diagnostic managers. */
+/** Shared on/off toggle used by doctor/staff active-toggles, appointment
+ * types, and diagnostic managers. */
 export function Switch({ checked, onChange, disabled, size = "md", className, ...rest }: SwitchProps) {
   return (
     <button

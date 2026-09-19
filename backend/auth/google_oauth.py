@@ -1,18 +1,17 @@
 # auth/google_oauth.py
 """
-Section 15: Google OAuth sign-in -- the one NEW identity layer this app
-gets. This module owns "which Google account is this" and what happens
-right after: if that identity already has a staff_details row (an admin
-created via the staff-management UI, or the person who onboarded this
-hospital -- migration 0018 folded hospital ownership into StaffDetail,
-role='admin', no separate 'owner' role, confirmed with the user), the
-callback below issues a real staff refresh token directly (auth/refresh_tokens.py's
+Google OAuth sign-in. This module owns "which Google account is this" and
+what happens right after: if that identity already has a staff_details row
+(an admin created via the staff-management UI, or the person who
+onboarded this hospital -- hospital ownership is modeled as a StaffDetail
+row with role='admin', no separate 'owner' role), the callback below
+issues a real staff refresh token directly (auth/refresh_tokens.py's
 issue_refresh_token(), the same one portal/routes/staff_auth.py's password
 login issues) and the frontend exchanges it for a full session via
 /api/portal/staff/refresh -- so Google sign-in and staff email+password
 sign-in land the SAME session type, and the whole rest of the portal only
 ever needs to understand one. One identity, one hospital
-(confirmed with the user: staff_details.identity_id is a 1:1 PK), so there
+(staff_details.identity_id is a 1:1 PK), so there
 is no multi-hospital picker step here -- an identity with a staff_details
 row goes straight into that one hospital.
 

@@ -1,7 +1,6 @@
 # core/translations/__init__.py
 """
-Patient-facing string lookup, English + Hindi (language-selection follow-up
-to Section 14.5's feature-toggle model). Every fixed UI string the bot sends
+Patient-facing string lookup, English + Hindi. Every fixed UI string the bot sends
 lives here, keyed by a short semantic name, with one template per supported
 language -- flows.py/core/booking_flow.py/faq_flow.py/core/main.py look
 strings up here via t(key, language, **kwargs) instead of hardcoding text

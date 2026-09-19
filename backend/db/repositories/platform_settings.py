@@ -35,9 +35,7 @@ def get_platform_settings() -> dict:
         feature_labels = {}
     return {
         "max_active_patient_links": row.max_active_patient_links,
-        # Migration 0014: ONE value for every hospital -- see this module's
-        # own docstring and that migration's for why these moved off
-        # hospitals.feature_labels/dpdp_consent_required.
+        # ONE value for every hospital -- see this module's own docstring.
         "feature_labels": feature_labels,
         "dpdp_consent_required": row.dpdp_consent_required,
     }

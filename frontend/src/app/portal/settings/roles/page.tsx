@@ -60,13 +60,9 @@ type RoleFormState = { name: string; description: string; cloneFromRoleId: strin
 const EMPTY_ROLE_FORM: RoleFormState = { name: "", description: "", cloneFromRoleId: "" };
 
 export default function RolesPermissionsPage() {
-  // useStaffSession (not getStaffSession directly): null on the server AND
-  // on the client's own first render, so PortalShell/PortalSidebar render
-  // the same "Hospital" placeholder both places -- getStaffSession() itself
-  // returns the real session immediately client-side (synchronous
-  // localStorage), which used to disagree with the server's render and
-  // throw a hydration-mismatch error the instant the real hospital name
-  // reached the DOM.
+  // null on the server and on the client's first render, so
+  // PortalShell/PortalSidebar avoid a hydration mismatch against the
+  // server-rendered "Hospital" placeholder.
   const session = useStaffSession();
   const canView = usePermission("roles", "view");
   const canWrite = usePermission("roles", "write");

@@ -1,6 +1,5 @@
 # flows/booking/types/lab.py
-"""Lab Test Phase 2 follow-up (business spec Sections 4.1-4.4): unlike
-Diagnostic Test (_diagnostic_shared.py -- one test, one machine, one slot),
+"""Unlike Diagnostic Test (_diagnostic_shared.py -- one test, one machine, one slot),
 Lab Test is a multi-test BASKET with its own collection-method (visit vs.
 home sample collection, serviceability-gated)/address steps before date/time,
 an itemized price review, and a post-booking report lifecycle (see

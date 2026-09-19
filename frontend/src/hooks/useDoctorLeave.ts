@@ -4,11 +4,9 @@ import { toast } from "@/lib/toast";
 
 export type LeaveEntry = { id: number; date: string; reason: string | null };
 
-/** Loads + owns every mutation on one doctor's leave-date list.
- * Item 10 (Spec.md Section 0): From/To range with one Confirm, replacing
- * the old one-date-at-a-time add. A single date is just a range where
- * from === to, so this fully replaces the old single-date form rather
- * than living alongside it. */
+/** Loads + owns every mutation on one doctor's leave-date list. Adds a
+ * From/To range with one Confirm; a single date is just a range where
+ * from === to. */
 export function useDoctorLeave(doctorId: string) {
   const [leave, setLeave] = useState<LeaveEntry[] | null>(null);
   const [fromDate, setFromDate] = useState("");

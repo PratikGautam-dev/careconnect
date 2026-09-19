@@ -56,63 +56,28 @@ function withValue(options: number[], value: number): number[] {
   return options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
 }
 
-/** General tab of /portal/settings -- mostly a frontend-only mock rebuild of
- * the reference screenshot (Save/Reset just reset local state for most of
- * it). Hospital Name is NOT mock state -- it's read straight from the real,
- * already-loaded `hospital.name` (same read-only field the legacy settings
- * page used), so this tab doesn't grow a second, independently-editable
- * copy of it. Nine other fields are real, already-wired settings rather
- * than mock duplicates, all via usePortalSettings same as the legacy form:
- * "Advance Booking Limit" (`future_booking_days`), "Session Timeout"
- * (`session_timeout_minutes`), "Handoff Auto-Resolve" (`handoff_auto_
- * resolve_hours`) + "Require Patient Confirmation" (`require_patient_
- * confirmation`) -- conversation/session behavior, grouped into Security &
- * Session Settings rather than Notifications since neither is about
- * sending a message -- "Language" + "Ask patients to choose a language"
- * (`default_language`/`language_prompt_enabled`), and "Business Hours"
- * (`business_hours_text`, not in the mockup but a natural fit here).
- * Migration 20260914120000 made three more real: "Default Appointment
- * Duration" (`default_appointment_duration_minutes` -- the slot length
- * used for any doctor who hasn't set their own), "Buffer Time Between
- * Appointments" (`buffer_minutes` -- a gap enforced between every doctor's
- * consecutive candidate slots, hospital-wide), and "Maximum Appointments
- * Per Day" (`max_appointments_per_day` -- a hospital-wide daily booking
- * cap, enforced in create_appointment(); blank means no cap). The last one
- * also shows a live "X out of Y booked today" progress bar, from the same
- * GET response's read-only `appointments_today_count`. "Follow-up & Fees"
- * (own card, docs/per-appointment-type-flow-plan.md Phase 2 follow-up) was
- * missing entirely from this rebuild until now -- `followup_validity_days`/
- * `followup_fee`/`new_consultation_fee`/`home_collection_charge` round-
- * tripped through usePortalSettings the whole time, just with no UI home in
- * any tab (confirmed against ../_reference/legacy-general-settings-page.tsx,
- * which still had it). Same "" (unset, no fee line shown) convention as
- * `max_appointments_per_day` for the three fee fields.
- * Notification Preferences and message content (welcome/closing messages,
- * reminders) moved to the Notifications tab (see NotificationsTab.tsx).
- * Contact Information + Emergency Contact (frontend-only mock, combined
- * into one card here) live here too -- see contact-info-mock.ts's
- * initialContactInformation/initialEmergencyContact.
- *
- * Five more real, backend-wired sections moved over from the legacy page
- * (../_reference/legacy-general-settings-page.tsx), each just the same
- * component that page already used, gated by the same admin_capabilities/
- * permission checks: "Appointment Types" (AppointmentTypeToggles, kept as
- * its OWN card, deliberately separate from "Appointment Settings" above --
- * confirmed with the user that one is behavior/preferences, the other is
- * which types are enabled at all, and conflating them into one card was
- * confusing), "Diagnostic Tests" (DiagnosticTestsManager), "Leave Policy"
- * (LeavePolicyManager), "Lab Service Areas" (LabServiceAreasManager, the
- * PIN-code / home-collection settings), and Google Calendar
- * (GoogleCalendarCard, self-contained -- owns its own heading/copy/state).
- * Google Calendar briefly had its own Integrations tab but the user asked
- * to park it here for now until its real home is decided. */
+/** General tab of /portal/settings. Hospital Name is read straight from
+ * the real, already-loaded `hospital.name` (read-only). Most other
+ * settings fields (Advance Booking Limit, Session Timeout, Handoff
+ * Auto-Resolve, Require Patient Confirmation, Language, Business Hours,
+ * Default Appointment Duration, Buffer Time, Maximum Appointments Per
+ * Day, and the Follow-up & Fees fields) are real, backend-wired via
+ * usePortalSettings; the rest of the tab (Contact Information, Emergency
+ * Contact, Security toggles) is frontend-only mock state, reset by
+ * Save/Reset locally rather than persisted. Maximum Appointments Per Day
+ * also shows a live "X out of Y booked today" progress bar from the same
+ * GET response's read-only `appointments_today_count`. Notification
+ * Preferences and message content live on the Notifications tab (see
+ * NotificationsTab.tsx). Appointment Types, Diagnostic Tests, Leave
+ * Policy, Lab Service Areas, and Google Calendar are each their own real,
+ * backend-wired section below, gated by the relevant admin_capabilities/
+ * permission checks. */
 export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | null }) {
   const [settings, setSettings] = useState<GeneralSettingsState>(initialGeneralSettings());
   const [contact, setContact] = useState<ContactInformation>(initialContactInformation());
   const [emergency, setEmergency] = useState<EmergencyContact>(initialEmergencyContact());
   const hospitalName = hospital?.name ?? "";
-  // Same fail-open-while-loading convention the legacy page used (!hospital
-  // means "still loading", not "no capabilities").
+  // !hospital means "still loading", not "no capabilities".
   const canManageAppointmentTypes = !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
   const canManageTests = !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_resources");
   const canManageLeavePolicy = usePermission("leave_requests", "write");

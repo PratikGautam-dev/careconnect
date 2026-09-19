@@ -1,6 +1,6 @@
 # admin/users_api.py
 """Cross-tenant, read-only staff directory for the platform admin's
-/admin/users page (docs/rbac-redis-plan.md) -- a hospital's OWN staff
+/admin/users page -- a hospital's OWN staff
 management (create/deactivate/change role) already lives at
 /api/portal/staff, gated per-hospital by that hospital's own admin role.
 This is deliberately view-only: a super admin browsing every tenant's staff

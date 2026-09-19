@@ -18,14 +18,14 @@ from portal.deps import _authenticate, get_current_staff, require_capability, re
 
 router = APIRouter()
 
-# Section 12.13: minutes bounds mirror db/schema.sql's session_timeout_minutes
+# Minutes bounds mirror db/schema.sql's session_timeout_minutes
 # CHECK constraint exactly -- validated here too so a bad value gets a clear
 # 400 from this endpoint instead of surfacing as a raw IntegrityError from
 # the DB constraint.
 _MIN_SESSION_TIMEOUT_MINUTES = 2
 _MAX_SESSION_TIMEOUT_MINUTES = 120
 
-# Messages page follow-up: bounds for hospitals.handoff_auto_resolve_hours,
+# Bounds for hospitals.handoff_auto_resolve_hours,
 # same "validate here for a clean 400" reasoning as the session-timeout
 # bounds above. 1 hour minimum (shorter would risk auto-resolving a handoff
 # staff simply hasn't gotten to yet within a normal shift), 1 week maximum
@@ -33,8 +33,7 @@ _MAX_SESSION_TIMEOUT_MINUTES = 120
 _MIN_HANDOFF_AUTO_RESOLVE_HOURS = 1
 _MAX_HANDOFF_AUTO_RESOLVE_HOURS = 168
 
-# Follow-up eligibility window (docs/per-appointment-type-flow-plan.md Phase 2
-# Step 2 follow-up): same "validate here for a clean 400" reasoning as the
+# Follow-up eligibility window: same "validate here for a clean 400" reasoning as the
 # bounds above. 1 day minimum (0 would mean no follow-up is ever eligible);
 # 365 maximum is a generous ceiling against a fat-fingered entry.
 _MIN_FOLLOWUP_VALIDITY_DAYS = 1
@@ -44,7 +43,7 @@ _MAX_FOLLOWUP_VALIDITY_DAYS = 365
 # constraint already enforces that floor).
 _MAX_FEE = 1_000_000
 
-# Slot-generation window (migration 0031): same "validate here for a clean
+# Slot-generation window: same "validate here for a clean
 # 400" reasoning as the bounds above. 1 day minimum (0 would mean nothing is
 # ever bookable); 90 days is a generous ceiling -- long past what any patient
 # realistically books that far ahead, and keeps generate_slots_for_*()'s
@@ -52,7 +51,7 @@ _MAX_FEE = 1_000_000
 _MIN_FUTURE_BOOKING_DAYS = 1
 _MAX_FUTURE_BOOKING_DAYS = 60
 
-# Appointment Settings card (migration 20260914120000): same "validate here
+# Same "validate here
 # for a clean 400" reasoning as the bounds above.
 _MIN_APPOINTMENT_DURATION_MINUTES = 5
 _MAX_APPOINTMENT_DURATION_MINUTES = 240
@@ -61,13 +60,13 @@ _MAX_BUFFER_MINUTES = 120
 _MIN_MAX_APPOINTMENTS_PER_DAY = 1
 _MAX_MAX_APPOINTMENTS_PER_DAY = 100_000
 
-# Settings -> Attendance tab (migration 20260918090000): same "validate here
+# Settings -> Attendance tab: same "validate here
 # for a clean 400" reasoning as the bounds above.
 _MIN_ATTENDANCE_RADIUS_METERS = 10
 _MAX_ATTENDANCE_RADIUS_METERS = 5_000
 _MIN_ATTENDANCE_WINDOW_MINUTES = 0
 _MAX_ATTENDANCE_WINDOW_MINUTES = 240
-# Auto-checkout grace period (migration 20260919080000): generous ceiling
+# Auto-checkout grace period: generous ceiling
 # (12 hours) against a fat-fingered entry -- 0 is a valid, meaningful value
 # ("close it out right at shift end, no grace at all").
 _MIN_ATTENDANCE_GRACE_MINUTES = 0
@@ -106,7 +105,7 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             "welcome_message_text": hospital.welcome_message_text or "",
             "reminder_offsets_hours": ",".join(str(h) for h in hospital.reminder_offsets_hours),
             "reminder_template_name": hospital.reminder_template_name or "",
-            # Section 12.13: self-serve bot customization.
+            # Self-serve bot customization.
             "enabled_features": hospital.enabled_features,
             "closing_message_text": hospital.closing_message_text or "",
             "business_hours_text": hospital.business_hours_text or "",
@@ -114,26 +113,22 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             "language_prompt_enabled": hospital.language_prompt_enabled,
             "session_timeout_minutes": hospital.session_timeout_minutes or 30,
             "handoff_auto_resolve_hours": hospital.handoff_auto_resolve_hours or DEFAULT_HANDOFF_AUTO_RESOLVE_HOURS,
-            # CareConnect architecture doc alignment (Spec.md Section 0):
-            # unlike enabled_features (operator-only, /admin/edit-tenant),
+            # Unlike enabled_features (operator-only, /admin/edit-tenant),
             # these two ARE genuine self-serve bot customization -- same
             # category as closing_message_text/business_hours_text above.
             "require_patient_confirmation": hospital.require_patient_confirmation,
-            # docs/per-appointment-type-flow-plan.md Phase 2 Step 2 follow-up:
-            # per-hospital Follow-up settings (db/repositories/hospital_settings.py),
-            # not columns on `hospitals` itself.
+            # Per-hospital Follow-up settings
+            # (db/repositories/hospital_settings.py), not columns on `hospitals` itself.
             "followup_validity_days": hospital_settings["followup_validity_days"] or DEFAULT_FOLLOWUP_VALIDITY_DAYS,
             "followup_fee": hospital_settings["followup_fee"],
             "new_consultation_fee": hospital_settings["new_consultation_fee"],
-            # Lab Test Phase 2 follow-up: flat fee added to a home-collection
+            # Flat fee added to a home-collection
             # Lab Test booking's price review.
             "home_collection_charge": hospital_settings["home_collection_charge"],
-            # Live-found bug follow-up: how many days ahead doctor/resource/
-            # procedure slots are generated -- replaces the old hardcoded
-            # 14-day default that silently ran dry wherever nothing was
-            # actually hitting the external-cron-only top-up endpoint.
+            # How many days ahead doctor/resource/
+            # procedure slots are generated.
             "future_booking_days": hospital_settings["future_booking_days"] or DEFAULT_FUTURE_BOOKING_DAYS,
-            # Appointment Settings card (migration 20260914120000): the
+            # The
             # first two are self-serve settings (writable via POST below);
             # appointments_today_count is read-only, live data for the
             # "X out of Y" progress bar next to max_appointments_per_day --
@@ -145,11 +140,8 @@ async def portal_get_settings(authorization: str | None = Header(default=None)):
             "max_appointments_per_day": hospital_settings["max_appointments_per_day"],
             "appointments_today_count": db.get_hospital_booked_appointments_today_count(hospital.id),
         },
-        # Settings-not-updating bug follow-up (Spec.md Section 0): defensive
-        # -- rules out any browser/CDN-level HTTP caching of this
-        # authenticated GET as a contributing cause, even though the
-        # in-process reproduction found the real bug was the frontend
-        # trusting its own stale optimistic state after a save, not caching.
+        # Defensive -- rules out any browser/CDN-level HTTP caching of this
+        # authenticated GET as a contributing factor in a stale-settings read.
         headers={"Cache-Control": "no-store"},
     )
 
@@ -160,7 +152,7 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
 
-    # Section 12.13 validation -- a clear 400 instead of a raw DB error/silent
+    # Validation -- a clear 400 instead of a raw DB error/silent
     # bad value.
     default_language = payload.get("default_language") or "en"
     if default_language not in SUPPORTED_LANGUAGES:
@@ -276,11 +268,9 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         external_api_key=hospital.external_api_key,
         portal_password_hash=hospital.portal_password_hash,
         enabled_features=hospital.enabled_features,
-        # Migration 0014: feature_labels is no longer a per-hospital,
-        # self-serve setting (moved to platform_settings, see that
-        # migration's docstring) -- passed through unchanged, same
-        # "operator-only, never touched here" discipline as enabled_features
-        # above.
+        # feature_labels is not a per-hospital, self-serve setting (lives
+        # on platform_settings) -- passed through unchanged, same
+        # "operator-only, never touched here" discipline as enabled_features above.
         feature_labels=hospital.feature_labels,
         closing_message_text=(payload.get("closing_message_text") or "").strip() or None,
         business_hours_text=(payload.get("business_hours_text") or "").strip() or None,
@@ -289,14 +279,13 @@ async def portal_update_settings(payload: dict, authorization: str | None = Head
         session_timeout_minutes=session_timeout_minutes,
         handoff_auto_resolve_hours=handoff_auto_resolve_hours,
         require_patient_confirmation=bool(payload.get("require_patient_confirmation", False)),
-        # Tenant-type-driven capability gating (tenant-capability-gating-plan.md):
-        # not self-serve -- passed straight through unchanged, same
+        # Not self-serve -- passed straight through unchanged, same
         # discipline every other operator-only field on this call already
         # follows (enabled_features, portal_password_hash, ...). Only
         # admin/tenants_api.py's tenant-edit endpoint actually changes these.
         tenant_type=hospital.tenant_type,
         admin_capabilities=hospital.admin_capabilities,
-        # Migration 0014: same "moved to platform_settings, pass through
+        # Same "moved to platform_settings, pass through
         # unchanged" treatment as feature_labels above.
         dpdp_consent_required=hospital.dpdp_consent_required,
     )
@@ -368,13 +357,13 @@ async def portal_get_attendance_settings(request: Request, authorization: str | 
     check_in()/check_out() (db/repositories/attendance.py) validate every
     check-in/out attempt against. A SEPARATE endpoint from GET /api/portal/
     settings (not more fields folded into that shared, full-object save) --
-    gated by the real "attendance_settings" page_key (admin-only by
-    default, migration 20260918090200), unlike that older endpoint's
+    gated by the "attendance_settings" page_key (admin-only by
+    default), unlike that older endpoint's
     hospital-only _authenticate(), since this configuration is sensitive
     enough (an unlocked geofence radius lets anyone check in from anywhere)
     to need a real per-role check, not just a UI-level hide.
 
-    detected_ip (live-found follow-up): whoever loads this page IS, in the
+    detected_ip: whoever loads this page IS, in the
     common case, standing on the hospital's own network they're trying to
     whitelist -- so this is the exact same IP check_in()'s own geofence
     check would see from them, surfaced directly instead of asking a
@@ -507,7 +496,7 @@ async def portal_audit_log(authorization: str | None = Header(default=None)):
     return JSONResponse({"entries": db.get_audit_logs(hospital_id=hospital.id, actor_level="portal")})
 
 
-# --- Google Meet integration (Spec.md Section 0) ---
+# --- Google Meet integration ---
 #
 # One Google account connected per HOSPITAL by an admin, used for every
 # doctor's tele-consultation Meet links -- not a per-doctor connection

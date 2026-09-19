@@ -249,7 +249,7 @@ async def portal_add_doctor_leave(doctor_id: str, payload: dict, authorization: 
     forbidden = require_capability(hospital, "manage_doctors")
     if forbidden:
         return forbidden
-    # Audit follow-up (Spec.md Section 0): db.create_doctor_leave() itself has
+    # db.create_doctor_leave() itself has
     # no way to know whether doctor_id actually belongs to hospital_id -- its
     # INSERT would succeed either way -- so that check has to happen here,
     # same reason portal_create_doctor() validates the department first.
@@ -265,7 +265,7 @@ async def portal_add_doctor_leave(doctor_id: str, payload: dict, authorization: 
 
 @router.post("/api/portal/doctors/{doctor_id}/leave/range")
 async def portal_add_doctor_leave_range(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
-    """Item 10 (Spec.md Section 0): From/To range with one Confirm, instead
+    """From/To range with one Confirm, instead
     of adding leave dates one at a time -- same ownership check
     portal_add_doctor_leave() above already established."""
     hospital = _authenticate(authorization)
@@ -306,11 +306,10 @@ async def portal_delete_doctor_leave(
 
 @router.get("/api/portal/doctors/{doctor_id}/slots")
 async def portal_get_doctor_slots(doctor_id: str, date: str | None = None, authorization: str | None = Header(default=None)):
-    """Item 1 (Spec.md Section 0): every generated slot for this doctor on
+    """Every generated slot for this doctor on
     one date (blocked/booked flags included) -- the manual per-slot-block
-    admin view. "View all slots" follow-up: `date` is now optional --
-    omitting it returns every upcoming slot across the doctor's whole
-    generated window instead of just one day."""
+    admin view. `date` is optional -- omitting it returns every upcoming
+    slot across the doctor's whole generated window instead of just one day."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -347,7 +346,7 @@ async def portal_set_slot_blocked(doctor_id: str, payload: dict, authorization: 
 
 @router.post("/api/portal/doctors/{doctor_id}/slots/add")
 async def portal_add_slot(doctor_id: str, payload: dict, authorization: str | None = Header(default=None)):
-    """Add/remove-slot follow-up (Spec.md Section 0): a genuinely one-off
+    """A genuinely one-off
     extra slot outside the doctor's normal generated pattern -- payload =
     {"date": "YYYY-MM-DD", "time": "HH:MM"}. Distinct from the block
     endpoint above, which only ever toggles an already-generated row."""
@@ -504,7 +503,7 @@ async def portal_csv_import_doctors(
     return JSONResponse({"created_count": created_count, "row_errors": row_errors})
 
 
-# Doctor editing follow-up (Spec.md Section 0) -- these two `{doctor_id}`
+# These two `{doctor_id}`
 # routes MUST be registered after every static "/api/portal/doctors/..."
 # path above (csv-import included) -- FastAPI matches routes in
 # REGISTRATION order, so a `{doctor_id}` catch-all registered earlier would
@@ -513,13 +512,8 @@ async def portal_csv_import_doctors(
 # existing CSV-import tests, not by inspection).
 @router.get("/api/portal/doctors/{doctor_id}")
 async def portal_get_doctor(doctor_id: str, authorization: str | None = Header(default=None)):
-    """This Next.js portal only ever had create (`POST /api/portal/doctors`
-    above); editing an EXISTING doctor's working hours/breaks/quotas was a
-    known, explicitly flagged gap since the HTML-portal removal (Spec.md's
-    own progress log: "doctor editing... stay FastAPI-only for now...
-    Removing portal.py makes doctor editing genuinely unreachable").
-    db.get_doctor_full()/db.update_doctor() already existed (the old HTML
-    edit form's own backing functions) -- this just re-exposes them here."""
+    """Editing an EXISTING doctor's working hours/breaks/quotas, alongside
+    create (`POST /api/portal/doctors` above)."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)

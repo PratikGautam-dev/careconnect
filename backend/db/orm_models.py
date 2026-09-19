@@ -43,14 +43,12 @@ class CareConnectAccount(Base):
     status: Mapped[str]
     created_at: Mapped[str]
     updated_at: Mapped[str | None]
-    # migration 0006 -- global, id-derived (db/display_ids.py), not yet
+    # Global, id-derived (db/display_ids.py), not yet
     # surfaced in any UI; see patients.patient_display_id for the precedent.
-    # Nullable at the DB level only for the same "INSERT can't know its own
-    # id yet" reason patient_display_id is -- always set in practice by the
-    # time any caller reads the row (see that migration's own docstring).
+    # Nullable at the DB level only because an INSERT can't know its own
+    # id yet -- always set in practice by the time any caller reads the row.
     display_id: Mapped[str | None]
-    # Language-persistence follow-up (confirmed with the user): a chosen
-    # language is GLOBAL to the account (same language at every hospital
+    # A chosen language is GLOBAL to the account (same language at every hospital
     # this person messages), not per-hospital like dpdp_consents --
     # language is a personal preference, not a hospital-specific compliance
     # matter. NULL means "never chosen yet" -- flows/router.py's
@@ -290,8 +288,7 @@ class AppointmentLabTest(Base):
 
 
 class FaqTopic(Base):
-    """db/schema.sql's faq_topics table -- the faq_flow_type's entire data
-    model (SPEC Section 14.2)."""
+    """db/schema.sql's faq_topics table -- the faq_flow_type's entire data model."""
     __tablename__ = "faq_topics"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -303,7 +300,7 @@ class FaqTopic(Base):
 
 class DoctorLeave(Base):
     """db/schema.sql's doctor_leave table -- one row per date a doctor is
-    unavailable for the whole day (Section 14.7)."""
+    unavailable for the whole day."""
     __tablename__ = "doctor_leave"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -314,11 +311,9 @@ class DoctorLeave(Base):
 
 
 class DoctorSlotOverride(Base):
-    """db/schema.sql's doctor_slot_overrides table (migration 0032) --
-    replaces the old doctor_slots table's "one row per every possible slot,
-    pre-generated ahead of time" shape (found to scale badly and be the root
-    cause of a stale-window bug -- confirmed with the user) with "one row
-    only for a slot staff has actually touched." A doctor's normal bookable
+    """db/schema.sql's doctor_slot_overrides table -- "one row
+    only for a slot staff has actually touched," rather than one row per
+    every possible slot pre-generated ahead of time. A doctor's normal bookable
     grid is now computed live from working_days/working_hours/
     slot_duration_minutes/breaks/doctor_leave (db/repositories/doctors.py's
     _compute_candidate_slots()) -- this table only ever holds exceptions:
@@ -328,7 +323,7 @@ class DoctorSlotOverride(Base):
     - blocked=True: this scheduled_at (whether a normal-pattern slot or a
       custom one) must never be offered (portal's "Block slot"), but still
       shows up in the admin view so staff can unblock it later.
-    - excluded=True (migration 0034): this scheduled_at is gone outright
+    - excluded=True: this scheduled_at is gone outright
       (portal's "Remove slot") -- dropped from every view, not just hidden
       from booking, which is what distinguishes it from blocked=True.
     A row can combine is_custom/blocked/excluded -- a row with none of the
@@ -351,14 +346,12 @@ class Department(Base):
     string (h{hospital_id}_{uuid}), not a DB-assigned SERIAL -- see
     create_department()'s own docstring.
 
-    Migration 20260912141027 (Settings -> Departments tab): floor_wing/
-    consultation_hours/description/head_doctor_id are the profile fields;
-    is_active is the internal status; show_on_frontend/
+    floor_wing/consultation_hours/description/head_doctor_id are the
+    profile fields; is_active is the internal status; show_on_frontend/
     whatsapp_booking_enabled both gate the one real patient channel this
     app has (the WhatsApp department picker -- see get_departments());
     online_booking_enabled is stored/toggleable only, since no separate
-    online booking channel exists anywhere in this codebase yet to enforce
-    it in (confirmed with the user, not an oversight)."""
+    online booking channel exists anywhere in this codebase yet to enforce it in."""
     __tablename__ = "departments"
 
     id: Mapped[str] = mapped_column(primary_key=True)
@@ -375,11 +368,8 @@ class Department(Base):
 
 
 class DoctorRow(Base):
-    """db/schema.sql's doctors table -- the FULL, authoritative mapping, per
-    doctors.py's own migration (slots.py originally added this as a partial
-    model with just max_bookings_per_slot; extended here to every column,
-    per that model's own "doctors.py's own migration should define the
-    complete model" instruction). Named DoctorRow, not Doctor, to leave that
+    """db/schema.sql's doctors table -- the FULL, authoritative mapping,
+    every column. Named DoctorRow, not Doctor, to leave that
     name free for a future dataclass -- see UserAccount's docstring for the
     same naming precedent."""
     __tablename__ = "doctors"
@@ -388,7 +378,7 @@ class DoctorRow(Base):
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
     name: Mapped[str]
-    # Migration 20260911190007: the Doctors page's mocked columns (phone,
+    # The Doctors page's mocked columns (phone,
     # employee ID, location) becoming real -- phone/employee_id join
     # specialization/qualification as mandatory fields (confirmed with the
     # user); location stays optional.
@@ -397,7 +387,7 @@ class DoctorRow(Base):
     years_experience: Mapped[int | None]
     working_days: Mapped[str]
     working_hours: Mapped[str]
-    # Migration 20260914120000: relaxed from NOT NULL DEFAULT 30 to
+    # Relaxed from NOT NULL DEFAULT 30 to
     # nullable -- NULL means "use this hospital's default_appointment_
     # duration_minutes" (db/repositories/hospital_settings.py), read at
     # compute_doctor_candidate_slots() time.
@@ -413,7 +403,7 @@ class DoctorRow(Base):
     phone: Mapped[str]
     employee_id: Mapped[str]
     location: Mapped[str | None]
-    # Migration 0033: a QUEUED future schedule change -- when a schedule
+    # A QUEUED future schedule change -- when a schedule
     # edit's effective_from is still in the future, the submitted pattern
     # goes here instead of overwriting the columns above immediately, so the
     # CURRENT pattern keeps being served for near-term dates until
@@ -450,11 +440,11 @@ class AppointmentRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     phone: Mapped[str]
-    # Migration 0035: nullable for the same reason doctor_id below is -- a
+    # Nullable for the same reason doctor_id below is -- a
     # resource-bound booking's diagnostic_resources/procedure_resources row
     # can itself have no department configured.
     department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
-    # Diagnostic/Lab Phase 2: nullable -- a resource-bound booking
+    # Nullable -- a resource-bound booking
     # (diagnostic_test_id set) has no doctor at all.
     # appointments_doctor_or_resource_or_procedure_chk enforces at least one
     # of doctor_id/diagnostic_test_id/procedure_id is set.
@@ -469,37 +459,25 @@ class AppointmentRow(Base):
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"))
     patient_name: Mapped[str | None]
     patient_phone: Mapped[str | None]
-    # Family/multi-person-booking follow-up (Spec.md Section 0): denormalized
-    # snapshot for the legacy duplicate-booking check that tells apart two
-    # family members sharing one phone (was patient_age/patients.age --
-    # replaced by the age-to-DOB migration, see that migration's own
-    # docstring).
+    # Denormalized snapshot for the duplicate-booking check that tells
+    # apart two family members sharing one phone.
     patient_date_of_birth: Mapped[str | None]
     deleted_at: Mapped[str | None]
     appointment_type_id: Mapped[str | None]
     consent_given_at: Mapped[str | None]
     video_link: Mapped[str | None]
-    # Follow-up validity override (migration 0024) -- see db/schema.sql's own
-    # column comment. NULL means no override has ever been granted.
+    # See db/schema.sql's own column comment. NULL means no override has ever been granted.
     followup_override_until: Mapped[str | None]
-    # Diagnostic/Lab Phase 2: the diagnostic_tests row this booking is bound
-    # to for scheduling purposes (None for every doctor-bound appointment
-    # type). Diagnostic tests/resources merge: this now points straight at
-    # diagnostic_tests.id -- for a Lab Test basket booking it's whichever
-    # basket item anchors the slot (see flows/booking/types/lab.py).
+    # The diagnostic_tests row this booking is bound to for scheduling
+    # purposes (None for every doctor-bound appointment type) -- points
+    # straight at diagnostic_tests.id; for a Lab Test basket booking it's
+    # whichever basket item anchors the slot (see flows/booking/types/lab.py).
     # diagnostic_test_label/diagnostic_price are snapshots at booking time,
     # same denormalization convention as patient_name/patient_phone.
-    #
-    # This used to be two columns (resource_id -- the one actually wired
-    # into the double-booking/advisory-lock check, the unique index, and the
-    # doctor-or-resource-or-procedure CHECK constraint -- plus a second,
-    # fully-redundant diagnostic_test_id always set to the same value or
-    # left NULL). Merged into one under this name; see migration
-    # 20260911135450's own docstring.
     diagnostic_test_id: Mapped[int | None] = mapped_column(ForeignKey("diagnostic_tests.id"))
     diagnostic_test_label: Mapped[str | None]
     diagnostic_price: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    # Lab Test Phase 2 follow-up: collection details + the post-booking
+    # Collection details + the post-booking
     # report lifecycle, only ever set for a Lab Test booking -- see
     # db/schema.sql's own column comments. The basket itself lives in
     # AppointmentLabTest, not here.
@@ -532,11 +510,9 @@ class AppointmentReminder(Base):
     sent_at: Mapped[str]
 
 
-# UserAccount ("users" table) and HospitalUser ("hospital_users" table)
-# used to live here -- Google-OAuth accounts and the hospital-ownership join
-# table (Section 15). Migration 0016 replaced them with Identity/
-# HospitalOwner; migration 0017 dropped both tables once the new ones were
-# verified correct in production. See Identity's own docstring.
+# Google-OAuth accounts and hospital ownership are modeled by Identity/
+# StaffDetail below, not a separate UserAccount/HospitalUser pair.
+# See Identity's own docstring.
 
 
 class HandoffRequest(Base):
@@ -615,12 +591,12 @@ class HospitalRow(Base):
     dpdp_consent_required: Mapped[bool]
     tenant_type: Mapped[str]
     admin_capabilities: Mapped[str | None]
-    # migration 0006 -- global, id-derived (db/display_ids.py); shown to
+    # Global, id-derived (db/display_ids.py); shown to
     # hospital users the same way patients.patient_display_id is shown to
     # patients. Nullable at the DB level for the same reason
     # CareConnectAccount.display_id is -- see that model's own comment.
     display_id: Mapped[str | None]
-    # Migration 20260912065049 -- Leave Requests admin page's portal-admin-
+    # Leave Requests admin page's portal-admin-
     # configurable policy (doctor/receptionist only, confirmed with the
     # user; admin approves leave rather than accruing an allowance). See
     # LeaveRequest's own docstring for how a balance is computed against this.
@@ -629,8 +605,8 @@ class HospitalRow(Base):
 
 
 class LeaveRequest(Base):
-    """db/schema.sql's leave_requests table (migration 20260912065049) --
-    the Leave Requests admin page's pending/approved/rejected review queue.
+    """db/schema.sql's leave_requests table -- the Leave Requests admin
+    page's pending/approved/rejected review queue.
     identity_id, not staff_details_id, is the applicant FK -- an identity is
     the durable "who" a leave request belongs to, same reasoning
     StaffDetail.reports_to_id already points at identities rather than
@@ -649,7 +625,7 @@ class LeaveRequest(Base):
     leave_type: Mapped[str]
     from_date: Mapped[str]
     to_date: Mapped[str]
-    # Migration 6eda12041ecf: Holiday Application's Full day/Half day choice
+    # Holiday Application's Full day/Half day choice
     # -- only meaningful (and route-enforced) for a single-day request.
     is_half_day: Mapped[bool]
     reason: Mapped[str | None]
@@ -660,7 +636,7 @@ class LeaveRequest(Base):
 
 
 class PatientVisitNote(Base):
-    """db/schema.sql's patient_visit_notes table (Section 12.10)."""
+    """db/schema.sql's patient_visit_notes table."""
     __tablename__ = "patient_visit_notes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -674,7 +650,7 @@ class PatientVisitNote(Base):
 
 
 class PatientDocument(Base):
-    """db/schema.sql's patient_documents table (Section 12.10)."""
+    """db/schema.sql's patient_documents table."""
     __tablename__ = "patient_documents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -686,7 +662,7 @@ class PatientDocument(Base):
     uploaded_at: Mapped[str]
     uploaded_by_session_id: Mapped[str | None]
     sent_to_whatsapp_at: Mapped[str | None]
-    # Migration 0022 -- prescription/lab_report/diagnostic_report/other, see
+    # Prescription/lab_report/diagnostic_report/other, see
     # db/migrations/versions/0022_patient_document_type.py.
     document_type: Mapped[str]
 
@@ -701,8 +677,8 @@ class PatientRow(Base):
     multi-statement-transaction code stays raw SQL permanently).
     patient_display_id (DCCP-<year>-<seq>) and mrn (MRN-<hospital short
     code>-<year>-<seq>) are generated together, same sequence number, by
-    db/models.py's _generate_patient_identifiers() -- see migration 0003
-    (original format) and db/display_ids.py (yearly-resetting format)."""
+    db/models.py's _generate_patient_identifiers() -- see db/display_ids.py
+    for the yearly-resetting format."""
     __tablename__ = "patients"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -716,7 +692,7 @@ class PatientRow(Base):
     status: Mapped[str]
     patient_display_id: Mapped[str | None]
     mrn: Mapped[str | None]
-    # Possible-duplicate review flag (Section 0 follow-up): stamped once, at
+    # Possible-duplicate review flag: stamped once, at
     # creation, when this row matches another ACTIVE patient in this
     # hospital on at least 3 of {name, phone, date_of_birth, gender} -- see
     # db/repositories/patients.py's _flag_duplicate_if_matches(). Purely
@@ -742,7 +718,7 @@ class PatientLink(Base):
     above) -- this is the genuine M:M join between whatsapp_phone and
     patients: one phone can hold up to MAX_ACTIVE_PATIENT_LINKS active
     links, and nothing stops the same patient being linked from a second
-    phone. care_connect_account_id is NOT NULL (migration 0002) -- every
+    phone. care_connect_account_id is NOT NULL -- every
     write path (patients.py's _link_patient_under_cap(), init_db.py's
     _backfill_patient_links()) stamps it via _get_or_create_account_in_conn()
     at INSERT time; whatsapp_phone remains the actual join key, this column
@@ -777,8 +753,8 @@ class DpdpConsent(Base):
 
 
 class AuditLog(Base):
-    """db/schema.sql's audit_logs table -- two-level audit trail
-    (tenant-capability-gating-plan.md's follow-up). actor_level is
+    """db/schema.sql's audit_logs table -- two-level audit trail.
+    actor_level is
     'platform_admin' or 'portal' (see db/repositories/audit_logs.py for the
     single source of truth on valid actions/redaction). hospital_id is
     nullable only for a hypothetical cross-tenant platform action; every row
@@ -815,10 +791,8 @@ class CodeSequence(Base):
     last_value: Mapped[int]
 
 
-# StaffUser ("staff_users" table) used to live here -- unified per-person
-# staff login (docs/rbac-redis-plan.md). Migration 0016 replaced it with
-# Identity + StaffDetail; migration 0017 dropped the table. See Identity's
-# own docstring.
+# Unified per-person staff login is modeled by Identity + StaffDetail
+# below, not a separate StaffUser table. See Identity's own docstring.
 
 
 class RoleRow(Base):
@@ -878,14 +852,13 @@ class StaffPermissionOverride(Base):
     can_delete: Mapped[bool | None]
 
 
-# SuperAdmin ("super_admins" table) used to live here -- global,
-# not hospital-scoped platform-operator accounts. Migration 0016 replaced it
-# with Identity + SuperAdminDetail; migration 0017 dropped the table. See
-# Identity's own docstring.
+# Global, not hospital-scoped platform-operator accounts are modeled by
+# Identity + SuperAdminDetail below, not a separate SuperAdmin table.
+# See Identity's own docstring.
 
 
 class Identity(Base):
-    """db/schema.sql's identities table (migration 0016) -- the shared
+    """db/schema.sql's identities table -- the shared
     identity/credential row for every principal in this app: a Google-OAuth
     hospital owner (google_id set, password_hash NULL), a password-login
     hospital staff member, or a password-login super admin (password_hash
@@ -900,11 +873,8 @@ class Identity(Base):
     platform-wide access; a separate table means super-admin status
     requires an actual row, only ever inserted by the dedicated super-admin
     provisioning path (db/repositories/super_admins.py's create_super_admin)
-    -- confirmed with the user, this safety property matters more than the
-    extra table's minimal storage overhead. See migration 0016's own
-    docstring for why this replaced the old users/staff_users/super_admins
-    tables (and hospital_users), all four of which migration 0017 later
-    dropped once these new tables were verified correct in production."""
+    -- this safety property matters more than the extra table's minimal
+    storage overhead."""
     __tablename__ = "identities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -919,15 +889,14 @@ class Identity(Base):
 
 
 class StaffDetail(Base):
-    """db/schema.sql's staff_details table (migration 0016) -- the
+    """db/schema.sql's staff_details table -- the
     hospital/role/doctor_id extension for an Identity that's a hospital
-    staff member, replacing StaffUser's own columns of the same name.
-    identity_id is the primary key (1:1 with Identity, mirroring StaffUser's
-    old "one staff_users row per person" cardinality). Since migration 0018,
-    this also covers Google-OAuth hospital owners (role_id pointing at
+    staff member. identity_id is the primary key (1:1 with Identity).
+    This also covers Google-OAuth hospital owners (role_id pointing at
     whichever of this hospital's own roles is admin-equivalent -- no
-    separate 'owner' role) -- see the comment where HospitalOwner used to be
-    defined, just below. role_id -> roles.id (dynamic-roles migration) --
+    separate 'owner' role); a hospital owner is just a StaffDetail row
+    with role='admin', same login path as every other staff member.
+    role_id -> roles.id --
     a hospital's own admin-defined role, not a fixed string. doctor_id is
     independent of role_id entirely (any role can optionally be linked to a
     doctor profile); the only remaining pairing rule (a doctor_id implies no
@@ -939,7 +908,7 @@ class StaffDetail(Base):
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"))
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     doctor_id: Mapped[str | None] = mapped_column(ForeignKey("doctors.id"))
-    # Migration 20260911174439 -- see schema.sql's own comment on this table
+    # See schema.sql's own comment on this table
     # for why department_id is doctor-role-exclusive and attendance_status
     # has no history table behind it.
     department_id: Mapped[str | None] = mapped_column(ForeignKey("departments.id"))
@@ -947,12 +916,10 @@ class StaffDetail(Base):
     address: Mapped[str | None]
     reports_to_id: Mapped[int | None] = mapped_column(ForeignKey("identities.id"))
     attendance_status: Mapped[str]
-    # Migration 20260913052126: Employee ID auto-numbering feature --
-    # server-generated EMP-ST-NNNNN for role != 'doctor'; "" for a
+    # Server-generated EMP-ST-NNNNN for role != 'doctor'; "" for a
     # doctor-role row (its EMP-DC id lives on the linked doctors row).
     employee_id: Mapped[str]
-    # Migration 20260913060656: Staff schedule feature -- replaces the old
-    # shift enum with the same comma-stored working_days/working_hours/
+    # Same comma-stored working_days/working_hours/
     # breaks model doctors already have (DoctorRow's own columns).
     working_days: Mapped[str]
     working_hours: Mapped[str]
@@ -960,7 +927,7 @@ class StaffDetail(Base):
 
 
 class SuperAdminDetail(Base):
-    """db/schema.sql's super_admin_details table (migration 0016) -- a bare
+    """db/schema.sql's super_admin_details table -- a bare
     marker row: an Identity with a matching row here is a platform/super
     admin. Deliberately a separate table, not a flag on Identity itself --
     see Identity's own docstring for the security reasoning (privilege
@@ -971,15 +938,9 @@ class SuperAdminDetail(Base):
     identity_id: Mapped[int] = mapped_column(ForeignKey("identities.id"), primary_key=True)
 
 
-# HospitalOwner ("hospital_owners" table) used to live here -- migration
-# 0016 introduced it as an M:M ownership link (Identity <-> Hospital) for
-# Google-OAuth sign-ins, repointed from the old HospitalUser table.
-# Migration 0018 folded it into StaffDetail: confirmed with the user, no
-# identity actually owns more than one hospital in practice, so the M:M
-# shape was pure redundancy with StaffDetail's own (identity_id, hospital_id,
-# role) columns. A hospital owner is now just a StaffDetail row with
-# role='admin' -- same table, same login path (portal/routes/staff_auth.py)
-# as every other staff member. See StaffDetail's own docstring.
+# Hospital ownership is modeled by a StaffDetail row with role='admin',
+# not a separate M:M ownership table -- no identity actually owns more
+# than one hospital in practice. See StaffDetail's own docstring.
 
 
 class PlatformSettings(Base):
@@ -996,19 +957,18 @@ class PlatformSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     max_active_patient_links: Mapped[int]
-    # Migration 0014: moved off hospitals.feature_labels/dpdp_consent_required
-    # -- ONE value for every tenant now, not a per-hospital override. Stored
+    # ONE value for every tenant, not a per-hospital override. Stored
     # as JSON text, same convention as HospitalRow.feature_labels.
     feature_labels: Mapped[str | None]
     dpdp_consent_required: Mapped[bool]
 
 
 class HospitalSettings(Base):
-    """db/schema.sql's hospital_settings table (migration 0021) -- a
+    """db/schema.sql's hospital_settings table -- a
     PER-HOSPITAL counterpart to platform_settings above: exactly one row per
     hospital (hospital_id is both the primary key and the FK, 1:1), holding
     self-serve settings that don't belong as more columns on the already very
-    wide `hospitals` table (confirmed with the user). Row is created lazily,
+    wide `hospitals` table. Row is created lazily,
     on first read or write (db/repositories/hospital_settings.py's
     get_hospital_settings()), not at hospital-creation time -- so this is
     safe to introduce without touching every hospital-creation code path
@@ -1023,24 +983,24 @@ class HospitalSettings(Base):
     followup_validity_days: Mapped[int | None]
     # Fee lines shown on Follow-up's confirm/success cards (followup_fee) and
     # reserved for New Consultation's cards once that's wired up
-    # (new_consultation_fee, stored but not displayed yet -- confirmed with
-    # the user). NULL means "no fee configured," which omits the fee line
-    # entirely rather than showing a fake ₹0.
+    # (new_consultation_fee, stored but not displayed yet). NULL means "no
+    # fee configured," which omits the fee line entirely rather than
+    # showing a fake ₹0.
     followup_fee: Mapped[float | None] = mapped_column(Numeric(10, 2))
     new_consultation_fee: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    # Lab Test Phase 2 follow-up: flat fee added to a home-collection Lab
+    # Flat fee added to a home-collection Lab
     # Test booking's price review, same "unset omits the line" convention as
     # the two fees above.
     home_collection_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    # Slot-generation window (migration 0031): how many days ahead a
+    # How many days ahead a
     # doctor's grid is computed live (db/repositories/doctors.py's
-    # compute_doctor_candidate_slots(), migration 0032) and a diagnostic/
+    # compute_doctor_candidate_slots()) and a diagnostic/
     # procedure resource's rolling window is extended
     # (generate_slots_for_resource()/_procedure_resource()). NULL means "use
     # the code-level DEFAULT_FUTURE_BOOKING_DAYS default" (db/repositories/
     # hospital_settings.py), same convention as followup_validity_days above.
     future_booking_days: Mapped[int | None]
-    # Migration 20260914120000: Appointment Settings card becoming real
+    # Appointment Settings card becoming real
     # (General settings). default_appointment_duration_minutes falls back
     # to code-level DEFAULT_APPOINTMENT_DURATION_MINUTES when unset, applied
     # to a doctor whose own slot_duration_minutes is NULL
@@ -1053,7 +1013,7 @@ class HospitalSettings(Base):
     default_appointment_duration_minutes: Mapped[int | None]
     buffer_minutes: Mapped[int | None]
     max_appointments_per_day: Mapped[int | None]
-    # Migration 20260918090000: Settings -> Attendance tab, the geofence +
+    # Settings -> Attendance tab, the geofence +
     # shift-window policy check_in()/check_out() (db/repositories/
     # attendance.py) validate every check-in/out attempt against. NULL on
     # attendance_latitude/longitude/attendance_allowed_ip_cidrs means "not
@@ -1071,7 +1031,7 @@ class HospitalSettings(Base):
     attendance_shift_end: Mapped[str | None]
     attendance_early_checkin_minutes: Mapped[int | None]
     attendance_late_threshold_minutes: Mapped[int | None]
-    # Migration 20260919080000: replaces the original attendance_auto_
+    # Replaces the original attendance_auto_
     # checkout_time ("HH:MM", one fixed clock time for the whole hospital)
     # -- that shape can't correctly serve two staff on different shifts (an
     # early cutoff wrongly cuts a later shift short; a late cutoff leaves an
@@ -1084,9 +1044,8 @@ class HospitalSettings(Base):
 
 
 class AttendanceRecord(Base):
-    """db/schema.sql's attendance_records table (migration 20260918090100)
-    -- one row per (staff, date), the real backend behind the previously
-    frontend-mock /portal/check-in-out (self) and /portal/attendance
+    """db/schema.sql's attendance_records table -- one row per (staff, date),
+    the backend behind /portal/check-in-out (self) and /portal/attendance
     (hospital roll-up) pages. See db/repositories/attendance.py for the
     check_in()/check_out()/start_break()/end_break() writers."""
     __tablename__ = "attendance_records"
@@ -1119,8 +1078,7 @@ class AttendanceRecord(Base):
 
 
 class GoogleCalendarConnection(Base):
-    """db/schema.sql's google_calendar_connections table (migration 0025,
-    repointed from doctor_id to hospital_id by migration 0029) -- Google
+    """db/schema.sql's google_calendar_connections table -- Google
     Meet integration, alongside (not replacing) the existing Jitsi
     tele-consultation link. One row per HOSPITAL (hospital_id is both the
     primary key and the FK, 1:1), connected once by a hospital admin and

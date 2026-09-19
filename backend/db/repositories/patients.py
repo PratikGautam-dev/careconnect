@@ -1,7 +1,6 @@
 # db/repositories/patients.py
 """Patient search/directory, profiles, and the patient-identity-separation
-linking/consent model (Spec.md Section 0). Split out of db/repository.py --
-see ARCHITECTURE_PLAN.md Phase 1."""
+linking/consent model."""
 from datetime import date, datetime
 from typing import cast
 
@@ -18,15 +17,13 @@ from db.orm_models import (
 )
 from db.repositories.accounts import _get_or_create_account_in_conn
 
-# --- Patients (Section 12.9 -- staff-created bookings need to search by name,
+# --- Patients (staff-created bookings need to search by name,
 # not just phone; see db/schema.sql's comment on the patients table and
 # create_appointment()'s _upsert_patient() for how rows get here) ---
 
 def age_from_dob(date_of_birth: str | None) -> int | None:
-    """Age is computed here, on read, from date_of_birth -- confirmed with
-    the user: age itself is never collected or stored again (patients.age
-    dropped outright, no fallback), so every response shape that used to
-    return a stored age now returns this instead. None for no/malformed DOB."""
+    """Age is computed here, on read, from date_of_birth -- never collected
+    or stored (there's no patients.age column). None for no/malformed DOB."""
     if not date_of_birth:
         return None
     try:
@@ -38,8 +35,8 @@ def age_from_dob(date_of_birth: str | None) -> int | None:
 
 
 def is_valid_phone(phone: str | None) -> bool:
-    """Deliberately permissive (SPEC Section 12.9's phone-validation follow-up)
-    -- rejects only the unambiguous garbage cases (empty, whitespace-only, or
+    """Deliberately permissive -- rejects only the unambiguous garbage
+    cases (empty, whitespace-only, or
     containing no digits at all, e.g. "not-a-phone-number!!"), not a strict
     phone-number format spec: no length requirement, no country-code check,
     no separator/whitespace-shape rules. International phone formats vary too
@@ -84,9 +81,8 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
     get_all_appointments_for_hospital()), visit_count counts every
     appointment row ever created for that patient, not just kept ones
     (i.e. total ever booked, past or upcoming, any status). visited_count
-    is the subset actually marked status='attended' -- a real, staff-
-    confirmed outcome (Item 9, Spec.md Section 0), not a time-passed
-    heuristic.
+    is the subset actually marked status='attended' -- a real,
+    staff-confirmed outcome, not a time-passed heuristic.
 
     Joined on patient_id, NOT phone -- a phone-keyed join here would
     silently mis-attribute visits once patients.phone can be the patient's
@@ -186,7 +182,7 @@ def get_recent_patients(hospital_id: int, limit: int = 5) -> list[dict]:
 
 
 def get_patients_for_doctor(hospital_id: int, doctor_id: str, limit: int = 500) -> list[dict]:
-    """Doctor-portal follow-up: only patients this DOCTOR has actually seen,
+    """Only patients this DOCTOR has actually seen,
     with last_visit/visit_count/visited_count scoped to appointments WITH
     THIS DOCTOR specifically -- deliberately not
     _patients_with_visit_stats_stmt() reused as-is, since that joins every
@@ -229,7 +225,7 @@ def get_patients_for_doctor(hospital_id: int, doctor_id: str, limit: int = 500) 
     ]
 
 
-# --- Patient records (Section 12.10: visit history, notes, documents) ---
+# --- Patient records (visit history, notes, documents) ---
 
 _PATIENT_COLUMNS = (
     PatientRow.id, PatientRow.hospital_id, PatientRow.phone, PatientRow.name, PatientRow.date_of_birth,
@@ -251,37 +247,31 @@ def get_patient(hospital_id: int, patient_id: int) -> dict | None:
 
 
 def get_patient_by_phone(hospital_id: int, phone: str) -> dict | None:
-    """Section 12.11: the WhatsApp booking flow's "have we met this patient
-    before" check -- unlike get_patient() (looked up by the portal's own
-    numeric id), the bot only ever knows a phone number. Exact match, not
+    """The WhatsApp booking flow's "have we met this patient before" check
+    -- unlike get_patient() (looked up by the portal's own numeric id), the
+    bot only ever knows a phone number. Exact match, not
     search_patients()'s partial ILIKE -- this is an identity lookup, not a
     staff-typed search box.
 
-    Patient identity SEPARATION (Spec.md Section 0): kept as-is for callers
-    that still want "the one patient this phone has" (e.g. "My Details",
-    which predates multi-patient linking and is out of scope for this
-    round) -- returns the FIRST matching row if a phone somehow has more
-    than one `patients` row, not an error, but is no longer the right
-    lookup for anything booking-related. Use get_active_patients_for_phone()
-    for that."""
+    Kept as-is for callers that still want "the one patient this phone
+    has" (e.g. "My Details") -- returns the FIRST matching row if a phone
+    somehow has more than one `patients` row, not an error, but is no
+    longer the right lookup for anything booking-related. Use
+    get_active_patients_for_phone() for that."""
     session = get_session()
     row = session.execute(select(*_PATIENT_COLUMNS).where(PatientRow.hospital_id == hospital_id, PatientRow.phone == phone)).first()
     return dict(row._mapping) if row else None
 
 
-# --- Patient identity SEPARATION (Spec.md Section 0): one WhatsApp phone can
-# link up to platform_settings.max_active_patient_links patient profiles (a shared family phone).
+# --- Patient identity: one WhatsApp phone can link up to
+# platform_settings.max_active_patient_links patient profiles (a shared family phone).
 # patient_links is the source of truth for phone<->patient associations;
 # `patients` itself no longer implies "one row per phone" (db/schema.sql's own
 # comment on the dropped UNIQUE(hospital_id, phone) constraint explains why). ---
 
-# CareConnect architecture doc alignment (Spec.md Section 0), Section 17's
-# fixed relationship enum -- single source of truth the WhatsApp picker and
+# Fixed relationship enum -- single source of truth the WhatsApp picker and
 # db/schema.sql's own patient_links_relationship_label_check CHECK
-# constraint both mirror. Stored/displayed as Title Case, matching the
-# migration backfill's own pre-existing 'Self' value -- not the doc's
-# literal uppercase SELF/MOTHER/... strings, which would need a data
-# migration for no functional gain (confirmed with the user).
+# constraint both mirror. Stored/displayed as Title Case.
 RELATIONSHIP_OPTIONS = ("Self", "Mother", "Father", "Son", "Daughter", "Spouse", "Guardian", "Other")
 
 # "Myself / Someone Else" registration step (flows/patient_identity.py) only
@@ -299,9 +289,8 @@ RELATIONSHIP_OTHER = "Other"
 # NULL, same reasoning as patient_links.relationship_label above.
 GENDER_OPTIONS = ("Male", "Female", "Other")
 
-# CareConnect architecture doc alignment, Section 18's Patient Master state
-# model (CREATED collapsed into ACTIVE, confirmed with the user -- see
-# db/schema.sql's own comment on patients.status for why).
+# Patient status model (CREATED collapsed into ACTIVE -- see db/schema.sql's
+# own comment on patients.status for why).
 PATIENT_STATUS_ACTIVE = "active"
 PATIENT_STATUS_BLOCKED = "blocked"
 PATIENT_STATUS_INACTIVE = "inactive"
@@ -316,8 +305,7 @@ def get_active_patients_for_phone(hospital_id: int, phone: str) -> list[dict]:
     family member added, is always first -- the natural single-result case
     for a still-single-patient phone stays first without any extra logic).
 
-    CareConnect architecture doc alignment (Spec.md Section 0), Section 18:
-    also filters to patients.status = 'active' -- a hospital-blocked or
+    Also filters to patients.status = 'active' -- a hospital-blocked or
     inactive patient is excluded from selection/auto-continue entirely,
     without touching their patient_links row at all (their link stays
     active; they just can't be chosen while the PATIENT record itself is
@@ -342,8 +330,7 @@ def get_active_patients_for_phone(hospital_id: int, phone: str) -> list[dict]:
 
 
 def validate_active_patient_link(hospital_id: int, phone: str, patient_id: int) -> bool:
-    """CareConnect architecture doc alignment (Spec.md Section 0), Section
-    14's patient-context validation: re-checked at the point of an actual
+    """Re-checked at the point of an actual
     patient-specific WRITE (booking/cancel/reschedule confirm), not just at
     selection time -- a link resolved several messages ago in a multi-step
     flow (department -> doctor -> date -> time -> confirm) could have been
@@ -480,13 +467,11 @@ def _link_patient_under_cap(conn, hospital_id: int, phone: str, patient_id: int,
 def find_potential_duplicate_patient(
     hospital_id: int, name: str, contact_phone: str, date_of_birth: str, gender: str,
 ) -> dict | None:
-    """CareConnect architecture doc alignment (Spec.md Section 0), Sections
-    8-10: searched BEFORE create_patient_profile() creates a brand-new
+    """Searched BEFORE create_patient_profile() creates a brand-new
     `patients` row/MRN, so a family member who already has a hospital
     record (e.g. from a staff-created booking, a different WhatsApp number,
     or the SAME phone re-adding someone already in their own list) isn't
-    silently duplicated. Matching criteria (confirmed with the user,
-    widened from name+contact only): exact name (case/whitespace-
+    silently duplicated. Matching criteria: exact name (case/whitespace-
     insensitive) AND exact contact phone number (patients.phone -- the
     patient's OWN number: the messaging phone for "Myself", the collected
     number for "Someone Else", see create_patient_profile()'s contact_phone
@@ -542,7 +527,7 @@ def _flag_duplicate_if_matches(
     conn, hospital_id: int, patient_id: int, name: str | None, phone: str | None,
     date_of_birth: str | None, gender: str | None,
 ) -> None:
-    """Patients page follow-up (Section 0): call this right after a BRAND-NEW
+    """Call this right after a BRAND-NEW
     `patients` row is inserted (both _upsert_patient()'s fresh-INSERT branch,
     db/repositories/appointments.py, and create_patient_profile() below) --
     never on an update to an existing row, which already has its own settled
@@ -675,12 +660,11 @@ def create_patient_profile(
 def link_existing_patient(
     hospital_id: int, phone: str, patient_id: int, relationship_label: str | None = None,
 ) -> dict:
-    """CareConnect architecture doc alignment (Spec.md Section 0), Section
-    9: the "Link Existing Patient" choice after find_potential_duplicate_patient()
-    surfaces a plausible match -- creates a new patient_links row pointing
-    at the EXISTING `patients` row (no new patient/MRN, matching Section 9's
-    explicit "should not create a second MRN merely because..." rule)
-    rather than create_patient_profile()'s "always a fresh row." Subject to
+    """The "Link Existing Patient" choice after
+    find_potential_duplicate_patient() surfaces a plausible match --
+    creates a new patient_links row pointing at the EXISTING `patients` row
+    (no new patient/MRN) rather than create_patient_profile()'s "always a
+    fresh row." Subject to
     the exact same 5-active-link cap as a new profile. Raises ValueError if
     patient_id doesn't belong to hospital_id, or isn't 'active'."""
     _check_relationship_label(relationship_label)
@@ -708,7 +692,7 @@ def link_existing_patient(
 
 
 def set_patient_status(hospital_id: int, patient_id: int, status: str) -> dict | None:
-    """Staff-side action (the portal's patient detail page) for Section 18's
+    """Staff-side action (the portal's patient detail page) for the
     BLOCKED/INACTIVE states -- a hospital-level fact about the PATIENT
     record, deliberately independent of patient_links (blocking a patient
     doesn't touch or require touching any phone's link to them; see
@@ -749,8 +733,7 @@ def unlink_patient(hospital_id: int, phone: str, patient_id: int) -> bool:
 
 
 def get_patient_link_consent(hospital_id: int, phone: str, patient_id: int) -> dict | None:
-    """CareConnect architecture doc alignment (Spec.md Section 0), Section
-    20's Consent & Privacy menu item -- reads the active link's own
+    """The Consent & Privacy menu item -- reads the active link's own
     service_consent/marketing_consent columns. Returns None if there's no
     active link for this (hospital_id, phone, patient_id) triple."""
     session = get_session()
@@ -764,15 +747,14 @@ def get_patient_link_consent(hospital_id: int, phone: str, patient_id: int) -> d
 
 
 def set_marketing_consent(hospital_id: int, phone: str, patient_id: int, consented: bool) -> bool:
-    """The one genuinely user-togglable consent flag (Section 20) --
-    service_consent is implicit in having an active link at all (see
-    db/schema.sql's own comment on why it's not a separate WhatsApp-facing
-    toggle); marketing_consent is independent, opt-in, and freely
-    reversible either direction. Returns False if there's no active link to
-    update.
+    """The one genuinely user-togglable consent flag -- service_consent is
+    implicit in having an active link at all (see db/schema.sql's own
+    comment on why it's not a separate WhatsApp-facing toggle);
+    marketing_consent is independent, opt-in, and freely reversible either
+    direction. Returns False if there's no active link to update.
 
-    Also mirrors the new value onto patients.marketing_consent (migration
-    d2a67f3d2e09) -- the portal's Consent management section's durable,
+    Also mirrors the new value onto patients.marketing_consent -- the
+    portal's Consent management section's durable,
     always-present fallback/read for a patient with zero active links, kept
     in sync here so it never goes stale for a patient who DOES have one."""
     session = get_session()
@@ -910,7 +892,7 @@ def delete_patient_hard(hospital_id: int, patient_id: int) -> bool:
 
 def delete_patient_soft(hospital_id: int, patient_id: int) -> dict | None:
     """Production-safe alternative to delete_patient_hard() -- reuses the
-    existing PATIENT_STATUSES model (Section 18) instead of removing any
+    existing PATIENT_STATUSES model instead of removing any
     row, so appointment/visit history is preserved. Swap the portal route
     to this once the app is out of dev/testing."""
     return set_patient_status(hospital_id, patient_id, PATIENT_STATUS_INACTIVE)

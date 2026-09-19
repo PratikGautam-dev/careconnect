@@ -1,6 +1,6 @@
 # portal/permission_cache.py
 """Redis cache + pub/sub invalidation for the per-hospital permission matrix
-(docs/rbac-redis-plan.md) -- portal/permissions.py's get_permission_matrix()
+-- portal/permissions.py's get_permission_matrix()
 is read on every permission-gated request, so caching it avoids a
 role_permissions table scan per request; invalidate() below is what makes an
 admin's edit in the Roles & Permissions UI take effect immediately for every

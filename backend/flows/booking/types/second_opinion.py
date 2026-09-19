@@ -1,5 +1,5 @@
 # flows/booking/types/second_opinion.py
-"""Second Opinion: unchanged flow. Phase 2: optional document-upload step
+"""Second Opinion: an optional document-upload step
 before confirmation. Shares the "one active appointment per department"
 department-selection check with new/tele/daycare -- see
 base.existing_department_appointment."""

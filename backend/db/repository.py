@@ -1,18 +1,10 @@
 # db/repository.py
 """
-ARCHITECTURE_PLAN.md Phase 1: this used to be the single ~2900-line data-
-access file for every domain (hospitals, users, doctors, leave, slots,
-patients, patient records, appointments, dashboard, FAQ, handoffs). Split
-into db/models.py (shared dataclasses/exceptions/constants/row-mappers) and
-one file per domain under db/repositories/ -- see that plan doc's "Key
-restructuring specifics" section for the reasoning.
-
-This module is now a re-export shim so every existing call site
+A re-export shim so every existing call site
 (`import db.repository as db; db.create_appointment(...)`, or
 `from db.repository import X`) keeps working unchanged while callers move
 to importing db.repositories.<domain> directly over time. Delete this file
-once `grep -r "import db.repository"` outside it returns nothing (per the
-plan's migration-verification step).
+once `grep -r "import db.repository"` outside it returns nothing.
 """
 from db.connection import IntegrityError, get_connection
 

@@ -1,13 +1,12 @@
 # auth/google_calendar_oauth.py
-"""Google Meet integration (Spec.md Section 0): the OAuth dance a hospital
+"""Google Meet integration: the OAuth dance a hospital
 ADMIN goes through to connect ONE Google account for the whole hospital, so
 every doctor's tele-consultation bookings there can create a real Calendar
 event with a Meet link instead of the existing Jitsi room
 (flows/booking/types/tele_consultation.py falls back to Jitsi for any
 hospital not connected -- this module never touches that fallback directly,
 it only ever populates db.repositories.google_calendar's table). Not a
-per-doctor connection (confirmed with the user, a revision of the original
-per-doctor plan) -- doctors never see this flow at all; it lives on the
+per-doctor connection -- doctors never see this flow at all; it lives on the
 hospital admin's own Settings page.
 
 A SEPARATE authlib OAuth client from auth/google_oauth.py's hospital-owner

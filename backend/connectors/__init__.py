@@ -1,8 +1,8 @@
 # connectors/__init__.py
 """
-ARCHITECTURE_PLAN.md Phase 2: connectors.py split into a package —
-connectors/base.py (the Connector ABC, the shared "not implemented yet"
-stub base, and ConnectorNotImplementedError), connectors/tier1.py
+This package is organized as: connectors/base.py (the Connector ABC, the
+shared "not implemented yet" stub base, and ConnectorNotImplementedError),
+connectors/tier1.py
 (Tier1Connector, the only tier with a real implementation),
 connectors/tier2.py / tier3.py (stubs), and connectors/dispatch.py
 (get_connector_for_hospital, the single per-hospital dispatch point).
@@ -18,7 +18,7 @@ from db.repositories.patients import (  # noqa: F401 -- re-exported, see module 
 # Re-exported (Appointment/DuplicateBookingError/Hospital/
 # RELATIONSHIP_OPTIONS/TooManyLinkedPatientsError above) so core/booking_flow.py
 # and core/patient_identity.py can import them from here without importing
-# db/repository.py directly — SPEC Section 12.6.2's connector-only boundary.
+# db/repository.py directly — the connector-only boundary.
 # max_active_patient_links is NOT re-exported as a raw constant anymore --
 # it's a global platform-admin-editable value now (db/repositories/
 # platform_settings.py), read via Connector.get_max_active_patient_links()

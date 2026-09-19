@@ -1,39 +1,34 @@
 # faq_flow.py
 """
-SPEC Section 14.5 (originally 14.2, under the single-flow_type model that
-Section 14.5 replaced): the FAQ sub-flow. A hospital that enables the "faq"
+The FAQ sub-flow. A hospital that enables the "faq"
 feature (hospitals.enabled_features) gets a "FAQ / Information" row in the
 unified main menu (flows.py); tapping it hands the conversation here for as
 long as the patient keeps tapping topics.
 
 Deliberately shallow: no state machine depth beyond one level (unlike
-booking's department -> doctor -> slot -> confirm chain, Section 3.3) --
+booking's department -> doctor -> slot -> confirm chain) --
 every incoming message while active (a topic tap, unrecognized free text)
 shows the topic list; tapping a topic replies with that topic's configured
 answer, then loops straight back to the topic list. The one bit of state that
 DOES exist, STATE_FAQ_ACTIVE, exists purely so flows.py's router knows to
 keep delegating subsequent messages here instead of falling back to the
-unified main menu after every single message -- Section 14.2's original
-version reset to true IDLE after every message, which was fine when FAQ was
-its own exclusive top-level flow_type, but would have meant "tap a topic,
-then anything else you send goes to the unified menu instead of the topic
-list" once FAQ became one feature among several. A reset keyword (Section 0's
-"stuck session" fix, via core/flow_common.py's is_reset_keyword()) is handled
+unified main menu after every single message. A reset keyword (via
+core/flow_common.py's is_reset_keyword()) is handled
 by flows.py's router BEFORE it ever delegates here, so it always returns to
 the top-level unified menu, not just this flow's own topic list -- this
 module still needs no dedicated reset-keyword check of its own.
 
 `connector` is accepted only to match the shared sub-flow call signature
-flows.py delegates with -- FAQ flow does not use Section 12.6.2's connector
+flows.py delegates with -- FAQ flow does not use the connector
 interface at all (no bookings, no Tier 1/2/3 relevance).
 
-Reuses core/flow_common.py's cap_rows() (Meta's 10-row WhatsApp list limit,
-Section 12.7's finding) rather than reimplementing it -- that bug was found
+Reuses core/flow_common.py's cap_rows() (Meta's 10-row WhatsApp list limit)
+rather than reimplementing it -- that bug was found
 and fixed once already, in booking_flow.py; a second flow type is exactly
 the case that extraction was for.
 
-Section 12.11 (language selection): `language` is threaded through from
-flows.py's router the same way every other sub-flow now takes it -- only the
+`language` is threaded through from
+flows.py's router the same way every other sub-flow takes it -- only the
 bot's own fixed strings ("choose a topic", "View Topics", ...) are looked up
 via core/translations.t(); a topic's configured answer_text is hospital-
 entered content and is never auto-translated (same rule as everywhere else
@@ -72,7 +67,7 @@ async def send_topic_menu(
         # loud-in-logs-adjacent state (nothing to show a patient), but still a
         # graceful patient-facing message rather than an empty/broken list
         # send (same "never send Meta a zero-row list" discipline as
-        # booking_flow.py's Phase 8 hardening).
+        # booking_flow.py's own hardening).
         await wa.send_text(phone, t(FAQ_NO_TOPICS, language, hospital_name=hospital_name))
         return
 
@@ -112,6 +107,5 @@ async def handle_incoming(
             return
 
     # Unrecognized/stale tap, or any other free text -- both show the same
-    # topic list (Section 14.2: no deeper state, every reply loops back to
-    # the topic menu).
+    # topic list (no deeper state, every reply loops back to the topic menu).
     await send_topic_menu(wa, phone, hospital_id, hospital_name, language=language)

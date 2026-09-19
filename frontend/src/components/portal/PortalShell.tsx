@@ -14,11 +14,8 @@ type Props = {
 
 /** Shared shell for every /portal/* page: sidebar (a static column at `lg`
  * and up, an off-canvas drawer below it, behind a mobile top bar with a
- * hamburger toggle) plus the scrollable main content area. Every portal page
- * used to compose this same three-element structure (`<div className="flex
- * h-screen ..."><PortalSidebar/><main>...`) directly -- centralized here so
- * the mobile drawer's open/close state has exactly one owner instead of each
- * page reinventing it. */
+ * hamburger toggle) plus the scrollable main content area, so the mobile
+ * drawer's open/close state has exactly one owner. */
 export function PortalShell({ hospital, active, children }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();

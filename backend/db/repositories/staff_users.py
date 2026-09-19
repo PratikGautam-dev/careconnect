@@ -1,18 +1,12 @@
 # db/repositories/staff_users.py
 """Unified per-person staff login -- Admin/Receptionist/Doctor (or any
-custom role a hospital's admin has created, dynamic-roles migration), one
-login per human being (docs/rbac-redis-plan.md). Split out as its own
-repository file, following the doctors.py/hospitals.py precedent, rather
-than folded into either -- this table is read by the auth layer
+custom role a hospital's admin has created), one login per human being.
+Reads/writes db.orm_models.Identity + StaffDetail. Every function here
+returns the same dict shape ({id, hospital_id, role_id, role_name,
+is_doctor_role, email, password_hash, name, doctor_id, is_active,
+token_version}). "id" here is identities.id. Read by the auth layer
 (portal/deps.py) on every authenticated request, not just doctor- or
-hospital-management routes.
-
-Migration 0016: reads/writes db.orm_models.Identity + StaffDetail now, not
-the historical StaffUser table (kept, untouched, as a backup -- see that
-migration's own docstring). Every function here keeps the exact same name
-and dict shape ({id, hospital_id, role_id, role_name, is_doctor_role, email,
-password_hash, name, doctor_id, is_active, token_version}) callers already
-expect -- only the underlying tables changed. "id" here is identities.id."""
+hospital-management routes."""
 from typing import cast
 
 import sqlalchemy.exc
@@ -127,8 +121,7 @@ def get_staff_user_by_email(email: str) -> dict | None:
     collapse into the same generic lookup-failed 401. The JOIN to
     StaffDetail is what makes this "get a staff login by email" rather than
     "get any identity by email" -- an OAuth hospital owner or super admin
-    sharing that email (see migration 0016's merge-by-email note) never
-    matches here."""
+    sharing that email never matches here."""
     session = get_session()
     row = session.execute(
         select(*_STAFF_COLUMNS)

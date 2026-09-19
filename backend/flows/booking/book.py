@@ -1,8 +1,7 @@
 # flows/booking/book.py
 """
-ARCHITECTURE_PLAN.md Phase 3b: the booking sub-flow's own state handlers
-(department/doctor/date/time/patient-name/age/confirmation/change-selection),
-split out of the former single core/booking_flow.py module.
+The booking sub-flow's own state handlers
+(department/doctor/date/time/patient-name/age/confirmation/change-selection).
 """
 from datetime import datetime
 
@@ -49,7 +48,7 @@ def _get_slots(
     connector: Connector, hospital_id: int, doctor_id: str | None, resource_id: str | None,
     procedure_id: int | None = None,
 ) -> list[dict]:
-    """Diagnostic/Lab Phase 2: the one place _handle_awaiting_date/
+    """The one place _handle_awaiting_date/
     _handle_awaiting_time_slot read slot availability from -- resource_id
     (when set) takes priority, same "exactly one of the two is ever set"
     invariant create_appointment() enforces at the DB level.
@@ -80,10 +79,10 @@ async def _start_booking_flow(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, connector: Connector, language: str = "en",
     active_patient_id: int | None = None, category: "frozenset[str] | None" = None, next_action: str = "booking",
 ) -> None:
-    """CareConnect architecture doc alignment (Spec.md Section 0): when
+    """When
     `active_patient_id` is given (flows.py's real-traffic path, resolved
     ONCE up front by core/patient_identity.py before the main menu is ever
-    shown -- Section 13's "Active Patient Context"), skip straight to
+    shown -- the "Active Patient Context"), skip straight to
     department selection using it, bypassing every branch below entirely --
     this module no longer owns patient resolution for real traffic. Left
     None (every existing call site/test), the full 0/1/2+ resolution below
@@ -91,19 +90,11 @@ async def _start_booking_flow(
     core/patient_identity.py's own module docstring for why this module's
     own selector logic below is kept rather than deleted.
 
-    Patient identity/UX follow-up (Spec.md Section 0): name/age collection
-    moved to the FRONT of the booking flow -- asked immediately after "Book
-    Appointment" is tapped, before department selection -- instead of the
-    back (after date/time selection, Section 12.11's original placement,
-    kept unchanged through Sections 12.12/12.13). Confirmed with the user
-    directly (not assumed) before making this change.
+    Name/age collection happens at the FRONT of the booking flow -- asked
+    immediately after "Book Appointment" is tapped, before department selection.
 
-    Patient identity SEPARATION (Spec.md Section 0), superseding the
-    immediately-prior "ask name every time" behavior (confirmed with the
-    user this was a workaround for having no real profile concept yet, now
-    replaced): a phone with ZERO linked patients is asked for a name (the
-    implicit first/"Self" profile, mirroring the migration backfill's own
-    convention); a phone with exactly ONE linked patient auto-selects it and
+    A phone with ZERO linked patients is asked for a name (the
+    implicit first/"Self" profile); a phone with exactly ONE linked patient auto-selects it and
     proceeds straight to department selection, zero added friction -- the
     same single-patient UX this app has always had; a phone with MORE THAN
     ONE linked patient sees STATE_AWAITING_PATIENT_SELECTION first. Name/age
@@ -194,8 +185,8 @@ async def _proceed_to_department_or_skip(
         sessions.set(hospital_id, phone, flow.first_step(), new_context)
         await _send_date_menu(wa, phone, hospital_id, doctor["id"], doctor["name"], connector, language=language)
         return
-    # Single-doctor tenant (a clinic, per tenant-capability-gating-
-    # plan.md -- onboarded with exactly one department and one
+    # Single-doctor tenant (a clinic -- onboarded with exactly one
+    # department and one
     # doctor): asking a clinic's patient to pick a department then a
     # doctor when there's only ever one of each is pure friction, so
     # skip straight to date selection with both auto-selected. Not
@@ -331,12 +322,7 @@ async def _handle_awaiting_department(
                         ],
                     )
                     return
-            # Bug fix (Section 3.3 "Go back" follow-up): this branch used to
-            # build new_context from scratch with no **context spread, unlike
-            # every other handler below -- silently dropping _history/
-            # patient_name/patient_date_of_birth if a patient reached here via the
-            # confirmation screen's "change department" path. Explicit
-            # carry-forward instead of a blanket spread, since department_id/
+            # Explicit carry-forward instead of a blanket spread, since department_id/
             # name from the OLD pick must NOT survive a fresh department pick.
             history = _push_history(context, STATE_AWAITING_DEPARTMENT)
             new_context = {"department_id": dept["id"], "department_name": dept["name"], _HISTORY_KEY: history}
@@ -382,10 +368,9 @@ async def _handle_awaiting_date(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Section 12.12, step 1 of the date/time split (was _handle_awaiting_slot
-    before this section).
+    """Step 1 of the date/time split.
 
-    Diagnostic/Lab Phase 2: context["resource_id"], when set, means this
+    context["resource_id"], when set, means this
     booking is resource-bound (not doctor-bound) -- slot lookups go through
     the resource-keyed connector methods instead, same "one small branch in
     shared code" shape used throughout this file."""
@@ -433,10 +418,9 @@ async def _handle_awaiting_time_slot(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Section 12.12, step 2 of the date/time split.
+    """Step 2 of the date/time split.
 
-    Diagnostic/Lab Phase 2: same context["resource_id"] branch as
-    _handle_awaiting_date above."""
+    Same context["resource_id"] branch as _handle_awaiting_date above."""
     doctor_id = context.get("doctor_id")
     resource_id = context.get("resource_id")
     procedure_id = context.get("procedure_id")
@@ -469,9 +453,9 @@ async def _handle_awaiting_time_slot(
                 "slot_time": slot["time"],
                 _HISTORY_KEY: _push_history(context, STATE_AWAITING_TIME_SLOT),
             }
-            # Patient identity/UX follow-up (Spec.md Section 0): name/age is
-            # now collected BEFORE department selection (_start_booking_flow),
-            # so context always already has both by the time a slot is
+            # name/age is collected BEFORE department selection
+            # (_start_booking_flow), so context always already has both by
+            # the time a slot is
             # picked -- including on a double-booking-race re-entry into this
             # exact state (_handle_slot_taken re-sets STATE_AWAITING_TIME_SLOT
             # with context unchanged) -- straight to confirmation, no mid-flow
@@ -508,9 +492,7 @@ async def _handle_awaiting_patient_name(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Section 12.11, target state restored to AWAITING_PATIENT_AGE by a
-    Section 12.13 follow-up (Section 12.12 had briefly sent this straight to
-    confirmation instead). Free text only, same "unsupported input
+    """Free text only, same "unsupported input
     re-prompts the same state" pattern as every tap-driven state above, just
     keyed on non-empty text instead of a valid interactive_reply id."""
     if reply["type"] == "text" and reply["text"].strip():
@@ -528,13 +510,13 @@ async def _handle_awaiting_patient_age(
     wa: WhatsAppClient, sessions, phone: str, hospital_id: int, reply: dict, context: dict, connector: Connector,
     language: str = "en", closing_message_text: str | None = None,
 ) -> None:
-    """Section 12.11, restored by a Section 12.13 follow-up. Validates a
+    """Validates a
     whole number in [MIN_PATIENT_AGE, MAX_PATIENT_AGE] (_parse_patient_age)
     -- non-numeric or out-of-range input re-prompts with a specific error,
     same pattern as every other validation failure in this codebase (e.g.
     db.is_valid_phone() at the staff new-booking form).
 
-    Patient identity SEPARATION (Spec.md Section 0): a valid age now creates
+    A valid age creates
     a real `patients` row + `patient_links` link (connector.create_patient_profile)
     instead of just stashing name/age in context -- this is the ONE place a
     new patient profile is ever created from the WhatsApp chat itself (both
@@ -668,7 +650,7 @@ async def _create_booking_and_notify(
         # freshly-queried list that no longer offers the taken slot.
         await _handle_slot_taken(wa, sessions, phone, hospital_id, context, STATE_AWAITING_TIME_SLOT, connector, language=language)
         return
-    # Section 12.12: reference_id is generated once, inside
+    # reference_id is generated once, inside
     # create_appointment() itself (db/repository.py) -- read back off
     # the returned Appointment rather than regenerated here, so the
     # id shown to the patient is the exact one actually stored.
@@ -687,8 +669,7 @@ async def _create_booking_and_notify(
             date_label=appointment.scheduled_at.strftime("%A, %d %B %Y"),
             time_label=appointment.scheduled_at.strftime("%I:%M %p"),
         )
-    # Tele-consultation Phase 2, revised per the user's own explicit
-    # "soft-gate" call: the video link is generated and persisted right here
+    # The video link is generated and persisted right here
     # (needs appointment.id to attach it to), but deliberately NOT shown in
     # this immediate confirmation -- it's sent later, close to the actual
     # slot, via the reminder message (reminders/scheduler.py) instead, so a

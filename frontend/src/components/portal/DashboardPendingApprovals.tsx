@@ -13,12 +13,9 @@ const LEAVE_TYPE_LABELS: Record<string, string> = {
 
 const MAX_SHOWN = 5;
 
-/** Dashboard's small "what needs my attention" widget -- real pending leave
- * requests now (migration 6eda12041ecf's Holiday Application page feeds
- * these in), not the old hardcoded sample rows. Gated the same way the
- * admin Leave Requests page itself is ("leave_requests" view) -- a role
- * without that permission sees an empty-state message instead of a
- * silently-broken fetch. */
+/** Dashboard's "what needs my attention" widget: pending leave requests,
+ * gated behind "leave_requests" view permission so a role without it sees
+ * an empty-state message instead of a silently-broken fetch. */
 export function DashboardPendingApprovals({ className }: { className?: string }) {
   const canView = usePermission("leave_requests", "view");
   const { requests } = useLeaveRequests(canView);

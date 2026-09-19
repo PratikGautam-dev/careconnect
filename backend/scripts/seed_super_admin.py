@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Create a super_admins row (docs/rbac-redis-plan.md) -- operator-provisioned
+Create a super_admins row -- operator-provisioned
 only, deliberately: there is no self-service signup and no automatic seed
 during init_db.py, the same "someone with database access has to actually
 decide a real person gets platform-admin power" posture ADMIN_SECRET/

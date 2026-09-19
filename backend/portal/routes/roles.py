@@ -1,11 +1,10 @@
 # portal/routes/roles.py
-"""Roles & Permissions admin UI's backend (dynamic-roles migration -- see
-the approved plan, .claude/plans/federated-enchanting-raven.md) -- lets an
+"""Roles & Permissions admin UI's backend -- lets an
 admin create/rename/delete their own hospital's roles, and view/edit each
 role's per-page permission grid. Gated by require_permission(principal,
 "roles", ...) itself, not a hardcoded "only role == admin" check -- admin
 gets view+write on PAGE_ROLES by default (portal/permissions.py's
-DEFAULT_PERMISSIONS_BY_ROLE_KIND), but per the plan this page is itself
+DEFAULT_PERMISSIONS_BY_ROLE_KIND), but this page is itself
 editable like every other page, so a hospital could in principle grant a
 receptionist read access to it too."""
 from fastapi import APIRouter, Header
