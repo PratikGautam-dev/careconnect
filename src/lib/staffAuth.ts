@@ -20,6 +20,11 @@ export type StaffSession = {
   // any role can optionally have a doctor linked. Every `role === "doctor"`
   // UI branch switches to this instead of a role-name comparison.
   is_doctor_role: boolean;
+  // RoleRow.is_protected on the backend -- true only for the hospital's
+  // seeded Admin role, a structural flag that survives that role being
+  // renamed (unlike comparing role_name === "Admin"). Used to pick which
+  // dashboard variant to render.
+  is_admin: boolean;
   doctor_id: string | null;
   hospital: PortalHospital;
   permissions: StaffPermissions;
@@ -215,6 +220,7 @@ export type StaffAuthResponse = {
     role_id: number;
     role_name: string;
     is_doctor_role: boolean;
+    is_admin: boolean;
     doctor_id: string | null;
     hospital: PortalHospital;
   };
@@ -228,6 +234,7 @@ export function staffSessionFromAuthResponse(data: StaffAuthResponse): StaffSess
     role_id: data.staff.role_id,
     role_name: data.staff.role_name,
     is_doctor_role: data.staff.is_doctor_role,
+    is_admin: data.staff.is_admin,
     doctor_id: data.staff.doctor_id,
     hospital: data.staff.hospital,
     permissions: data.permissions,

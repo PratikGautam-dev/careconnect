@@ -4,8 +4,8 @@ import { Building2, Calendar, CalendarDays, CheckCircle2, UserRound, XCircle } f
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { formatDate } from "@/lib/formatDate";
-import type { LeaveRequestRow } from "@/hooks/useLeaveRequests";
-import { LEAVE_TYPE_LABELS, StatusBadge } from "./leave-request-columns";
+import { formatLeaveTypeLabel, type LeaveRequestRow } from "@/hooks/useLeaveRequests";
+import { StatusBadge } from "./leave-request-columns";
 
 function DetailRow({
   icon: Icon,
@@ -60,9 +60,7 @@ export function LeaveRequestDetailPanel({
     );
   }
 
-  const applicantLabel = request.is_doctor_role
-    ? `Dr. ${request.applicant_name}`
-    : request.applicant_name;
+  const applicantLabel = request.applicant_name;
 
   return (
     <Card className="p-space-4">
@@ -80,7 +78,7 @@ export function LeaveRequestDetailPanel({
         <DetailRow
           icon={CalendarDays}
           label="Leave Type"
-          value={LEAVE_TYPE_LABELS[request.leave_type]}
+          value={formatLeaveTypeLabel(request.leave_type)}
         />
         <DetailRow icon={Calendar} label="From Date" value={formatDate(request.from_date)} />
         <DetailRow icon={Calendar} label="To Date" value={formatDate(request.to_date)} />

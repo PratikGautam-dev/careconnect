@@ -20,6 +20,7 @@ import { DoctorDashboardView } from "@/components/portal/DoctorDashboardView";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
+import { StaffDashboardView } from "@/components/portal/StaffDashboardView";
 import { TodaysAppointmentsTable } from "@/components/portal/TodaysAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
@@ -35,15 +36,28 @@ const TIER_LABELS: Record<string, string> = {
 
 export default function PortalDashboardPage() {
   // Doctors get their own dashboard content (today's appointments, their own
-  // stats) instead of the hospital-wide widgets below -- same shared
-  // PortalShell/nav either way. Session is null on the server and on the
-  // client's first render, so both agree on rendering HospitalDashboard
-  // first; the real session arrives an instant later as a client-only update.
+  // stats); every other non-admin staff member (Receptionist or any custom
+  // role) gets StaffDashboardView (check-in status, leave balance, their own
+  // recent requests) instead of the hospital-wide widgets below -- same
+  // shared PortalShell/nav either way. is_admin (RoleRow.is_protected) is
+  // the structural "is this THE Admin role" signal, not a role_name string
+  // match (confirmed with the user: staff should get a self-service
+  // dashboard of their own, not the admin's hospital-wide analytics).
+  // Session is null on the server and on the client's first render, so both
+  // agree on rendering HospitalDashboard first; the real session arrives an
+  // instant later as a client-only update.
   const session = useStaffSession();
   if (session?.is_doctor_role) {
     return (
       <PortalShell hospital={session.hospital} active="dashboard">
         <DoctorDashboardView />
+      </PortalShell>
+    );
+  }
+  if (session && !session.is_admin) {
+    return (
+      <PortalShell hospital={session.hospital} active="dashboard">
+        <StaffDashboardView />
       </PortalShell>
     );
   }

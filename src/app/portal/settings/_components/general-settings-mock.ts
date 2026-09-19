@@ -15,16 +15,23 @@ export type WhatsAppConfig = {
 // Advance Booking Limit, Default Appointment Duration, Buffer Time Between
 // Appointments, and Maximum Appointments Per Day are real backend-enforced
 // settings (usePortalSettings), wired directly in GeneralSettingsTab
-// instead of duplicated as mock state here.
-export type AppointmentSettingsMock = {
-  allowOnlineAppointments: boolean;
-  sendReminders: boolean;
-};
+// instead of duplicated as mock state here. Reminders on/off used to be a
+// mock toggle here too (sendReminders) -- moved to the real, single
+// `reminders_enabled` settings field (Notifications tab's "Appointment
+// Reminders" toggle) instead of staying a disconnected duplicate.
+// "Allow Online Appointments" used to be the last mock field here
+// (allowOnlineAppointments) -- now the real `allow_online_appointments`
+// settings field plus `booking_closure_from_date`/`booking_closure_to_date`/
+// `closing_message_text`, since it drives an actual WhatsApp-side booking
+// closure, wired directly in GeneralSettingsTab. Nothing mock-only is left
+// for Appointment Settings, so there's no AppointmentSettingsMock type anymore.
 
+// Appointment Reminders/Follow-up Reminders used to be mock toggles here
+// too -- both merged into the one real `reminders_enabled` settings field
+// (Notifications tab's "Message Templates & Content" card) instead, since
+// reminders/scheduler.py already covers both appointment kinds with no
+// separate mechanism to gate independently.
 export type NotificationPreferencesMock = {
-  appointmentConfirmations: boolean;
-  appointmentReminders: boolean;
-  followUpReminders: boolean;
   labReportNotifications: boolean;
   systemAnnouncements: boolean;
   marketingCommunications: boolean;
@@ -42,7 +49,6 @@ export type SecuritySettingsMock = {
 export type GeneralSettingsState = {
   branding: HospitalBranding;
   whatsapp: WhatsAppConfig;
-  appointments: AppointmentSettingsMock;
   notifications: NotificationPreferencesMock;
   security: SecuritySettingsMock;
 };
@@ -64,14 +70,7 @@ export function initialGeneralSettings(): GeneralSettingsState {
       connected: true,
       lastSyncedAt: "9 Sep 2026, 10:24 AM",
     },
-    appointments: {
-      allowOnlineAppointments: true,
-      sendReminders: true,
-    },
     notifications: {
-      appointmentConfirmations: true,
-      appointmentReminders: true,
-      followUpReminders: true,
       labReportNotifications: true,
       systemAnnouncements: true,
       marketingCommunications: false,

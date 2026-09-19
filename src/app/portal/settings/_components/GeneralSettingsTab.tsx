@@ -141,7 +141,7 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
     await savePortalSettings(e);
   }
 
-  const { appointments, security } = settings;
+  const { security } = settings;
 
   return (
     <div className="gap-space-4 flex flex-col">
@@ -390,21 +390,63 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
               <ToggleRow
                 label="Allow Online Appointments"
                 subtitle="Patients can self-book via WhatsApp"
-                checked={appointments.allowOnlineAppointments}
+                checked={portalSettings?.allow_online_appointments ?? true}
+                disabled={!portalSettings}
                 onChange={() =>
-                  patch("appointments", {
-                    allowOnlineAppointments: !appointments.allowOnlineAppointments,
+                  portalSettings &&
+                  setPortalSettings({
+                    ...portalSettings,
+                    allow_online_appointments: !portalSettings.allow_online_appointments,
                   })
                 }
               />
-              <ToggleRow
-                label="Send Appointment Reminders"
-                subtitle="Automatic WhatsApp reminders"
-                checked={appointments.sendReminders}
-                onChange={() =>
-                  patch("appointments", { sendReminders: !appointments.sendReminders })
-                }
-              />
+              {portalSettings && (
+                <div className="mt-space-3 gap-space-3 border-line rounded-md border p-space-3">
+                  <div className="gap-space-3 grid grid-cols-1 sm:grid-cols-2">
+                    <Field label="Closed from" htmlFor="booking_closure_from_date" className="mb-0">
+                      <Input
+                        id="booking_closure_from_date"
+                        type="date"
+                        value={portalSettings.booking_closure_from_date}
+                        onChange={(e) =>
+                          setPortalSettings({
+                            ...portalSettings,
+                            booking_closure_from_date: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Closed until" htmlFor="booking_closure_to_date" className="mb-0">
+                      <Input
+                        id="booking_closure_to_date"
+                        type="date"
+                        value={portalSettings.booking_closure_to_date}
+                        onChange={(e) =>
+                          setPortalSettings({
+                            ...portalSettings,
+                            booking_closure_to_date: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <Field
+                    label="Message shown to patients"
+                    htmlFor="closing_message_text"
+                    className="mb-0 mt-space-3"
+                    hint='Only takes effect while "Allow Online Appointments" above is off, and today falls between the dates set here. Sent instead of the main menu, e.g. "The hospital is closed and will reopen on 25 Oct."'
+                  >
+                    <Textarea
+                      id="closing_message_text"
+                      rows={2}
+                      value={portalSettings.closing_message_text}
+                      onChange={(e) =>
+                        setPortalSettings({ ...portalSettings, closing_message_text: e.target.value })
+                      }
+                    />
+                  </Field>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -628,7 +670,8 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
           />
           <p className="mb-space-3 text-ink-400 text-[12.5px]">
             The card above (&quot;Appointment Settings&quot;) controls HOW appointments behave --
-            duration, buffer time, approval, reminders. This one controls WHICH appointment types
+            duration, buffer time, approval (reminders are on the Notifications tab). This one
+            controls WHICH appointment types
             show up at all in the WhatsApp booking menu (e.g. Doctor Consultation, Daycare,
             Diagnostic Test). Turn a type off here and patients simply won&apos;t see it as an
             option. A type greyed out below hasn&apos;t been enabled for your account by the
@@ -654,7 +697,7 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
             icon={CalendarClock}
             tint="clay"
             title="Leave Policy"
-            subtitle="Annual leave allowance the Leave Requests / Holiday Application pages compute balances against"
+            subtitle="Annual leave allowance and leave types for the Leave Requests / Holiday Application pages"
           />
           <LeavePolicyManager canManage={canManageLeavePolicy} />
         </Card>

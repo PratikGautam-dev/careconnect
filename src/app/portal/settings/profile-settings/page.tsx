@@ -115,7 +115,7 @@ export default function ProfileSettingsPage() {
                   </span>
                   <div>
                     <p className="text-ink-900 text-[15px] font-bold">
-                      {profile.is_doctor_role ? `Dr. ${profile.name}` : profile.name}
+                      {profile.name}
                     </p>
                     <p className="text-ink-600 text-[12.5px]">{profile.role_name}</p>
                     {(profile.is_doctor_role

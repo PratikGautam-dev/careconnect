@@ -12,16 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/formatDate";
-import type { LeaveRequestRow, LeaveRequestStatus, LeaveType } from "@/hooks/useLeaveRequests";
+import { formatLeaveTypeLabel, type LeaveRequestRow, type LeaveRequestStatus } from "@/hooks/useLeaveRequests";
 
-export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  casual: "Casual Leave",
-  sick: "Sick Leave",
-  annual: "Annual Leave",
-  maternity: "Maternity Leave",
-  conference: "Conference Leave",
-  personal: "Personal Leave",
-};
 export const STATUS_LABELS: Record<LeaveRequestStatus, string> = {
   pending: "Pending",
   approved: "Approved",
@@ -70,7 +62,7 @@ export function createLeaveRequestColumns({
         return (
           <button type="button" onClick={() => onSelect(r)} className="text-left">
             <p className="text-ink-900 font-semibold">
-              {r.is_doctor_role ? `Dr. ${r.applicant_name}` : r.applicant_name}
+              {r.applicant_name}
             </p>
           </button>
         );
@@ -92,7 +84,7 @@ export function createLeaveRequestColumns({
       id: "leave_type",
       header: "Leave Type",
       cell: ({ row }) => (
-        <span className="text-ink-600">{LEAVE_TYPE_LABELS[row.original.leave_type]}</span>
+        <span className="text-ink-600">{formatLeaveTypeLabel(row.original.leave_type)}</span>
       ),
     },
     {

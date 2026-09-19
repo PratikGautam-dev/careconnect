@@ -8,8 +8,20 @@ export type Settings = {
   welcome_message_text: string;
   reminder_offsets_hours: string;
   reminder_template_name: string;
+  // Real on/off switch for WhatsApp appointment reminders (Settings ->
+  // Notifications) -- reminder_offsets_hours stays configured either way;
+  // turning this off just pauses the cron job's sending for this hospital.
+  // Covers both new-consultation and follow-up appointment reminders.
+  reminders_enabled: boolean;
   enabled_features: string[];
+  // "Online booking closed" notice, shown when allow_online_appointments is
+  // off and today falls inside [booking_closure_from_date,
+  // booking_closure_to_date] (either bound blank = open-ended). Dates are
+  // plain "YYYY-MM-DD" strings, "" meaning unset.
   closing_message_text: string;
+  allow_online_appointments: boolean;
+  booking_closure_from_date: string;
+  booking_closure_to_date: string;
   business_hours_text: string;
   default_language: "en" | "hi";
   language_prompt_enabled: boolean;

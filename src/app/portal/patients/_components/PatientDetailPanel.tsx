@@ -229,7 +229,7 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
                   {formatDate(latestVisit.scheduled_at)}
                 </p>
                 <p className="mb-space-1 text-ink-600 text-[12px]">
-                  Dr. {latestVisit.doctor_name} ({latestVisit.department_name})
+                  {latestVisit.doctor_name} ({latestVisit.department_name})
                 </p>
                 <button
                   type="button"
@@ -315,7 +315,7 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
                       : "Appointment"}
                   </p>
                   <p className="text-ink-400 truncate text-[11px]">
-                    {formatShortDateTime(v.scheduled_at)} · Dr. {v.doctor_name}
+                    {formatShortDateTime(v.scheduled_at)} · {v.doctor_name}
                   </p>
                 </div>
                 <span

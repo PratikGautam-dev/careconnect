@@ -239,7 +239,7 @@ export function useDoctors(ready: boolean) {
     });
     setTogglingId(null);
     if (result.ok) {
-      toast.success(`Dr. ${doc.name} marked ${doc.is_active ? "unavailable" : "available"}`);
+      toast.success(`${doc.name} marked ${doc.is_active ? "unavailable" : "available"}`);
       load();
     } else if (result.unauthorized) {
       router.push("/portal/login");

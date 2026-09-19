@@ -16,8 +16,9 @@ function todayIso() {
 }
 
 // A manual per-slot override on top of the normal generated availability,
-// distinct from DoctorLeaveManager (whole days) and the doctor's own
-// active/inactive switch (the whole doctor). Block/unblock toggles an
+// distinct from an approved leave request blocking whole days (see
+// _apply_approval_side_effects in portal/routes/leave_requests.py) and the
+// doctor's own active/inactive switch (the whole doctor). Block/unblock toggles an
 // already-generated slot's availability without deleting it; Add/Remove
 // actually creates or deletes a doctor_slots row, for a genuinely one-off
 // extra slot or permanently dropping one. "View all slots" mode lists

@@ -12,9 +12,12 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { AddStaffDialog } from "@/components/portal/AddStaffDialog";
 import { EditStaffDialog } from "@/components/portal/EditStaffDialog";
+import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
+import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
+import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
@@ -33,6 +36,9 @@ export default function StaffManagementPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("staff", "view");
   const canManage = usePermission("staff", "write");
+  const canViewAttendance = usePermission("attendance_overview", "view");
+  const canViewLeaveHistory = usePermission("leave_requests", "view");
+  const canManageLeave = usePermission("leave_requests", "write");
   const departments = useDepartments(ready && canView);
 
   const {
@@ -56,6 +62,9 @@ export default function StaffManagementPage() {
 
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffRow | null>(null);
+  const [attendanceHistoryStaffId, setAttendanceHistoryStaffId] = useState<number | null>(null);
+  const [leaveHistoryStaffId, setLeaveHistoryStaffId] = useState<number | null>(null);
+  const [manageLeaveFor, setManageLeaveFor] = useState<StaffRow | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("all");
@@ -222,9 +231,15 @@ export default function StaffManagementPage() {
                 staff={selected}
                 index={Math.max(selectedIndex, 0)}
                 canManage={canManage}
+                canViewAttendance={canViewAttendance}
+                canViewLeaveHistory={canViewLeaveHistory}
+                canManageLeave={canManageLeave}
                 onResetPassword={openResetPassword}
                 onEdit={setEditingStaff}
                 onSetAttendance={handleSetAttendance}
+                onViewAttendanceHistory={(s) => setAttendanceHistoryStaffId(s.id)}
+                onViewLeaveHistory={(s) => setLeaveHistoryStaffId(s.id)}
+                onManageLeave={setManageLeaveFor}
               />
             </div>
           </div>
@@ -239,6 +254,30 @@ export default function StaffManagementPage() {
           if (!open) setEditingStaff(null);
         }}
         onSaved={load}
+      />
+
+      <StaffAttendanceHistoryDialog
+        staffId={attendanceHistoryStaffId}
+        onOpenChange={(open) => {
+          if (!open) setAttendanceHistoryStaffId(null);
+        }}
+      />
+
+      <StaffLeaveHistoryDialog
+        staffId={leaveHistoryStaffId}
+        onOpenChange={(open) => {
+          if (!open) setLeaveHistoryStaffId(null);
+        }}
+      />
+
+      <NewLeaveRequestDialog
+        open={manageLeaveFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setManageLeaveFor(null);
+        }}
+        subjectStaffId={manageLeaveFor?.id}
+        subjectName={manageLeaveFor?.name}
+        onCreated={load}
       />
 
       <Dialog

@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Building2,
   Calendar,
+  CalendarCheck,
   CalendarClock,
   CalendarPlus,
   History,
@@ -56,22 +57,35 @@ type Props = {
   staff: StaffRow | null;
   index: number;
   canManage: boolean;
+  canViewAttendance: boolean;
+  canViewLeaveHistory: boolean;
+  canManageLeave: boolean;
   onResetPassword: (staff: StaffRow) => void;
   onEdit: (staff: StaffRow) => void;
   onSetAttendance: (staff: StaffRow, status: AttendanceStatus) => void;
+  onViewAttendanceHistory: (staff: StaffRow) => void;
+  onViewLeaveHistory: (staff: StaffRow) => void;
+  onManageLeave: (staff: StaffRow) => void;
 };
 
 /** Right-rail "selected staff" profile card -- every field here is real,
- * including Leave balance (null for an admin row, since that policy is
- * doctor/receptionist only). Applying for leave happens on a separate
- * page; this panel only shows the balance. */
+ * including Leave balance. "Manage leave" opens NewLeaveRequestDialog in
+ * "on behalf of" mode (POST .../leave-requests/staff/{id}), auto-approved
+ * immediately -- gated by "leave_requests" write, same permission the
+ * review queue itself requires. */
 export function StaffDetailPanel({
   staff,
   index,
   canManage,
+  canViewAttendance,
+  canViewLeaveHistory,
+  canManageLeave,
   onResetPassword,
   onEdit,
   onSetAttendance,
+  onViewAttendanceHistory,
+  onViewLeaveHistory,
+  onManageLeave,
 }: Props) {
   if (!staff) {
     return (
@@ -89,18 +103,21 @@ export function StaffDetailPanel({
   const scheduleHours = formatWorkingHours(staff.working_hours);
 
   const quickActions: QuickAction[] = [
-    {
-      label: "Apply leave",
-      icon: CalendarPlus,
-      disabled: true,
-      title: "Coming soon — no leave workflow exists yet",
-    },
-    {
-      label: "View leave history",
-      icon: History,
-      disabled: true,
-      title: "Coming soon — no leave workflow exists yet",
-    },
+    ...(canManageLeave
+      ? [{ label: "Manage leave", icon: CalendarPlus, onClick: () => onManageLeave(staff) }]
+      : []),
+    ...(canViewLeaveHistory
+      ? [{ label: "View leave history", icon: History, onClick: () => onViewLeaveHistory(staff) }]
+      : []),
+    ...(canViewAttendance
+      ? [
+          {
+            label: "Attendance history",
+            icon: CalendarCheck,
+            onClick: () => onViewAttendanceHistory(staff),
+          },
+        ]
+      : []),
     ...(canManage
       ? [
           { label: "Edit staff details", icon: Pencil, onClick: () => onEdit(staff) },
@@ -199,13 +216,12 @@ export function StaffDetailPanel({
       </div>
 
       <p className="text-hint mt-space-2">
-        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) -- applying for
-        leave from here is still a later page.
+        Leave balance is real (Leave Requests page, Settings &gt; Leave policy).
       </p>
 
       <div className="mt-space-4 border-line pt-space-3 border-t">
         <p className="text-label mb-space-2 text-ink-900 font-bold">Quick Actions</p>
-        <QuickActionList actions={quickActions} />
+        <QuickActionList actions={quickActions} columns={2} />
       </div>
     </Card>
   );

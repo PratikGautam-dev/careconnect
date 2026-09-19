@@ -4,7 +4,28 @@ import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 
 export type LeaveRequestStatus = "pending" | "approved" | "rejected";
-export type LeaveType = "casual" | "sick" | "annual" | "maternity" | "conference" | "personal";
+// A hospital-configurable name (Settings -> Leave Policy), not a fixed
+// enum -- see db/repositories/leave_requests.py's own DEFAULT_LEAVE_TYPES
+// and migration 20260919180000 for why this stopped being a closed set.
+export type LeaveType = string;
+
+// A request submitted before that migration still has one of the old
+// hardcoded lowercase codes stored (leave_type is plain text, never
+// rewritten retroactively) -- shown as its nicer Title Case label rather
+// than the raw code; anything else (an admin-configured name, already
+// human-readable) is shown exactly as stored.
+const LEGACY_LEAVE_TYPE_LABELS: Record<string, string> = {
+  casual: "Casual Leave",
+  sick: "Sick Leave",
+  annual: "Annual Leave",
+  maternity: "Maternity Leave",
+  conference: "Conference Leave",
+  personal: "Personal Leave",
+};
+
+export function formatLeaveTypeLabel(leaveType: string): string {
+  return LEGACY_LEAVE_TYPE_LABELS[leaveType] || leaveType;
+}
 
 export type LeaveRequestRow = {
   id: number;

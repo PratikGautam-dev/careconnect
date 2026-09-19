@@ -6,6 +6,7 @@ import {
   CalendarX,
   Clock,
   ListChecks,
+  Plus,
   Search,
   SlidersHorizontal,
   UserRound,
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
@@ -41,13 +43,14 @@ export default function LeaveRequestsPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("leave_requests", "view");
   const canManage = usePermission("leave_requests", "write");
-  const { requests, summary, error, decidingId, approve, reject } = useLeaveRequests(
+  const { requests, summary, error, decidingId, approve, reject, load } = useLeaveRequests(
     ready && canView,
   );
 
   const [tab, setTab] = useState<Tab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [newRequestOpen, setNewRequestOpen] = useState(false);
 
   const today = new Date();
   const rows = useMemo(() => requests || [], [requests]);
@@ -64,7 +67,14 @@ export default function LeaveRequestsPage() {
     });
   }, [rows, tab, searchQuery]);
 
-  const selected = rows.find((r) => r.id === selectedId) || null;
+  // Falls back to the first (most recent -- the backend already sorts
+  // newest first) row whenever nothing's been explicitly clicked yet, so
+  // the detail panel shows something instead of its own empty "Select a
+  // leave request" state on first load. A derived fallback rather than an
+  // effect that syncs selectedId itself -- once the admin clicks a row,
+  // selectedId is set for real and this only matters again if THAT row
+  // stops matching (e.g. a search/tab filter hides it).
+  const selected = rows.find((r) => r.id === selectedId) || rows[0] || null;
   const doctorCount = rows.filter((r) => r.is_doctor_role).length;
   const staffCount = rows.filter((r) => !r.is_doctor_role).length;
 
@@ -90,8 +100,25 @@ export default function LeaveRequestsPage() {
       <PageHeader
         title="Leave requests"
         description={formatHeaderDate(today)}
-        actions={<PortalTopBarActions />}
+        actions={
+          <>
+            {canManage && (
+              <Button type="button" onClick={() => setNewRequestOpen(true)}>
+                <Plus size={14} /> New leave request
+              </Button>
+            )}
+            <PortalTopBarActions />
+          </>
+        }
       />
+
+      {canManage && (
+        <NewLeaveRequestDialog
+          open={newRequestOpen}
+          onOpenChange={setNewRequestOpen}
+          onCreated={load}
+        />
+      )}
 
       {!ready || !canView ? (
         !ready ? null : (

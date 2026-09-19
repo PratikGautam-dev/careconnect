@@ -502,7 +502,7 @@ export default function PortalAppointmentsPage() {
                       <p className="text-ink-900 truncate font-semibold">
                         {a.patient_name || a.phone}
                       </p>
-                      <p className="text-ink-400 truncate">Dr. {a.doctor_name || "—"}</p>
+                      <p className="text-ink-400 truncate">{a.doctor_name || "—"}</p>
                     </div>
                   </li>
                 ))}

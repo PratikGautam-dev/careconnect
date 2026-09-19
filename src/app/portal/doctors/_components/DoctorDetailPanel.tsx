@@ -4,7 +4,9 @@ import {
   Building2,
   CalendarCheck,
   CalendarClock,
+  CalendarDays,
   Clock,
+  History,
   IdCard,
   KeyRound,
   Mail,
@@ -50,6 +52,9 @@ type Props = {
   doctor: Doctor | null;
   index: number;
   canManage: boolean;
+  canViewAttendance: boolean;
+  canViewLeaveHistory: boolean;
+  canManageLeave: boolean;
   onEdit: (doc: Doctor) => void;
   togglingId: string | null;
   onToggleActive: (doc: Doctor) => void;
@@ -57,6 +62,8 @@ type Props = {
   onCreateLogin: (doc: Doctor) => void;
   onResetPassword: (doc: Doctor) => void;
   onManageLeave: (doc: Doctor) => void;
+  onViewAttendanceHistory: (doc: Doctor) => void;
+  onViewLeaveHistory: (doc: Doctor) => void;
 };
 
 /** Right-rail "selected doctor" profile card -- every field shown is real.
@@ -71,6 +78,9 @@ export function DoctorDetailPanel({
   doctor,
   index,
   canManage,
+  canViewAttendance,
+  canViewLeaveHistory,
+  canManageLeave,
   onEdit,
   togglingId,
   onToggleActive,
@@ -78,6 +88,8 @@ export function DoctorDetailPanel({
   onCreateLogin,
   onResetPassword,
   onManageLeave,
+  onViewAttendanceHistory,
+  onViewLeaveHistory,
 }: Props) {
   if (!doctor) {
     return (
@@ -116,8 +128,18 @@ export function DoctorDetailPanel({
     ...(canManage && doctor.login_staff_id
       ? [{ label: "Reset login access", icon: KeyRound, onClick: () => onResetPassword(doctor) }]
       : []),
-    ...(canManage
+    // Manage/attendance/leave history are all tied to this doctor's own
+    // staff login/identity (login_staff_id), not their doctors.id -- same
+    // field Create/Reset login above already branches on -- so there's
+    // simply nothing to show for a doctor with no login yet.
+    ...(canManageLeave && doctor.login_staff_id
       ? [{ label: "Manage leave", icon: CalendarClock, onClick: () => onManageLeave(doctor) }]
+      : []),
+    ...(canViewAttendance && doctor.login_staff_id
+      ? [{ label: "Attendance history", icon: History, onClick: () => onViewAttendanceHistory(doctor) }]
+      : []),
+    ...(canViewLeaveHistory && doctor.login_staff_id
+      ? [{ label: "Leave history", icon: CalendarDays, onClick: () => onViewLeaveHistory(doctor) }]
       : []),
   ];
 
@@ -140,7 +162,7 @@ export function DoctorDetailPanel({
         >
           {doctor.is_active ? "Available" : "Unavailable"}
         </span>
-        <p className="text-ink-900 text-[15px] font-bold">Dr. {doctor.name}</p>
+        <p className="text-ink-900 text-[15px] font-bold">{doctor.name}</p>
         {doctor.qualification && (
           <p className="text-ink-600 text-[12.5px]">{doctor.qualification}</p>
         )}

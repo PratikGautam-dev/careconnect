@@ -14,18 +14,8 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { useHolidayApplication } from "@/hooks/useHolidayApplication";
-import type { LeaveRequestRow, LeaveRequestStatus, LeaveType } from "@/hooks/useLeaveRequests";
+import { formatLeaveTypeLabel, type LeaveRequestRow, type LeaveRequestStatus, type LeaveType } from "@/hooks/useLeaveRequests";
 import { cn } from "@/lib/cn";
-
-const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  annual: "Annual Leave",
-  sick: "Sick Leave",
-  casual: "Casual Leave",
-  maternity: "Maternity Leave",
-  conference: "Conference Leave",
-  personal: "Personal Leave",
-};
-const LEAVE_TYPES = Object.keys(LEAVE_TYPE_LABELS) as LeaveType[];
 
 const STATUS_STYLES: Record<LeaveRequestStatus, string> = {
   pending: "bg-clay-100 text-clay-700",
@@ -62,17 +52,23 @@ function formatShort(iso: string): string {
  * use this. Self-fetches /api/portal/leave-requests/mine; the caller owns
  * auth/guard/shell. */
 export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
-  const { requests, balance, error, submitting, submit } = useHolidayApplication(true);
+  const { requests, balance, leaveTypes, error, submitting, submit } = useHolidayApplication(true);
 
-  const [leaveType, setLeaveType] = useState<LeaveType>("annual");
+  const [leaveType, setLeaveType] = useState<LeaveType>("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [duration, setDuration] = useState<"full" | "half">("full");
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  // leaveTypes only arrives after the initial /mine fetch resolves -- a
+  // derived fallback rather than syncing it into state via an effect
+  // (avoids a spurious extra render once the fetch lands): once the caller
+  // picks something explicitly, that choice wins.
+  const selectedLeaveType = leaveType || leaveTypes[0] || "";
+
   function resetForm() {
-    setLeaveType("annual");
+    setLeaveType("");
     setFromDate("");
     setToDate("");
     setDuration("full");
@@ -82,6 +78,10 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
 
   async function handleSubmit() {
     setFormError(null);
+    if (!selectedLeaveType) {
+      setFormError("Please select a leave type.");
+      return;
+    }
     if (!fromDate || !toDate) {
       setFormError("Both From date and To date are required.");
       return;
@@ -100,7 +100,7 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
     }
 
     const err = await submit({
-      leave_type: leaveType,
+      leave_type: selectedLeaveType,
       from_date: fromDate,
       to_date: toDate,
       is_half_day: duration === "half",
@@ -149,14 +149,14 @@ export function HolidayApplicationView({ canWrite }: { canWrite: boolean }) {
           <Field label="Leave type" htmlFor="leave_type" required>
             <select
               id="leave_type"
-              value={leaveType}
+              value={selectedLeaveType}
               onChange={(e) => setLeaveType(e.target.value as LeaveType)}
-              disabled={!canWrite}
+              disabled={!canWrite || leaveTypes.length === 0}
               className="border-line bg-card px-space-3 text-ink-900 disabled:bg-paper disabled:text-ink-400 h-11 w-full rounded-md border text-[14px] disabled:cursor-not-allowed"
             >
-              {LEAVE_TYPES.map((t) => (
+              {leaveTypes.map((t) => (
                 <option key={t} value={t}>
-                  {LEAVE_TYPE_LABELS[t]}
+                  {t}
                 </option>
               ))}
             </select>
@@ -419,7 +419,7 @@ function LeaveHistory({ requests }: { requests: LeaveRequestRow[] | null }) {
                     {formatShort(r.submitted_at.slice(0, 10))}
                   </td>
                   <td className="py-space-3 pr-space-3 text-ink-900 whitespace-nowrap">
-                    {LEAVE_TYPE_LABELS[r.leave_type]}
+                    {formatLeaveTypeLabel(r.leave_type)}
                   </td>
                   <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
                     {formatShort(r.from_date)}

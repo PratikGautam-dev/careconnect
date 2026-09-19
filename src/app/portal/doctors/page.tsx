@@ -22,11 +22,14 @@ import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { DoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
-import { DoctorLeaveManager } from "@/components/portal/DoctorLeaveManager";
 import { DoctorCsvImport } from "@/components/portal/DoctorCsvImport";
 import { AddStaffDialog } from "@/components/portal/AddStaffDialog";
+import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { RunningLateDialog } from "@/components/portal/RunningLateDialog";
 import { ResetDoctorPasswordDialog } from "@/components/portal/ResetDoctorPasswordDialog";
+import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
+import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
+import { usePermission } from "@/lib/staffAuth";
 import { type Doctor, useDoctors } from "@/hooks/useDoctors";
 import { createDoctorColumns } from "./_components/doctors-columns";
 import { DoctorDetailPanel } from "./_components/DoctorDetailPanel";
@@ -38,6 +41,11 @@ export default function PortalDoctorsPage() {
   const [runningLateFor, setRunningLateFor] = useState<Doctor | null>(null);
   const [resetPasswordFor, setResetPasswordFor] = useState<Doctor | null>(null);
   const [leaveManagerFor, setLeaveManagerFor] = useState<Doctor | null>(null);
+  const [attendanceHistoryStaffId, setAttendanceHistoryStaffId] = useState<number | null>(null);
+  const [leaveHistoryStaffId, setLeaveHistoryStaffId] = useState<number | null>(null);
+  const canViewAttendance = usePermission("attendance_overview", "view");
+  const canViewLeaveHistory = usePermission("leave_requests", "view");
+  const canManageLeave = usePermission("leave_requests", "write");
   // Backend route guards already 403 the actual mutations for clinic tenants
   // lacking manage_doctors -- this is just a UI convenience so those staff
   // don't hit an error after filling out a form. Fails open (keeps the
@@ -232,6 +240,9 @@ export default function PortalDoctorsPage() {
                 doctor={selectedDoctor}
                 index={Math.max(selectedIndex, 0)}
                 canManage={canManageDoctors}
+                canViewAttendance={canViewAttendance}
+                canViewLeaveHistory={canViewLeaveHistory}
+                canManageLeave={canManageLeave}
                 onEdit={handleEditDoctor}
                 togglingId={togglingId}
                 onToggleActive={handleToggleActive}
@@ -239,6 +250,12 @@ export default function PortalDoctorsPage() {
                 onCreateLogin={setCreateLoginFor}
                 onResetPassword={setResetPasswordFor}
                 onManageLeave={setLeaveManagerFor}
+                onViewAttendanceHistory={(d) => {
+                  if (d.login_staff_id) setAttendanceHistoryStaffId(d.login_staff_id);
+                }}
+                onViewLeaveHistory={(d) => {
+                  if (d.login_staff_id) setLeaveHistoryStaffId(d.login_staff_id);
+                }}
               />
             </div>
           </div>
@@ -287,20 +304,28 @@ export default function PortalDoctorsPage() {
           if (!open) setResetPasswordFor(null);
         }}
       />
+      <StaffAttendanceHistoryDialog
+        staffId={attendanceHistoryStaffId}
+        onOpenChange={(open) => {
+          if (!open) setAttendanceHistoryStaffId(null);
+        }}
+      />
+      <StaffLeaveHistoryDialog
+        staffId={leaveHistoryStaffId}
+        onOpenChange={(open) => {
+          if (!open) setLeaveHistoryStaffId(null);
+        }}
+      />
 
-      <Dialog
+      <NewLeaveRequestDialog
         open={leaveManagerFor !== null}
         onOpenChange={(open) => {
           if (!open) setLeaveManagerFor(null);
         }}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogTitle>
-            {leaveManagerFor ? `Dr. ${leaveManagerFor.name} — leave` : "Leave"}
-          </DialogTitle>
-          {leaveManagerFor && <DoctorLeaveManager doctorId={leaveManagerFor.id} />}
-        </DialogContent>
-      </Dialog>
+        subjectStaffId={leaveManagerFor?.login_staff_id ?? undefined}
+        subjectName={leaveManagerFor?.name}
+        onCreated={load}
+      />
     </PortalShell>
   );
 }

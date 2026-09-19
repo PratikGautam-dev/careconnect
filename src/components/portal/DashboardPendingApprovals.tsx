@@ -2,18 +2,9 @@
 
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
-import { useLeaveRequests } from "@/hooks/useLeaveRequests";
+import { formatLeaveTypeLabel, useLeaveRequests } from "@/hooks/useLeaveRequests";
 import { usePermission } from "@/lib/staffAuth";
 import { cn } from "@/lib/cn";
-
-const LEAVE_TYPE_LABELS: Record<string, string> = {
-  annual: "Annual Leave",
-  sick: "Sick Leave",
-  casual: "Casual Leave",
-  maternity: "Maternity Leave",
-  conference: "Conference Leave",
-  personal: "Personal Leave",
-};
 
 const MAX_SHOWN = 5;
 
@@ -50,7 +41,7 @@ export function DashboardPendingApprovals({ className }: { className?: string })
             <li key={r.id} className="gap-space-2 flex items-center justify-between">
               <div className="min-w-0">
                 <p className="text-ink-900 truncate text-[13px] font-semibold">
-                  {r.applicant_name} — {LEAVE_TYPE_LABELS[r.leave_type] || r.leave_type}
+                  {r.applicant_name} — {formatLeaveTypeLabel(r.leave_type)}
                 </p>
                 <p className="text-ink-400 truncate text-[11.5px]">
                   {r.from_date} → {r.to_date} (

@@ -95,7 +95,7 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
   return (
     <Dialog open={doctor !== null} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogTitle>{doctor ? `Dr. ${doctor.name} is running late` : "Running late"}</DialogTitle>
+        <DialogTitle>{doctor ? `${doctor.name} is running late` : "Running late"}</DialogTitle>
         <form onSubmit={handleSubmit} className="mt-space-3">
           <p className="mb-space-3 text-ink-600 text-[12.5px]">
             Every still-confirmed appointment on the chosen date, at or after the cutoff time,

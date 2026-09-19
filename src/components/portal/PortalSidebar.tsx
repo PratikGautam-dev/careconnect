@@ -8,6 +8,7 @@ import {
   CalendarRange,
   ChevronsUpDown,
   ClipboardCheck,
+  ClipboardList,
   FlaskConical,
   LayoutDashboard,
   LogIn,
@@ -121,6 +122,17 @@ const NAV_ITEMS = [
     href: "/portal/leave-requests",
     pageKey: "leave_requests",
   },
+  // Admin-facing hospital-wide roster (every staff member's check-in/out
+  // for one selected day) -- a SEPARATE page_key from "attendance" below
+  // (that one is a staff member's own personal history, deliberately off
+  // for admin by default; migration 20260919190000).
+  {
+    key: "attendance-overview",
+    label: "Attendance Overview",
+    icon: ClipboardList,
+    href: "/portal/attendance-overview",
+    pageKey: "attendance_overview",
+  },
   {
     key: "messages",
     label: "Messages",
@@ -190,26 +202,13 @@ const NAV_ITEMS = [
     href: "/portal/holiday-application",
     pageKey: "holiday_application",
   },
-  // Personal account page (name/contact/schedule/change password) --
-  // reachable from the account dropdown too, but every signed-in role
-  // should be able to find it in the main nav directly, same as the
-  // reference dashboard mockup shows. No role_permissions row exists for
-  // it (it's per-person, not gated by any page-key permission), so it's
-  // also listed in NO_PERMISSION_GATE_KEYS below.
-  {
-    key: "profile-settings",
-    label: "Profile",
-    icon: UserRound,
-    href: "/portal/settings/profile-settings",
-    pageKey: "profile-settings",
-  },
 ];
 
 // Nav items whose href-having route has no real backend permission model
 // yet -- gating these through hasPermission would hide them for every role
 // (an unrecognized pageKey never matches any role_permissions row), so they
 // skip that check entirely instead.
-const NO_PERMISSION_GATE_KEYS = new Set(["profile-settings"]);
+const NO_PERMISSION_GATE_KEYS = new Set<string>([]);
 
 type Props = {
   hospital: PortalHospital | null;

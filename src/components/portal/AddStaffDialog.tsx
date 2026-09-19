@@ -63,7 +63,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>
-          {presetDoctor ? `Create login for Dr. ${presetDoctor.name}` : "Add staff member"}
+          {presetDoctor ? `Create login for ${presetDoctor.name}` : "Add staff member"}
         </DialogTitle>
         <form
           onSubmit={handleCreate}

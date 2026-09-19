@@ -23,6 +23,7 @@ export function useHolidayApplication(canView: boolean) {
   const router = useRouter();
   const [requests, setRequests] = useState<LeaveRequestRow[] | null>(null);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
+  const [leaveTypes, setLeaveTypes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,9 +34,14 @@ export function useHolidayApplication(canView: boolean) {
       else setError(result.error);
       return;
     }
-    const data = result.data as { requests: LeaveRequestRow[]; balance: LeaveBalance };
+    const data = result.data as {
+      requests: LeaveRequestRow[];
+      balance: LeaveBalance;
+      leave_types: string[];
+    };
     setRequests(data.requests);
     setBalance(data.balance);
+    setLeaveTypes(data.leave_types);
   }, [router]);
 
   useEffect(() => {
@@ -65,5 +71,5 @@ export function useHolidayApplication(canView: boolean) {
     return null;
   }
 
-  return { requests, balance, error, submitting, submit, load };
+  return { requests, balance, leaveTypes, error, submitting, submit, load };
 }

@@ -67,7 +67,7 @@ export function ResetDoctorPasswordDialog({ doctor, onOpenChange }: Props) {
       }
       return;
     }
-    toast.success(`Password reset for Dr. ${doctor.name}`);
+    toast.success(`Password reset for ${doctor.name}`);
     handleOpenChange(false);
   }
 
@@ -75,7 +75,7 @@ export function ResetDoctorPasswordDialog({ doctor, onOpenChange }: Props) {
     <Dialog open={doctor !== null} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogTitle>
-          {doctor ? `Reset password for Dr. ${doctor.name}` : "Reset password"}
+          {doctor ? `Reset password for ${doctor.name}` : "Reset password"}
         </DialogTitle>
         <form onSubmit={handleSubmit} className="gap-space-3 flex flex-col">
           <Field

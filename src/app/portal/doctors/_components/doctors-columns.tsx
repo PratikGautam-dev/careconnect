@@ -145,7 +145,7 @@ export function createDoctorColumns({
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
-                aria-label={`Actions for Dr. ${d.name}`}
+                aria-label={`Actions for ${d.name}`}
               >
                 <MoreHorizontal size={16} />
               </DropdownMenuTrigger>
