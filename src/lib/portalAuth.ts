@@ -15,8 +15,8 @@ export function getPortalToken(): string | null {
   return getStaffAccessToken();
 }
 
-export function clearPortalSession() {
-  clearStaffSession();
+export function clearPortalSession(): Promise<void> {
+  return clearStaffSession();
 }
 
 // Same FetchResult shape staffFetch already returns -- a straight

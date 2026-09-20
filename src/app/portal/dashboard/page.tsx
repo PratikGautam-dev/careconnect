@@ -28,11 +28,11 @@ import { usePortalDashboard } from "@/hooks/usePortalDashboard";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { useStaffSession } from "@/lib/staffAuth";
 
-const TIER_LABELS: Record<string, string> = {
-  tier1: "Tier 1",
-  tier2: "Tier 2",
-  tier3: "Tier 3",
-};
+// const TIER_LABELS: Record<string, string> = {
+//   tier1: "Tier 1",
+//   tier2: "Tier 2",
+//   tier3: "Tier 3",
+// };
 
 export default function PortalDashboardPage() {
   // Doctors get their own dashboard content (today's appointments, their own
@@ -89,11 +89,11 @@ function HospitalDashboard() {
         title={
           <>
             Admin Dashboard
-            {data && (
+            {/* {data && (
               <span className="ml-space-2 text-ink-400 text-[15px] font-medium">
                 ({TIER_LABELS[data.hospital.data_tier] || data.hospital.data_tier})
               </span>
-            )}
+            )} */}
           </>
         }
         description={formatHeaderDate(today)}

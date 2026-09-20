@@ -3,10 +3,6 @@ import axios, { isAxiosError } from "axios";
 import { requestInitToAxiosConfig } from "@/lib/apiClient";
 import type { PortalHospital } from "@/lib/portalAuth";
 
-const ACCESS_KEY = "staff_access_token";
-const REFRESH_KEY = "staff_refresh_token";
-const SESSION_KEY = "staff_session";
-
 // Roles are admin-defined per hospital; see usePortalRoles.ts's Role type for the fetched shape.
 export type StaffPermissions = Record<string, { view: boolean; write: boolean; delete: boolean }>;
 
@@ -30,53 +26,26 @@ export type StaffSession = {
   permissions: StaffPermissions;
 };
 
-/** Tokens only -- the live app's session data (name/role/permissions/
- * hospital) is never persisted to localStorage; it's fetched fresh into
- * StaffSessionContext (see StaffSessionProvider) on every /portal/* mount
- * instead. Use this for login/refresh/change-password. */
-export function saveStaffTokens(accessToken: string, refreshToken: string) {
-  localStorage.setItem(ACCESS_KEY, accessToken);
-  localStorage.setItem(REFRESH_KEY, refreshToken);
-}
-
-/** Tokens AND session, both to localStorage -- kept only because
- * (unused-doctor)/login/page.tsx and useDoctorGuard.ts (reference-only code
- * for a route nobody uses, per the user's own "just for reference" call)
- * still call this exact signature. Nothing in the live app writes
- * SESSION_KEY anymore -- use saveStaffTokens() above instead. */
-export function saveStaffSession(accessToken: string, refreshToken: string, session: StaffSession) {
-  localStorage.setItem(ACCESS_KEY, accessToken);
-  localStorage.setItem(REFRESH_KEY, refreshToken);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
+/** The access token lives ONLY in this module-level variable, never in
+ * localStorage/sessionStorage/a cookie readable by JS -- an XSS payload
+ * can still steal it while it's live in a tab, but it can't persist that
+ * theft past a page reload the way reading it out of localStorage would.
+ * The refresh token is never handled by JS at all anymore: the backend
+ * sets/reads it as an httpOnly cookie (auth/refresh_cookie.py), scoped to
+ * /api/portal/staff, invisible to document.cookie/localStorage/every other
+ * JS-readable surface -- see that module's own docstring for the full
+ * reasoning. Lost on every full page reload by design: tryRefresh() below
+ * re-mints one from the refresh cookie automatically the next time
+ * staffFetch needs one, same round trip StaffSessionProvider already pays
+ * on mount. */
+let _accessToken: string | null = null;
 
 export function getStaffAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACCESS_KEY);
+  return _accessToken;
 }
 
-export function getStaffRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(REFRESH_KEY);
-}
-
-/** Reads the localStorage-cached session used by useDoctorGuard.ts; other
- * pages should use useStaffSession() below instead. */
-export function getStaffSession(): StaffSession | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-export function clearStaffSession() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
-  localStorage.removeItem(SESSION_KEY);
+export function setStaffAccessToken(token: string | null) {
+  _accessToken = token;
 }
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -86,33 +55,71 @@ type FetchResult =
   | { ok: false; unauthorized: true }
   | { ok: false; unauthorized: false; error: string };
 
+/** Coalesces concurrent tryRefresh() callers onto ONE in-flight request --
+ * see tryRefresh()'s own docstring for why this exists: without it, every
+ * staffFetch call that happens to race in at once (e.g. a fresh page load,
+ * where the dashboard, the calendar, StaffSessionProvider's /me, etc. all
+ * fire in the same tick) independently notices "no access token yet" and
+ * independently calls the refresh endpoint. The refresh token is single-
+ * use (deleted the instant it's consumed -- auth/refresh_tokens.py's
+ * rotation), so of N simultaneous callers presenting the SAME
+ * not-yet-rotated cookie, exactly one gets a 200 and every other one gets
+ * a 401 and (wrongly) concludes the session is dead. Storing the in-flight
+ * promise here means every caller within that window awaits the SAME
+ * request/result instead of each starting their own. */
+let _refreshInFlight: Promise<string | null> | null = null;
+
 /** Attempts one silent refresh via /api/portal/staff/refresh, storing the
- * rotated tokens on success. Returns the new access token, or null if the
- * refresh itself failed (refresh token missing/expired/revoked). Only
- * touches tokens -- StaffSessionContext owns re-fetching session data (name/
- * role/permissions/hospital) on its own schedule, not tied to token refresh. */
-async function tryRefresh(): Promise<string | null> {
-  const refreshToken = getStaffRefreshToken();
-  if (!refreshToken) return null;
-  try {
-    const res = await axios.post(`${API_BASE_URL}/api/portal/staff/refresh`, {
-      refresh_token: refreshToken,
-    });
-    saveStaffTokens(res.data.access_token, res.data.refresh_token);
-    return res.data.access_token as string;
-  } catch {
-    return null;
-  }
+ * new access token in memory on success. The refresh token itself is never
+ * touched here -- it's an httpOnly cookie the browser attaches
+ * automatically (credentials: "include"); this call doesn't and can't read
+ * it. X-Requested-With is a cheap CSRF guard the backend requires on this
+ * specific endpoint (see staff_auth.py's staff_refresh docstring) -- a
+ * plain cross-site <form>/no-JS request can't set custom headers, so it
+ * can never reach this endpoint at all. Returns the new access token, or
+ * null if the refresh itself failed (refresh cookie missing/expired/
+ * revoked). Only touches the token -- StaffSessionContext owns re-fetching
+ * session data (name/role/permissions/hospital) on its own schedule, not
+ * tied to token refresh. */
+function tryRefresh(): Promise<string | null> {
+  if (_refreshInFlight) return _refreshInFlight;
+
+  _refreshInFlight = (async () => {
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/api/portal/staff/refresh`,
+        {},
+        { withCredentials: true, headers: { "X-Requested-With": "XMLHttpRequest" } },
+      );
+      setStaffAccessToken(res.data.access_token);
+      return res.data.access_token as string;
+    } catch {
+      return null;
+    } finally {
+      // Cleared once this round settles (success or failure), not kept
+      // around -- the NEXT time a token's needed (natural 15-min expiry,
+      // another hard reload) must start a fresh request, not replay this
+      // one's now-stale result.
+      _refreshInFlight = null;
+    }
+  })();
+
+  return _refreshInFlight;
 }
 
 /** axios wrapper for staff-authenticated requests. Unlike portalFetch
  * (24h shared-hospital token, bare "401 -> logout" is fine there), staff
- * access tokens are ~15min JWTs, so a 401 here first tries ONE silent
- * refresh before giving up and clearing the session -- otherwise routine
- * token expiry during normal use would log people out constantly. */
+ * access tokens are ~15min JWTs living only in memory (lost on every page
+ * reload), so this ALWAYS tries a silent refresh first when there's no
+ * token on hand yet, and again on a 401 mid-session, before giving up --
+ * otherwise a fresh page load (or routine token expiry during normal use)
+ * would look indistinguishable from being logged out. */
 export async function staffFetch(path: string, init?: RequestInit): Promise<FetchResult> {
   let token = getStaffAccessToken();
-  if (!token) return { ok: false, unauthorized: true };
+  if (!token) {
+    token = await tryRefresh();
+    if (!token) return { ok: false, unauthorized: true };
+  }
 
   const config = requestInitToAxiosConfig(init);
   const request = (authToken: string) =>
@@ -120,6 +127,14 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
       ...config,
       url: `${API_BASE_URL}${path}`,
       headers: { ...config.headers, Authorization: `Bearer ${authToken}` },
+      // Most staffFetch calls don't touch the refresh cookie at all (it's
+      // scoped to /api/portal/staff, and the backend only sets/reads it on
+      // login/refresh/logout/change-password) -- but change-password DOES
+      // set a fresh one on its response, and without withCredentials the
+      // browser silently discards that Set-Cookie instead of storing it.
+      // Harmless to set unconditionally: a request outside that cookie's
+      // path just has nothing to send.
+      withCredentials: true,
     });
 
   let res;
@@ -139,7 +154,7 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
 
     token = await tryRefresh();
     if (!token) {
-      clearStaffSession();
+      setStaffAccessToken(null);
       return { ok: false, unauthorized: true };
     }
     try {
@@ -149,7 +164,7 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
         return { ok: false, unauthorized: false, error: "Network error — check your connection." };
       }
       if (retryErr.response.status === 401) {
-        clearStaffSession();
+        setStaffAccessToken(null);
         return { ok: false, unauthorized: true };
       }
       return {
@@ -163,8 +178,30 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
   return { ok: true, data: res.data };
 }
 
+/** Revokes the refresh cookie server-side and clears it, then drops the
+ * in-memory access token. MUST hit the backend now (unlike the old
+ * localStorage-only version) -- an httpOnly cookie can't be cleared by
+ * page JS, only by the server responding with an expired Set-Cookie, so
+ * skipping this call would leave a still-live refresh token sitting in the
+ * browser indefinitely. Safe to call even with no session (e.g. an already
+ * -expired/never-had one); the backend logout route doesn't require a
+ * valid access token either, for the same "must still succeed on the way
+ * out" reasoning. */
+export async function clearStaffSession(): Promise<void> {
+  setStaffAccessToken(null);
+  try {
+    await axios.post(`${API_BASE_URL}/api/portal/staff/logout`, {}, { withCredentials: true });
+  } catch {
+    // Best-effort -- the in-memory token is already cleared either way, and
+    // a network failure here shouldn't block the user from navigating away.
+  }
+}
+
+export type StaffSessionStatus = "loading" | "authenticated" | "unauthenticated";
+
 export type StaffSessionContextValue = {
   session: StaffSession | null;
+  status: StaffSessionStatus;
   error: string | null;
   reload: () => void;
   setSession: (session: StaffSession) => void;
@@ -173,12 +210,16 @@ export type StaffSessionContextValue = {
 /** Populated by StaffSessionProvider (wraps every /portal/* page via
  * app/portal/layout.tsx), which fetches GET /api/portal/staff/me into this
  * on mount and holds it in memory only -- nothing about who's logged in
- * (name/role/permissions/hospital) is ever written to localStorage for the
- * live app anymore. Defaults to `session: null` so a component rendered
- * outside the provider (there shouldn't be one under /portal/*) degrades to
- * the same "no session yet" state every consumer already handles. */
+ * (name/role/permissions/hospital) is ever written to localStorage.
+ * `status` starts "loading" (server render and the client's first paint
+ * both see this) so consumers can distinguish "we don't know yet" from
+ * "confirmed logged out" -- see hasPermission's own docstring for why that
+ * distinction is what fixes the old "full sidebar flashes, then narrows"
+ * bug, and usePortalGuard.ts for why it's also what stops a page reload
+ * from bouncing a still-logged-in user to /portal/login. */
 export const StaffSessionContext = createContext<StaffSessionContextValue>({
   session: null,
+  status: "loading",
   error: null,
   reload: () => {},
   setSession: () => {},
@@ -186,12 +227,18 @@ export const StaffSessionContext = createContext<StaffSessionContextValue>({
 
 /** SSR-hydration-safe read of the current staff session: `null` on the
  * server and on the client's first render (StaffSessionProvider's fetch
- * hasn't resolved yet), then the real session an instant later -- same
- * nullable contract the old localStorage-backed version had, so every
- * existing consumer (PortalSidebar, usePermission, PermissionGate, page-
- * level `session?.hospital` reads) needed no changes. */
+ * hasn't resolved yet), then the real session an instant later. */
 export function useStaffSession(): StaffSession | null {
   return useContext(StaffSessionContext).session;
+}
+
+/** "loading" until the initial /me (+ silent-refresh-if-needed) round trip
+ * resolves one way or the other. Consumers that need to tell "still
+ * figuring it out" apart from "definitely not logged in" (usePortalGuard's
+ * redirect, PortalSidebar's nav gating) should read this instead of just
+ * checking `session === null`, which is also true during "loading". */
+export function useStaffSessionStatus(): StaffSessionStatus {
+  return useContext(StaffSessionContext).status;
 }
 
 /** The session context's own refetch -- call right after a successful
@@ -208,12 +255,13 @@ export function useStaffSessionReload(): () => void {
 }
 
 /** Login/refresh response shape (backend's portal/routes/staff_auth.py::
- * _issue_tokens, shared by both /api/portal/staff/login and /api/portal/
- * staff/refresh) -- already carries everything StaffSession needs, no
- * separate /me fetch required to populate it. */
+ * _issue_tokens, shared by /api/portal/staff/login and /api/portal/staff/
+ * refresh) -- already carries everything StaffSession needs, no separate
+ * /me fetch required to populate it. No refresh_token field anymore -- the
+ * backend sets that as an httpOnly cookie on the response instead of
+ * returning it in the body (see auth/refresh_cookie.py). */
 export type StaffAuthResponse = {
   access_token: string;
-  refresh_token: string;
   staff: {
     id: number;
     name: string;
@@ -255,12 +303,20 @@ export function useSetStaffSession(): (session: StaffSession) => void {
 }
 
 /** Reads permissions off the cached session (refreshed on every staff
- * login/refresh). No session -> fails open, same posture as PortalSidebar's
- * pre-existing capability check: the frontend hide is a convenience, the
- * backend's 403 is the real enforcement. A real hook (via useStaffSession)
- * -- call it directly in a component body or inside PermissionGate, never
- * inside a loop/callback (use the plain `hasPermission` function below for
- * that, e.g. NAV_ITEMS.filter in PortalSidebar). */
+ * login/refresh). No session -> fails CLOSED (hides the item) rather than
+ * open: while StaffSessionProvider's initial /me (+ silent-refresh) round
+ * trip is still in flight, `session` is `null` the same way it is once
+ * we've confirmed the caller is logged out, and there's no way to tell
+ * those two apart from `session` alone -- failing open there is what
+ * rendered the full, unfiltered nav for every role on first paint before
+ * narrowing down to the real per-role set a moment later. Failing closed
+ * instead means a not-yet-resolved session briefly shows nothing/less
+ * rather than everything; the backend's 403 remains the actual
+ * enforcement either way, this is still only a UI convenience. A real hook
+ * (via useStaffSession) -- call it directly in a component body or inside
+ * PermissionGate, never inside a loop/callback (use the plain
+ * `hasPermission` function below for that, e.g. NAV_ITEMS.filter in
+ * PortalSidebar). */
 export function usePermission(pageKey: string, action: "view" | "write" | "delete"): boolean {
   const session = useStaffSession();
   return hasPermission(session, pageKey, action);
@@ -277,6 +333,6 @@ export function hasPermission(
   pageKey: string,
   action: "view" | "write" | "delete",
 ): boolean {
-  if (!session) return true;
+  if (!session) return false;
   return !!session.permissions[pageKey]?.[action];
 }

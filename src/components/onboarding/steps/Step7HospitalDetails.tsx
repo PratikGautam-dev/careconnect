@@ -2,6 +2,7 @@ import { Building2, Plus, Stethoscope } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
+import { validateReminderOffsetsHours } from "@/lib/validation/reminderOffsets";
 import { TenantType, WizardState } from "../types";
 import type { WizardDispatch } from "../useWizardState";
 import { DepartmentCard } from "./DepartmentCard";
@@ -236,6 +237,13 @@ export function validateStep7(state: WizardState): string | null {
         : "Booking is enabled, so at least one department with at least one doctor is required.";
     }
     if (!state.portalPassword.trim()) return "A bookings portal password is required.";
+    // Same client-side check Settings -> Notifications' own reminder-
+    // offsets field uses (src/lib/validation/reminderOffsets.ts) -- the
+    // backend's own parser silently drops anything it can't read rather
+    // than rejecting the request, so catch a typo here rather than let it
+    // silently save a different reminder schedule than what was typed.
+    const offsetsInvalid = validateReminderOffsetsHours(state.reminderOffsetsHours);
+    if (offsetsInvalid) return offsetsInvalid;
   }
   if (state.enabledFeatures.includes("faq")) {
     const topicCount = state.topics.filter(

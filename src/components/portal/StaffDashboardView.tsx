@@ -20,8 +20,12 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
-import { useHolidayApplication } from "@/hooks/useHolidayApplication";
-import { formatLeaveTypeLabel, type LeaveRequestStatus, type LeaveType } from "@/hooks/useLeaveRequests";
+import {
+  useHolidayApplication,
+  type HolidayApplicationInitialData,
+  type LeaveBalance,
+} from "@/hooks/useHolidayApplication";
+import { formatLeaveTypeLabel, type LeaveRequestRow, type LeaveRequestStatus, type LeaveType } from "@/hooks/useLeaveRequests";
 import { formatDate, formatHeaderDateNoYear, formatTimeOnly } from "@/lib/formatDate";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
@@ -101,10 +105,13 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** This staff member's own dashboard content -- check-in status, a weekly
  * attendance chart, leave balance, a compact leave-application form, and
- * their own recent requests. Self-fetches attendance (same /api/portal/
- * attendance/today endpoint and AttendanceRecord shape check-in-out/page.tsx
- * uses) and leave data (useHolidayApplication); the caller owns auth/guard/
- * shell. Replaces the hospital-wide "Admin Dashboard" that every non-doctor,
+ * their own recent requests. Fetches both attendance and leave data from
+ * the single, per-staff-cached GET /api/portal/staff/dashboard (same
+ * AttendanceRecord shape check-in-out/page.tsx uses for its own attendance
+ * fetch), seeding useHolidayApplication from that one response instead of
+ * it firing its own separate GET /api/portal/leave-requests/mine; the
+ * caller owns auth/guard/shell. Replaces the hospital-wide "Admin Dashboard"
+ * that every non-doctor,
  * non-admin staff member used to see (dashboard/page.tsx's own branch on
  * session.is_admin -- confirmed with the user staff should get a self-
  * service dashboard of their own instead). */
@@ -114,25 +121,62 @@ export function StaffDashboardView() {
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  // null = not yet known (the combined dashboard fetch below hasn't
+  // resolved yet, or hasn't run again since a check-in/out action) --
+  // distinct from `false` (the dashboard fetch resolved and the
+  // "holiday_application" permission genuinely isn't granted), so
+  // useHolidayApplication below is only ever told canView=true once we
+  // actually know the answer, never fetching a second time speculatively.
+  const [leavePermitted, setLeavePermitted] = useState<boolean | null>(null);
+  const [leaveInitialData, setLeaveInitialData] = useState<HolidayApplicationInitialData | undefined>(undefined);
 
-  const loadAttendance = useCallback(async () => {
-    const result = await staffFetch("/api/portal/attendance/today");
+  // Single combined fetch (attendance + leave) replaces the two independent
+  // GETs this view used to make (its own /api/portal/attendance/today, plus
+  // useHolidayApplication's own /api/portal/leave-requests/mine) -- each
+  // section comes back `null` when its own permission ("check_in_out"/view
+  // or "holiday_application"/view respectively) isn't granted, handled the
+  // same way a load failure/empty state already was here (loaded=true,
+  // today=null/history=[], or leavePermitted=false so the holiday-
+  // application UI just never lights up).
+  const loadDashboard = useCallback(async () => {
+    const result = await staffFetch("/api/portal/staff/dashboard");
     if (!result.ok) {
       if (result.unauthorized) router.push("/portal/login");
       setLoaded(true);
       return;
     }
-    const data = result.data as { today: AttendanceRecord | null; history: AttendanceRecord[] };
-    setToday(data.today);
-    setHistory(data.history);
+    const data = result.data as {
+      attendance: { today: AttendanceRecord | null; history: AttendanceRecord[] } | null;
+      leave: { requests: LeaveRequestRow[]; balance: LeaveBalance; leave_types: string[] } | null;
+    };
+    if (data.attendance) {
+      setToday(data.attendance.today);
+      setHistory(data.attendance.history);
+    } else {
+      setToday(null);
+      setHistory([]);
+    }
+    if (data.leave) {
+      setLeaveInitialData({
+        requests: data.leave.requests,
+        balance: data.leave.balance,
+        leaveTypes: data.leave.leave_types,
+      });
+      setLeavePermitted(true);
+    } else {
+      setLeavePermitted(false);
+    }
     setLoaded(true);
   }, [router]);
 
   useEffect(() => {
-    loadAttendance();
-  }, [loadAttendance]);
+    loadDashboard();
+  }, [loadDashboard]);
 
-  const { requests, balance, leaveTypes, submitting, submit } = useHolidayApplication(true);
+  const { requests, balance, leaveTypes, submitting, submit } = useHolidayApplication(
+    !!leavePermitted,
+    leaveInitialData,
+  );
 
   async function runAction(path: string) {
     setBusy(true);
@@ -147,7 +191,7 @@ export function StaffDashboardView() {
       toast.error("That didn't go through", result.unauthorized ? "Please sign in again." : result.error);
       return;
     }
-    await loadAttendance();
+    await loadDashboard();
   }
 
   const isCheckedIn = !!today?.check_in_at && !today?.check_out_at;

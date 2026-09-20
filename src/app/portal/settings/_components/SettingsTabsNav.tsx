@@ -3,7 +3,12 @@
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type SettingsTabKey = "general" | "departments" | "notifications" | "attendance";
+export type SettingsTabKey =
+  | "general"
+  | "appointments"
+  | "departments"
+  | "notifications"
+  | "attendance";
 
 export type SettingsTabDef = { key: SettingsTabKey; label: string; icon: LucideIcon };
 

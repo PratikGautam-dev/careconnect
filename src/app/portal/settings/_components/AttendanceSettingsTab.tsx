@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { useAttendanceSettings } from "@/hooks/useAttendanceSettings";
+import { validateAttendanceIpCidrs } from "@/lib/validation/attendanceIpCidrs";
 import { usePermission } from "@/lib/staffAuth";
 import { SectionHeader } from "./settings-ui";
 
@@ -20,6 +22,7 @@ export function AttendanceSettingsTab() {
   const canWrite = usePermission("attendance_settings", "write");
   const { settings, setSettings, saving, saved, error, handleSave } =
     useAttendanceSettings(canView);
+  const [cidrError, setCidrError] = useState<string | null>(null);
 
   if (!canView) {
     return (
@@ -60,8 +63,19 @@ export function AttendanceSettingsTab() {
     });
   }
 
+  function handleSubmit(e: React.FormEvent) {
+    const invalid = validateAttendanceIpCidrs(settings?.attendance_allowed_ip_cidrs ?? "");
+    if (invalid) {
+      e.preventDefault();
+      setCidrError(invalid);
+      return;
+    }
+    setCidrError(null);
+    handleSave(e);
+  }
+
   return (
-    <form onSubmit={handleSave} className="gap-space-4 flex flex-col">
+    <form onSubmit={handleSubmit} className="gap-space-4 flex flex-col">
       <Card className="p-space-4">
         <SectionHeader
           icon={MapPin}
@@ -141,14 +155,22 @@ export function AttendanceSettingsTab() {
         <Field
           label="Allowed Hospital IP / CIDR ranges"
           className="mb-0"
-          hint="Comma-separated, e.g. 103.45.67.89, 103.45.68.0/24. Leave blank to skip this check."
+          error={cidrError || undefined}
+          hint={
+            cidrError
+              ? undefined
+              : "Comma-separated, e.g. 103.45.67.89, 103.45.68.0/24. Leave blank to skip this check."
+          }
         >
           <Textarea
             rows={2}
             value={settings?.attendance_allowed_ip_cidrs ?? ""}
-            onChange={(e) =>
-              settings && setSettings({ ...settings, attendance_allowed_ip_cidrs: e.target.value })
-            }
+            invalid={!!cidrError}
+            onChange={(e) => {
+              setCidrError(null);
+              if (settings)
+                setSettings({ ...settings, attendance_allowed_ip_cidrs: e.target.value });
+            }}
             disabled={!settings || !canWrite}
           />
         </Field>

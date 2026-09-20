@@ -9,7 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
 import {
-  saveStaffTokens,
+  setStaffAccessToken,
   staffSessionFromAuthResponse,
   useSetStaffSession,
   type StaffAuthResponse,
@@ -36,6 +36,11 @@ export default function PortalLoginPage() {
       const res = await fetch(`${API_BASE_URL}/api/portal/staff/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // The refresh token comes back as an httpOnly Set-Cookie now, not
+        // in the JSON body -- credentials: "include" is what makes the
+        // browser actually store it (and send it back on future
+        // /api/portal/staff/refresh calls).
+        credentials: "include",
         body: JSON.stringify({ email: staffEmail, password: staffPassword }),
       });
       const data: StaffAuthResponse & { error?: string } = await res.json();
@@ -43,7 +48,7 @@ export default function PortalLoginPage() {
         setStaffError(data.error || "Couldn't sign in. Please try again.");
         return;
       }
-      saveStaffTokens(data.access_token, data.refresh_token);
+      setStaffAccessToken(data.access_token);
       // Seed StaffSessionContext straight from this response instead of
       // letting the dashboard render ungated for a moment and then pop into
       // its real per-role state once a separate /me fetch resolves -- the
@@ -95,16 +100,17 @@ export default function PortalLoginPage() {
         </div>
 
         <form onSubmit={handleStaffSubmit}>
-          <Field label="Email" htmlFor="staff_email">
+          <Field label="Email" htmlFor="staff_email" required>
             <Input
               id="staff_email"
               type="email"
               autoFocus
+              required
               value={staffEmail}
               onChange={(e) => setStaffEmail(e.target.value)}
             />
           </Field>
-          <Field label="Password" htmlFor="staff_password">
+          <Field label="Password" htmlFor="staff_password" required>
             <div className="relative">
               <Input
                 id="staff_password"
@@ -113,6 +119,7 @@ export default function PortalLoginPage() {
                 invalid={!!staffError}
                 onChange={(e) => setStaffPassword(e.target.value)}
                 className="pr-space-9"
+                required
               />
               <button
                 type="button"

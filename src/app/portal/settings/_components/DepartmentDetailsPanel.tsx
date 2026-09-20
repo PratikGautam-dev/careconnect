@@ -30,7 +30,7 @@ function Row({
 }) {
   return (
     <div className="gap-space-3 py-space-2 flex items-start justify-between text-[13px]">
-      <span className="gap-space-1.5 text-ink-400 flex items-center">
+      <span className="gap-space-1 text-ink-400 flex items-center">
         {Icon && <Icon size={13} />}
         {label}
       </span>
@@ -46,19 +46,26 @@ type Props = {
   onAssignDoctor: (department: DepartmentDetail) => void;
   onManageStaff: (department: DepartmentDetail) => void;
   onToggleActive: (department: DepartmentDetail) => void;
-  onVisibilityChange: (
-    department: DepartmentDetail,
-    field: "show_on_frontend" | "online_booking_enabled" | "whatsapp_booking_enabled",
-  ) => void;
+  onVisibilityChange: (department: DepartmentDetail) => void;
 };
 
 /** Settings -> Departments' right-rail "Department Details" panel --
  * mirrors Report Review/Doctors/Patients' own selected-row detail rail
- * pattern. Everything here is real (see useDepartments.ts's
- * useDepartmentsAdmin), including the Patient-Facing Availability toggles
- * -- online_booking_enabled is stored/toggleable but not enforced by
- * anything yet (no separate online booking channel exists in this app),
- * flagged in its own hint text below rather than left unexplained. */
+ * pattern.
+ *
+ * Patient-Facing Availability used to be THREE separate toggles
+ * (show_on_frontend, online_booking_enabled, whatsapp_booking_enabled) --
+ * collapsed to one (confirmed with the user) once it became clear two of
+ * them were functionally identical and the third does nothing:
+ * db/repositories/doctors.py's get_departments() (the WhatsApp bot's own
+ * department picker, the one real patient channel this app has) ANDs
+ * show_on_frontend and whatsapp_booking_enabled together -- turning EITHER
+ * one off already removes the department from the picker, so presenting
+ * them as two independent controls was misleading, not just redundant.
+ * online_booking_enabled is still hidden below (not deleted) -- it's
+ * stored/returned by the API but nothing anywhere reads it, so toggling it
+ * had zero real effect; wire it up for real (a genuine second channel to
+ * gate independently of WhatsApp) before bringing it back. */
 export function DepartmentDetailsPanel({
   department,
   visibilitySaving,
@@ -127,7 +134,7 @@ export function DepartmentDetailsPanel({
         <Row icon={UserCog} label="Support Staff" value={department.support_staff_count} />
       </div>
       <div className="py-space-2">
-        <p className="mb-space-1 gap-space-1.5 text-ink-400 flex items-center text-[13px]">
+        <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[13px]">
           <FileText size={13} /> Description
         </p>
         <p className="text-ink-700 text-[13px]">
@@ -136,30 +143,29 @@ export function DepartmentDetailsPanel({
       </div>
 
       <div className="mt-space-3 border-line pt-space-3 border-t">
-        <h4 className="mb-space-1 gap-space-1.5 text-ink-900 flex items-center text-[13px] font-bold">
+        <h4 className="mb-space-1 gap-space-1 text-ink-900 flex items-center text-[13px] font-bold">
           <ShieldCheck size={14} className="text-brand-600" /> Patient-Facing Availability
         </h4>
         <ToggleRow
-          label="Show Department on CareConnect"
-          subtitle="Controls whether it appears on the WhatsApp menu"
-          checked={department.show_on_frontend}
-          onChange={() => onVisibilityChange(department, "show_on_frontend")}
+          label="Show Department"
+          subtitle="Controls whether patients see and can book this department on WhatsApp"
+          checked={department.show_on_frontend && department.whatsapp_booking_enabled}
+          onChange={() => onVisibilityChange(department)}
           disabled={visibilitySaving}
         />
+        {/* Hidden for now (confirmed with the user) -- online_booking_enabled
+          is stored/returned by the API but nothing anywhere reads it, so
+          this toggle had zero real effect. Bring it back once there's an
+          actual second booking channel for it to gate independently of
+          WhatsApp.
         <ToggleRow
           label="Allow Online Appointment Booking"
           subtitle="If OFF, department can still be visible but patients cannot book"
           checked={department.online_booking_enabled}
-          onChange={() => onVisibilityChange(department, "online_booking_enabled")}
+          onChange={() => onVisibilityChange(department)}
           disabled={visibilitySaving}
         />
-        <ToggleRow
-          label="Allow WhatsApp Booking"
-          subtitle="Turns off booking via the WhatsApp menu specifically"
-          checked={department.whatsapp_booking_enabled}
-          onChange={() => onVisibilityChange(department, "whatsapp_booking_enabled")}
-          disabled={visibilitySaving}
-        />
+        */}
       </div>
 
       <div className="mt-space-4 border-line pt-space-4 border-t">

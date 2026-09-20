@@ -118,16 +118,21 @@ export function DepartmentsTab() {
     await setDepartmentActive(department.id, !department.is_active);
   }
 
-  async function handleVisibilityChange(
-    department: DepartmentDetail,
-    field: "show_on_frontend" | "online_booking_enabled" | "whatsapp_booking_enabled",
-  ) {
+  // "Show Department" (DepartmentDetailsPanel) is one UI toggle over TWO
+  // backend columns -- show_on_frontend and whatsapp_booking_enabled are
+  // always set together here since get_departments() (the WhatsApp bot's
+  // department picker) ANDs them, so they already behave as a single
+  // on/off switch in practice. online_booking_enabled is passed through
+  // UNCHANGED -- it's still a real, stored column (just not surfaced in
+  // this UI right now, see that panel's own docstring), so this must never
+  // silently reset it.
+  async function handleVisibilityChange(department: DepartmentDetail) {
+    const nextVisible = !(department.show_on_frontend && department.whatsapp_booking_enabled);
     setVisibilitySaving(true);
     await setDepartmentVisibility(department.id, {
-      show_on_frontend: department.show_on_frontend,
+      show_on_frontend: nextVisible,
+      whatsapp_booking_enabled: nextVisible,
       online_booking_enabled: department.online_booking_enabled,
-      whatsapp_booking_enabled: department.whatsapp_booking_enabled,
-      [field]: !department[field],
     });
     setVisibilitySaving(false);
   }

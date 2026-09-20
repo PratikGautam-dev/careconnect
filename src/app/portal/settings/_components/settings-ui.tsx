@@ -72,6 +72,46 @@ export function Select({
   );
 }
 
+/** Like Select above, but for a fixed list of numeric options with a unit
+ * suffix (e.g. "30 minutes") -- General and Appointments tabs both use this
+ * for their NumberSelect-backed settings fields (session timeout, slot
+ * duration, buffer time, advance booking limit, ...). */
+export function NumberSelect({
+  value,
+  onChange,
+  options,
+  suffix,
+  disabled,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  options: number[];
+  suffix: string;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      disabled={disabled}
+      className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13.5px] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o} {suffix}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** A real, already-persisted value (e.g. from usePortalSettings) may not be
+ * one of a NumberSelect's preset dropdown options -- ensures it's selectable
+ * (shown in place, sorted in) instead of silently mismatching the <select>. */
+export function withValue(options: number[], value: number): number[] {
+  return options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
+}
+
 export function ToggleRow({
   label,
   subtitle,

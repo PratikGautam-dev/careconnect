@@ -4,8 +4,6 @@ import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 
-export type AttendanceStatus = "present" | "on_leave" | "half_day";
-
 // Matches portal/routes/staff.py's _staff_row() -- department_id/
 // leave_balance_total/used are both null for an admin row, since the leave
 // policy is doctor/receptionist only (admin approves leave rather than
@@ -28,7 +26,6 @@ export type StaffMember = {
   working_days: string[];
   working_hours: string[];
   breaks: string[];
-  attendance_status: AttendanceStatus;
   department_id: string | null;
   department_name: string | null;
   reports_to_id: number | null;
@@ -100,21 +97,6 @@ export function useStaffManagement(canView: boolean) {
     }
   }
 
-  async function handleSetAttendance(member: StaffMember, attendanceStatus: AttendanceStatus) {
-    const result = await staffFetch(`/api/portal/staff/${member.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ attendance_status: attendanceStatus }),
-    });
-    if (result.ok) {
-      load();
-    } else if (result.unauthorized) {
-      router.push("/portal/login");
-    } else {
-      toast.error("Couldn't update attendance status", result.error);
-    }
-  }
-
   function openResetPassword(member: StaffMember) {
     setResetPasswordTarget(member);
     setNewPassword("");
@@ -166,7 +148,6 @@ export function useStaffManagement(canView: boolean) {
     togglingId,
     load,
     handleToggleActive,
-    handleSetAttendance,
     resetPasswordTarget,
     newPassword,
     setNewPassword,

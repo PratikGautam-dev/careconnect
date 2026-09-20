@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveStaffTokens, staffFetch } from "@/lib/staffAuth";
+import { setStaffAccessToken, staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { changePasswordSchema } from "@/lib/validation/changePassword";
 
-type ChangePasswordResponse = { access_token: string; refresh_token: string };
+type ChangePasswordResponse = { access_token: string };
 
 /** Profile settings page's self-service password change -- POST
- * /api/portal/staff/change-password re-issues fresh access/refresh tokens
- * in its response (the password change itself invalidates every OTHER
- * outstanding session via token_version), so a successful change here saves
- * those straight over the current session instead of forcing a re-login. */
+ * /api/portal/staff/change-password re-issues a fresh access token in its
+ * response and a fresh refresh token as an httpOnly cookie on the response
+ * (the password change itself invalidates every OTHER outstanding session
+ * via token_version), so a successful change here saves the access token
+ * straight over the current session instead of forcing a re-login. */
 export function useChangePassword() {
   const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -55,7 +56,7 @@ export function useChangePassword() {
     }
 
     const data = result.data as ChangePasswordResponse;
-    saveStaffTokens(data.access_token, data.refresh_token);
+    setStaffAccessToken(data.access_token);
 
     setCurrentPassword("");
     setNewPassword("");

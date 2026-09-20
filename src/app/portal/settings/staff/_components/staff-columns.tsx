@@ -3,32 +3,23 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { Phone } from "lucide-react";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
+import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
-import type { AttendanceStatus, StaffMember } from "@/hooks/useStaffManagement";
-import { StaffCellAction } from "./staff-cellaction";
+import type { StaffMember } from "@/hooks/useStaffManagement";
+// Row-level "..." actions menu is commented out below (staff-cellaction.tsx)
+// -- View details/Reset password/Activate-Deactivate all now live in the
+// detail panel's own Quick Actions instead of being duplicated here.
+// import { StaffCellAction } from "./staff-cellaction";
 
 export { AVATAR_TINTS };
 
-// StaffMember (useStaffManagement.ts) is the row type -- department/
-// attendance/phone/address/reports-to are all real columns.
+// StaffMember (useStaffManagement.ts) is the row type -- department/phone/
+// address/reports-to are all real columns. Today's attendance status lives
+// on the staff DETAIL panel only (real check-in/out data via
+// useAttendanceOverview), not as a table column -- it's a per-day fact, not
+// a stable directory field, and repeating it here duplicated the detail
+// panel for no benefit.
 export type StaffRow = StaffMember;
-
-export const ATTENDANCE_LABELS: Record<AttendanceStatus, string> = {
-  present: "Present",
-  on_leave: "On Leave",
-  half_day: "Half Day",
-};
-
-const ATTENDANCE_DOT: Record<AttendanceStatus, string> = {
-  present: "bg-success",
-  on_leave: "bg-error",
-  half_day: "bg-brand-500",
-};
-const ATTENDANCE_TEXT: Record<AttendanceStatus, string> = {
-  present: "text-success",
-  on_leave: "text-error",
-  half_day: "text-brand-600",
-};
 
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -37,21 +28,16 @@ export function initials(name: string): string {
 
 type CreateStaffColumnsOptions = {
   onSelect: (row: StaffRow) => void;
-  canManage: boolean;
-  togglingId: number | null;
-  onToggleActive: (row: StaffRow) => void;
-  onResetPassword: (row: StaffRow) => void;
+  // Only used by the commented-out "actions" column below.
+  // canManage: boolean;
+  // togglingId: number | null;
+  // onToggleActive: (row: StaffRow) => void;
+  // onResetPassword: (row: StaffRow) => void;
 };
 
 /** Column defs for the /portal/settings/staff DataTable -- every column
  * here is a real staff_details/identities field. */
-export function createStaffColumns({
-  onSelect,
-  canManage,
-  togglingId,
-  onToggleActive,
-  onResetPassword,
-}: CreateStaffColumnsOptions): ColumnDef<StaffRow>[] {
+export function createStaffColumns({ onSelect }: CreateStaffColumnsOptions): ColumnDef<StaffRow>[] {
   return [
     {
       id: "employee_id",
@@ -97,24 +83,6 @@ export function createStaffColumns({
       ),
     },
     {
-      id: "attendance",
-      header: "Attendance Status",
-      cell: ({ row }) => {
-        const status = row.original.attendance_status;
-        return (
-          <span
-            className={cn(
-              "gap-space-1 flex items-center text-[12.5px] font-semibold whitespace-nowrap",
-              ATTENDANCE_TEXT[status],
-            )}
-          >
-            <span className={cn("h-1.5 w-1.5 rounded-full", ATTENDANCE_DOT[status])} />{" "}
-            {ATTENDANCE_LABELS[status]}
-          </span>
-        );
-      },
-    },
-    {
       id: "phone",
       header: "Phone",
       cell: ({ row }) =>
@@ -126,23 +94,36 @@ export function createStaffColumns({
           <span className="text-ink-400">—</span>
         ),
     },
-
     {
-      id: "actions",
-      enableHiding: false,
-      header: "",
+      id: "status",
+      header: "Status",
       cell: ({ row }) => (
-        <div className="text-right">
-          <StaffCellAction
-            staff={row.original}
-            canManage={canManage}
-            togglingId={togglingId}
-            onSelect={onSelect}
-            onToggleActive={onToggleActive}
-            onResetPassword={onResetPassword}
-          />
-        </div>
+        <Badge tone={row.original.is_active ? "success" : "neutral"}>
+          {row.original.is_active ? "Active" : "Inactive"}
+        </Badge>
       ),
     },
+
+    // Row-level "..." actions menu -- View details/Reset password/
+    // Activate-Deactivate all moved into the detail panel's own Quick
+    // Actions instead (StaffDetailPanel.tsx), so this duplicate per-row
+    // menu is retired here rather than deleted outright.
+    // {
+    //   id: "actions",
+    //   enableHiding: false,
+    //   header: "",
+    //   cell: ({ row }) => (
+    //     <div className="text-right">
+    //       <StaffCellAction
+    //         staff={row.original}
+    //         canManage={canManage}
+    //         togglingId={togglingId}
+    //         onSelect={onSelect}
+    //         onToggleActive={onToggleActive}
+    //         onResetPassword={onResetPassword}
+    //       />
+    //     </div>
+    //   ),
+    // },
   ];
 }

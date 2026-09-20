@@ -29,7 +29,6 @@ type Props = {
  * of each place hand-rolling its own inline form. */
 export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: Props) {
   const {
-    doctors,
     departments,
     staffOptions,
     roles,
@@ -42,7 +41,6 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
     roleId,
     setRoleId,
     doctorId,
-    setDoctorId,
     phone,
     setPhone,
     address,
@@ -54,6 +52,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
     reportsToId,
     setReportsToId,
     formError,
+    fieldErrors,
     saving,
     handleCreate,
   } = useAddStaff(open, onOpenChange, onCreated, presetDoctor);
@@ -61,7 +60,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-3xl">
         <DialogTitle>
           {presetDoctor ? `Create login for ${presetDoctor.name}` : "Add staff member"}
         </DialogTitle>
@@ -79,29 +78,38 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
               }
             />
           </div>
-          <Field label="Name" htmlFor="staff_name">
+          <Field label="Name" htmlFor="staff_name" required error={fieldErrors.name}>
             <Input
               id="staff_name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              invalid={!!fieldErrors.name}
               required
             />
           </Field>
-          <Field label="Email" htmlFor="staff_email">
+          <Field label="Email" htmlFor="staff_email" required error={fieldErrors.email}>
             <Input
               id="staff_email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              invalid={!!fieldErrors.email}
               required
             />
           </Field>
-          <Field label="Password" htmlFor="staff_password">
+          <Field
+            label="Password"
+            htmlFor="staff_password"
+            required
+            error={fieldErrors.password}
+            hint={fieldErrors.password ? undefined : "At least 8 characters."}
+          >
             <Input
               id="staff_password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              invalid={!!fieldErrors.password}
               required
             />
           </Field>
@@ -109,6 +117,7 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
             <Field
               label="Role"
               htmlFor="staff_role"
+              required
               hint={
                 presetDoctor
                   ? 'No role named "Doctor" was found -- choose one for this login.'
@@ -124,28 +133,6 @@ export function AddStaffDialog({ open, onOpenChange, onCreated, presetDoctor }: 
                 {roles.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          {!presetDoctor && (
-            <Field
-              label="Link to existing doctor"
-              htmlFor="staff_doctor"
-              className="md:col-span-2"
-              hint="Optional -- links this login to a doctor profile (their department then comes from there instead)."
-            >
-              <select
-                id="staff_doctor"
-                value={doctorId}
-                onChange={(e) => setDoctorId(e.target.value)}
-                className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
-              >
-                <option value="">No doctor linked</option>
-                {doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
                   </option>
                 ))}
               </select>

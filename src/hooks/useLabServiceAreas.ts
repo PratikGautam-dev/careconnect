@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { portalFetch } from "@/lib/portalAuth";
+import { validatePincode, validatePincodeRange } from "@/lib/validation/pincode";
 import { toast } from "@/lib/toast";
 
 export type ServiceArea = {
@@ -77,6 +78,17 @@ export function useLabServiceAreas() {
         : { range_start: newRangeStart.trim(), range_end: newRangeEnd.trim() };
     if (addMode === "single" ? !newPincode.trim() : !(newRangeStart.trim() && newRangeEnd.trim()))
       return;
+    // Same format/ordering rules db/repositories/lab_service_areas.py's own
+    // _validate_range() enforces server-side -- caught here first so a
+    // malformed PIN never round-trips just to come back as a 400.
+    const invalid =
+      addMode === "single"
+        ? validatePincode(newPincode.trim())
+        : validatePincodeRange(newRangeStart.trim(), newRangeEnd.trim());
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
     setPendingId("new");
     setError(null);
     const result = await portalFetch("/api/portal/lab-service-areas", {

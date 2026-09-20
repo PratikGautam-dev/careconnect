@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/adminAuth";
+import { validateReminderOffsetsHours } from "@/lib/validation/reminderOffsets";
 import { toast } from "@/lib/toast";
 
 export type TenantDetail = {
@@ -151,11 +152,21 @@ export function useEditTenant(tenantId: number) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form) return;
+    // Same client-side check Settings -> Notifications' own reminder-
+    // offsets field uses (src/lib/validation/reminderOffsets.ts) -- the
+    // backend's own parser silently drops anything it can't read rather
+    // than rejecting the request, so catch a typo here instead of letting
+    // it silently change what actually gets saved.
+    const offsetsInvalid = validateReminderOffsetsHours(form.reminder_offsets_hours);
+    if (offsetsInvalid) {
+      setErrors([offsetsInvalid]);
+      return;
+    }
     setSaving(true);
     setSaved(false);
     setErrors([]);
     const result = await adminFetch(`/api/admin/tenants/${tenantId}`, {
-      method: "POST",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });

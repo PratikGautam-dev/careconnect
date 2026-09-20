@@ -67,7 +67,7 @@ export function useAttendanceSettings(ready: boolean) {
     setSaved(false);
     setError(null);
     const result = await portalFetch("/api/portal/settings/attendance", {
-      method: "POST",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });

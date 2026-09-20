@@ -4,23 +4,10 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useStaffAttendanceHistory } from "@/hooks/useStaffAttendanceHistory";
 import { formatTimeOnly } from "@/lib/formatDate";
 import { cn } from "@/lib/cn";
-import type { AttendanceOverviewStatus } from "@/hooks/useAttendanceOverview";
-
-const STATUS_LABELS: Record<AttendanceOverviewStatus, string> = {
-  on_time: "Present",
-  half_day: "Present",
-  late: "Late",
-  leave: "On leave",
-  absent: "Absent",
-};
-
-const STATUS_STYLES: Record<AttendanceOverviewStatus, string> = {
-  on_time: "bg-success-tint text-success",
-  half_day: "bg-success-tint text-success",
-  late: "bg-clay-100 text-clay-700",
-  leave: "bg-brand-50 text-brand-600",
-  absent: "bg-error-tint text-error",
-};
+import {
+  ATTENDANCE_STATUS_LABELS as STATUS_LABELS,
+  ATTENDANCE_STATUS_STYLES as STATUS_STYLES,
+} from "@/hooks/useAttendanceOverview";
 
 function formatMinutes(minutes: number): string {
   if (!minutes) return "-";
@@ -54,19 +41,21 @@ export function StaffAttendanceHistoryDialog({ staffId, onOpenChange }: Props) {
   return (
     <Dialog open={staffId !== null} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
-        <DialogTitle>
-          {staff ? staff.name : "Attendance history"}
-        </DialogTitle>
-        {staff && <p className="mb-space-4 text-ink-400 text-[12.5px]">{staff.role_name} · Last 90 days</p>}
+        <DialogTitle>{staff ? staff.name : "Attendance history"}</DialogTitle>
+        {staff && (
+          <p className="mb-space-4 text-ink-400 text-[12.5px]">{staff.role_name} · Last 90 days</p>
+        )}
 
         {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
         {history === null ? (
           <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
         ) : history.length === 0 ? (
-          <p className="py-space-4 text-ink-400 text-center text-[13px]">No attendance records yet.</p>
+          <p className="py-space-4 text-ink-400 text-center text-[13px]">
+            No attendance records yet.
+          </p>
         ) : (
-          <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
+          <div className="max-h-[60vh] overflow-x-auto overflow-y-auto">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-line text-label text-ink-400 border-b text-left">

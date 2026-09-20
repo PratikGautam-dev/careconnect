@@ -85,19 +85,23 @@ export function DoctorScheduleForm({
         <div className="bg-brand-100 text-brand-700 flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-[20px] font-bold">
           {initial}
         </div>
-        <div className="gap-space-2 grid grid-cols-1 md:grid-cols-2">
-          <Input
-            required
-            placeholder="Doctor name"
-            value={value.name}
-            onChange={(e) => set("name", e.target.value)}
-          />
-          <Input
-            required
-            placeholder="Specialization *"
-            value={value.specialization}
-            onChange={(e) => set("specialization", e.target.value)}
-          />
+        <div className="gap-space-2 grid flex-1 grid-cols-1 md:grid-cols-2">
+          <Field label="Doctor name" htmlFor="doctor_name" required className="mb-0">
+            <Input
+              id="doctor_name"
+              required
+              value={value.name}
+              onChange={(e) => set("name", e.target.value)}
+            />
+          </Field>
+          <Field label="Specialization" htmlFor="doctor_specialization" required className="mb-0">
+            <Input
+              id="doctor_specialization"
+              required
+              value={value.specialization}
+              onChange={(e) => set("specialization", e.target.value)}
+            />
+          </Field>
         </div>
       </div>
 

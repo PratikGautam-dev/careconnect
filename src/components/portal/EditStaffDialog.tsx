@@ -45,7 +45,7 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
 
   return (
     <Dialog open={staff !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-3xl">
         <DialogTitle>Edit staff details</DialogTitle>
         {staff && (
           <form
@@ -58,7 +58,7 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
                 description="This staff member's name -- role isn't editable here."
               />
             </div>
-            <Field label="Name" htmlFor="edit_staff_name">
+            <Field label="Name" htmlFor="edit_staff_name" required>
               <Input
                 id="edit_staff_name"
                 value={name}

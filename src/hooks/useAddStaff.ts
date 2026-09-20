@@ -5,6 +5,9 @@ import { toast } from "@/lib/toast";
 import { useDepartments } from "@/hooks/useDepartments";
 import type { Role } from "@/hooks/usePortalRoles";
 import type { WorkingScheduleValue } from "@/components/portal/WorkingScheduleFields";
+import { addStaffSchema } from "@/lib/validation/addStaff";
+
+export type AddStaffFieldErrors = { name?: string; email?: string; password?: string };
 
 export type Doctor = { id: string; name: string };
 export type StaffOption = { id: number; name: string };
@@ -16,19 +19,26 @@ const EMPTY_SCHEDULE: WorkingScheduleValue = {
 };
 
 /** Owns the "Add staff member" dialog's own form state + submit -- fully
- * self-contained (loads the linked-doctor/department/reports-to/role
- * pickers itself, resets every field the moment it closes) so the dialog
- * can be dropped in anywhere, same open-driven-fetch/reset shape as
- * useNewBooking.ts.
+ * self-contained (loads the department/reports-to/role pickers itself,
+ * resets every field the moment it closes) so the dialog can be dropped in
+ * anywhere, same open-driven-fetch/reset shape as useNewBooking.ts.
  *
  * presetDoctor (Doctors page's own "Create login" quick action): when set,
  * doctorId is locked to this specific doctor on open -- the admin lands
  * straight on "create THIS doctor's login" rather than re-picking a doctor
- * they already chose by clicking that specific doctor's action. Dynamic-
- * roles migration: doctor-ness is no longer a role property at all (any
- * role can optionally have a doctor linked), so roleId always just
- * defaults to the first fetched role -- the picker itself is immediately
- * visible/editable regardless, and doctorId is a fully independent field. */
+ * they already chose by clicking that specific doctor's action. This is
+ * the ONLY way doctorId ever gets set now -- the generic "Add staff
+ * member" flow (no presetDoctor) used to also offer a "Link to existing
+ * doctor" picker here, removed (confirmed with the user) as a redundant,
+ * less-guided duplicate of this same preset flow: doctor creation itself
+ * never asks for login details, so the Doctors page's own "Create login"
+ * action is already the one, correctly-guided way to grant an existing
+ * doctor a login (it also locks the role to "Doctor", which the removed
+ * generic picker never enforced). Dynamic-roles migration: doctor-ness is
+ * no longer a role property at all (any role can optionally have a doctor
+ * linked), so roleId always just defaults to the first fetched role -- the
+ * picker itself is immediately visible/editable regardless, and doctorId
+ * is a fully independent field. */
 export function useAddStaff(
   open: boolean,
   onOpenChange: (open: boolean) => void,
@@ -37,7 +47,6 @@ export function useAddStaff(
 ) {
   const router = useRouter();
   const departments = useDepartments(open);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [name, setName] = useState("");
@@ -51,17 +60,8 @@ export function useAddStaff(
   const [schedule, setSchedule] = useState<WorkingScheduleValue>(EMPTY_SCHEDULE);
   const [reportsToId, setReportsToId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<AddStaffFieldErrors>({});
   const [saving, setSaving] = useState(false);
-
-  const loadDoctors = useCallback(async () => {
-    // Reuses the same doctor-list endpoint the Doctors page already fetches
-    // from, so a "doctor" staff row can be linked to an existing doctor
-    // record instead of duplicating name/specialization entry here.
-    const result = await staffFetch("/api/portal/doctors");
-    if (!result.ok) return;
-    const data = result.data as { doctors: Doctor[] };
-    setDoctors(data.doctors || []);
-  }, []);
 
   const loadStaffOptions = useCallback(async () => {
     // For the "Reports to" picker -- GET /api/portal/staff/options, not the
@@ -83,7 +83,6 @@ export function useAddStaff(
 
   useEffect(() => {
     if (open) {
-      loadDoctors();
       loadStaffOptions();
       loadRoles().then((fetched) => {
         // presetDoctor (Doctors page's "Create login" action): default to
@@ -116,10 +115,26 @@ export function useAddStaff(
     setSchedule(EMPTY_SCHEDULE);
     setReportsToId("");
     setFormError(null);
-  }, [open, loadDoctors, loadStaffOptions, loadRoles, presetDoctor]);
+    setFieldErrors({});
+  }, [open, loadStaffOptions, loadRoles, presetDoctor]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    // Mirrors portal/routes/staff.py's own required checks (name/email/
+    // password >= 8 chars) client-side, before the round-trip -- same
+    // "client mirrors the backend's own rule" reasoning setStaffPassword.ts
+    // already uses for password-reset dialogs elsewhere in this app.
+    const parsed = addStaffSchema.safeParse({ name, email, password });
+    if (!parsed.success) {
+      const errors: AddStaffFieldErrors = {};
+      for (const issue of parsed.error.issues) {
+        const key = issue.path[0] as keyof AddStaffFieldErrors;
+        if (!errors[key]) errors[key] = issue.message;
+      }
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
     if (!roleId) {
       setFormError("Choose a role.");
       return;
@@ -136,9 +151,9 @@ export function useAddStaff(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name,
-        email,
-        password,
+        name: parsed.data.name,
+        email: parsed.data.email,
+        password: parsed.data.password,
         role_id: roleId,
         doctor_id: doctorId || undefined,
         phone: phone || undefined,
@@ -165,7 +180,6 @@ export function useAddStaff(
   }
 
   return {
-    doctors,
     departments,
     staffOptions,
     roles,
@@ -178,7 +192,6 @@ export function useAddStaff(
     roleId,
     setRoleId,
     doctorId,
-    setDoctorId,
     phone,
     setPhone,
     address,
@@ -190,6 +203,7 @@ export function useAddStaff(
     reportsToId,
     setReportsToId,
     formError,
+    fieldErrors,
     saving,
     handleCreate,
   };

@@ -14,16 +14,37 @@ export type SubmitLeaveRequestInput = {
   reason: string;
 };
 
+export type HolidayApplicationInitialData = {
+  requests: LeaveRequestRow[];
+  balance: LeaveBalance;
+  leaveTypes: string[];
+};
+
 /** Any staff member's own leave requests + balance, and the submit action.
  * Feeds the same leave_requests table the admin Leave Requests page
  * (useLeaveRequests.ts) reviews -- gated by a separate permission
  * ("holiday_application", not "leave_requests"), since submitting your own
- * leave and reviewing everyone else's are different capabilities. */
-export function useHolidayApplication(canView: boolean) {
+ * leave and reviewing everyone else's are different capabilities.
+ *
+ * `initialData`, when given, seeds requests/balance/leaveTypes straight
+ * from it and SKIPS this hook's own mount-time GET
+ * /api/portal/leave-requests/mine -- StaffDashboardView.tsx passes this in,
+ * already having that same data from its single GET /api/portal/staff/
+ * dashboard fetch, so this hook doesn't fire a second, redundant request.
+ * `initialData` is expected to arrive ASYNCHRONOUSLY (StaffDashboardView's
+ * own fetch resolves after mount, not before it) -- so it's seeded via its
+ * own effect below rather than only a useState initializer, and the
+ * skip-fetch effect re-evaluates whenever `canView`/`initialData` change,
+ * not just at mount. The dedicated /portal/holiday-application page
+ * (HolidayApplicationView) calls this hook with no second argument, so it
+ * keeps doing its own independent fetch exactly as before. `submit()`/
+ * `load()` are unaffected either way -- a post-submit refetch always goes
+ * through `load()`. */
+export function useHolidayApplication(canView: boolean, initialData?: HolidayApplicationInitialData) {
   const router = useRouter();
-  const [requests, setRequests] = useState<LeaveRequestRow[] | null>(null);
-  const [balance, setBalance] = useState<LeaveBalance | null>(null);
-  const [leaveTypes, setLeaveTypes] = useState<string[]>([]);
+  const [requests, setRequests] = useState<LeaveRequestRow[] | null>(initialData ? initialData.requests : null);
+  const [balance, setBalance] = useState<LeaveBalance | null>(initialData ? initialData.balance : null);
+  const [leaveTypes, setLeaveTypes] = useState<string[]>(initialData ? initialData.leaveTypes : []);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,10 +65,20 @@ export function useHolidayApplication(canView: boolean) {
     setLeaveTypes(data.leave_types);
   }, [router]);
 
+  // Seeds from initialData whenever it (later) arrives -- covers the
+  // StaffDashboardView case where its own /api/portal/staff/dashboard
+  // fetch is still in flight on this hook's first render.
   useEffect(() => {
-    if (!canView) return;
+    if (!initialData) return;
+    setRequests(initialData.requests);
+    setBalance(initialData.balance);
+    setLeaveTypes(initialData.leaveTypes);
+  }, [initialData]);
+
+  useEffect(() => {
+    if (!canView || initialData) return;
     load();
-  }, [canView, load]);
+  }, [canView, initialData, load]);
 
   /** Returns an error string on failure, null on success (mirrors this
    * codebase's own established convention for a form submit action). */

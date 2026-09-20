@@ -123,11 +123,23 @@ export function useDoctors(ready: boolean) {
   }
 
   async function handleSaveDoctor() {
-    setSavingDoctor(true);
-    setDoctorErrors([]);
     const working_hours = doctorForm.shifts
       .filter((s) => s.start && s.end)
       .map((s) => `${s.start}-${s.end}`);
+    // Same "at least one working day and one complete shift" rule
+    // admin/validation.py's own doctor-field validator enforces server-side
+    // -- caught here first so the admin sees it immediately instead of
+    // after a round-trip.
+    if (doctorForm.working_days.length === 0) {
+      setDoctorErrors(["Choose at least one working day."]);
+      return;
+    }
+    if (working_hours.length === 0) {
+      setDoctorErrors(["Add at least one shift with both a start and end time."]);
+      return;
+    }
+    setSavingDoctor(true);
+    setDoctorErrors([]);
     const breaks = doctorForm.breaks
       .filter((b) => b && b.start && b.end)
       .map((b) => `${b.start}-${b.end}`);

@@ -71,7 +71,7 @@ export function RescheduleDialog({
               <p className="text-ink-400 text-[13px]">Loading…</p>
             ) : (
               <>
-                <Field label="Date">
+                <Field label="Date" required>
                   {datesForDoctor.length === 0 ? (
                     <p className="text-ink-400 text-[12.5px]">
                       No available dates for this {appointment.doctor_id ? "doctor" : "resource"}.

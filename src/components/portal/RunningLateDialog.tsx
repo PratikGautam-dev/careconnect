@@ -104,7 +104,7 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
           </p>
 
           <div className="mb-space-3 gap-space-3 grid grid-cols-2">
-            <Field label="Date" htmlFor="delay_date">
+            <Field label="Date" htmlFor="delay_date" required>
               <Input
                 id="delay_date"
                 type="date"
@@ -113,7 +113,7 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
                 required
               />
             </Field>
-            <Field label="From time" htmlFor="delay_from_time">
+            <Field label="From time" htmlFor="delay_from_time" required>
               <Input
                 id="delay_from_time"
                 type="time"

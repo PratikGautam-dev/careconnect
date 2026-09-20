@@ -51,6 +51,17 @@ export type Settings = {
   buffer_minutes: number;
   max_appointments_per_day: number | "";
   appointments_today_count: number;
+
+  // Contact Information card (Settings -> General) -- plain display
+  // details, `hospitals` columns (not hospital_settings). No `website`
+  // field -- dropped rather than made real (confirmed with the user).
+  contact_phone: string;
+  contact_alternate_phone: string;
+  contact_email: string;
+  contact_address: string;
+  emergency_contact_number: string;
+  emergency_contact_person: string;
+  emergency_contact_designation: string;
 };
 
 /** Loads + saves the /portal/settings form. */
@@ -95,7 +106,7 @@ export function usePortalSettings(ready: boolean) {
     setSaved(false);
     setError(null);
     const result = await portalFetch("/api/portal/settings", {
-      method: "POST",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });

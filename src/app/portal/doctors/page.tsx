@@ -64,7 +64,6 @@ export default function PortalDoctorsPage() {
     doctorErrors,
     savingDoctor,
     editingDoctorId,
-    loadingDoctorForEdit,
     openAddDoctorForm,
     toggleCsvImport,
     cancelDoctorForm,
@@ -89,11 +88,6 @@ export default function PortalDoctorsPage() {
 
   const columns = createDoctorColumns({
     onSelect: selectDoctor,
-    canManage: canManageDoctors,
-    togglingId,
-    onToggleActive: handleToggleActive,
-    loadingDoctorForEdit,
-    onEdit: handleEditDoctor,
   });
 
   return (

@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getPortalToken } from "@/lib/portalAuth";
-import { useStaffSession } from "@/lib/staffAuth";
+import { useStaffSession, useStaffSessionStatus } from "@/lib/staffAuth";
 
-/** Redirects to /portal/login if there's no stored token, otherwise returns
- * the hospital off StaffSessionContext (fetched fresh by StaffSessionProvider
- * -- see app/portal/layout.tsx -- not a localStorage cache) -- individual
- * pages still handle their own data fetch (and their own 401 handling via
- * portalFetch) since what they fetch differs per page.
+/** Redirects to /portal/login once the session status is confirmed
+ * "unauthenticated" -- not on a synchronous token check, since the access
+ * token lives only in memory (staffAuth.ts) and is legitimately empty on
+ * every fresh page load even for an already-logged-in user, until
+ * StaffSessionProvider's mount-time /me call (which silently retries via
+ * the httpOnly refresh cookie when there's no in-memory token yet) has a
+ * chance to resolve. Redirecting on an empty token synchronously would
+ * bounce a genuinely logged-in user to the login page on every hard
+ * refresh. `ready` mirrors that same "status === authenticated" gate, so
+ * callers already using it to hold off their own data fetch (useDoctors(ready)
+ * etc.) get this fix for free.
  *
  * A doctor session is allowed through like any other role -- every /portal/*
  * route is now RBAC-driven (portal/permissions.py) and the shared list/detail
@@ -18,15 +23,13 @@ import { useStaffSession } from "@/lib/staffAuth";
 export function usePortalGuard() {
   const router = useRouter();
   const session = useStaffSession();
-  const [ready, setReady] = useState(false);
+  const status = useStaffSessionStatus();
 
   useEffect(() => {
-    if (!getPortalToken()) {
+    if (status === "unauthenticated") {
       router.push("/portal/login");
-      return;
     }
-    setReady(true);
-  }, [router]);
+  }, [status, router]);
 
-  return { hospital: session?.hospital ?? null, ready };
+  return { hospital: session?.hospital ?? null, ready: status === "authenticated" };
 }

@@ -1,109 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Banknote,
-  Building2,
-  CalendarClock,
-  CalendarDays,
-  FlaskConical,
-  ListChecks,
-  MapPin,
-  Phone,
-  ShieldCheck,
-} from "lucide-react";
+import { Building2, CalendarClock, Phone, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
-import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
-import { DiagnosticTestsManager } from "@/components/portal/DiagnosticTestsManager";
 import { GoogleCalendarCard } from "@/components/portal/GoogleCalendarCard";
-import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
 import { LeavePolicyManager } from "@/components/portal/LeavePolicyManager";
 import { usePortalSettings } from "@/hooks/usePortalSettings";
 import type { PortalHospital } from "@/lib/portalAuth";
 import { usePermission } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import {
-  ADVANCE_BOOKING_DAYS_OPTIONS,
-  BUFFER_MINUTES_OPTIONS,
-  DURATION_MINUTES_OPTIONS,
   PASSWORD_EXPIRY_OPTIONS,
   SESSION_TIMEOUT_OPTIONS,
   initialGeneralSettings,
   type GeneralSettingsState,
 } from "./general-settings-mock";
-import {
-  initialContactInformation,
-  initialEmergencyContact,
-  type ContactInformation,
-  type EmergencyContact,
-} from "./contact-info-mock";
-import { SectionHeader, ToggleRow } from "./settings-ui";
-
-function NumberSelect({
-  value,
-  onChange,
-  options,
-  suffix,
-  disabled,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  options: number[];
-  suffix: string;
-  disabled?: boolean;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      disabled={disabled}
-      className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13.5px] disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o} {suffix}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-/** A real, already-persisted value (e.g. from usePortalSettings) may not be
- * one of this field's preset dropdown options -- ensures it's selectable
- * (shown in place, sorted in) instead of silently mismatching the <select>. */
-function withValue(options: number[], value: number): number[] {
-  return options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
-}
+import { NumberSelect, SectionHeader, ToggleRow, withValue } from "./settings-ui";
 
 /** General tab of /portal/settings. Hospital Name is read straight from
- * the real, already-loaded `hospital.name` (read-only). Most other
- * settings fields (Advance Booking Limit, Session Timeout, Handoff
- * Auto-Resolve, Require Patient Confirmation, Language, Business Hours,
- * Default Appointment Duration, Buffer Time, Maximum Appointments Per
- * Day, and the Follow-up & Fees fields) are real, backend-wired via
- * usePortalSettings; the rest of the tab (Contact Information, Emergency
- * Contact, Security toggles) is frontend-only mock state, reset by
- * Save/Reset locally rather than persisted. Maximum Appointments Per Day
- * also shows a live "X out of Y booked today" progress bar from the same
- * GET response's read-only `appointments_today_count`. Notification
- * Preferences and message content live on the Notifications tab (see
- * NotificationsTab.tsx). Appointment Types, Diagnostic Tests, Leave
- * Policy, Lab Service Areas, and Google Calendar are each their own real,
- * backend-wired section below, gated by the relevant admin_capabilities/
- * permission checks. */
+ * the real, already-loaded `hospital.name` (read-only). Session Timeout,
+ * Handoff Auto-Resolve, Show Patient Name on Entry, Language, Business
+ * Hours, Welcome message, and the whole Contact Information card (Phone
+ * Number/Alternate Phone/Email/Address/Emergency Contact) are real,
+ * backend-wired via usePortalSettings, stored on `hospitals` (not
+ * hospital_settings -- confirmed with the user, this is hospital identity/
+ * profile data, same category as name/timezone). Contact Information used
+ * to be entirely frontend-only mock state (contact-info-mock.ts, now
+ * deleted) with no backend effect at all -- made real minus its old
+ * "Website" field, which was dropped rather than made real. Only the
+ * three hidden Security toggles below (Password Expiry/Allow Multiple
+ * Sessions/Log User Activities) are still frontend-only mock state.
+ * Welcome message lives here (Hospital Information card) rather than on
+ * the Notifications tab -- it's hospital-identity content, not a
+ * notification setting. Notification Preferences live on the
+ * Notifications tab (see NotificationsTab.tsx). Appointment Settings,
+ * Follow-up & Fees, Appointment Types, Diagnostic Tests, and Lab Service
+ * Areas all moved to their own Appointments tab (see AppointmentsTab.tsx)
+ * -- General had grown five appointment-related sections crammed in
+ * alongside Hospital Information/Contact/Security, confirmed messy with
+ * the user. Leave Policy and Google Calendar stayed here since neither is
+ * specifically appointment-related (staff leave policy; a per-hospital
+ * integration), gated by the relevant admin_capabilities/permission
+ * checks. */
 export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | null }) {
   const [settings, setSettings] = useState<GeneralSettingsState>(initialGeneralSettings());
-  const [contact, setContact] = useState<ContactInformation>(initialContactInformation());
-  const [emergency, setEmergency] = useState<EmergencyContact>(initialEmergencyContact());
   const hospitalName = hospital?.name ?? "";
-  // !hospital means "still loading", not "no capabilities".
-  const canManageAppointmentTypes =
-    !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
-  const canManageTests =
-    !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_resources");
   const canManageLeavePolicy = usePermission("leave_requests", "write");
 
   // `true` here (not a `ready` prop) is safe: GeneralSettingsTab only ever
@@ -125,12 +69,11 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
   }
 
   function handleReset() {
-    // Only resets the mock portion -- future_booking_days/session_timeout_
-    // minutes are real, saved settings, not something a UI-only "reset to
-    // default" button should silently overwrite.
+    // Only resets the mock portion -- everything else on this tab
+    // (Contact Information/Emergency Contact included, now real) is a
+    // saved backend setting, not something a UI-only "reset to default"
+    // button should silently overwrite.
     setSettings(initialGeneralSettings());
-    setContact(initialContactInformation());
-    setEmergency(initialEmergencyContact());
     toast.success("Reset to default", "General settings reverted to their defaults.");
   }
 
@@ -158,7 +101,14 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
               <Input value={hospitalName} disabled />
             </Field>
             <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field label="Language" hint={!portalSettings ? "Loading…" : undefined}>
+              <Field
+                label="Language"
+                hint={
+                  !portalSettings
+                    ? "Loading…"
+                    : "Used as the conversation language when the toggle below is off."
+                }
+              >
                 <select
                   value={portalSettings?.default_language ?? "en"}
                   onChange={(e) =>
@@ -178,7 +128,11 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
               <Field
                 label="Business Hours"
                 className="mb-0"
-                hint={!portalSettings ? "Loading…" : "e.g. Mon-Sat, 9am-8pm"}
+                hint={
+                  !portalSettings
+                    ? "Loading…"
+                    : 'e.g. Mon-Sat, 9am-8pm — shown under "Hospital Info" in the WhatsApp menu.'
+                }
               >
                 <Input
                   value={portalSettings?.business_hours_text ?? ""}
@@ -192,7 +146,7 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
             </div>
             <ToggleRow
               label="Ask patients to choose a language"
-              subtitle="Shown at the start of every fresh WhatsApp conversation"
+              subtitle="Shown at the start of every fresh WhatsApp conversation; off uses Language above directly."
               checked={portalSettings?.language_prompt_enabled ?? false}
               onChange={() =>
                 portalSettings &&
@@ -203,6 +157,27 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
               }
               disabled={!portalSettings}
             />
+            <Field
+              label="Welcome message"
+              htmlFor="welcome_message_text"
+              className="mb-0"
+              hint={
+                !portalSettings
+                  ? "Loading…"
+                  : "Shown when a patient's conversation starts. Leave blank to show a default greeting with your hospital's name."
+              }
+            >
+              <Textarea
+                id="welcome_message_text"
+                rows={2}
+                value={portalSettings?.welcome_message_text ?? ""}
+                onChange={(e) =>
+                  portalSettings &&
+                  setPortalSettings({ ...portalSettings, welcome_message_text: e.target.value })
+                }
+                disabled={!portalSettings}
+              />
+            </Field>
           </Card>
 
           <Card className="p-space-4">
@@ -213,433 +188,193 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
               subtitle="Primary and emergency contact details for your hospital"
             />
             <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field label="Phone Number" required>
+              <Field label="Phone Number" hint={!portalSettings ? "Loading…" : undefined}>
                 <Input
-                  value={contact.phone}
-                  onChange={(e) => setContact({ ...contact, phone: e.target.value })}
+                  value={portalSettings?.contact_phone ?? ""}
+                  onChange={(e) =>
+                    portalSettings &&
+                    setPortalSettings({ ...portalSettings, contact_phone: e.target.value })
+                  }
+                  disabled={!portalSettings}
                 />
               </Field>
               <Field label="Alternate Phone">
                 <Input
-                  value={contact.alternatePhone}
-                  onChange={(e) => setContact({ ...contact, alternatePhone: e.target.value })}
+                  value={portalSettings?.contact_alternate_phone ?? ""}
+                  onChange={(e) =>
+                    portalSettings &&
+                    setPortalSettings({
+                      ...portalSettings,
+                      contact_alternate_phone: e.target.value,
+                    })
+                  }
+                  disabled={!portalSettings}
                 />
               </Field>
             </div>
-            <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field label="Email Address" required>
-                <Input
-                  type="email"
-                  value={contact.email}
-                  onChange={(e) => setContact({ ...contact, email: e.target.value })}
-                />
-              </Field>
-              <Field label="Website">
-                <Input
-                  value={contact.website}
-                  onChange={(e) => setContact({ ...contact, website: e.target.value })}
-                />
-              </Field>
-            </div>
-            <Field label="Address" required>
+            <Field label="Email Address" className="mb-space-4">
+              <Input
+                type="email"
+                value={portalSettings?.contact_email ?? ""}
+                onChange={(e) =>
+                  portalSettings &&
+                  setPortalSettings({ ...portalSettings, contact_email: e.target.value })
+                }
+                disabled={!portalSettings}
+              />
+            </Field>
+            <Field label="Address">
               <Textarea
                 rows={2}
-                value={contact.address}
-                onChange={(e) => setContact({ ...contact, address: e.target.value })}
+                value={portalSettings?.contact_address ?? ""}
+                onChange={(e) =>
+                  portalSettings &&
+                  setPortalSettings({ ...portalSettings, contact_address: e.target.value })
+                }
+                disabled={!portalSettings}
               />
             </Field>
 
             <div className="mt-space-4 border-line pt-space-4 border-t">
               <p className="mb-space-3 text-ink-900 text-[13px] font-bold">Emergency Contact</p>
               <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-                <Field label="Emergency Contact Number" required>
+                <Field label="Emergency Contact Number">
                   <Input
-                    value={emergency.number}
-                    onChange={(e) => setEmergency({ ...emergency, number: e.target.value })}
+                    value={portalSettings?.emergency_contact_number ?? ""}
+                    onChange={(e) =>
+                      portalSettings &&
+                      setPortalSettings({
+                        ...portalSettings,
+                        emergency_contact_number: e.target.value,
+                      })
+                    }
+                    disabled={!portalSettings}
                   />
                 </Field>
-                <Field label="Contact Person" required>
+                <Field label="Contact Person">
                   <Input
-                    value={emergency.contactPerson}
-                    onChange={(e) => setEmergency({ ...emergency, contactPerson: e.target.value })}
+                    value={portalSettings?.emergency_contact_person ?? ""}
+                    onChange={(e) =>
+                      portalSettings &&
+                      setPortalSettings({
+                        ...portalSettings,
+                        emergency_contact_person: e.target.value,
+                      })
+                    }
+                    disabled={!portalSettings}
                   />
                 </Field>
               </div>
               <Field label="Designation" className="mb-0">
                 <Input
-                  value={emergency.designation}
-                  onChange={(e) => setEmergency({ ...emergency, designation: e.target.value })}
-                />
-              </Field>
-            </div>
-          </Card>
-        </div>
-
-        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
-          <Card className="p-space-4">
-            <SectionHeader
-              icon={CalendarDays}
-              tint="brand"
-              title="Appointment Settings"
-              subtitle="Configure appointment related preferences"
-            />
-            <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field
-                label="Default Appointment Duration"
-                hint={
-                  !portalSettings
-                    ? "Loading…"
-                    : "Used for any doctor who hasn't set their own slot length"
-                }
-              >
-                <NumberSelect
-                  value={portalSettings?.default_appointment_duration_minutes ?? 30}
-                  onChange={(v) =>
-                    portalSettings &&
-                    setPortalSettings({
-                      ...portalSettings,
-                      default_appointment_duration_minutes: v,
-                    })
-                  }
-                  options={withValue(
-                    DURATION_MINUTES_OPTIONS,
-                    portalSettings?.default_appointment_duration_minutes ?? 30,
-                  )}
-                  suffix="minutes"
-                  disabled={!portalSettings}
-                />
-              </Field>
-              <Field
-                label="Buffer Time Between Appointments"
-                hint={
-                  !portalSettings
-                    ? "Loading…"
-                    : "Gap kept free between every doctor's back-to-back slots"
-                }
-              >
-                <NumberSelect
-                  value={portalSettings?.buffer_minutes ?? 0}
-                  onChange={(v) =>
-                    portalSettings && setPortalSettings({ ...portalSettings, buffer_minutes: v })
-                  }
-                  options={withValue(BUFFER_MINUTES_OPTIONS, portalSettings?.buffer_minutes ?? 0)}
-                  suffix="minutes"
-                  disabled={!portalSettings}
-                />
-              </Field>
-              <Field label="Advance Booking Limit" hint={!portalSettings ? "Loading…" : undefined}>
-                <NumberSelect
-                  value={portalSettings?.future_booking_days ?? 90}
-                  onChange={(v) =>
-                    portalSettings &&
-                    setPortalSettings({ ...portalSettings, future_booking_days: v })
-                  }
-                  options={withValue(
-                    ADVANCE_BOOKING_DAYS_OPTIONS,
-                    portalSettings?.future_booking_days ?? 90,
-                  )}
-                  suffix="days"
-                  disabled={!portalSettings}
-                />
-              </Field>
-              <Field
-                label="Maximum Appointments Per Day"
-                hint={!portalSettings ? "Loading…" : "Leave blank for no daily cap"}
-              >
-                <Input
-                  type="number"
-                  min={1}
-                  placeholder="No limit"
-                  value={portalSettings?.max_appointments_per_day ?? ""}
+                  value={portalSettings?.emergency_contact_designation ?? ""}
                   onChange={(e) =>
                     portalSettings &&
                     setPortalSettings({
                       ...portalSettings,
-                      max_appointments_per_day: e.target.value === "" ? "" : Number(e.target.value),
+                      emergency_contact_designation: e.target.value,
                     })
                   }
                   disabled={!portalSettings}
                 />
               </Field>
-            </div>
-            {portalSettings && portalSettings.max_appointments_per_day !== "" && (
-              <div className="mt-space-2">
-                <div className="mb-space-1 text-ink-400 flex items-center justify-between text-[12px]">
-                  <span>Booked today</span>
-                  <span className="text-ink-700 font-semibold">
-                    {portalSettings.appointments_today_count} out of{" "}
-                    {portalSettings.max_appointments_per_day}
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-black/6">
-                  <div
-                    className="bg-brand-600 h-full rounded-full"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        (portalSettings.appointments_today_count /
-                          (portalSettings.max_appointments_per_day || 1)) *
-                          100,
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="mt-space-2">
-              <ToggleRow
-                label="Allow Online Appointments"
-                subtitle="Patients can self-book via WhatsApp"
-                checked={portalSettings?.allow_online_appointments ?? true}
-                disabled={!portalSettings}
-                onChange={() =>
-                  portalSettings &&
-                  setPortalSettings({
-                    ...portalSettings,
-                    allow_online_appointments: !portalSettings.allow_online_appointments,
-                  })
-                }
-              />
-              {portalSettings && (
-                <div className="mt-space-3 gap-space-3 border-line rounded-md border p-space-3">
-                  <div className="gap-space-3 grid grid-cols-1 sm:grid-cols-2">
-                    <Field label="Closed from" htmlFor="booking_closure_from_date" className="mb-0">
-                      <Input
-                        id="booking_closure_from_date"
-                        type="date"
-                        value={portalSettings.booking_closure_from_date}
-                        onChange={(e) =>
-                          setPortalSettings({
-                            ...portalSettings,
-                            booking_closure_from_date: e.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Closed until" htmlFor="booking_closure_to_date" className="mb-0">
-                      <Input
-                        id="booking_closure_to_date"
-                        type="date"
-                        value={portalSettings.booking_closure_to_date}
-                        onChange={(e) =>
-                          setPortalSettings({
-                            ...portalSettings,
-                            booking_closure_to_date: e.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                  </div>
-                  <Field
-                    label="Message shown to patients"
-                    htmlFor="closing_message_text"
-                    className="mb-0 mt-space-3"
-                    hint='Only takes effect while "Allow Online Appointments" above is off, and today falls between the dates set here. Sent instead of the main menu, e.g. "The hospital is closed and will reopen on 25 Oct."'
-                  >
-                    <Textarea
-                      id="closing_message_text"
-                      rows={2}
-                      value={portalSettings.closing_message_text}
-                      onChange={(e) =>
-                        setPortalSettings({ ...portalSettings, closing_message_text: e.target.value })
-                      }
-                    />
-                  </Field>
-                </div>
-              )}
-            </div>
-          </Card>
-
-          <Card className="p-space-4">
-            <SectionHeader
-              icon={ShieldCheck}
-              tint="error"
-              title="Security & Session Settings"
-              subtitle="Manage security preferences"
-            />
-            <div className="mb-space-3 gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field label="Session Timeout" hint={!portalSettings ? "Loading…" : undefined}>
-                <NumberSelect
-                  value={portalSettings?.session_timeout_minutes ?? 30}
-                  onChange={(v) =>
-                    portalSettings &&
-                    setPortalSettings({ ...portalSettings, session_timeout_minutes: v })
-                  }
-                  options={withValue(
-                    SESSION_TIMEOUT_OPTIONS,
-                    portalSettings?.session_timeout_minutes ?? 30,
-                  )}
-                  suffix="minutes"
-                  disabled={!portalSettings}
-                />
-              </Field>
-              <Field
-                label="Handoff Auto-Resolve"
-                hint={!portalSettings ? "Loading…" : "Between 1 and 168 hours"}
-              >
-                <Input
-                  type="number"
-                  min={1}
-                  max={168}
-                  value={portalSettings?.handoff_auto_resolve_hours ?? 24}
-                  onChange={(e) =>
-                    portalSettings &&
-                    setPortalSettings({
-                      ...portalSettings,
-                      handoff_auto_resolve_hours: Number(e.target.value),
-                    })
-                  }
-                  disabled={!portalSettings}
-                />
-              </Field>
-            </div>
-            <ToggleRow
-              label="Require Patient Confirmation"
-              subtitle="Ask for explicit confirmation before entering the menu, even for a single linked patient"
-              checked={portalSettings?.require_patient_confirmation ?? false}
-              onChange={() =>
-                portalSettings &&
-                setPortalSettings({
-                  ...portalSettings,
-                  require_patient_confirmation: !portalSettings.require_patient_confirmation,
-                })
-              }
-              disabled={!portalSettings}
-            />
-            <div className="mb-space-3 mt-space-3 gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field label="Password Expiry">
-                <NumberSelect
-                  value={security.passwordExpiryDays}
-                  onChange={(v) => patch("security", { passwordExpiryDays: v })}
-                  options={PASSWORD_EXPIRY_OPTIONS}
-                  suffix="days"
-                />
-              </Field>
-            </div>
-            <div className="divide-line divide-y">
-              <ToggleRow
-                label="Allow Multiple Sessions"
-                subtitle="Sign in from more than one device"
-                checked={security.allowMultipleSessions}
-                onChange={() =>
-                  patch("security", { allowMultipleSessions: !security.allowMultipleSessions })
-                }
-              />
-              <ToggleRow
-                label="Log User Activities"
-                subtitle="Keep an audit trail of staff actions"
-                checked={security.logUserActivities}
-                onChange={() =>
-                  patch("security", { logUserActivities: !security.logUserActivities })
-                }
-              />
-            </div>
-            <div className="mt-space-3 gap-space-2 bg-brand-50 p-space-3 flex items-start rounded-md">
-              <ShieldCheck size={16} className="text-brand-600 mt-0.5 shrink-0" />
-              <p className="text-ink-700 text-[12px]">
-                <span className="font-bold">Keep your account secure. </span>
-                Regularly update your security settings to protect patient data.
-              </p>
             </div>
           </Card>
         </div>
 
         <Card className="p-space-4">
           <SectionHeader
-            icon={Banknote}
-            tint="success"
-            title="Follow-up & Fees"
-            subtitle="How long a Follow-up stays bookable after a visit, and the fees shown on booking confirmations"
+            icon={ShieldCheck}
+            tint="error"
+            title="Security & Session Settings"
+            subtitle="Manage security preferences"
           />
-          <p className="mb-space-3 text-ink-400 text-[12.5px]">
-            Leave a fee blank to omit that line entirely from the confirmation message, rather than
-            showing ₹0.
-          </p>
-          <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-space-3 gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
+            <Field label="Session Timeout" hint={!portalSettings ? "Loading…" : undefined}>
+              <NumberSelect
+                value={portalSettings?.session_timeout_minutes ?? 30}
+                onChange={(v) =>
+                  portalSettings &&
+                  setPortalSettings({ ...portalSettings, session_timeout_minutes: v })
+                }
+                options={withValue(
+                  SESSION_TIMEOUT_OPTIONS,
+                  portalSettings?.session_timeout_minutes ?? 30,
+                )}
+                suffix="minutes"
+                disabled={!portalSettings}
+              />
+            </Field>
             <Field
-              label="Follow-up Eligibility Window"
-              hint={
-                !portalSettings
-                  ? "Loading…"
-                  : "Days after the visit a Follow-up can still be booked"
-              }
+              label="Handoff Auto-Resolve"
+              hint={!portalSettings ? "Loading…" : "Between 1 and 168 hours"}
             >
               <Input
                 type="number"
                 min={1}
-                max={365}
-                value={portalSettings?.followup_validity_days ?? 30}
+                max={168}
+                value={portalSettings?.handoff_auto_resolve_hours ?? 24}
                 onChange={(e) =>
                   portalSettings &&
                   setPortalSettings({
                     ...portalSettings,
-                    followup_validity_days: Number(e.target.value),
-                  })
-                }
-                disabled={!portalSettings}
-              />
-            </Field>
-            <Field
-              label="Follow-up Fee (₹)"
-              hint={!portalSettings ? "Loading…" : "Blank = no fee line shown"}
-            >
-              <Input
-                type="number"
-                min={0}
-                placeholder="No fee"
-                value={portalSettings?.followup_fee ?? ""}
-                onChange={(e) =>
-                  portalSettings &&
-                  setPortalSettings({
-                    ...portalSettings,
-                    followup_fee: e.target.value === "" ? "" : Number(e.target.value),
-                  })
-                }
-                disabled={!portalSettings}
-              />
-            </Field>
-            <Field
-              label="New Consultation Fee (₹)"
-              hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}
-            >
-              <Input
-                type="number"
-                min={0}
-                placeholder="No fee"
-                value={portalSettings?.new_consultation_fee ?? ""}
-                onChange={(e) =>
-                  portalSettings &&
-                  setPortalSettings({
-                    ...portalSettings,
-                    new_consultation_fee: e.target.value === "" ? "" : Number(e.target.value),
-                  })
-                }
-                disabled={!portalSettings}
-              />
-            </Field>
-            <Field
-              label="Home Sample Collection Charge (₹)"
-              hint={
-                !portalSettings ? "Loading…" : "Added for home sample collection Lab Test bookings"
-              }
-              className="mb-0"
-            >
-              <Input
-                type="number"
-                min={0}
-                placeholder="No charge"
-                value={portalSettings?.home_collection_charge ?? ""}
-                onChange={(e) =>
-                  portalSettings &&
-                  setPortalSettings({
-                    ...portalSettings,
-                    home_collection_charge: e.target.value === "" ? "" : Number(e.target.value),
+                    handoff_auto_resolve_hours: Number(e.target.value),
                   })
                 }
                 disabled={!portalSettings}
               />
             </Field>
           </div>
+          <ToggleRow
+            label="Show Patient Name on Entry"
+            subtitle="Greets a single linked patient by name (with an Add Patient option) instead of the plain main menu -- doesn't block or delay entry"
+            checked={portalSettings?.require_patient_confirmation ?? false}
+            onChange={() =>
+              portalSettings &&
+              setPortalSettings({
+                ...portalSettings,
+                require_patient_confirmation: !portalSettings.require_patient_confirmation,
+              })
+            }
+            disabled={!portalSettings}
+          />
+          {/* Hidden for now (confirmed with the user) -- all three are
+            frontend-only mock state (security.*, GeneralSettingsState),
+            never sent to the backend or enforced anywhere.
+          <div className="mb-space-3 mt-space-3 gap-x-space-3 grid grid-cols-1 sm:grid-cols-2">
+            <Field label="Password Expiry">
+              <NumberSelect
+                value={security.passwordExpiryDays}
+                onChange={(v) => patch("security", { passwordExpiryDays: v })}
+                options={PASSWORD_EXPIRY_OPTIONS}
+                suffix="days"
+              />
+            </Field>
+          </div>
+          <div className="divide-line divide-y">
+            <ToggleRow
+              label="Allow Multiple Sessions"
+              subtitle="Sign in from more than one device"
+              checked={security.allowMultipleSessions}
+              onChange={() =>
+                patch("security", { allowMultipleSessions: !security.allowMultipleSessions })
+              }
+            />
+            <ToggleRow
+              label="Log User Activities"
+              subtitle="Keep an audit trail of staff actions"
+              checked={security.logUserActivities}
+              onChange={() => patch("security", { logUserActivities: !security.logUserActivities })}
+            />
+          </div>
+          */}
+          {/* <div className="mt-space-3 gap-space-2 bg-brand-50 p-space-3 flex items-start rounded-md">
+            <ShieldCheck size={16} className="text-brand-600 mt-0.5 shrink-0" />
+            <p className="text-ink-700 text-[12px]">
+              <span className="font-bold">Keep your account secure. </span>
+              Regularly update your security settings to protect patient data.
+            </p>
+          </div> */}
         </Card>
 
         <div className="gap-space-2 flex flex-wrap items-center justify-end">
@@ -656,68 +391,19 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
         </div>
       </form>
 
-      {/* The sections below are each their own independent, real, already-
-        wired manager (some with their own <form>, e.g. LeavePolicyManager)
-        -- deliberately OUTSIDE the form above (nested <form>s are invalid
-        HTML and break hydration) and not tied to its Save/Reset button. */}
-      {canManageAppointmentTypes && (
-        <Card className="p-space-4">
-          <SectionHeader
-            icon={ListChecks}
-            tint="brand"
-            title="Appointment Types"
-            subtitle="Which booking types patients can choose -- separate from the general appointment settings above"
-          />
-          <p className="mb-space-3 text-ink-400 text-[12.5px]">
-            The card above (&quot;Appointment Settings&quot;) controls HOW appointments behave --
-            duration, buffer time, approval (reminders are on the Notifications tab). This one
-            controls WHICH appointment types
-            show up at all in the WhatsApp booking menu (e.g. Doctor Consultation, Daycare,
-            Diagnostic Test). Turn a type off here and patients simply won&apos;t see it as an
-            option. A type greyed out below hasn&apos;t been enabled for your account by the
-            platform -- contact support to request it.
-          </p>
-          <AppointmentTypeToggles canManage={!!canManageAppointmentTypes} />
-        </Card>
-      )}
-
+      {/* Leave Policy/Google Calendar are each their own independent, real,
+        already-wired manager (LeavePolicyManager has its own <form>) --
+        deliberately OUTSIDE the form above (nested <form>s are invalid HTML
+        and break hydration) and not tied to its Save/Reset button. */}
       <Card className="p-space-4">
         <SectionHeader
-          icon={FlaskConical}
-          tint="success"
-          title="Diagnostic Tests"
-          subtitle="Manage the tests patients can book under Diagnostic Test / Lab Test, each with its own weekly schedule"
+          icon={CalendarClock}
+          tint="clay"
+          title="Leave Policy"
+          subtitle="Annual leave allowance and leave types for the Leave Requests / Holiday Application pages"
         />
-        <DiagnosticTestsManager canManage={!!canManageTests} />
+        <LeavePolicyManager canManage={canManageLeavePolicy} />
       </Card>
-
-      <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
-        <Card className="p-space-4">
-          <SectionHeader
-            icon={CalendarClock}
-            tint="clay"
-            title="Leave Policy"
-            subtitle="Annual leave allowance and leave types for the Leave Requests / Holiday Application pages"
-          />
-          <LeavePolicyManager canManage={canManageLeavePolicy} />
-        </Card>
-
-        {canManageAppointmentTypes && (
-          <Card className="p-space-4">
-            <SectionHeader
-              icon={MapPin}
-              tint="error"
-              title="Lab Service Areas"
-              subtitle="PIN codes where you offer Home Sample Collection for Lab Test bookings"
-            />
-            <p className="mb-space-3 text-ink-400 text-[12.5px]">
-              A patient entering a PIN code not listed here is offered Visit Hospital/Lab instead of
-              Home Collection.
-            </p>
-            <LabServiceAreasManager canManage={!!canManageAppointmentTypes} />
-          </Card>
-        )}
-      </div>
 
       <Card className="p-space-4">
         <GoogleCalendarCard />

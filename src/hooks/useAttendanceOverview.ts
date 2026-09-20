@@ -4,6 +4,26 @@ import { staffFetch } from "@/lib/staffAuth";
 
 export type AttendanceOverviewStatus = "on_time" | "late" | "absent" | "leave" | "half_day";
 
+// Shared display strings for this status -- StaffAttendanceHistoryDialog and
+// StaffDetailPanel both show the same real check-in/out-derived status, so
+// the label/color mapping lives here once instead of being redefined per
+// consumer.
+export const ATTENDANCE_STATUS_LABELS: Record<AttendanceOverviewStatus, string> = {
+  on_time: "Present",
+  half_day: "Present",
+  late: "Late",
+  leave: "On leave",
+  absent: "Absent",
+};
+
+export const ATTENDANCE_STATUS_STYLES: Record<AttendanceOverviewStatus, string> = {
+  on_time: "bg-success-tint text-success",
+  half_day: "bg-success-tint text-success",
+  late: "bg-clay-100 text-clay-700",
+  leave: "bg-brand-50 text-brand-600",
+  absent: "bg-error-tint text-error",
+};
+
 export type AttendanceOverviewRow = {
   staff_id: number;
   staff_name: string;

@@ -3,6 +3,7 @@
 import { Plus, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useLabServiceAreas } from "@/hooks/useLabServiceAreas";
@@ -77,7 +78,7 @@ export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
 
       {canManage &&
         (showAddForm ? (
-          <div className="gap-space-2 flex flex-wrap items-center">
+          <div className="gap-space-2 flex flex-wrap items-end">
             <div className="gap-space-1 flex">
               <Button
                 type="button"
@@ -97,26 +98,43 @@ export function LabServiceAreasManager({ canManage }: { canManage: boolean }) {
               </Button>
             </div>
             {addMode === "single" ? (
-              <Input
-                value={newPincode}
-                onChange={(e) => setNewPincode(e.target.value)}
-                placeholder="e.g. 560001"
-                className="w-32"
-              />
+              <Field label="PIN code" htmlFor="new_pincode" required className="mb-0">
+                <Input
+                  id="new_pincode"
+                  value={newPincode}
+                  onChange={(e) => setNewPincode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="e.g. 560001"
+                  className="w-32"
+                />
+              </Field>
             ) : (
               <>
-                <Input
-                  value={newRangeStart}
-                  onChange={(e) => setNewRangeStart(e.target.value)}
-                  placeholder="From e.g. 560001"
-                  className="w-36"
-                />
-                <Input
-                  value={newRangeEnd}
-                  onChange={(e) => setNewRangeEnd(e.target.value)}
-                  placeholder="To e.g. 560050"
-                  className="w-36"
-                />
+                <Field label="From" htmlFor="new_range_start" required className="mb-0">
+                  <Input
+                    id="new_range_start"
+                    value={newRangeStart}
+                    onChange={(e) =>
+                      setNewRangeStart(e.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="e.g. 560001"
+                    className="w-36"
+                  />
+                </Field>
+                <Field label="To" htmlFor="new_range_end" required className="mb-0">
+                  <Input
+                    id="new_range_end"
+                    value={newRangeEnd}
+                    onChange={(e) => setNewRangeEnd(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="e.g. 560050"
+                    className="w-36"
+                  />
+                </Field>
               </>
             )}
             <Button

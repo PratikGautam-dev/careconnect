@@ -1,15 +1,19 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { Eye, Mail, MoreHorizontal, Pencil, Phone, Power } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Mail, Phone } from "lucide-react";
+// Row-level "..." actions menu is commented out below -- View profile/Edit/
+// Mark available-unavailable all now live in DoctorDetailPanel.tsx's own
+// Quick Actions instead of being duplicated here.
+// import { Eye, MoreHorizontal, Pencil, Power } from "lucide-react";
+// import {
+//   DropdownMenu,
+//   DropdownMenuContent,
+//   DropdownMenuGroup,
+//   DropdownMenuItem,
+//   DropdownMenuLabel,
+//   DropdownMenuTrigger,
+// } from "@/components/ui/dropdown-menu";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { cn } from "@/lib/cn";
 import type { Doctor } from "@/hooks/useDoctors";
@@ -23,11 +27,12 @@ function initials(name: string): string {
 
 type CreateDoctorColumnsOptions = {
   onSelect: (doc: Doctor) => void;
-  canManage: boolean;
-  togglingId: string | null;
-  onToggleActive: (doc: Doctor) => void;
-  loadingDoctorForEdit: string | null;
-  onEdit: (doc: Doctor) => void;
+  // Only used by the commented-out "actions" column below.
+  // canManage: boolean;
+  // togglingId: string | null;
+  // onToggleActive: (doc: Doctor) => void;
+  // loadingDoctorForEdit: string | null;
+  // onEdit: (doc: Doctor) => void;
 };
 
 /** Column definitions for the /portal/doctors DataTable. Availability only
@@ -36,14 +41,7 @@ type CreateDoctorColumnsOptions = {
  * shown. Contact's email row shows login_email (null until a login is
  * created). Leave Balance shows "—" for a doctor with no login yet, since
  * there's no identity to attach a leave request to. */
-export function createDoctorColumns({
-  onSelect,
-  canManage,
-  togglingId,
-  onToggleActive,
-  loadingDoctorForEdit,
-  onEdit,
-}: CreateDoctorColumnsOptions): ColumnDef<Doctor>[] {
+export function createDoctorColumns({ onSelect }: CreateDoctorColumnsOptions): ColumnDef<Doctor>[] {
   return [
     {
       id: "employee_id",
@@ -134,49 +132,53 @@ export function createDoctorColumns({
         );
       },
     },
-    {
-      id: "actions",
-      enableHiding: false,
-      header: "Actions",
-      cell: ({ row }) => {
-        const d = row.original;
-        return (
-          <div onClick={(e) => e.stopPropagation()}>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
-                aria-label={`Actions for ${d.name}`}
-              >
-                <MoreHorizontal size={16} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => onSelect(d)}>
-                    <Eye size={14} /> View profile
-                  </DropdownMenuItem>
-                  {canManage && (
-                    <>
-                      <DropdownMenuItem
-                        disabled={loadingDoctorForEdit === d.id}
-                        onClick={() => onEdit(d)}
-                      >
-                        <Pencil size={14} /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={togglingId === d.id}
-                        onClick={() => onToggleActive(d)}
-                      >
-                        <Power size={14} /> Mark {d.is_active ? "unavailable" : "available"}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
-    },
+    // Row-level "..." actions menu -- View profile/Edit/Mark available-
+    // unavailable all moved into the detail panel's own Quick Actions
+    // instead (DoctorDetailPanel.tsx), so this duplicate per-row menu is
+    // retired here rather than deleted outright.
+    // {
+    //   id: "actions",
+    //   enableHiding: false,
+    //   header: "Actions",
+    //   cell: ({ row }) => {
+    //     const d = row.original;
+    //     return (
+    //       <div onClick={(e) => e.stopPropagation()}>
+    //         <DropdownMenu>
+    //           <DropdownMenuTrigger
+    //             className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4"
+    //             aria-label={`Actions for ${d.name}`}
+    //           >
+    //             <MoreHorizontal size={16} />
+    //           </DropdownMenuTrigger>
+    //           <DropdownMenuContent>
+    //             <DropdownMenuGroup>
+    //               <DropdownMenuLabel>Actions</DropdownMenuLabel>
+    //               <DropdownMenuItem onClick={() => onSelect(d)}>
+    //                 <Eye size={14} /> View profile
+    //               </DropdownMenuItem>
+    //               {canManage && (
+    //                 <>
+    //                   <DropdownMenuItem
+    //                     disabled={loadingDoctorForEdit === d.id}
+    //                     onClick={() => onEdit(d)}
+    //                   >
+    //                     <Pencil size={14} /> Edit
+    //                   </DropdownMenuItem>
+    //                   <DropdownMenuItem
+    //                     disabled={togglingId === d.id}
+    //                     onClick={() => onToggleActive(d)}
+    //                   >
+    //                     <Power size={14} /> Mark {d.is_active ? "unavailable" : "available"}
+    //                   </DropdownMenuItem>
+    //                 </>
+    //               )}
+    //             </DropdownMenuGroup>
+    //           </DropdownMenuContent>
+    //         </DropdownMenu>
+    //       </div>
+    //     );
+    //   },
+    // },
   ];
 }

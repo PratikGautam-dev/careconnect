@@ -262,8 +262,12 @@ export function NewTestBookingDialog({
                       <Input
                         id="collection_pincode"
                         required
+                        inputMode="numeric"
+                        maxLength={6}
                         value={collectionPincode}
-                        onChange={(e) => setCollectionPincode(e.target.value)}
+                        onChange={(e) =>
+                          setCollectionPincode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                        }
                       />
                     </Field>
                     <Field label="Address" htmlFor="collection_address" required>

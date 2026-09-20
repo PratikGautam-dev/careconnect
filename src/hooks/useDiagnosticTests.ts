@@ -134,6 +134,18 @@ export function useDiagnosticTests() {
 
   async function handleAddTest() {
     if (!newTestForm.name.trim()) return;
+    // The backend accepts an empty schedule silently (a test just never
+    // generates any bookable slots) -- caught here instead, since a test
+    // with no working day/shift is almost always a data-entry mistake, not
+    // a deliberate "not bookable yet" choice.
+    if (newTestForm.working_days.length === 0) {
+      setError("Choose at least one working day.");
+      return;
+    }
+    if (!newTestForm.shift_start || !newTestForm.shift_end) {
+      setError("Set both a shift start and end time.");
+      return;
+    }
     setSavingTest(true);
     setError(null);
     const result = await portalFetch("/api/portal/diagnostic-tests", {
@@ -162,6 +174,14 @@ export function useDiagnosticTests() {
 
   async function saveEditTest(testId: number) {
     if (!editTestForm.name.trim()) return;
+    if (editTestForm.working_days.length === 0) {
+      setError("Choose at least one working day.");
+      return;
+    }
+    if (!editTestForm.shift_start || !editTestForm.shift_end) {
+      setError("Set both a shift start and end time.");
+      return;
+    }
     setPendingKey(`test-${testId}`);
     const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}`, {
       method: "PUT",

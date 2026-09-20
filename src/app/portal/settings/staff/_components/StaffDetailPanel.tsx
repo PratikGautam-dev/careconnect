@@ -14,14 +14,19 @@ import {
   MapPin,
   Pencil,
   Phone,
+  Power,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { cn } from "@/lib/cn";
-import { formatDate } from "@/lib/formatDate";
+import { formatDate, formatTimeOnly } from "@/lib/formatDate";
 import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
-import type { AttendanceStatus } from "@/hooks/useStaffManagement";
-import { AVATAR_TINTS, ATTENDANCE_LABELS, initials, type StaffRow } from "./staff-columns";
+import {
+  ATTENDANCE_STATUS_LABELS,
+  ATTENDANCE_STATUS_STYLES,
+  type AttendanceOverviewRow,
+} from "@/hooks/useAttendanceOverview";
+import { AVATAR_TINTS, initials, type StaffRow } from "./staff-columns";
 
 function DetailRow({
   icon: Icon,
@@ -42,13 +47,6 @@ function DetailRow({
   );
 }
 
-const ATTENDANCE_TEXT: Record<AttendanceStatus, string> = {
-  present: "text-success",
-  on_leave: "text-error",
-  half_day: "text-brand-600",
-};
-const ALL_ATTENDANCE_STATUSES: AttendanceStatus[] = ["present", "on_leave", "half_day"];
-
 function staffDisplayId(id: number): string {
   return `ST${String(id).padStart(3, "0")}`;
 }
@@ -60,9 +58,11 @@ type Props = {
   canViewAttendance: boolean;
   canViewLeaveHistory: boolean;
   canManageLeave: boolean;
+  todayAttendance: AttendanceOverviewRow | null;
+  togglingId: number | null;
+  onToggleActive: (staff: StaffRow) => void;
   onResetPassword: (staff: StaffRow) => void;
   onEdit: (staff: StaffRow) => void;
-  onSetAttendance: (staff: StaffRow, status: AttendanceStatus) => void;
   onViewAttendanceHistory: (staff: StaffRow) => void;
   onViewLeaveHistory: (staff: StaffRow) => void;
   onManageLeave: (staff: StaffRow) => void;
@@ -80,9 +80,11 @@ export function StaffDetailPanel({
   canViewAttendance,
   canViewLeaveHistory,
   canManageLeave,
+  todayAttendance,
+  togglingId,
+  onToggleActive,
   onResetPassword,
   onEdit,
-  onSetAttendance,
   onViewAttendanceHistory,
   onViewLeaveHistory,
   onManageLeave,
@@ -122,6 +124,12 @@ export function StaffDetailPanel({
       ? [
           { label: "Edit staff details", icon: Pencil, onClick: () => onEdit(staff) },
           { label: "Reset login access", icon: KeyRound, onClick: () => onResetPassword(staff) },
+          {
+            label: staff.is_active ? "Deactivate" : "Activate",
+            icon: Power,
+            disabled: togglingId === staff.id,
+            onClick: () => onToggleActive(staff),
+          },
         ]
       : []),
   ];
@@ -158,7 +166,7 @@ export function StaffDetailPanel({
         <DetailRow icon={IdCard} label="Employee ID" value={staff.employee_id || "—"} />
       </div>
 
-      {/* Uniform 2x2 tile grid: Shift hours/Attendance status/Reports to/
+      {/* Uniform 2x2 tile grid: Shift hours/Today's attendance/Reports to/
           Leave balance, matching DoctorDetailPanel.tsx's own 4-tile grid. */}
       <div className="mt-space-3 gap-space-2 grid grid-cols-2">
         <div className="border-line bg-paper p-space-3 rounded-md border">
@@ -169,23 +177,33 @@ export function StaffDetailPanel({
           <p className="text-ink-600 text-[11.5px]">{scheduleHours || ""}</p>
         </div>
         <div className="border-line bg-paper p-space-3 rounded-md border">
-          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Attendance status</p>
-          <p className={cn("text-[13px] font-bold", ATTENDANCE_TEXT[staff.attendance_status])}>
-            {ATTENDANCE_LABELS[staff.attendance_status]}
+          <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">
+            Today&apos;s attendance
           </p>
-          {canManage && (
-            <div className="mt-space-1 flex flex-wrap gap-1">
-              {ALL_ATTENDANCE_STATUSES.filter((s) => s !== staff.attendance_status).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => onSetAttendance(staff, s)}
-                  className="px-space-1 text-ink-600 rounded bg-black/4 py-0.5 text-[10px] font-semibold hover:bg-black/8"
-                >
-                  Mark {ATTENDANCE_LABELS[s]}
-                </button>
-              ))}
-            </div>
+          {!canViewAttendance ? (
+            <p className="text-ink-400 text-[13px] font-bold">—</p>
+          ) : todayAttendance ? (
+            <>
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[11px] font-bold",
+                  ATTENDANCE_STATUS_STYLES[todayAttendance.status],
+                )}
+              >
+                {ATTENDANCE_STATUS_LABELS[todayAttendance.status]}
+              </span>
+              <p className="text-ink-600 mt-space-1 text-[11.5px]">
+                {todayAttendance.check_in_at
+                  ? `In ${formatTimeOnly(todayAttendance.check_in_at)}${
+                      todayAttendance.check_out_at
+                        ? ` · Out ${formatTimeOnly(todayAttendance.check_out_at)}`
+                        : ""
+                    }`
+                  : "Not checked in yet"}
+              </p>
+            </>
+          ) : (
+            <p className="text-ink-400 text-[13px] font-bold">—</p>
           )}
         </div>
         <div className="border-line bg-paper p-space-3 rounded-md border">

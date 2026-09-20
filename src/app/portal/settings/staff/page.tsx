@@ -22,6 +22,7 @@ import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
 import { formatHeaderDate } from "@/lib/formatDate";
+import { useAttendanceOverview } from "@/hooks/useAttendanceOverview";
 import { useDepartments } from "@/hooks/useDepartments";
 import { useStaffManagement } from "@/hooks/useStaffManagement";
 import { createStaffColumns, type StaffRow } from "./_components/staff-columns";
@@ -40,6 +41,7 @@ export default function StaffManagementPage() {
   const canViewLeaveHistory = usePermission("leave_requests", "view");
   const canManageLeave = usePermission("leave_requests", "write");
   const departments = useDepartments(ready && canView);
+  const { records: attendanceToday } = useAttendanceOverview(ready && canViewAttendance);
 
   const {
     staff,
@@ -47,7 +49,6 @@ export default function StaffManagementPage() {
     togglingId,
     load,
     handleToggleActive,
-    handleSetAttendance,
     resetPasswordTarget,
     newPassword,
     setNewPassword,
@@ -100,7 +101,17 @@ export default function StaffManagementPage() {
   const selected = rows.find((s) => s.id === selectedId) || filteredRows[0] || null;
   const selectedIndex = selected ? rows.findIndex((s) => s.id === selected.id) : 0;
 
-  const onLeaveCount = rows.filter((s) => s.attendance_status === "on_leave").length;
+  const attendanceByStaffId = useMemo(
+    () => new Map((attendanceToday || []).map((r) => [r.staff_id, r])),
+    [attendanceToday],
+  );
+  const selectedTodayAttendance = selected ? (attendanceByStaffId.get(selected.id) ?? null) : null;
+  // Real check-in/out data (useAttendanceOverview), not the old manual
+  // attendance_status toggle -- "absent" here means no check-in row today,
+  // same definition db.get_hospital_attendance() itself uses.
+  const absentTodayCount = attendanceToday
+    ? attendanceToday.filter((r) => r.status === "absent").length
+    : null;
   // department_name, not department_id -- a doctor-role row's department
   // comes via doctor_id -> doctors.department_id (department_id itself is
   // always null there by design), so counting department_id alone would
@@ -141,10 +152,10 @@ export default function StaffManagementPage() {
               icon={UserCheck}
             />
             <StatTile
-              label="On Leave"
-              value={staff ? onLeaveCount : null}
+              label="Absent Today"
+              value={canViewAttendance ? absentTodayCount : null}
               deltaPct={null}
-              hint="Today"
+              hint={canViewAttendance ? "No check-in yet" : "No access"}
               icon={CalendarX}
               tint="clay"
             />
@@ -205,10 +216,6 @@ export default function StaffManagementPage() {
                 <DataTable
                   columns={createStaffColumns({
                     onSelect: (s) => setSelectedId(s.id),
-                    canManage,
-                    togglingId,
-                    onToggleActive: handleToggleActive,
-                    onResetPassword: openResetPassword,
                   })}
                   data={filteredRows}
                   getRowId={(s) => String(s.id)}
@@ -234,9 +241,11 @@ export default function StaffManagementPage() {
                 canViewAttendance={canViewAttendance}
                 canViewLeaveHistory={canViewLeaveHistory}
                 canManageLeave={canManageLeave}
+                todayAttendance={selectedTodayAttendance}
+                togglingId={togglingId}
+                onToggleActive={handleToggleActive}
                 onResetPassword={openResetPassword}
                 onEdit={setEditingStaff}
-                onSetAttendance={handleSetAttendance}
                 onViewAttendanceHistory={(s) => setAttendanceHistoryStaffId(s.id)}
                 onViewLeaveHistory={(s) => setLeaveHistoryStaffId(s.id)}
                 onManageLeave={setManageLeaveFor}

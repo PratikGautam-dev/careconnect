@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Copy, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Plus, Trash2 } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
@@ -23,10 +21,12 @@ type Props = {
 };
 
 /** "Working days" day-pills + "Shifts" time/break row list, shared by both
- * Doctors and Staff add/edit forms, including the "Copy to other days" toggle. */
+ * Doctors and Staff add/edit forms. Used to also have a "Copy to other
+ * days" button here -- removed (confirmed with the user) since it was
+ * dead UI: every shift/break already applies uniformly to every checked
+ * working day, so there was never anything to actually copy; the button
+ * only opened a hint admitting exactly that. */
 export function WorkingScheduleFields({ value, onChange }: Props) {
-  const [showCopyDays, setShowCopyDays] = useState(false);
-
   function set<K extends keyof WorkingScheduleValue>(key: K, val: WorkingScheduleValue[K]) {
     onChange({ ...value, [key]: val });
   }
@@ -74,17 +74,7 @@ export function WorkingScheduleFields({ value, onChange }: Props) {
 
   return (
     <>
-      <div className="mb-space-1 gap-space-3 flex items-center justify-between">
-        <p className="text-label">Working days</p>
-        <Button
-          type="button"
-          variant="secondary"
-          size="md"
-          onClick={() => setShowCopyDays((v) => !v)}
-        >
-          <Copy size={14} /> Copy to other days
-        </Button>
-      </div>
+      <p className="mb-space-1 text-label">Working days</p>
       <Field>
         <div className="gap-space-2 flex flex-wrap items-center">
           {WEEKDAYS.map((day) => {
@@ -113,12 +103,6 @@ export function WorkingScheduleFields({ value, onChange }: Props) {
             Select weekdays
           </button>
         </div>
-        {showCopyDays && (
-          <p className="text-hint mt-space-1">
-            &quot;Copy to other days&quot; just means selecting more day pills above — every
-            shift/break already applies uniformly to every checked day.
-          </p>
-        )}
       </Field>
 
       <Field

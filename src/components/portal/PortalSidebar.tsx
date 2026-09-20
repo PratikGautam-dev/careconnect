@@ -272,9 +272,12 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
           {NAV_ITEMS.filter(
             // Per-page-key permission check (hasPermission is a plain
             // function here, not the usePermission hook, since it's called
-            // once per item inside this loop). Fails OPEN the same way the
-            // old hardcoded "doctors" capability check did -- this is only a
-            // UI convenience, the backend's 403 is the real enforcement.
+            // once per item inside this loop). Fails CLOSED while the
+            // session is still loading (hasPermission's own docstring) --
+            // this is only a UI convenience, the backend's 403 is the real
+            // enforcement, but failing open here used to render the full,
+            // unfiltered nav for every role for a moment on first paint
+            // before narrowing down to the real per-role set.
             // Hrefless rows are visual placeholders, not real gated
             // capabilities, so they skip the permission map entirely --
             // otherwise an unrecognized pageKey would hide them outright.
