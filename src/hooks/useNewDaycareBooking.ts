@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSlotsByDate, type SlotsByDate } from "@/hooks/useAppointments";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { fetchSlotsByDate } from "@/hooks/useAppointments";
 import { portalFetch } from "@/lib/portalAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { newDaycareBookingSchema } from "@/lib/validation/newDaycareBooking";
 
@@ -35,10 +37,18 @@ export function useNewDaycareBooking(
   initialPatientPhone?: string,
 ) {
   const router = useRouter();
-  const [ctx, setCtx] = useState<NewDaycareBookingContext | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { data: ctx, error: queryError } = useQuery({
+    queryKey: ["portal-new-daycare-booking-context"],
+    enabled: open,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/new-daycare-booking/context");
+      return unwrapPortalResult<NewDaycareBookingContext>(router, result);
+    },
+  });
+
   const [errors, setErrors] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [procedureStatus, setProcedureStatus] = useState<string | null>(null);
 
@@ -49,29 +59,18 @@ export function useNewDaycareBooking(
   const [procedureId, setProcedureIdRaw] = useState<number | null>(null);
   const [date, setDateRaw] = useState("");
   const [slotId, setSlotId] = useState("");
-  const [slotsByDate, setSlotsByDate] = useState<SlotsByDate | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/new-daycare-booking/context");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setCtx(result.data as NewDaycareBookingContext);
-  }, [router]);
-
-  useEffect(() => {
-    if (open) {
-      setPatientName(initialPatientName ?? "");
-      setPatientPhone(initialPatientPhone ?? "");
-      load();
-      return;
-    }
-    setCtx(null);
-    setError(null);
+  // Open/close is seeded/reset during render (not an effect) -- React's own
+  // "adjusting state when a prop changes" pattern -- so reopening always
+  // starts from a clean form without costing an extra render cycle.
+  const [seededOpen, setSeededOpen] = useState(false);
+  if (open && !seededOpen) {
+    setSeededOpen(true);
+    setPatientName(initialPatientName ?? "");
+    setPatientPhone(initialPatientPhone ?? "");
+  } else if (!open && seededOpen) {
+    setSeededOpen(false);
     setErrors([]);
-    setSubmitting(false);
     setSuccess(false);
     setProcedureStatus(null);
     setPatientName("");
@@ -81,8 +80,7 @@ export function useNewDaycareBooking(
     setProcedureIdRaw(null);
     setDateRaw("");
     setSlotId("");
-    setSlotsByDate(null);
-  }, [open, load, initialPatientName, initialPatientPhone]);
+  }
 
   const procedure = useMemo(
     () => ctx?.procedures.find((p) => p.id === procedureId) ?? null,
@@ -96,20 +94,15 @@ export function useNewDaycareBooking(
     setSlotId("");
   }
 
-  useEffect(() => {
-    if (!isInstant || procedureId == null) {
-      setSlotsByDate(null);
-      return;
-    }
-    let cancelled = false;
-    setSlotsByDate(null);
-    fetchSlotsByDate(router, { procedureId: String(procedureId) }).then((slots) => {
-      if (!cancelled) setSlotsByDate(slots ?? {});
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isInstant, procedureId, router]);
+  const { data: slotsByDate } = useQuery({
+    queryKey: ["portal-new-daycare-booking-slots", procedureId],
+    enabled: isInstant && procedureId != null,
+    retry: false,
+    queryFn: async () => {
+      const slots = await fetchSlotsByDate(router, { procedureId: String(procedureId) });
+      return slots ?? {};
+    },
+  });
 
   function setDate(d: string) {
     setDateRaw(d);
@@ -118,6 +111,17 @@ export function useNewDaycareBooking(
 
   const datesForProcedure = slotsByDate ? Object.keys(slotsByDate).sort() : [];
   const slotsForDate = date && slotsByDate ? slotsByDate[date] || [] : [];
+
+  const submitMutation = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const result = await portalFetch("/api/portal/new-daycare-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<{ errors?: string[]; procedure_status?: string }>(router, result);
+    },
+  });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -137,47 +141,39 @@ export function useNewDaycareBooking(
       return;
     }
 
-    setSubmitting(true);
-    const result = await portalFetch("/api/portal/new-daycare-booking", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      const data = await submitMutation.mutateAsync({
         patient_name: parsed.data.patient_name,
         patient_phone: parsed.data.patient_phone,
         patient_date_of_birth: parsed.data.patient_date_of_birth,
         patient_gender: parsed.data.patient_gender,
         procedure_id: parsed.data.procedure_id,
         slot_id: parsed.data.slot_id || "",
-      }),
-    });
-    setSubmitting(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setErrors([result.error]);
-        toast.error("Couldn't create booking", result.error);
+      });
+      if (data.errors?.length) {
+        setErrors(data.errors);
+        toast.error("Couldn't create booking", data.errors[0]);
+        return;
       }
-      return;
+      toast.success(
+        data.procedure_status === "CONFIRMED" ? "Booking confirmed" : "Request submitted",
+      );
+      setProcedureStatus(data.procedure_status ?? null);
+      setSuccess(true);
+      onBooked?.();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setErrors([err.message]);
+        toast.error("Couldn't create booking", err.message);
+      }
     }
-    const data = result.data as { errors?: string[]; procedure_status?: string };
-    if (data.errors?.length) {
-      setErrors(data.errors);
-      toast.error("Couldn't create booking", data.errors[0]);
-      return;
-    }
-    toast.success(
-      data.procedure_status === "CONFIRMED" ? "Booking confirmed" : "Request submitted",
-    );
-    setProcedureStatus(data.procedure_status ?? null);
-    setSuccess(true);
-    onBooked?.();
   }
 
   return {
-    ctx,
-    error,
+    ctx: ctx ?? null,
+    error: queryError ? "Couldn't load booking context — try again." : null,
     errors,
-    submitting,
+    submitting: submitMutation.isPending,
     success,
     procedureStatus,
     patientName,
@@ -197,7 +193,7 @@ export function useNewDaycareBooking(
     setSlotId,
     datesForProcedure,
     slotsForDate,
-    slotsLoading: isInstant && procedureId != null && slotsByDate === null,
+    slotsLoading: isInstant && procedureId != null && slotsByDate === undefined,
     handleSubmit,
   };
 }

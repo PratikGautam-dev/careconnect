@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, Trash2, Video } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -12,8 +13,15 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/formatDate";
+import { isPortalMutationError } from "@/lib/portalMutation";
+import { toast } from "@/lib/toast";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
-import { useAppointmentDetail } from "@/hooks/useAppointmentDetail";
+import {
+  useAddVisitNote,
+  useAppointmentDetail,
+  useDeleteAppointmentDetail,
+  useMarkAppointmentAttendance,
+} from "@/hooks/useAppointmentDetail";
 import {
   LAB_STATUS_LABELS,
   SOURCE_LABELS,
@@ -36,21 +44,41 @@ export default function AppointmentDetailPage() {
   const params = useParams();
   const appointmentId = params.id as string;
 
-  const {
-    appointment,
-    patient,
-    notes,
-    error,
-    marking,
-    deleting,
-    handleAttendance,
-    handleDelete,
-    noteText,
-    setNoteText,
-    savingNote,
-    noteError,
-    handleAddNote,
-  } = useAppointmentDetail(appointmentId, ready);
+  const { appointment, patient, notes, error, refetch } = useAppointmentDetail(
+    appointmentId,
+    ready,
+  );
+  const markAttendance = useMarkAppointmentAttendance();
+  const { deleteAndRedirect, deleting } = useDeleteAppointmentDetail();
+  const addVisitNote = useAddVisitNote();
+
+  const [noteText, setNoteText] = useState("");
+  const [noteError, setNoteError] = useState<string | null>(null);
+
+  async function handleAttendance(attended: boolean) {
+    try {
+      await markAttendance.mutateAsync({ appointmentId, attended });
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't update attendance", err.message);
+    }
+  }
+
+  function handleDelete() {
+    deleteAndRedirect(appointmentId);
+  }
+
+  async function handleAddNote() {
+    if (!noteText.trim() || !patient) return;
+    setNoteError(null);
+    try {
+      await addVisitNote.mutateAsync({ patientId: patient.id, noteText: noteText.trim() });
+      setNoteText("");
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) setNoteError(err.message);
+    }
+  }
 
   return (
     <PortalShell hospital={hospital} active="appointments">
@@ -148,7 +176,7 @@ export default function AppointmentDetailPage() {
                     <Button
                       variant={appointment.status === "attended" ? "primary" : "secondary"}
                       onClick={() => handleAttendance(true)}
-                      disabled={marking}
+                      disabled={markAttendance.isPending}
                       className="flex-1"
                     >
                       Attended
@@ -156,7 +184,7 @@ export default function AppointmentDetailPage() {
                     <Button
                       variant={appointment.status === "no_show" ? "primary" : "secondary"}
                       onClick={() => handleAttendance(false)}
-                      disabled={marking}
+                      disabled={markAttendance.isPending}
                       className="flex-1"
                     >
                       No-show
@@ -207,10 +235,10 @@ export default function AppointmentDetailPage() {
                     </Field>
                     <Button
                       onClick={handleAddNote}
-                      disabled={savingNote || !noteText.trim()}
+                      disabled={addVisitNote.isPending || !noteText.trim()}
                       size="md"
                     >
-                      {savingNote ? "Saving…" : "Add note"}
+                      {addVisitNote.isPending ? "Saving…" : "Add note"}
                     </Button>
                   </>
                 ) : (

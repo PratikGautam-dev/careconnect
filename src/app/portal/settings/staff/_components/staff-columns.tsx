@@ -5,7 +5,7 @@ import { Phone } from "lucide-react";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
-import type { StaffMember } from "@/hooks/useStaffManagement";
+import type { StaffMember } from "@/hooks/useStaff";
 // Row-level "..." actions menu is commented out below (staff-cellaction.tsx)
 // -- View details/Reset password/Activate-Deactivate all now live in the
 // detail panel's own Quick Actions instead of being duplicated here.
@@ -13,7 +13,7 @@ import type { StaffMember } from "@/hooks/useStaffManagement";
 
 export { AVATAR_TINTS };
 
-// StaffMember (useStaffManagement.ts) is the row type -- department/phone/
+// StaffMember (useStaff.ts) is the row type -- department/phone/
 // address/reports-to are all real columns. Today's attendance status lives
 // on the staff DETAIL panel only (real check-in/out data via
 // useAttendanceOverview), not as a table column -- it's a per-day fact, not

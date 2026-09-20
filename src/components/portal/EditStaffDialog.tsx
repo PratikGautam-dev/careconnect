@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { SectionHeader } from "./SectionHeader";
 import { StaffContactFields } from "./StaffContactFields";
 import { useEditStaff } from "@/hooks/useEditStaff";
-import type { StaffMember } from "@/hooks/useStaffManagement";
+import type { StaffMember } from "@/hooks/useStaff";
 
 type Props = {
   /** null closes the dialog -- there's nothing to edit. */

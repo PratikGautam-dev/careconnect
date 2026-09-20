@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { fetchSlotsByDate, type SlotsByDate, TYPE_LABELS } from "@/hooks/useAppointments";
 
@@ -121,23 +123,51 @@ function visitCategoryOf(v: { appointment_type_id: string | null }): VisitCatego
 
 /** Loads + owns every mutation on the /portal/patients/[id] detail page:
  * demographics save, active/blocked status, per-visit + general notes, and
- * document upload/send-to-WhatsApp. */
+ * document upload/send-to-WhatsApp. Single page, single consumer -- kept as
+ * one hook (like useEditTenant/usePatients) rather than separated into
+ * per-mutation hooks nothing else would import. */
 export function usePatientDetail(patientId: string, ready: boolean) {
   const router = useRouter();
-  const [data, setData] = useState<DetailData | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
+  const {
+    data: queryData,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-patient-detail", patientId],
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}`);
+      const detail = unwrapPortalResult<DetailData>(router, result);
+      // Snapshotted here (inside the fetch, not Date.now() during render or
+      // an effect -- both of which the newer react-hooks lint rules
+      // disallow) -- close enough for the upcoming/past split below on a
+      // page that isn't left open for hours.
+      return { detail, fetchedAt: Date.now() };
+    },
+  });
+  const data = queryData?.detail;
+  const now = queryData?.fetchedAt ?? null;
+  const error = queryError ? (queryError as Error).message : null;
+
+  // Seeded once per patient id (not every refetch) -- render-time
+  // "adjusting state when a prop changes" instead of an effect. A refetch
+  // after a successful save already holds these same values, so there's
+  // nothing to re-sync there.
+  const [seededPatientId, setSeededPatientId] = useState<number | null>(null);
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("");
   const [address, setAddress] = useState("");
-  const [savingDemographics, setSavingDemographics] = useState(false);
-
-  const [savingStatus, setSavingStatus] = useState(false);
-  const [savingConsent, setSavingConsent] = useState<ConsentType | null>(null);
+  if (data && data.patient.id !== seededPatientId) {
+    setSeededPatientId(data.patient.id);
+    setDob(data.patient.date_of_birth || "");
+    setGender(data.patient.gender || "");
+    setAddress(data.patient.address || "");
+  }
 
   const [expandedVisit, setExpandedVisit] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
-  const [savingNote, setSavingNote] = useState<number | null>(null);
 
   // Visit history filters -- same shape as the main /portal/appointments
   // table (search + status + type), plus a time filter this scoped-to-one-
@@ -156,15 +186,12 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   }
 
   const [generalNoteDraft, setGeneralNoteDraft] = useState("");
-  const [savingGeneralNote, setSavingGeneralNote] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
   // WhatsApp menu restructuring: Reports & Prescriptions' "View
   // Prescriptions/Lab Reports/Diagnostic Reports" submenu rows filter on
   // this -- picked once here, applied to whichever file is chosen next.
   const [documentType, setDocumentType] = useState("other");
-  const [sendingDocId, setSendingDocId] = useState<number | null>(null);
   const [sendError, setSendError] = useState<Record<number, string>>({});
 
   // Admin/receptionist-only "Extend" (grant extra days, patient books it
@@ -173,143 +200,161 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   const [followupPanelId, setFollowupPanelId] = useState<number | null>(null);
   const [followupError, setFollowupError] = useState("");
   const [extendDays, setExtendDays] = useState("3");
-  const [extendingId, setExtendingId] = useState<number | null>(null);
   const [bookSlotsByDate, setBookSlotsByDate] = useState<SlotsByDate | null>(null);
   const [bookDate, setBookDate] = useState("");
   const [bookSlotId, setBookSlotId] = useState("");
-  const [bookingId, setBookingId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/patients/${patientId}`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const d = result.data as DetailData;
-    setData(d);
-    setDob(d.patient.date_of_birth || "");
-    setGender(d.patient.gender || "");
-    setAddress(d.patient.address || "");
-  }, [router, patientId]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
-
+  const setStatusMutation = useMutation({
+    mutationFn: async (status: Patient["status"]) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
   async function handleSetStatus(status: Patient["status"]) {
-    setSavingStatus(true);
-    const result = await portalFetch(`/api/portal/patients/${patientId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setSavingStatus(false);
-    if (result.ok) {
+    try {
+      await setStatusMutation.mutateAsync(status);
       toast.success("Patient status updated");
-      load();
-    } else if (!result.unauthorized) {
-      setError(result.error);
-      toast.error("Couldn't update patient status", result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't update patient status", err.message);
     }
   }
 
+  const setConsentMutation = useMutation({
+    mutationFn: async ({ consentType, agreed }: { consentType: ConsentType; agreed: boolean }) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/consent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ consent_type: consentType, agreed }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  const [savingConsent, setSavingConsent] = useState<ConsentType | null>(null);
   async function handleSetConsent(consentType: ConsentType, agreed: boolean) {
     setSavingConsent(consentType);
-    const result = await portalFetch(`/api/portal/patients/${patientId}/consent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ consent_type: consentType, agreed }),
-    });
-    setSavingConsent(null);
-    if (result.ok) {
+    try {
+      await setConsentMutation.mutateAsync({ consentType, agreed });
       toast.success(`${CONSENT_LABELS[consentType]} consent updated`);
-      load();
-    } else if (!result.unauthorized) {
-      setError(result.error);
-      toast.error(`Couldn't update ${CONSENT_LABELS[consentType]} consent`, result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err))
+        toast.error(`Couldn't update ${CONSENT_LABELS[consentType]} consent`, err.message);
+    } finally {
+      setSavingConsent(null);
     }
   }
 
+  const saveDemographicsMutation = useMutation({
+    mutationFn: async () => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date_of_birth: dob, gender, address }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
   async function handleSaveDemographics() {
-    setSavingDemographics(true);
-    const result = await portalFetch(`/api/portal/patients/${patientId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date_of_birth: dob, gender, address }),
-    });
-    setSavingDemographics(false);
-    if (result.ok) {
+    try {
+      await saveDemographicsMutation.mutateAsync();
       toast.success("Patient details saved");
-      load();
-    } else if (!result.unauthorized) {
-      toast.error("Couldn't save patient details", result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't save patient details", err.message);
     }
   }
 
+  const addNoteMutation = useMutation({
+    mutationFn: async ({
+      appointmentId,
+      text,
+    }: {
+      appointmentId: number | null;
+      text: string;
+    }) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note_text: text, appointment_id: appointmentId }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  const [savingNote, setSavingNote] = useState<number | null>(null);
+  const [savingGeneralNote, setSavingGeneralNote] = useState(false);
   async function handleAddNote(appointmentId: number | null) {
     const text = (appointmentId ? noteDraft[appointmentId] : generalNoteDraft) || "";
     if (!text.trim()) return;
     if (appointmentId) setSavingNote(appointmentId);
     else setSavingGeneralNote(true);
-
-    const result = await portalFetch(`/api/portal/patients/${patientId}/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note_text: text.trim(), appointment_id: appointmentId }),
-    });
-
-    if (appointmentId) setSavingNote(null);
-    else setSavingGeneralNote(false);
-
-    if (result.ok) {
+    try {
+      await addNoteMutation.mutateAsync({ appointmentId, text: text.trim() });
       if (appointmentId) setNoteDraft((d) => ({ ...d, [appointmentId]: "" }));
       else setGeneralNoteDraft("");
       toast.success("Note added");
-      load();
-    } else if (!result.unauthorized) {
-      toast.error("Couldn't add note", result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't add note", err.message);
+    } finally {
+      if (appointmentId) setSavingNote(null);
+      else setSavingGeneralNote(false);
     }
   }
 
+  const uploadMutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/documents`, {
+        method: "POST",
+        body: formData,
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
     formData.append("document_type", documentType);
-    const result = await portalFetch(`/api/portal/patients/${patientId}/documents`, {
-      method: "POST",
-      body: formData,
-    });
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (result.ok) {
+    try {
+      await uploadMutation.mutateAsync(formData);
       toast.success("Document uploaded");
-      load();
-    } else if (!result.unauthorized) {
-      setError(result.error);
-      toast.error("Couldn't upload document", result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't upload document", err.message);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
+  const sendToWhatsappMutation = useMutation({
+    mutationFn: async (documentId: number) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/documents/${documentId}/send`, {
+        method: "POST",
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  const [sendingDocId, setSendingDocId] = useState<number | null>(null);
   async function handleSendToWhatsapp(documentId: number) {
     setSendingDocId(documentId);
     setSendError((e) => ({ ...e, [documentId]: "" }));
-    const result = await portalFetch(
-      `/api/portal/patients/${patientId}/documents/${documentId}/send`,
-      {
-        method: "POST",
-      },
-    );
-    setSendingDocId(null);
-    if (result.ok) {
+    try {
+      await sendToWhatsappMutation.mutateAsync(documentId);
       toast.success("Sent to WhatsApp");
-      load();
-    } else if (!result.unauthorized) {
-      setSendError((e) => ({ ...e, [documentId]: result.error }));
-      toast.error("Couldn't send to WhatsApp", result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setSendError((e) => ({ ...e, [documentId]: err.message }));
+        toast.error("Couldn't send to WhatsApp", err.message);
+      }
+    } finally {
+      setSendingDocId(null);
     }
   }
 
@@ -333,6 +378,17 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setFollowupError("");
   }
 
+  const extendFollowupMutation = useMutation({
+    mutationFn: async ({ visitId, extraDays }: { visitId: number; extraDays: number }) => {
+      const result = await portalFetch(`/api/portal/bookings/${visitId}/followup/extend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extra_days: extraDays }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  const [extendingId, setExtendingId] = useState<number | null>(null);
   async function handleExtendFollowup(visitId: number) {
     const extraDays = parseInt(extendDays, 10);
     if (!Number.isFinite(extraDays) || extraDays <= 0) {
@@ -341,24 +397,32 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     }
     setExtendingId(visitId);
     setFollowupError("");
-    const result = await portalFetch(`/api/portal/bookings/${visitId}/followup/extend`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ extra_days: extraDays }),
-    });
-    setExtendingId(null);
-    if (!result.ok) {
-      if (!result.unauthorized) {
-        setFollowupError(result.error);
-        toast.error("Couldn't extend follow-up", result.error);
+    try {
+      await extendFollowupMutation.mutateAsync({ visitId, extraDays });
+      toast.success("Follow-up window extended");
+      closeFollowupPanel();
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setFollowupError(err.message);
+        toast.error("Couldn't extend follow-up", err.message);
       }
-      return;
+    } finally {
+      setExtendingId(null);
     }
-    toast.success("Follow-up window extended");
-    closeFollowupPanel();
-    load();
   }
 
+  const bookFollowupMutation = useMutation({
+    mutationFn: async ({ visitId, slotId }: { visitId: number; slotId: string }) => {
+      const result = await portalFetch(`/api/portal/bookings/${visitId}/followup/book`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduled_at: slotId }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  const [bookingId, setBookingId] = useState<number | null>(null);
   async function handleBookFollowupNow(visitId: number) {
     if (!bookSlotId) {
       setFollowupError("Choose an available slot.");
@@ -366,22 +430,19 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     }
     setBookingId(visitId);
     setFollowupError("");
-    const result = await portalFetch(`/api/portal/bookings/${visitId}/followup/book`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduled_at: bookSlotId }),
-    });
-    setBookingId(null);
-    if (!result.ok) {
-      if (!result.unauthorized) {
-        setFollowupError(result.error);
-        toast.error("Couldn't book follow-up", result.error);
+    try {
+      await bookFollowupMutation.mutateAsync({ visitId, slotId: bookSlotId });
+      toast.success("Follow-up booked");
+      closeFollowupPanel();
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setFollowupError(err.message);
+        toast.error("Couldn't book follow-up", err.message);
       }
-      return;
+    } finally {
+      setBookingId(null);
     }
-    toast.success("Follow-up booked");
-    closeFollowupPanel();
-    load();
   }
 
   const visitTypeCounts = useMemo(() => {
@@ -393,14 +454,6 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     }
     return counts;
   }, [data, visitCategory]);
-
-  // Snapshotted on load (not Date.now() inline in the memo below, which
-  // would call an impure function during render) -- close enough for an
-  // upcoming/past split on a page that isn't left open for hours.
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    if (data) setNow(Date.now());
-  }, [data]);
 
   const filteredVisits = useMemo(() => {
     const visits = (data?.visit_history ?? []).filter((v) => visitCategoryOf(v) === visitCategory);
@@ -423,7 +476,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   }, [data, visitCategory, visitSearch, visitTimeFilter, visitStatusFilter, visitTypeFilter, now]);
 
   return {
-    data,
+    data: data ?? null,
     error,
     dob,
     setDob,
@@ -431,9 +484,9 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setGender,
     address,
     setAddress,
-    savingDemographics,
+    savingDemographics: saveDemographicsMutation.isPending,
     handleSaveDemographics,
-    savingStatus,
+    savingStatus: setStatusMutation.isPending,
     handleSetStatus,
     savingConsent,
     handleSetConsent,
@@ -459,7 +512,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     savingGeneralNote,
     handleAddNote,
     fileInputRef,
-    uploading,
+    uploading: uploadMutation.isPending,
     handleUpload,
     documentType,
     setDocumentType,

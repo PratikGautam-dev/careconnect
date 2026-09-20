@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 import { validateReminderOffsetsHours } from "@/lib/validation/reminderOffsets";
 import { toast } from "@/lib/toast";
 
@@ -50,47 +52,91 @@ export type TenantFormState = {
   admin_capabilities: string[];
 };
 
+function formFromTenant(t: TenantDetail): TenantFormState {
+  return {
+    name: t.name,
+    whatsapp_phone_number_id: t.whatsapp_phone_number_id,
+    access_token: "",
+    app_secret: "",
+    welcome_message_text: t.welcome_message_text,
+    reminder_offsets_hours: t.reminder_offsets_hours,
+    reminder_template_name: t.reminder_template_name,
+    portal_password: "",
+    data_tier: t.data_tier,
+    api_base_url: t.external_api_base_url,
+    api_key: t.external_api_key,
+    enabled_features: t.enabled_features,
+    tenant_type: t.tenant_type,
+    admin_capabilities: t.admin_capabilities,
+  };
+}
+
+function tenantQueryKey(tenantId: number) {
+  return ["admin-tenant", tenantId] as const;
+}
+
 /** Loads + saves one tenant for the /admin/tenants/[id] edit form, and owns
  * the appointment-type allow-list toggle (its own independent save, not
- * part of the main form submit). */
+ * part of the main form submit). Single page, single consumer -- kept as
+ * one hook (unlike the Doctors/Staff split) rather than separated into
+ * per-mutation hooks nothing else would ever import. */
 export function useEditTenant(tenantId: number) {
-  const [tenant, setTenant] = useState<TenantDetail | null>(null);
+  const queryClient = useQueryClient();
+
+  const {
+    data: tenant,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: tenantQueryKey(tenantId),
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
+      return unwrapAdminResult<{ tenant: TenantDetail }>(result).tenant;
+    },
+  });
+
+  const [seededTenantId, setSeededTenantId] = useState<number | null>(null);
   const [form, setForm] = useState<TenantFormState | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  if (tenant && tenant.id !== seededTenantId) {
+    setSeededTenantId(tenant.id);
+    setForm(formFromTenant(tenant));
+  }
+
   const [errors, setErrors] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [appointmentTypeError, setAppointmentTypeError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    const t = (result.data as { tenant: TenantDetail }).tenant;
-    setTenant(t);
-    setForm({
-      name: t.name,
-      whatsapp_phone_number_id: t.whatsapp_phone_number_id,
-      access_token: "",
-      app_secret: "",
-      welcome_message_text: t.welcome_message_text,
-      reminder_offsets_hours: t.reminder_offsets_hours,
-      reminder_template_name: t.reminder_template_name,
-      portal_password: "",
-      data_tier: t.data_tier,
-      api_base_url: t.external_api_base_url,
-      api_key: t.external_api_key,
-      enabled_features: t.enabled_features,
-      tenant_type: t.tenant_type,
-      admin_capabilities: t.admin_capabilities,
-    });
-  }, [tenantId]);
+  const saveMutation = useMutation({
+    mutationFn: async (payload: TenantFormState) => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapAdminResult<{ tenant?: TenantDetail; errors?: string[] }>(result);
+    },
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const toggleAppointmentTypeMutation = useMutation({
+    mutationFn: async ({
+      appointmentTypeId,
+      isAllowed,
+    }: {
+      appointmentTypeId: string;
+      isAllowed: boolean;
+    }) => {
+      const result = await adminFetch(
+        `/api/admin/tenants/${tenantId}/appointment-types/${appointmentTypeId}/allowed`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_allowed: isAllowed }),
+        },
+      );
+      return unwrapAdminResult<{ appointment_type: AppointmentTypeRow }>(result).appointment_type;
+    },
+  });
 
   function toggleFeature(key: string, checked: boolean) {
     if (!form) return;
@@ -120,33 +166,27 @@ export function useEditTenant(tenantId: number) {
 
   async function toggleAppointmentTypeAllowed(appointmentTypeId: string, isAllowed: boolean) {
     setAppointmentTypeError(null);
-    const result = await adminFetch(
-      `/api/admin/tenants/${tenantId}/appointment-types/${appointmentTypeId}/allowed`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_allowed: isAllowed }),
-      },
-    );
-    if (!result.ok) {
-      setAppointmentTypeError(
-        result.unauthorized ? "Session expired — refresh to sign in again." : result.error,
+    try {
+      const updated = await toggleAppointmentTypeMutation.mutateAsync({
+        appointmentTypeId,
+        isAllowed,
+      });
+      toast.success(updated.is_allowed ? `${updated.label} allowed` : `${updated.label} disallowed`);
+      queryClient.setQueryData(tenantQueryKey(tenantId), (prev: TenantDetail | undefined) =>
+        prev
+          ? {
+              ...prev,
+              appointment_types: prev.appointment_types.map((t) =>
+                t.id === updated.id ? updated : t,
+              ),
+            }
+          : prev,
       );
-      if (!result.unauthorized) toast.error("Couldn't update appointment type", result.error);
-      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setAppointmentTypeError(message);
+      toast.error("Couldn't update appointment type", message);
     }
-    const updated = (result.data as { appointment_type: AppointmentTypeRow }).appointment_type;
-    toast.success(updated.is_allowed ? `${updated.label} allowed` : `${updated.label} disallowed`);
-    setTenant((prev) =>
-      prev
-        ? {
-            ...prev,
-            appointment_types: prev.appointment_types.map((t) =>
-              t.id === updated.id ? updated : t,
-            ),
-          }
-        : prev,
-    );
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -162,42 +202,32 @@ export function useEditTenant(tenantId: number) {
       setErrors([offsetsInvalid]);
       return;
     }
-    setSaving(true);
     setSaved(false);
     setErrors([]);
-    const result = await adminFetch(`/api/admin/tenants/${tenantId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      if (result.unauthorized) {
-        setError("Session expired — refresh to sign in again.");
-      } else {
-        setErrors([result.error]);
-        toast.error("Couldn't save tenant", result.error);
+    try {
+      const data = await saveMutation.mutateAsync(form);
+      if (data.errors?.length) {
+        setErrors(data.errors);
+        toast.error("Couldn't save tenant", data.errors[0]);
+        return;
       }
-      return;
+      toast.success("Tenant saved");
+      setSaved(true);
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setErrors([message]);
+      toast.error("Couldn't save tenant", message);
     }
-    const data = result.data as { tenant?: TenantDetail; errors?: string[] };
-    if (data.errors?.length) {
-      setErrors(data.errors);
-      toast.error("Couldn't save tenant", data.errors[0]);
-      return;
-    }
-    toast.success("Tenant saved");
-    setSaved(true);
-    load();
   }
 
   return {
-    tenant,
+    tenant: tenant ?? null,
     form,
     setForm,
-    error,
+    error: queryError ? (queryError as Error).message : null,
     errors,
-    saving,
+    saving: saveMutation.isPending,
     saved,
     appointmentTypeError,
     toggleFeature,

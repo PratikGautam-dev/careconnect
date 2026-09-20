@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type Department = { id: string; name: string };
@@ -74,24 +76,22 @@ export type DepartmentVisibility = {
  * /api/portal/departments surface (portal/routes/departments.py). */
 export function useDepartmentsAdmin(ready: boolean) {
   const router = useRouter();
-  const [departments, setDepartments] = useState<DepartmentDetail[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    const result = await staffFetch("/api/portal/departments");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setError(null);
-    const data = result.data as { departments: DepartmentDetail[] };
-    setDepartments(data.departments);
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) reload();
-  }, [ready, reload]);
+  const {
+    data: departments,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-departments-admin"],
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/departments");
+      return unwrapPortalResult<{ departments: DepartmentDetail[] }>(router, result).departments;
+    },
+  });
+  const error = queryError ? "Couldn't load departments — try again." : null;
+  const reload = refetch;
 
   // Shared failure handling for every mutation below -- redirect on an
   // expired session (same as reload() above), otherwise surface the error
@@ -153,7 +153,7 @@ export function useDepartmentsAdmin(ready: boolean) {
   }
 
   return {
-    departments,
+    departments: departments ?? null,
     error,
     reload,
     createDepartment,

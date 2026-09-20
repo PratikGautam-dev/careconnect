@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { unwrapPortalResult } from "@/lib/portalMutation";
 
 export type AttendanceOverviewStatus = "on_time" | "late" | "absent" | "leave" | "half_day";
 
@@ -58,23 +60,26 @@ function todayKey(): string {
 export function useAttendanceOverview(canView: boolean) {
   const router = useRouter();
   const [date, setDate] = useState(todayKey());
-  const [records, setRecords] = useState<AttendanceOverviewRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await staffFetch(`/api/portal/attendance/hospital?for_date=${date}`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setRecords((result.data as { records: AttendanceOverviewRow[] }).records);
-  }, [router, date]);
+  const {
+    data: records,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-attendance-overview", date],
+    enabled: canView,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch(`/api/portal/attendance/hospital?for_date=${date}`);
+      return unwrapPortalResult<{ records: AttendanceOverviewRow[] }>(router, result).records;
+    },
+  });
 
-  useEffect(() => {
-    if (!canView) return;
-    load();
-  }, [canView, load]);
-
-  return { date, setDate, records, error, load };
+  return {
+    date,
+    setDate,
+    records: records ?? null,
+    error: queryError ? "Couldn't load attendance — try again." : null,
+    load: refetch,
+  };
 }

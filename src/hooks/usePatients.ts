@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
+import { unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type Patient = {
@@ -32,28 +34,16 @@ export type Patient = {
 
 const NEW_REGISTRATION_WINDOW_DAYS = 7;
 
-async function fetchPatients(search: string) {
-  return portalFetch(`/api/portal/patients?search=${encodeURIComponent(search)}`);
-}
-
-async function deletePatients(patientIds: number[]) {
-  return portalFetch("/api/portal/patients/delete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ patient_ids: patientIds }),
-  });
-}
-
 /** Loads + searches the portal's patients list, and owns row selection and
- * delete (single or bulk) for the /portal/patients page. */
+ * delete (single or bulk) for the /portal/patients page. Single page,
+ * single consumer -- kept as one hook (like useEditTenant) rather than
+ * separated into per-mutation hooks nothing else would import. `search` is
+ * debounced 300ms before it hits the query key, same as before. */
 export function usePatients(ready: boolean) {
   const router = useRouter();
-  const [patients, setPatients] = useState<Patient[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<Patient[] | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   // Client-side filters on top of the already-loaded (search-scoped) list --
   // same "list is small, no extra round trip" reasoning as the Doctors page.
@@ -61,30 +51,44 @@ export function usePatients(ready: boolean) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [genderFilter, setGenderFilter] = useState("all");
 
-  const load = useCallback(
-    async (query: string) => {
-      const result = await fetchPatients(query);
-      if (!result.ok) {
-        if (result.unauthorized) router.push("/portal/login");
-        else setError(result.error);
-        return;
-      }
-      setPatients((result.data as { patients: Patient[] }).patients);
-    },
-    [router],
-  );
-
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   useEffect(() => {
-    if (ready) load(search);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, load]);
-
-  useEffect(() => {
-    if (!ready) return;
-    const t = setTimeout(() => load(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
+
+  const {
+    data,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-patients", debouncedSearch],
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch(
+        `/api/portal/patients?search=${encodeURIComponent(debouncedSearch)}`,
+      );
+      const patients = unwrapPortalResult<{ patients: Patient[] }>(router, result).patients;
+      // Snapshotted here (inside the fetch, not Date.now() during render or
+      // an effect -- both of which the newer react-hooks lint rules
+      // disallow) -- close enough for the upcoming/past-style splits below
+      // on a page that isn't left open for hours.
+      return { patients, fetchedAt: Date.now() };
+    },
+  });
+  const patients = data?.patients;
+
+  const deleteMutation = useMutation({
+    mutationFn: async (patientIds: number[]) => {
+      const result = await portalFetch("/api/portal/patients/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patient_ids: patientIds }),
+      });
+      return unwrapPortalResult<{ deleted: number[] }>(router, result);
+    },
+  });
 
   const toggleSelected = (id: number, checked: boolean) => {
     setSelected((prev) => {
@@ -100,26 +104,21 @@ export function usePatients(ready: boolean) {
   };
 
   const runDelete = async (targets: Patient[]) => {
-    setDeleting(true);
-    const result = await deletePatients(targets.map((p) => p.id));
-    setDeleting(false);
     setPendingDelete(null);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setError(result.error);
-        toast.error("Couldn't delete patient" + (targets.length > 1 ? "s" : ""), result.error);
-      }
-      return;
+    try {
+      const data = await deleteMutation.mutateAsync(targets.map((p) => p.id));
+      const deletedIds = new Set(data.deleted);
+      toast.success(deletedIds.size > 1 ? `${deletedIds.size} patients deleted` : "Patient deleted");
+      setSelected((prev) => {
+        const next = new Set(prev);
+        deletedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      toast.error("Couldn't delete patient" + (targets.length > 1 ? "s" : ""), message);
     }
-    const deletedIds = new Set((result.data as { deleted: number[] }).deleted);
-    toast.success(deletedIds.size > 1 ? `${deletedIds.size} patients deleted` : "Patient deleted");
-    setPatients((prev) => (prev ? prev.filter((p) => !deletedIds.has(p.id)) : prev));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      deletedIds.forEach((id) => next.delete(id));
-      return next;
-    });
   };
 
   const selectedPatients = (patients ?? []).filter((p) => selected.has(p.id));
@@ -145,13 +144,7 @@ export function usePatients(ready: boolean) {
     });
   }, [patients, departmentFilter, statusFilter, genderFilter]);
 
-  // Snapshotted on load (not Date.now() inline in the memo below, which
-  // would call an impure function during render) -- same reasoning as
-  // usePatientDetail's own `now` state.
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    if (patients) setNow(Date.now());
-  }, [patients]);
+  const now = data?.fetchedAt ?? null;
 
   const stats = useMemo(() => {
     const list = patients ?? [];
@@ -167,9 +160,9 @@ export function usePatients(ready: boolean) {
   }, [patients, now]);
 
   return {
-    patients,
-    error,
-    load,
+    patients: patients ?? null,
+    error: queryError ? (queryError as Error).message : null,
+    load: refetch,
     search,
     setSearch,
     selected,
@@ -179,7 +172,7 @@ export function usePatients(ready: boolean) {
     allSelected,
     pendingDelete,
     setPendingDelete,
-    deleting,
+    deleting: deleteMutation.isPending,
     runDelete,
     departmentFilter,
     setDepartmentFilter,

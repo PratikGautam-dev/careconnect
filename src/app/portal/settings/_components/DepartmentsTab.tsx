@@ -12,7 +12,8 @@ import {
   type DepartmentDetail,
   type DepartmentFields,
 } from "@/hooks/useDepartments";
-import { useDoctors } from "@/hooks/useDoctors";
+import { useDoctor, useDoctors, useUpdateDoctor } from "@/hooks/useDoctors";
+import { isPortalMutationError } from "@/lib/portalMutation";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { AssignPersonDialog, type PersonOption } from "./AssignPersonDialog";
@@ -49,6 +50,8 @@ export function DepartmentsTab() {
     setDepartmentVisibility,
   } = useDepartmentsAdmin(true);
   const { doctors, load: reloadDoctors } = useDoctors(true);
+  const { fetchDoctor } = useDoctor();
+  const updateDoctor = useUpdateDoctor();
 
   const [staffOptions, setStaffOptions] = useState<StaffPickOption[]>([]);
   useEffect(() => {
@@ -146,13 +149,14 @@ export function DepartmentsTab() {
   async function handleAssignDoctor(doctorId: string) {
     if (!assignDoctorDepartment) return;
     setAssigningDoctor(true);
-    const result = await staffFetch(`/api/portal/doctors/${doctorId}`);
-    if (!result.ok) {
+    let full: Record<string, unknown>;
+    try {
+      full = await fetchDoctor(doctorId);
+    } catch (err) {
       setAssigningDoctor(false);
-      toast.error("Couldn't load doctor", !result.unauthorized ? result.error : undefined);
+      if (isPortalMutationError(err)) toast.error("Couldn't load doctor", err.message);
       return;
     }
-    const full = (result.data as { doctor: Record<string, unknown> }).doctor;
     const body = {
       department_id: assignDoctorDepartment.id,
       name: full.name ?? "",
@@ -176,19 +180,14 @@ export function DepartmentsTab() {
       employee_id: full.employee_id ?? "",
       location: full.location ?? "",
     };
-    const updateResult = await staffFetch(`/api/portal/doctors/${doctorId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setAssigningDoctor(false);
-    if (!updateResult.ok) {
-      toast.error(
-        "Couldn't assign doctor",
-        !updateResult.unauthorized ? updateResult.error : undefined,
-      );
+    try {
+      await updateDoctor.mutateAsync({ doctorId, payload: body });
+    } catch (err) {
+      setAssigningDoctor(false);
+      if (isPortalMutationError(err)) toast.error("Couldn't assign doctor", err.message);
       return;
     }
+    setAssigningDoctor(false);
     toast.success("Doctor assigned", `${full.name} → ${assignDoctorDepartment.name}`);
     setAssignDoctorDepartment(null);
     await Promise.all([reload(), reloadDoctors()]);

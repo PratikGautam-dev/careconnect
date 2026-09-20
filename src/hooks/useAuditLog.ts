@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 
 export type AuditEntry = {
   id: number;
@@ -22,24 +23,20 @@ export function useAuditLog(
   hospitalIdParam: string | null,
   levelFilter: "" | "platform_admin" | "portal",
 ) {
-  const [entries, setEntries] = useState<AuditEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: entries, error: queryError } = useQuery({
+    queryKey: ["admin-audit-log", hospitalIdParam, levelFilter],
+    retry: false,
+    queryFn: async () => {
+      const query = new URLSearchParams();
+      if (hospitalIdParam) query.set("hospital_id", hospitalIdParam);
+      if (levelFilter) query.set("actor_level", levelFilter);
+      const result = await adminFetch(`/api/admin/audit-log?${query.toString()}`);
+      return unwrapAdminResult<{ entries: AuditEntry[] }>(result).entries;
+    },
+  });
 
-  const load = useCallback(async () => {
-    const query = new URLSearchParams();
-    if (hospitalIdParam) query.set("hospital_id", hospitalIdParam);
-    if (levelFilter) query.set("actor_level", levelFilter);
-    const result = await adminFetch(`/api/admin/audit-log?${query.toString()}`);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    setEntries((result.data as { entries: AuditEntry[] }).entries);
-  }, [hospitalIdParam, levelFilter]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { entries, error };
+  return {
+    entries: entries ?? null,
+    error: queryError ? (queryError as Error).message : null,
+  };
 }

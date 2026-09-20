@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
@@ -88,31 +89,34 @@ function scheduleFromForm(form: ScheduleFormState) {
  * priced option, so there's no separate variants sub-resource to manage
  * anymore. Loads + owns every mutation on the test catalog: category
  * switch, test add/edit/delete/active-toggle (each including its own
- * price/working days/hours/breaks/capacity/leave). */
+ * price/working days/hours/breaks/capacity/leave). Single page, single
+ * consumer -- kept as one hook rather than separated into per-mutation
+ * hooks nothing else would import. */
 export function useDiagnosticTests() {
   const [category, setCategory] = useState<"diagnostic" | "lab">("diagnostic");
-  const [tests, setTests] = useState<Test[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [showAddTest, setShowAddTest] = useState(false);
   const [newTestForm, setNewTestForm] = useState<ScheduleFormState>(emptyForm());
-  const [savingTest, setSavingTest] = useState(false);
 
   const [editingTestId, setEditingTestId] = useState<number | null>(null);
   const [editTestForm, setEditTestForm] = useState<ScheduleFormState>(emptyForm());
 
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/diagnostic-tests?category=${category}`);
-    if (result.ok) setTests((result.data as { tests: Test[] }).tests);
-    else setTests(null);
-  }, [category]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const {
+    data: tests,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-diagnostic-tests", category],
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch(`/api/portal/diagnostic-tests?category=${category}`);
+      if (!result.ok) return null;
+      return (result.data as { tests: Test[] }).tests;
+    },
+  });
 
   function toggleNewTestDay(day: string) {
     setNewTestForm((f) => ({
@@ -132,6 +136,21 @@ export function useDiagnosticTests() {
     }));
   }
 
+  const addTestMutation = useMutation({
+    mutationFn: async (payload: ReturnType<typeof scheduleFromForm> & { category: string }) => {
+      const result = await portalFetch("/api/portal/diagnostic-tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
+
   async function handleAddTest() {
     if (!newTestForm.name.trim()) return;
     // The backend accepts an empty schedule silently (a test just never
@@ -146,23 +165,18 @@ export function useDiagnosticTests() {
       setError("Set both a shift start and end time.");
       return;
     }
-    setSavingTest(true);
     setError(null);
-    const result = await portalFetch("/api/portal/diagnostic-tests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category, ...scheduleFromForm(newTestForm) }),
-    });
-    setSavingTest(false);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't add test", result.error);
-      return;
+    try {
+      await addTestMutation.mutateAsync({ category, ...scheduleFromForm(newTestForm) });
+      toast.success("Test added");
+      setNewTestForm(emptyForm());
+      setShowAddTest(false);
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't add test", message);
     }
-    toast.success("Test added");
-    setNewTestForm(emptyForm());
-    setShowAddTest(false);
-    load();
   }
 
   async function startEditTest(test: Test) {
@@ -171,6 +185,27 @@ export function useDiagnosticTests() {
     setEditingTestId(test.id);
     setEditTestForm(formFromTest((result.data as { test: TestFull }).test));
   }
+
+  const saveEditTestMutation = useMutation({
+    mutationFn: async ({
+      testId,
+      payload,
+    }: {
+      testId: number;
+      payload: ReturnType<typeof scheduleFromForm>;
+    }) => {
+      const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function saveEditTest(testId: number) {
     if (!editTestForm.name.trim()) return;
@@ -183,37 +218,61 @@ export function useDiagnosticTests() {
       return;
     }
     setPendingKey(`test-${testId}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(scheduleFromForm(editTestForm)),
-    });
-    setPendingKey(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't save test", result.error);
-      return;
+    try {
+      await saveEditTestMutation.mutateAsync({ testId, payload: scheduleFromForm(editTestForm) });
+      toast.success("Test updated");
+      setEditingTestId(null);
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't save test", message);
+    } finally {
+      setPendingKey(null);
     }
-    toast.success("Test updated");
-    setEditingTestId(null);
-    load();
   }
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ testId, isActive }: { testId: number; isActive: boolean }) => {
+      const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}/active`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function toggleTestActive(test: Test) {
     setPendingKey(`test-${test.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}/active`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: !test.is_active }),
-    });
-    setPendingKey(null);
-    if (result.ok) {
+    try {
+      await toggleActiveMutation.mutateAsync({ testId: test.id, isActive: !test.is_active });
       toast.success(test.is_active ? "Test deactivated" : "Test activated");
-      load();
-    } else if (!result.unauthorized) {
-      toast.error("Couldn't update test", result.error);
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      toast.error("Couldn't update test", message);
+    } finally {
+      setPendingKey(null);
     }
   }
+
+  const deleteTestMutation = useMutation({
+    mutationFn: async (testId: number) => {
+      const result = await portalFetch(`/api/portal/diagnostic-tests/${testId}`, {
+        method: "DELETE",
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function deleteTest(test: Test) {
     if (
@@ -221,23 +280,23 @@ export function useDiagnosticTests() {
     )
       return;
     setPendingKey(`test-${test.id}`);
-    const result = await portalFetch(`/api/portal/diagnostic-tests/${test.id}`, {
-      method: "DELETE",
-    });
-    setPendingKey(null);
-    if (result.ok) {
+    try {
+      await deleteTestMutation.mutateAsync(test.id);
       toast.success("Test deleted");
-      load();
-    } else {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't delete test", result.error);
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't delete test", message);
+    } finally {
+      setPendingKey(null);
     }
   }
 
   return {
     category,
     setCategory,
-    tests,
+    tests: tests ?? null,
     error,
     expandedId,
     setExpandedId,
@@ -246,7 +305,7 @@ export function useDiagnosticTests() {
     newTestForm,
     setNewTestForm,
     toggleNewTestDay,
-    savingTest,
+    savingTest: addTestMutation.isPending,
     editingTestId,
     setEditingTestId,
     editTestForm,

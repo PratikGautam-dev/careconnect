@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSlotsByDate, type Resource, type SlotsByDate } from "@/hooks/useAppointments";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { fetchSlotsByDate, type Resource } from "@/hooks/useAppointments";
 import { portalFetch } from "@/lib/portalAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { newTestBookingSchema } from "@/lib/validation/newTestBooking";
 
@@ -36,10 +38,18 @@ export function useNewTestBooking(
   initialPatientPhone?: string,
 ) {
   const router = useRouter();
-  const [ctx, setCtx] = useState<NewTestBookingContext | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { data: ctx, error: queryError } = useQuery({
+    queryKey: ["portal-new-test-booking-context"],
+    enabled: open,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/new-booking/context");
+      return unwrapPortalResult<NewTestBookingContext>(router, result);
+    },
+  });
+
   const [errors, setErrors] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
   const [patientName, setPatientName] = useState("");
@@ -52,30 +62,18 @@ export function useNewTestBooking(
   const [collectionPincode, setCollectionPincode] = useState("");
   const [date, setDateRaw] = useState("");
   const [slotId, setSlotId] = useState("");
-  const [slotsByDate, setSlotsByDate] = useState<SlotsByDate | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/new-booking/context");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setCtx(result.data as NewTestBookingContext);
-  }, [router]);
-
-  useEffect(() => {
-    if (open) {
-      setPatientName(initialPatientName ?? "");
-      setPatientPhone(initialPatientPhone ?? "");
-      load();
-      return;
-    }
-    // Closed -- drop everything so the next open starts fresh.
-    setCtx(null);
-    setError(null);
+  // Open/close is seeded/reset during render (not an effect) -- React's own
+  // "adjusting state when a prop changes" pattern -- so reopening always
+  // starts from a clean form without costing an extra render cycle.
+  const [seededOpen, setSeededOpen] = useState(false);
+  if (open && !seededOpen) {
+    setSeededOpen(true);
+    setPatientName(initialPatientName ?? "");
+    setPatientPhone(initialPatientPhone ?? "");
+  } else if (!open && seededOpen) {
+    setSeededOpen(false);
     setErrors([]);
-    setSubmitting(false);
     setSuccess(false);
     setPatientName("");
     setPatientPhone("");
@@ -87,8 +85,7 @@ export function useNewTestBooking(
     setCollectionPincode("");
     setDateRaw("");
     setSlotId("");
-    setSlotsByDate(null);
-  }, [open, load, initialPatientName, initialPatientPhone]);
+  }
 
   const testsById = useMemo(() => {
     const map = new Map<number, Resource>();
@@ -103,20 +100,15 @@ export function useNewTestBooking(
   const category = selectedTests[0]?.category ?? null;
   const anchorTestId = selectedTestIds[0] != null ? String(selectedTestIds[0]) : "";
 
-  useEffect(() => {
-    if (!anchorTestId) {
-      setSlotsByDate(null);
-      return;
-    }
-    let cancelled = false;
-    setSlotsByDate(null);
-    fetchSlotsByDate(router, { resourceId: anchorTestId }).then((slots) => {
-      if (!cancelled) setSlotsByDate(slots ?? {});
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [anchorTestId, router]);
+  const { data: slotsByDate } = useQuery({
+    queryKey: ["portal-new-test-booking-slots", anchorTestId],
+    enabled: !!anchorTestId,
+    retry: false,
+    queryFn: async () => {
+      const slots = await fetchSlotsByDate(router, { resourceId: anchorTestId });
+      return slots ?? {};
+    },
+  });
 
   function toggleTest(test: Resource) {
     setSelectedTestIds((prev) => {
@@ -136,6 +128,17 @@ export function useNewTestBooking(
 
   const datesForSelection = slotsByDate ? Object.keys(slotsByDate).sort() : [];
   const slotsForDate = date && slotsByDate ? slotsByDate[date] || [] : [];
+
+  const submitMutation = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const result = await portalFetch("/api/portal/new-test-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<{ errors?: string[] }>(router, result);
+    },
+  });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -157,37 +160,29 @@ export function useNewTestBooking(
       return;
     }
 
-    setSubmitting(true);
-    const result = await portalFetch("/api/portal/new-test-booking", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed.data),
-    });
-    setSubmitting(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setErrors([result.error]);
-        toast.error("Couldn't create booking", result.error);
+    try {
+      const data = await submitMutation.mutateAsync(parsed.data);
+      if (data.errors?.length) {
+        setErrors(data.errors);
+        toast.error("Couldn't create booking", data.errors[0]);
+        return;
       }
-      return;
+      toast.success("Booking created");
+      setSuccess(true);
+      onBooked?.();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setErrors([err.message]);
+        toast.error("Couldn't create booking", err.message);
+      }
     }
-    const data = result.data as { errors?: string[] };
-    if (data.errors?.length) {
-      setErrors(data.errors);
-      toast.error("Couldn't create booking", data.errors[0]);
-      return;
-    }
-    toast.success("Booking created");
-    setSuccess(true);
-    onBooked?.();
   }
 
   return {
-    ctx,
-    error,
+    ctx: ctx ?? null,
+    error: queryError ? "Couldn't load booking context — try again." : null,
     errors,
-    submitting,
+    submitting: submitMutation.isPending,
     success,
     patientName,
     setPatientName,
@@ -213,7 +208,7 @@ export function useNewTestBooking(
     setSlotId,
     datesForSelection,
     slotsForDate,
-    slotsLoading: !!anchorTestId && slotsByDate === null,
+    slotsLoading: !!anchorTestId && slotsByDate === undefined,
     handleSubmit,
   };
 }

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchSlotsByDate, type SlotsByDate } from "@/hooks/useAppointments";
 import { portalFetch } from "@/lib/portalAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { newBookingSchema } from "@/lib/validation/newBooking";
 
@@ -26,10 +28,18 @@ export function useNewBooking(
   initialPatientPhone?: string,
 ) {
   const router = useRouter();
-  const [ctx, setCtx] = useState<NewBookingContext | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { data: ctx, error: queryError } = useQuery({
+    queryKey: ["portal-new-booking-context"],
+    enabled: open,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/new-booking/context");
+      return unwrapPortalResult<NewBookingContext>(router, result);
+    },
+  });
+
   const [errors, setErrors] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
   const [patientName, setPatientName] = useState("");
@@ -40,30 +50,18 @@ export function useNewBooking(
   const [doctorId, setDoctorIdRaw] = useState("");
   const [date, setDateRaw] = useState("");
   const [slotId, setSlotId] = useState("");
-  const [slotsByDate, setSlotsByDate] = useState<SlotsByDate | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/new-booking/context");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setCtx(result.data as NewBookingContext);
-  }, [router]);
-
-  useEffect(() => {
-    if (open) {
-      setPatientName(initialPatientName ?? "");
-      setPatientPhone(initialPatientPhone ?? "");
-      load();
-      return;
-    }
-    // Closed -- drop everything so the next open starts fresh.
-    setCtx(null);
-    setError(null);
+  // Open/close is seeded/reset during render (not an effect) -- React's own
+  // "adjusting state when a prop changes" pattern -- so reopening always
+  // starts from a clean form without costing an extra render cycle.
+  const [seededOpen, setSeededOpen] = useState(false);
+  if (open && !seededOpen) {
+    setSeededOpen(true);
+    setPatientName(initialPatientName ?? "");
+    setPatientPhone(initialPatientPhone ?? "");
+  } else if (!open && seededOpen) {
+    setSeededOpen(false);
     setErrors([]);
-    setSubmitting(false);
     setSuccess(false);
     setPatientName("");
     setPatientPhone("");
@@ -73,23 +71,17 @@ export function useNewBooking(
     setDoctorIdRaw("");
     setDateRaw("");
     setSlotId("");
-    setSlotsByDate(null);
-  }, [open, load, initialPatientName, initialPatientPhone]);
+  }
 
-  useEffect(() => {
-    if (!doctorId) {
-      setSlotsByDate(null);
-      return;
-    }
-    let cancelled = false;
-    setSlotsByDate(null);
-    fetchSlotsByDate(router, { doctorId }).then((slots) => {
-      if (!cancelled) setSlotsByDate(slots ?? {});
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [doctorId, router]);
+  const { data: slotsByDate } = useQuery({
+    queryKey: ["portal-new-booking-slots", doctorId],
+    enabled: !!doctorId,
+    retry: false,
+    queryFn: async () => {
+      const slots = await fetchSlotsByDate(router, { doctorId });
+      return slots ?? {};
+    },
+  });
 
   function setDepartmentId(id: string) {
     setDepartmentIdRaw(id);
@@ -111,7 +103,18 @@ export function useNewBooking(
 
   const doctors = departmentId && ctx ? ctx.doctors_by_department[departmentId] || [] : [];
   const datesForDoctor = slotsByDate ? Object.keys(slotsByDate).sort() : [];
-  const slotsForDate = date && slotsByDate ? slotsByDate[date] || [] : [];
+  const slotsForDate: SlotsByDate[string] = date && slotsByDate ? slotsByDate[date] || [] : [];
+
+  const submitMutation = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const result = await portalFetch("/api/portal/new-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<{ errors?: string[] }>(router, result);
+    },
+  });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -135,37 +138,29 @@ export function useNewBooking(
       return;
     }
 
-    setSubmitting(true);
-    const result = await portalFetch("/api/portal/new-booking", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed.data),
-    });
-    setSubmitting(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setErrors([result.error]);
-        toast.error("Couldn't create booking", result.error);
+    try {
+      const data = await submitMutation.mutateAsync(parsed.data);
+      if (data.errors?.length) {
+        setErrors(data.errors);
+        toast.error("Couldn't create booking", data.errors[0]);
+        return;
       }
-      return;
+      toast.success("Booking created");
+      setSuccess(true);
+      onBooked?.();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setErrors([err.message]);
+        toast.error("Couldn't create booking", err.message);
+      }
     }
-    const data = result.data as { errors?: string[] };
-    if (data.errors?.length) {
-      setErrors(data.errors);
-      toast.error("Couldn't create booking", data.errors[0]);
-      return;
-    }
-    toast.success("Booking created");
-    setSuccess(true);
-    onBooked?.();
   }
 
   return {
-    ctx,
-    error,
+    ctx: ctx ?? null,
+    error: queryError ? "Couldn't load booking context — try again." : null,
     errors,
-    submitting,
+    submitting: submitMutation.isPending,
     success,
     patientName,
     setPatientName,
@@ -189,7 +184,7 @@ export function useNewBooking(
     // true while a doctor is picked but its slots haven't come back yet --
     // lets the dialog show "Loading…" instead of a misleading "No available
     // dates" during that gap.
-    slotsLoading: !!doctorId && slotsByDate === null,
+    slotsLoading: !!doctorId && slotsByDate === undefined,
     handleSubmit,
   };
 }

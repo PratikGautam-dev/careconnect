@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 
 export type StaffRow = {
   id: number;
@@ -19,50 +21,48 @@ export type StaffRow = {
  * disappear when a filter/search matches zero rows. No role filter --
  * dynamic-roles migration: roles are unbounded per hospital now, so a fixed
  * dropdown no longer makes sense here; the row's own role_name is still
- * shown per-person. */
+ * shown per-person. Only `search` is debounced (300ms, same as
+ * usePatients.ts's search box) -- hospitalId/activeFilter changes apply
+ * immediately. */
 export function useHospitalStaff(
   hospitalId: number,
   search: string,
   activeFilter: "" | "active" | "inactive",
 ) {
-  const [staff, setStaff] = useState<StaffRow[] | null>(null);
-  const [hospitalName, setHospitalName] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   useEffect(() => {
-    adminFetch(`/api/admin/tenants/${hospitalId}`).then((result) => {
-      if (result.ok) setHospitalName((result.data as { tenant: { name: string } }).tenant.name);
-    });
-  }, [hospitalId]);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const load = useCallback(
-    async (query: string) => {
+  const { data: hospitalName } = useQuery({
+    queryKey: ["admin-hospital-name", hospitalId],
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch(`/api/admin/tenants/${hospitalId}`);
+      return unwrapAdminResult<{ tenant: { name: string } }>(result).tenant.name;
+    },
+  });
+
+  const {
+    data: staff,
+    error: queryError,
+  } = useQuery({
+    queryKey: ["admin-hospital-staff", hospitalId, activeFilter, debouncedSearch],
+    retry: false,
+    queryFn: async () => {
       const params = new URLSearchParams();
       params.set("hospital_id", String(hospitalId));
       if (activeFilter) params.set("is_active", activeFilter === "active" ? "true" : "false");
-      if (query) params.set("search", query);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const result = await adminFetch(`/api/admin/staff-users?${params.toString()}`);
-      if (!result.ok) {
-        setError(
-          result.unauthorized ? "Session expired — refresh to sign in again." : result.error,
-        );
-        return;
-      }
-      setStaff((result.data as { staff: StaffRow[] }).staff);
+      return unwrapAdminResult<{ staff: StaffRow[] }>(result).staff;
     },
-    [hospitalId, activeFilter],
-  );
+  });
 
-  useEffect(() => {
-    load(search);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load]);
-
-  useEffect(() => {
-    const t = setTimeout(() => load(search), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
-
-  return { staff, hospitalName, error };
+  return {
+    staff: staff ?? null,
+    hospitalName: hospitalName ?? null,
+    error: queryError ? (queryError as Error).message : null,
+  };
 }

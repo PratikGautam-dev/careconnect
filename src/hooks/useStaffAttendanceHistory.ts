@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { unwrapPortalResult } from "@/lib/portalMutation";
 import type { AttendanceOverviewRow } from "@/hooks/useAttendanceOverview";
 
 export type StaffAttendanceHistoryRecord = Omit<AttendanceOverviewRow, "staff_id" | "staff_name" | "employee_id" | "role_name" | "is_doctor_role" | "department_name">;
@@ -15,26 +16,23 @@ export type StaffAttendanceHistoryStaff = { id: number; name: string; role_name:
  * always the CALLING principal's own history, never an arbitrary staff_id). */
 export function useStaffAttendanceHistory(staffId: number | null) {
   const router = useRouter();
-  const [staff, setStaff] = useState<StaffAttendanceHistoryStaff | null>(null);
-  const [history, setHistory] = useState<StaffAttendanceHistoryRecord[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (staffId === null) return;
-    const result = await staffFetch(`/api/portal/attendance/staff/${staffId}?days=90`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as { staff: StaffAttendanceHistoryStaff; history: StaffAttendanceHistoryRecord[] };
-    setStaff(data.staff);
-    setHistory(data.history);
-  }, [router, staffId]);
+  const { data, error: queryError } = useQuery({
+    queryKey: ["portal-staff-attendance-history", staffId],
+    enabled: staffId !== null,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch(`/api/portal/attendance/staff/${staffId}?days=90`);
+      return unwrapPortalResult<{
+        staff: StaffAttendanceHistoryStaff;
+        history: StaffAttendanceHistoryRecord[];
+      }>(router, result);
+    },
+  });
 
-  useEffect(() => {
-    if (staffId !== null) load();
-  }, [staffId, load]);
-
-  return { staff, history, error };
+  return {
+    staff: data?.staff ?? null,
+    history: data?.history ?? null,
+    error: queryError ? "Couldn't load attendance history — try again." : null,
+  };
 }

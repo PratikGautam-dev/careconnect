@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 import { toast } from "@/lib/toast";
 
 export type PlatformSettings = {
@@ -13,30 +15,29 @@ export type PlatformSettings = {
 /** Loads + saves the /admin/platform-settings form -- global values applied
  * identically across every hospital (no per-tenant override). */
 export function usePlatformSettings() {
-  const [settings, setSettings] = useState<PlatformSettings | null>(null);
-  const [maxActiveLinks, setMaxActiveLinks] = useState("");
+  const { data: settings, error: queryError } = useQuery({
+    queryKey: ["admin-platform-settings"],
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch("/api/admin/platform-settings");
+      return unwrapAdminResult<PlatformSettings>(result);
+    },
+  });
+
+  // Editable draft, seeded once per successful load.
+  const [seeded, setSeeded] = useState(false);
+  const [maxActiveLinks, setMaxActiveLinksRaw] = useState("");
   const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({});
-  const [dpdpRequired, setDpdpRequired] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [dpdpRequired, setDpdpRequiredRaw] = useState(false);
+  if (settings && !seeded) {
+    setSeeded(true);
+    setMaxActiveLinksRaw(String(settings.max_active_patient_links));
+    setFeatureLabels(settings.feature_labels);
+    setDpdpRequiredRaw(settings.dpdp_consent_required);
+  }
+
   const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    const result = await adminFetch("/api/admin/platform-settings");
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    const data = result.data as PlatformSettings;
-    setSettings(data);
-    setMaxActiveLinks(String(data.max_active_patient_links));
-    setFeatureLabels(data.feature_labels);
-    setDpdpRequired(data.dpdp_consent_required);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   function setFeatureLabel(key: string, label: string) {
     setFeatureLabels((prev) => ({ ...prev, [key]: label }));
@@ -44,59 +45,62 @@ export function usePlatformSettings() {
   }
 
   function updateMaxActiveLinks(value: string) {
-    setMaxActiveLinks(value);
+    setMaxActiveLinksRaw(value);
     setSaved(false);
   }
 
   function updateDpdpRequired(checked: boolean) {
-    setDpdpRequired(checked);
+    setDpdpRequiredRaw(checked);
     setSaved(false);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaved(false);
-    setSaving(true);
-    try {
+  const saveMutation = useMutation({
+    mutationFn: async (payload: {
+      max_active_patient_links: number;
+      feature_labels: Record<string, string>;
+      dpdp_consent_required: boolean;
+    }) => {
       const result = await adminFetch("/api/admin/platform-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          max_active_patient_links: Number(maxActiveLinks),
-          feature_labels: featureLabels,
-          dpdp_consent_required: dpdpRequired,
-        }),
+        body: JSON.stringify(payload),
       });
-      if (!result.ok) {
-        setError(
-          result.unauthorized ? "Session expired — refresh to sign in again." : result.error,
-        );
-        if (!result.unauthorized) toast.error("Couldn't save platform settings", result.error);
-        return;
-      }
-      const data = result.data as PlatformSettings;
-      setSettings(data);
+      return unwrapAdminResult<PlatformSettings>(result);
+    },
+  });
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaveError(null);
+    setSaved(false);
+    try {
+      const data = await saveMutation.mutateAsync({
+        max_active_patient_links: Number(maxActiveLinks),
+        feature_labels: featureLabels,
+        dpdp_consent_required: dpdpRequired,
+      });
       setFeatureLabels(data.feature_labels);
-      setDpdpRequired(data.dpdp_consent_required);
+      setDpdpRequiredRaw(data.dpdp_consent_required);
       setSaved(true);
       toast.success("Platform settings saved");
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setSaveError(message);
+      toast.error("Couldn't save platform settings", message);
     }
   }
 
   return {
-    settings,
+    settings: settings ?? null,
     maxActiveLinks,
     setMaxActiveLinks: updateMaxActiveLinks,
     featureLabels,
     setFeatureLabel,
     dpdpRequired,
     setDpdpRequired: updateDpdpRequired,
-    error,
+    error: saveError ?? (queryError ? (queryError as Error).message : null),
     saved,
-    saving,
+    saving: saveMutation.isPending,
     handleSubmit,
   };
 }

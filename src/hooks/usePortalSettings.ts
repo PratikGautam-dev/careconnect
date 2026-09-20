@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type Settings = {
@@ -64,71 +66,104 @@ export type Settings = {
   emergency_contact_designation: string;
 };
 
+function normalizeSettings(
+  data: Settings & {
+    followup_fee: number | null;
+    new_consultation_fee: number | null;
+    home_collection_charge: number | null;
+    max_appointments_per_day: number | null;
+  },
+): Settings {
+  // Coerced to "" here so the numeric <Input> below never renders "null".
+  return {
+    ...data,
+    followup_fee: data.followup_fee ?? "",
+    new_consultation_fee: data.new_consultation_fee ?? "",
+    home_collection_charge: data.home_collection_charge ?? "",
+    max_appointments_per_day: data.max_appointments_per_day ?? "",
+  };
+}
+
 /** Loads + saves the /portal/settings form. */
 export function usePortalSettings(ready: boolean) {
   const router = useRouter();
+
+  const {
+    data: loadedSettings,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-settings"],
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/settings");
+      const data = unwrapPortalResult<
+        Settings & {
+          followup_fee: number | null;
+          new_consultation_fee: number | null;
+          home_collection_charge: number | null;
+          max_appointments_per_day: number | null;
+        }
+      >(router, result);
+      return normalizeSettings(data);
+    },
+  });
+
+  // Editable draft, seeded once per successful load -- edits here (via
+  // setSettings) shouldn't be clobbered by a background refetch of the same
+  // query, same shape useAttendanceSettings.ts's own draft uses.
+  const [seeded, setSeeded] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  if (loadedSettings && !seeded) {
+    setSeeded(true);
+    setSettings(loadedSettings);
+  }
+
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/settings");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    // Coerced to "" here so the numeric <Input> below never renders "null".
-    const data = result.data as Settings & {
-      followup_fee: number | null;
-      new_consultation_fee: number | null;
-      home_collection_charge: number | null;
-      max_appointments_per_day: number | null;
-    };
-    setSettings({
-      ...data,
-      followup_fee: data.followup_fee ?? "",
-      new_consultation_fee: data.new_consultation_fee ?? "",
-      home_collection_charge: data.home_collection_charge ?? "",
-      max_appointments_per_day: data.max_appointments_per_day ?? "",
-    });
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
+  const saveMutation = useMutation({
+    mutationFn: async (payload: Settings) => {
+      const result = await portalFetch("/api/portal/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!settings) return;
-    setSaving(true);
     setSaved(false);
-    setError(null);
-    const result = await portalFetch("/api/portal/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    });
-    if (!result.ok) {
-      setSaving(false);
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setError(result.error);
-        toast.error("Couldn't save settings", result.error);
+    setSaveError(null);
+    try {
+      await saveMutation.mutateAsync(settings);
+      // The backend can NORMALIZE a submitted value (e.g. an emptied/garbled
+      // "Reminder offsets" field is coerced to a default of "24") without
+      // the page finding out, so re-fetch here rather than trusting the
+      // just-submitted `settings` object, keeping displayed values in sync
+      // with what was actually persisted.
+      const { data: refreshed } = await refetch();
+      if (refreshed) setSettings(refreshed);
+      setSaved(true);
+      toast.success("Settings saved");
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setSaveError(err.message);
+        toast.error("Couldn't save settings", err.message);
       }
-      return;
     }
-    // The backend can NORMALIZE a submitted value (e.g. an emptied/garbled
-    // "Reminder offsets" field is coerced to a default of "24") without
-    // the page finding out, so re-fetch here rather than trusting the
-    // just-submitted `settings` object, keeping displayed values in sync
-    // with what was actually persisted.
-    await load();
-    setSaving(false);
-    setSaved(true);
-    toast.success("Settings saved");
   }
 
-  return { settings, setSettings, error, saving, saved, handleSave };
+  return {
+    settings,
+    setSettings,
+    error: saveError ?? (queryError ? "Couldn't load settings — try again." : null),
+    saving: saveMutation.isPending,
+    saved,
+    handleSave,
+  };
 }

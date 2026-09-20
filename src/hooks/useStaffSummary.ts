@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 
 export type RoleBreakdownEntry = { role_id: number; role_name: string; count: number };
 
@@ -18,30 +20,22 @@ export type HospitalStaffSummary = {
 /** Per-hospital staff headcounts for the /admin/users overview -- debounces
  * `search` (hospital name) the same 300ms as usePatients.ts's search box. */
 export function useStaffSummary(search: string) {
-  const [hospitals, setHospitals] = useState<HospitalStaffSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async (query: string) => {
-    const params = new URLSearchParams();
-    if (query) params.set("search", query);
-    const result = await adminFetch(`/api/admin/staff-summary?${params.toString()}`);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    setHospitals((result.data as { hospitals: HospitalStaffSummary[] }).hospitals);
-  }, []);
-
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   useEffect(() => {
-    load(search);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load]);
-
-  useEffect(() => {
-    const t = setTimeout(() => load(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  return { hospitals, error };
+  const { data, error } = useQuery({
+    queryKey: ["admin-staff-summary", debouncedSearch],
+    retry: false,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const result = await adminFetch(`/api/admin/staff-summary?${params.toString()}`);
+      return unwrapAdminResult<{ hospitals: HospitalStaffSummary[] }>(result).hospitals;
+    },
+  });
+
+  return { hospitals: data ?? null, error: error ? (error as Error).message : null };
 }

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type LeavePolicy = {
@@ -21,30 +23,43 @@ export type LeavePolicy = {
  * big PATCH. */
 export function useLeavePolicy(ready: boolean) {
   const router = useRouter();
-  const [policy, setPolicy] = useState<LeavePolicy | null>(null);
+
+  const {
+    data: policy,
+    error: queryError,
+  } = useQuery({
+    queryKey: ["portal-leave-policy"],
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/leave-requests/policy");
+      return unwrapPortalResult<LeavePolicy>(router, result);
+    },
+  });
+
+  // Editable draft, seeded once per successful load -- edits here shouldn't
+  // be clobbered by a background refetch of the same query.
+  const [seeded, setSeeded] = useState(false);
   const [doctorDays, setDoctorDays] = useState("");
   const [staffDays, setStaffDays] = useState("");
   const [leaveTypes, setLeaveTypes] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  if (policy && !seeded) {
+    setSeeded(true);
+    setDoctorDays(String(policy.doctor_annual_leave_days));
+    setStaffDays(String(policy.staff_annual_leave_days));
+    setLeaveTypes(policy.leave_types);
+  }
 
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/leave-requests/policy");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as LeavePolicy;
-    setPolicy(data);
-    setDoctorDays(String(data.doctor_annual_leave_days));
-    setStaffDays(String(data.staff_annual_leave_days));
-    setLeaveTypes(data.leave_types);
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
+  const saveMutation = useMutation({
+    mutationFn: async (payload: LeavePolicy) => {
+      const result = await staffFetch("/api/portal/leave-requests/policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<LeavePolicy>(router, result);
+    },
+  });
 
   function addLeaveType(name: string) {
     const trimmed = name.trim();
@@ -56,37 +71,29 @@ export function useLeavePolicy(ready: boolean) {
     setLeaveTypes((prev) => prev.filter((t) => t !== name));
   }
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
-    setError(null);
-    const result = await staffFetch("/api/portal/leave-requests/policy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    setSaveError(null);
+    try {
+      const data = await saveMutation.mutateAsync({
         doctor_annual_leave_days: Number(doctorDays),
         staff_annual_leave_days: Number(staffDays),
         leave_types: leaveTypes,
-      }),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      if (result.unauthorized) {
-        router.push("/portal/login");
-        return;
+      });
+      setLeaveTypes(data.leave_types);
+      toast.success("Leave policy updated");
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setSaveError(err.message);
+        toast.error("Couldn't save leave policy", err.message);
       }
-      setError(result.error);
-      toast.error("Couldn't save leave policy", result.error);
-      return;
     }
-    const data = result.data as LeavePolicy;
-    setPolicy(data);
-    setLeaveTypes(data.leave_types);
-    toast.success("Leave policy updated");
   }
 
   return {
-    policy,
+    policy: policy ?? null,
     doctorDays,
     setDoctorDays,
     staffDays,
@@ -94,8 +101,8 @@ export function useLeavePolicy(ready: boolean) {
     leaveTypes,
     addLeaveType,
     removeLeaveType,
-    saving,
-    error,
+    saving: saveMutation.isPending,
+    error: saveError ?? (queryError ? "Couldn't load leave policy — try again." : null),
     handleSave,
   };
 }

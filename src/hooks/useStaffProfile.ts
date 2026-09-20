@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import type { PortalHospital } from "@/lib/portalAuth";
 import { staffFetch } from "@/lib/staffAuth";
+import { unwrapPortalResult } from "@/lib/portalMutation";
 
 export type StaffProfile = {
   id: number;
@@ -36,22 +37,18 @@ export type StaffProfile = {
  * dedicated GET /api/portal/staff/me instead of reading the cached session. */
 export function useStaffProfile() {
   const router = useRouter();
-  const [profile, setProfile] = useState<StaffProfile | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/staff/me");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setProfile(result.data as StaffProfile);
-  }, [router]);
+  const { data: profile, error: queryError } = useQuery({
+    queryKey: ["portal-staff-profile"],
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/staff/me");
+      return unwrapPortalResult<StaffProfile>(router, result);
+    },
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { profile, error };
+  return {
+    profile: profile ?? null,
+    error: queryError ? "Couldn't load profile — try again." : null,
+  };
 }

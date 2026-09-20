@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import type { Patient } from "@/hooks/usePatients";
 
@@ -39,7 +40,7 @@ export const FILTERS = [
 
 // New incoming handoff requests don't push to this tab -- there's no
 // websocket/SSE infra in this app -- so poll instead of requiring a
-// manual refresh. `load()` only replaces the `handoffs` list, never
+// manual refresh. Polling only ever replaces the `handoffs` list, never
 // `replyText` (separate local state), so a poll firing mid-type never
 // loses what staff is typing.
 const POLL_INTERVAL_MS = 12_000;
@@ -50,65 +51,65 @@ const POLL_INTERVAL_MS = 12_000;
 export function useMessages(ready: boolean) {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("open");
-  const [handoffs, setHandoffs] = useState<Handoff[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [thread, setThread] = useState<HandoffMessage[] | null>(null);
-  const [threadError, setThreadError] = useState<string | null>(null);
-  const [resolvingId, setResolvingId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [dateFilter, setDateFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [bulkActing, setBulkActing] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
-    const qs = new URLSearchParams({ status: active.status });
-    if (active.reason) qs.set("reason", active.reason);
-    if (dateFilter) qs.set("date", dateFilter);
-    const result = await portalFetch(`/api/portal/handoffs?${qs.toString()}`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as { handoffs: Handoff[] };
-    setHandoffs(data.handoffs);
-  }, [router, filter, dateFilter]);
+  const {
+    data: handoffs,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-handoffs", filter, dateFilter],
+    enabled: ready,
+    retry: false,
+    refetchInterval: ready ? POLL_INTERVAL_MS : false,
+    queryFn: async () => {
+      const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
+      const qs = new URLSearchParams({ status: active.status });
+      if (active.reason) qs.set("reason", active.reason);
+      if (dateFilter) qs.set("date", dateFilter);
+      const result = await portalFetch(`/api/portal/handoffs?${qs.toString()}`);
+      if (!result.ok) {
+        if (result.unauthorized) router.push("/portal/login");
+        throw new Error(result.unauthorized ? "Not authenticated." : result.error);
+      }
+      return (result.data as { handoffs: Handoff[] }).handoffs;
+    },
+  });
+  const error = queryError ? (queryError as Error).message : null;
 
-  useEffect(() => {
-    if (!ready) return;
-    load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [ready, load]);
-
-  useEffect(() => {
-    if (selectedId !== null && !handoffs?.some((h) => h.id === selectedId)) {
-      setSelectedId(null);
-    }
-  }, [handoffs, selectedId]);
-
-  // Drops any selected id no longer present in the current list -- a poll
-  // refresh after a bulk action (or someone else resolving a handoff)
-  // shouldn't leave a stale checkbox "selected" for a row that's gone.
-  useEffect(() => {
+  // Drops a selected/opened row the moment it's no longer in the current
+  // list (a poll refresh after someone else resolves/deletes it, or after
+  // this tab's own bulk action) -- computed during render (not an effect),
+  // React's own "adjusting state when a prop changes" pattern.
+  if (selectedId !== null && handoffs && !handoffs.some((h) => h.id === selectedId)) {
+    setSelectedId(null);
+  }
+  const [lastHandoffsForPrune, setLastHandoffsForPrune] = useState<Handoff[] | undefined>(
+    undefined,
+  );
+  if (handoffs && handoffs !== lastHandoffsForPrune) {
+    setLastHandoffsForPrune(handoffs);
     setSelectedIds((prev) => {
-      if (!handoffs) return prev;
       const visible = new Set(handoffs.map((h) => h.id));
       const next = new Set([...prev].filter((id) => visible.has(id)));
       return next.size === prev.size ? prev : next;
     });
-  }, [handoffs]);
+  }
 
   // Switching tabs/date shows a different list entirely -- a selection made
-  // on "Open" shouldn't silently carry over and get bulk-acted-on from "All".
-  useEffect(() => {
+  // on "Open" shouldn't silently carry over and get bulk-acted-on from
+  // "All". Computed during render, keyed on the [filter, dateFilter] pair
+  // actually changing.
+  const [lastFilterKey, setLastFilterKey] = useState(`${filter}:${dateFilter}`);
+  const filterKey = `${filter}:${dateFilter}`;
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
     setSelectedIds(new Set());
-  }, [filter, dateFilter]);
+  }
 
   function toggleSelected(id: number, checked: boolean) {
     setSelectedIds((prev) => {
@@ -123,23 +124,47 @@ export function useMessages(ready: boolean) {
     setSelectedIds(checked ? new Set((handoffs ?? []).map((h) => h.id)) : new Set());
   }
 
+  const bulkResolveMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const result = await portalFetch("/api/portal/handoffs/bulk-resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handoff_ids: ids }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
+
   async function handleBulkResolve() {
     if (selectedIds.size === 0) return;
-    setBulkActing(true);
     setBulkError(null);
-    const result = await portalFetch("/api/portal/handoffs/bulk-resolve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handoff_ids: Array.from(selectedIds) }),
-    });
-    setBulkActing(false);
-    if (!result.ok) {
-      setBulkError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
+    try {
+      await bulkResolveMutation.mutateAsync(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      refetch();
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : "Something went wrong.");
     }
-    setSelectedIds(new Set());
-    load();
   }
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const result = await portalFetch("/api/portal/handoffs/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handoff_ids: ids }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
@@ -149,21 +174,15 @@ export function useMessages(ready: boolean) {
       )
     )
       return;
-    setBulkActing(true);
     setBulkError(null);
-    const result = await portalFetch("/api/portal/handoffs/bulk-delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handoff_ids: Array.from(selectedIds) }),
-    });
-    setBulkActing(false);
-    if (!result.ok) {
-      setBulkError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      return;
+    try {
+      await bulkDeleteMutation.mutateAsync(Array.from(selectedIds));
+      setSelectedId(null);
+      setSelectedIds(new Set());
+      refetch();
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : "Something went wrong.");
     }
-    setSelectedId(null);
-    setSelectedIds(new Set());
-    load();
   }
 
   const selected = handoffs?.find((h) => h.id === selectedId) || null;
@@ -174,104 +193,106 @@ export function useMessages(ready: boolean) {
   // for this exact phone. Prefers an exact phone match over the (already
   // narrow) ILIKE search's first result, since a partial digit-substring
   // match could otherwise surface the wrong patient.
-  const [matchedPatient, setMatchedPatient] = useState<Patient | null>(null);
-  const [matchedPatientLoading, setMatchedPatientLoading] = useState(false);
-
-  useEffect(() => {
-    // Keyed on the phone itself, not the whole `selected` object -- `selected`
-    // is re-derived from `handoffs` on every render (including the 12s list
-    // poll above), so a new object reference would otherwise re-fire this
-    // lookup every poll tick even though nothing about the selection changed.
-    const phone = selected?.phone;
-    if (!phone) {
-      setMatchedPatient(null);
-      return;
-    }
-    let cancelled = false;
-    setMatchedPatientLoading(true);
-    portalFetch(`/api/portal/patients?search=${encodeURIComponent(phone)}`).then((result) => {
-      if (cancelled) return;
-      setMatchedPatientLoading(false);
-      if (!result.ok) {
-        setMatchedPatient(null);
-        return;
-      }
+  const { data: matchedPatient, isFetching: matchedPatientLoading } = useQuery({
+    queryKey: ["portal-message-matched-patient", selected?.phone],
+    enabled: !!selected?.phone,
+    retry: false,
+    queryFn: async () => {
+      const phone = selected!.phone;
+      const result = await portalFetch(`/api/portal/patients?search=${encodeURIComponent(phone)}`);
+      if (!result.ok) return null;
       const patients = (result.data as { patients: Patient[] }).patients;
-      setMatchedPatient(patients.find((p) => p.phone === phone) || patients[0] || null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected?.phone]);
+      return patients.find((p) => p.phone === phone) || patients[0] || null;
+    },
+  });
 
-  const loadThread = useCallback(
-    async (id: number) => {
-      const result = await portalFetch(`/api/portal/handoffs/${id}/messages`);
+  const { data: thread, error: threadQueryError } = useQuery({
+    queryKey: ["portal-handoff-thread", selectedId],
+    enabled: selectedId !== null,
+    retry: false,
+    refetchInterval: selectedId !== null ? POLL_INTERVAL_MS : false,
+    queryFn: async () => {
+      const result = await portalFetch(`/api/portal/handoffs/${selectedId}/messages`);
       if (!result.ok) {
         if (result.unauthorized) router.push("/portal/login");
-        else setThreadError(result.error);
-        return;
+        throw new Error(result.unauthorized ? "Not authenticated." : result.error);
       }
-      setThreadError(null);
-      setThread((result.data as { messages: HandoffMessage[] }).messages);
+      return (result.data as { messages: HandoffMessage[] }).messages;
     },
-    [router],
-  );
+  });
+  const threadError = threadQueryError ? (threadQueryError as Error).message : null;
 
-  // While a conversation is open, poll its thread too -- a patient's
-  // follow-up messages must show up without a manual refresh, same as new
-  // handoffs appearing in the left list do.
-  useEffect(() => {
-    if (selectedId === null) {
-      setThread(null);
-      return;
-    }
-    setThread(null);
-    loadThread(selectedId);
-    const interval = setInterval(() => loadThread(selectedId), POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [selectedId, loadThread]);
+  const sendMutation = useMutation({
+    mutationFn: async ({ handoffId, text }: { handoffId: number; text: string }) => {
+      const result = await portalFetch(`/api/portal/handoffs/${handoffId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!result.ok) throw new Error("Couldn't send reply.");
+    },
+  });
 
   async function handleSend() {
     if (!selected || !replyText.trim()) return;
-    setSending(true);
-    const result = await portalFetch(`/api/portal/handoffs/${selected.id}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: replyText.trim() }),
-    });
-    setSending(false);
-    if (result.ok) {
+    try {
+      await sendMutation.mutateAsync({ handoffId: selected.id, text: replyText.trim() });
       setReplyText("");
-      loadThread(selected.id);
+    } catch {
+      // Nothing to surface beyond the button no longer showing "Sending…" --
+      // matches the original silent-fail-on-send behavior.
     }
   }
 
+  const resolveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const result = await portalFetch(`/api/portal/handoffs/${id}/resolve`, { method: "POST" });
+      if (!result.ok) throw new Error("Couldn't resolve.");
+    },
+  });
+
+  const [resolvingId, setResolvingId] = useState<number | null>(null);
   async function handleResolve(id: number) {
     setResolvingId(id);
-    const result = await portalFetch(`/api/portal/handoffs/${id}/resolve`, { method: "POST" });
-    setResolvingId(null);
-    if (result.ok) load();
+    try {
+      await resolveMutation.mutateAsync(id);
+      refetch();
+    } catch {
+      // Silent-fail, matches original.
+    } finally {
+      setResolvingId(null);
+    }
   }
 
   // Item 3: soft-delete only (no restriction on status, unlike appointments
   // -- see db.soft_delete_handoff()'s own reasoning).
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const result = await portalFetch(`/api/portal/handoffs/${id}/delete`, { method: "POST" });
+      if (!result.ok) throw new Error("Couldn't delete.");
+    },
+  });
+
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   async function handleDelete(id: number) {
     if (!window.confirm("Delete this message record? This can't be undone from the portal."))
       return;
     setDeletingId(id);
-    const result = await portalFetch(`/api/portal/handoffs/${id}/delete`, { method: "POST" });
-    setDeletingId(null);
-    if (result.ok) {
+    try {
+      await deleteMutation.mutateAsync(id);
       setSelectedId(null);
-      load();
+      refetch();
+    } catch {
+      // Silent-fail, matches original.
+    } finally {
+      setDeletingId(null);
     }
   }
 
   return {
     filter,
     setFilter,
-    handoffs,
+    handoffs: handoffs ?? null,
     error,
     dateFilter,
     setDateFilter,
@@ -280,9 +301,9 @@ export function useMessages(ready: boolean) {
     selected,
     replyText,
     setReplyText,
-    sending,
+    sending: sendMutation.isPending,
     handleSend,
-    thread,
+    thread: thread ?? null,
     threadError,
     resolvingId,
     handleResolve,
@@ -291,11 +312,11 @@ export function useMessages(ready: boolean) {
     selectedIds,
     toggleSelected,
     toggleSelectAll,
-    bulkActing,
+    bulkActing: bulkResolveMutation.isPending || bulkDeleteMutation.isPending,
     bulkError,
     handleBulkResolve,
     handleBulkDelete,
-    matchedPatient,
+    matchedPatient: matchedPatient ?? null,
     matchedPatientLoading,
   };
 }

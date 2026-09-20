@@ -1,7 +1,7 @@
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import type { Department } from "@/hooks/useDepartments";
-import type { StaffOption } from "@/hooks/useAddStaff";
+import type { StaffOption } from "@/hooks/useStaff";
 import { SectionHeader } from "./SectionHeader";
 import { WorkingScheduleFields, type WorkingScheduleValue } from "./WorkingScheduleFields";
 

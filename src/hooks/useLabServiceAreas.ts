@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import { validatePincode, validatePincodeRange } from "@/lib/validation/pincode";
 import { toast } from "@/lib/toast";
@@ -13,9 +14,10 @@ export type ServiceArea = {
 
 /** Loads + owns every mutation on the hospital-configurable list of PIN
  * codes serviceable for Home Sample Collection -- add (single pincode or
- * a range) / toggle-active / remove. */
+ * a range) / toggle-active / remove. Single page, single consumer -- kept
+ * as one hook rather than separated into per-mutation hooks nothing else
+ * would import. */
 export function useLabServiceAreas() {
-  const [areas, setAreas] = useState<ServiceArea[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<number | "new" | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -24,52 +26,90 @@ export function useLabServiceAreas() {
   const [newRangeStart, setNewRangeStart] = useState("");
   const [newRangeEnd, setNewRangeEnd] = useState("");
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/lab-service-areas");
-    if (!result.ok) {
-      setAreas(null);
-      return;
-    }
-    setAreas((result.data as { lab_service_areas: ServiceArea[] }).lab_service_areas);
-  }, []);
+  const { data: areas, refetch } = useQuery({
+    queryKey: ["portal-lab-service-areas"],
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/lab-service-areas");
+      if (!result.ok) return null;
+      return (result.data as { lab_service_areas: ServiceArea[] }).lab_service_areas;
+    },
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ areaId, isActive }: { areaId: number; isActive: boolean }) => {
+      const result = await portalFetch(`/api/portal/lab-service-areas/${areaId}/active`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function toggleActive(area: ServiceArea) {
     setPendingId(area.id);
     setError(null);
-    const result = await portalFetch(`/api/portal/lab-service-areas/${area.id}/active`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: !area.is_active }),
-    });
-    setPendingId(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't update PIN code", result.error);
-      return;
+    try {
+      await toggleActiveMutation.mutateAsync({ areaId: area.id, isActive: !area.is_active });
+      toast.success(area.is_active ? "PIN code deactivated" : "PIN code activated");
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't update PIN code", message);
+    } finally {
+      setPendingId(null);
     }
-    toast.success(area.is_active ? "PIN code deactivated" : "PIN code activated");
-    load();
   }
+
+  const removeAreaMutation = useMutation({
+    mutationFn: async (areaId: number) => {
+      const result = await portalFetch(`/api/portal/lab-service-areas/${areaId}`, {
+        method: "DELETE",
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function removeArea(area: ServiceArea) {
     setPendingId(area.id);
     setError(null);
-    const result = await portalFetch(`/api/portal/lab-service-areas/${area.id}`, {
-      method: "DELETE",
-    });
-    setPendingId(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't remove PIN code", result.error);
-      return;
+    try {
+      await removeAreaMutation.mutateAsync(area.id);
+      toast.success("PIN code removed");
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't remove PIN code", message);
+    } finally {
+      setPendingId(null);
     }
-    toast.success("PIN code removed");
-    load();
   }
+
+  const addAreaMutation = useMutation({
+    mutationFn: async (body: { pincode: string } | { range_start: string; range_end: string }) => {
+      const result = await portalFetch("/api/portal/lab-service-areas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function addArea() {
     const body =
@@ -91,27 +131,25 @@ export function useLabServiceAreas() {
     }
     setPendingId("new");
     setError(null);
-    const result = await portalFetch("/api/portal/lab-service-areas", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setPendingId(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't add PIN code", result.error);
-      return;
+    try {
+      await addAreaMutation.mutateAsync(body);
+      toast.success(addMode === "single" ? "PIN code added" : "PIN code range added");
+      setNewPincode("");
+      setNewRangeStart("");
+      setNewRangeEnd("");
+      setShowAddForm(false);
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't add PIN code", message);
+    } finally {
+      setPendingId(null);
     }
-    toast.success(addMode === "single" ? "PIN code added" : "PIN code range added");
-    setNewPincode("");
-    setNewRangeStart("");
-    setNewRangeEnd("");
-    setShowAddForm(false);
-    load();
   }
 
   return {
-    areas,
+    areas: areas ?? null,
     error,
     pendingId,
     showAddForm,

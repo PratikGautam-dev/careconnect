@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type AttendanceSettings = {
@@ -24,67 +26,95 @@ export type AttendanceSettings = {
   detected_ip: string | null;
 };
 
+function normalizeSettings(
+  data: AttendanceSettings & { attendance_auto_checkout_grace_minutes: number | null },
+): AttendanceSettings {
+  // attendance_auto_checkout_grace_minutes comes back as `null` when unset
+  // (no default to fall back to) -- coerced to "" here so the numeric
+  // <Input> below never renders "null", same convention usePortalSettings.ts's
+  // own max_appointments_per_day uses.
+  return {
+    ...data,
+    attendance_auto_checkout_grace_minutes: data.attendance_auto_checkout_grace_minutes ?? "",
+  };
+}
+
 /** Loads + saves Settings -> Attendance's geofence/IP/shift-window policy
  * -- a separate endpoint (/api/portal/settings/attendance) and hook from
  * usePortalSettings, gated by the real "attendance_settings" page_key
  * (admin-only by default) rather than folded into that shared, hospital-
- * only-authenticated, full-object General settings save. */
+ * only-authenticated, full-object General settings save. Single page,
+ * single consumer -- kept as one hook (like useEditTenant) rather than
+ * separated into per-mutation hooks nothing else would import. */
 export function useAttendanceSettings(ready: boolean) {
   const router = useRouter();
+
+  const {
+    data: loadedSettings,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-attendance-settings"],
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/settings/attendance");
+      const data = unwrapPortalResult<
+        AttendanceSettings & { attendance_auto_checkout_grace_minutes: number | null }
+      >(router, result);
+      return normalizeSettings(data);
+    },
+  });
+
+  // Local draft, seeded once per successful load -- edits here (via
+  // setSettings) shouldn't be clobbered by a background refetch of the same
+  // query, same "editable draft over a query result" shape usePatientDetail's
+  // demographics fields use.
+  const [seeded, setSeeded] = useState(false);
   const [settings, setSettings] = useState<AttendanceSettings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  if (loadedSettings && !seeded) {
+    setSeeded(true);
+    setSettings(loadedSettings);
+  }
+
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/settings/attendance");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    // attendance_auto_checkout_grace_minutes comes back as `null` when
-    // unset (no default to fall back to) -- coerced to "" here so the
-    // numeric <Input> below never renders "null", same convention
-    // usePortalSettings.ts's own max_appointments_per_day uses.
-    const data = result.data as AttendanceSettings & {
-      attendance_auto_checkout_grace_minutes: number | null;
-    };
-    setSettings({
-      ...data,
-      attendance_auto_checkout_grace_minutes: data.attendance_auto_checkout_grace_minutes ?? "",
-    });
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
+  const saveMutation = useMutation({
+    mutationFn: async (payload: AttendanceSettings) => {
+      const result = await portalFetch("/api/portal/settings/attendance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!settings) return;
-    setSaving(true);
     setSaved(false);
-    setError(null);
-    const result = await portalFetch("/api/portal/settings/attendance", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    });
-    if (!result.ok) {
-      setSaving(false);
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setError(result.error);
-        toast.error("Couldn't save attendance settings", result.error);
+    setSaveError(null);
+    try {
+      await saveMutation.mutateAsync(settings);
+      await refetch();
+      setSaved(true);
+      toast.success("Attendance settings saved");
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setSaveError(err.message);
+        toast.error("Couldn't save attendance settings", err.message);
       }
-      return;
     }
-    await load();
-    setSaving(false);
-    setSaved(true);
-    toast.success("Attendance settings saved");
   }
 
-  return { settings, setSettings, error, saving, saved, handleSave };
+  return {
+    settings,
+    setSettings,
+    error: saveError ?? (queryError ? "Couldn't load attendance settings — try again." : null),
+    saving: saveMutation.isPending,
+    saved,
+    handleSave,
+  };
 }

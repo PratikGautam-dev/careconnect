@@ -244,7 +244,7 @@ export default function PortalPatientsPage() {
       <NewBookingDialog
         open={bookingOpen}
         onOpenChange={setBookingOpen}
-        onBooked={() => load(search)}
+        onBooked={() => load()}
         initialPatientName={selectedPatient?.name ?? undefined}
         initialPatientPhone={selectedPatient?.phone ?? undefined}
       />

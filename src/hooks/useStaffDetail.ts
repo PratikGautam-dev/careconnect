@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 
 export type StaffDetail = {
   id: number;
@@ -21,21 +22,14 @@ export type StaffDetail = {
 
 /** Single-staff detail for /admin/users/[hospitalId]/[staffId]. */
 export function useStaffDetail(staffId: number) {
-  const [staff, setStaff] = useState<StaffDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error } = useQuery({
+    queryKey: ["admin-staff-detail", staffId],
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch(`/api/admin/staff-users/${staffId}`);
+      return unwrapAdminResult<{ staff: StaffDetail }>(result).staff;
+    },
+  });
 
-  const load = useCallback(async () => {
-    const result = await adminFetch(`/api/admin/staff-users/${staffId}`);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    setStaff((result.data as { staff: StaffDetail }).staff);
-  }, [staffId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { staff, error };
+  return { staff: data ?? null, error: error ? (error as Error).message : null };
 }

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
 
@@ -27,23 +28,21 @@ function todayIso() {
 export function useDoctorSlots(doctorId: string) {
   const [date, setDate] = useState(todayIso());
   const [viewAll, setViewAll] = useState(false);
-  const [slots, setSlots] = useState<Slot[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [newDate, setNewDate] = useState(todayIso());
   const [newTime, setNewTime] = useState("");
-  const [adding, setAdding] = useState(false);
 
-  const load = useCallback(async () => {
-    setSlots(null);
-    const qs = viewAll ? "" : `?date=${date}`;
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots${qs}`);
-    if (result.ok) setSlots((result.data as { slots: Slot[] }).slots);
-  }, [doctorId, date, viewAll]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: slots, refetch } = useQuery({
+    queryKey: ["portal-doctor-slots", doctorId, viewAll, date],
+    retry: false,
+    queryFn: async () => {
+      const qs = viewAll ? "" : `?date=${date}`;
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots${qs}`);
+      if (!result.ok) return null;
+      return (result.data as { slots: Slot[] }).slots;
+    },
+  });
 
   const groupedByDate = useMemo(() => {
     if (!slots) return [];
@@ -55,23 +54,51 @@ export function useDoctorSlots(doctorId: string) {
     return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [slots]);
 
+  const toggleBlockMutation = useMutation({
+    mutationFn: async ({ scheduledAt, blocked }: { scheduledAt: string; blocked: boolean }) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots/block`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduled_at: scheduledAt, blocked }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
+
   async function toggleBlock(slot: Slot) {
     setPendingId(slot.scheduled_at);
     setError(null);
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots/block`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduled_at: slot.scheduled_at, blocked: !slot.blocked }),
-    });
-    setPendingId(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't update slot", result.error);
-      return;
+    try {
+      await toggleBlockMutation.mutateAsync({ scheduledAt: slot.scheduled_at, blocked: !slot.blocked });
+      toast.success(slot.blocked ? "Slot unblocked" : "Slot blocked");
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't update slot", message);
+    } finally {
+      setPendingId(null);
     }
-    toast.success(slot.blocked ? "Slot unblocked" : "Slot blocked");
-    load();
   }
+
+  const removeSlotMutation = useMutation({
+    mutationFn: async (scheduledAt: string) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduled_at: scheduledAt }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function removeSlot(slot: Slot) {
     if (
@@ -82,39 +109,47 @@ export function useDoctorSlots(doctorId: string) {
       return;
     setPendingId(slot.scheduled_at);
     setError(null);
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots/remove`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduled_at: slot.scheduled_at }),
-    });
-    setPendingId(null);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't remove slot", result.error);
-      return;
+    try {
+      await removeSlotMutation.mutateAsync(slot.scheduled_at);
+      toast.success("Slot removed");
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't remove slot", message);
+    } finally {
+      setPendingId(null);
     }
-    toast.success("Slot removed");
-    load();
   }
+
+  const addSlotMutation = useMutation({
+    mutationFn: async ({ addDate, time }: { addDate: string; time: string }) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: addDate, time }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
 
   async function addSlot() {
     if (!newTime) return;
-    setAdding(true);
     setError(null);
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/slots/add`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: viewAll ? newDate : date, time: newTime }),
-    });
-    setAdding(false);
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
-      if (!result.unauthorized) toast.error("Couldn't add slot", result.error);
-      return;
+    try {
+      await addSlotMutation.mutateAsync({ addDate: viewAll ? newDate : date, time: newTime });
+      toast.success("Slot added");
+      setNewTime("");
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      toast.error("Couldn't add slot", message);
     }
-    toast.success("Slot added");
-    setNewTime("");
-    load();
   }
 
   return {
@@ -122,14 +157,14 @@ export function useDoctorSlots(doctorId: string) {
     setDate,
     viewAll,
     setViewAll,
-    slots,
+    slots: slots ?? null,
     error,
     pendingId,
     newDate,
     setNewDate,
     newTime,
     setNewTime,
-    adding,
+    adding: addSlotMutation.isPending,
     groupedByDate,
     toggleBlock,
     removeSlot,

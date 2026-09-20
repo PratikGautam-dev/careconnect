@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type LeaveRequestStatus = "pending" | "approved" | "rejected";
@@ -62,50 +64,58 @@ export type LeaveRequestSummary = {
 export function useLeaveRequests(canView: boolean) {
   const router = useRouter();
 
-  const [requests, setRequests] = useState<LeaveRequestRow[] | null>(null);
-  const [summary, setSummary] = useState<LeaveRequestSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-leave-requests"],
+    enabled: canView,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/leave-requests");
+      return unwrapPortalResult<{ requests: LeaveRequestRow[]; summary: LeaveRequestSummary }>(
+        router,
+        result,
+      );
+    },
+  });
+
+  const decideMutation = useMutation({
+    mutationFn: async ({
+      requestId,
+      action,
+    }: {
+      requestId: number;
+      action: "approve" | "reject";
+    }) => {
+      const result = await staffFetch(`/api/portal/leave-requests/${requestId}/${action}`, {
+        method: "POST",
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+
   const [decidingId, setDecidingId] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/leave-requests");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as { requests: LeaveRequestRow[]; summary: LeaveRequestSummary };
-    setRequests(data.requests);
-    setSummary(data.summary);
-  }, [router]);
-
-  useEffect(() => {
-    if (!canView) return;
-    load();
-  }, [canView, load]);
-
   async function decide(request: LeaveRequestRow, action: "approve" | "reject") {
     setDecidingId(request.id);
-    const result = await staffFetch(`/api/portal/leave-requests/${request.id}/${action}`, {
-      method: "POST",
-    });
-    setDecidingId(null);
-    if (result.ok) {
+    try {
+      await decideMutation.mutateAsync({ requestId: request.id, action });
       toast.success(`Leave request ${action === "approve" ? "approved" : "rejected"}`);
-      load();
-    } else if (result.unauthorized) {
-      router.push("/portal/login");
-    } else {
-      toast.error(`Couldn't ${action} leave request`, result.error);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error(`Couldn't ${action} leave request`, err.message);
+    } finally {
+      setDecidingId(null);
     }
   }
 
   return {
-    requests,
-    summary,
-    error,
+    requests: data?.requests ?? null,
+    summary: data?.summary ?? null,
+    error: queryError ? "Couldn't load leave requests — try again." : null,
     decidingId,
-    load,
+    load: refetch,
     approve: (r: LeaveRequestRow) => decide(r, "approve"),
     reject: (r: LeaveRequestRow) => decide(r, "reject"),
   };

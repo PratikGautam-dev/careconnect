@@ -1,11 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  DoctorScheduleFormState,
-  emptyDoctorScheduleForm,
-} from "@/components/portal/DoctorScheduleForm";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
-import { toast } from "@/lib/toast";
+import { unwrapPortalResult } from "@/lib/portalMutation";
 
 export type Department = { id: string; name: string };
 // login_staff_id/login_email/login_active come from an outer join to
@@ -47,256 +43,152 @@ export type Doctor = {
   reports_to_name: string | null;
 };
 
-/** Loads + owns every mutation on the /portal/doctors page: doctor add/edit
- * (shared DoctorScheduleForm), active toggle, plus the name/specialization
- * search and active/inactive filter. Department CREATION/editing lives
- * entirely under /portal/settings' own Departments tab now (confirmed with
- * the user) -- this hook only ever READS departments (still bundled off
- * GET /api/portal/doctors, same db.get_all_departments_for_hospital() data
- * Settings' own GET /api/portal/departments reads, so the two are always
- * the same underlying records), to populate the doctor list's own
- * department column and the Add/Edit Doctor form's department picker. */
+type DoctorsResponse = {
+  departments: Department[];
+  doctors: Doctor[];
+  on_leave_today_count: number;
+};
+
+export const DOCTORS_QUERY_KEY = ["portal-doctors"] as const;
+
+/** Read-only: the /portal/doctors list, its department picker options, and
+ * today's on-leave count -- all bundled off the one GET /api/portal/doctors
+ * response (db.get_all_doctors_for_hospital()). Department CREATION/editing
+ * lives entirely under /portal/settings' own Departments tab (confirmed
+ * with the user) -- this hook only ever READS departments, to populate the
+ * doctor list's own department column and the Add/Edit Doctor form's
+ * department picker. Mutations (create/update/toggle-active/single-doctor
+ * fetch) live in their own hooks below -- call this hook's `load()` after
+ * one succeeds to refresh the list. */
 export function useDoctors(ready: boolean) {
   const router = useRouter();
-  const [departments, setDepartments] = useState<Department[] | null>(null);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [onLeaveTodayCount, setOnLeaveTodayCount] = useState(0);
-  const [error, setError] = useState<string | null>(null);
 
-  const [showDoctorForm, setShowDoctorForm] = useState(false);
-  const [showCsvImport, setShowCsvImport] = useState(false);
-  const [doctorForm, setDoctorForm] = useState<DoctorScheduleFormState>(emptyDoctorScheduleForm());
-  const [doctorErrors, setDoctorErrors] = useState<string[]>([]);
-  const [savingDoctor, setSavingDoctor] = useState(false);
-  // Reuses the same DoctorScheduleForm the "Add doctor" flow uses --
-  // editingDoctorId non-null is what distinguishes "save" meaning POST
-  // /api/portal/doctors (create) vs POST /api/portal/doctors/{id} (update).
-  const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
-  const [loadingDoctorForEdit, setLoadingDoctorForEdit] = useState<string | null>(null);
-
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
-
-  // Search (name/specialization) + active/inactive filter, computed
-  // client-side -- a hospital's own doctor list is small enough that a
-  // server round trip per keystroke isn't needed.
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
-
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/doctors");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as {
-      departments: Department[];
-      doctors: Doctor[];
-      on_leave_today_count: number;
-    };
-    setDepartments(data.departments);
-    setDoctors(data.doctors);
-    setOnLeaveTodayCount(data.on_leave_today_count);
-  }, [router]);
-
-  useEffect(() => {
-    if (ready) load();
-  }, [ready, load]);
-
-  function openAddDoctorForm() {
-    setShowDoctorForm(true);
-    setShowCsvImport(false);
-    setDoctorForm(emptyDoctorScheduleForm());
-    setDoctorErrors([]);
-    setEditingDoctorId(null);
-  }
-
-  function toggleCsvImport() {
-    setShowCsvImport((v) => !v);
-    setShowDoctorForm(false);
-  }
-
-  function cancelDoctorForm() {
-    setShowDoctorForm(false);
-    setEditingDoctorId(null);
-  }
-
-  async function handleSaveDoctor() {
-    const working_hours = doctorForm.shifts
-      .filter((s) => s.start && s.end)
-      .map((s) => `${s.start}-${s.end}`);
-    // Same "at least one working day and one complete shift" rule
-    // admin/validation.py's own doctor-field validator enforces server-side
-    // -- caught here first so the admin sees it immediately instead of
-    // after a round-trip.
-    if (doctorForm.working_days.length === 0) {
-      setDoctorErrors(["Choose at least one working day."]);
-      return;
-    }
-    if (working_hours.length === 0) {
-      setDoctorErrors(["Add at least one shift with both a start and end time."]);
-      return;
-    }
-    setSavingDoctor(true);
-    setDoctorErrors([]);
-    const breaks = doctorForm.breaks
-      .filter((b) => b && b.start && b.end)
-      .map((b) => `${b.start}-${b.end}`);
-    const url = editingDoctorId ? `/api/portal/doctors/${editingDoctorId}` : "/api/portal/doctors";
-    const result = await portalFetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        department_id: doctorForm.department_id,
-        name: doctorForm.name,
-        specialization: doctorForm.specialization,
-        qualification: doctorForm.qualification,
-        years_experience: doctorForm.years_experience,
-        working_days: doctorForm.working_days,
-        working_hours,
-        slot_duration_minutes: doctorForm.slot_duration_minutes,
-        breaks,
-        max_bookings_per_slot: doctorForm.max_bookings_per_slot,
-        daily_booking_limit: doctorForm.daily_booking_limit,
-        online_quota: doctorForm.online_quota,
-        walkin_quota: doctorForm.walkin_quota,
-        followup_duration_minutes: doctorForm.followup_duration_minutes,
-        effective_from: doctorForm.effective_from,
-        phone: doctorForm.phone,
-        location: doctorForm.location,
-      }),
-    });
-    setSavingDoctor(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setDoctorErrors([result.error]);
-        toast.error(
-          editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor",
-          result.error,
-        );
-      }
-      return;
-    }
-    const data = result.data as { errors?: string[] };
-    if (data.errors?.length) {
-      setDoctorErrors(data.errors);
-      toast.error(
-        editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor",
-        data.errors[0],
-      );
-      return;
-    }
-    toast.success(editingDoctorId ? "Doctor updated" : "Doctor added");
-    setDoctorForm(emptyDoctorScheduleForm());
-    setShowDoctorForm(false);
-    setEditingDoctorId(null);
-    load();
-  }
-
-  // Fetches the full record (working days/hours/breaks/quotas --
-  // get_all_doctors_for_hospital()'s list-page shape above doesn't carry
-  // these) and maps it into the same form shape "Add doctor" uses,
-  // splitting each stored "HH:MM-HH:MM" string back into a shift/break row.
-  async function handleEditDoctor(doc: Doctor) {
-    setLoadingDoctorForEdit(doc.id);
-    const result = await portalFetch(`/api/portal/doctors/${doc.id}`);
-    setLoadingDoctorForEdit(null);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const full = (result.data as { doctor: Record<string, unknown> }).doctor;
-    const toRange = (s: string) => {
-      const [start, end] = s.split("-");
-      return { start: start || "", end: end || "" };
-    };
-    const shifts = ((full.working_hours as string[]) || []).map(toRange);
-    setDoctorForm({
-      department_id: (full.department_id as string) || "",
-      name: (full.name as string) || "",
-      specialization: (full.specialization as string) || "",
-      qualification: (full.qualification as string) || "",
-      years_experience: full.years_experience != null ? String(full.years_experience) : "",
-      working_days: (full.working_days as string[]) || [],
-      shifts: shifts.length > 0 ? shifts : [{ start: "", end: "" }],
-      breaks: ((full.breaks as string[]) || []).map(toRange),
-      slot_duration_minutes:
-        full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
-      max_bookings_per_slot:
-        full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
-      daily_booking_limit: full.daily_booking_limit != null ? String(full.daily_booking_limit) : "",
-      online_quota: full.online_quota != null ? String(full.online_quota) : "",
-      walkin_quota: full.walkin_quota != null ? String(full.walkin_quota) : "",
-      followup_duration_minutes:
-        full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
-      effective_from: (full.effective_from as string) || "",
-      phone: (full.phone as string) || "",
-      location: (full.location as string) || "",
-    });
-    setEditingDoctorId(doc.id);
-    setDoctorErrors([]);
-    setShowCsvImport(false);
-    setShowDoctorForm(true);
-  }
-
-  async function handleToggleActive(doc: Doctor) {
-    setTogglingId(doc.id);
-    const result = await portalFetch(`/api/portal/doctors/${doc.id}/active`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: !doc.is_active }),
-    });
-    setTogglingId(null);
-    if (result.ok) {
-      toast.success(`${doc.name} marked ${doc.is_active ? "unavailable" : "available"}`);
-      load();
-    } else if (result.unauthorized) {
-      router.push("/portal/login");
-    } else {
-      toast.error("Couldn't update availability", result.error);
-    }
-  }
-
-  const filteredDoctors = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return doctors.filter((d) => {
-      if (activeFilter === "active" && !d.is_active) return false;
-      if (activeFilter === "inactive" && d.is_active) return false;
-      if (!q) return true;
-      return d.name.toLowerCase().includes(q) || (d.specialization || "").toLowerCase().includes(q);
-    });
-  }, [doctors, searchQuery, activeFilter]);
+  const {
+    data,
+    error: queryError,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: DOCTORS_QUERY_KEY,
+    enabled: ready,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/doctors");
+      return unwrapPortalResult<DoctorsResponse>(router, result);
+    },
+  });
 
   return {
-    departments,
-    doctors,
-    onLeaveTodayCount,
-    error,
-    load,
-    showDoctorForm,
-    showCsvImport,
-    doctorForm,
-    setDoctorForm,
-    doctorErrors,
-    savingDoctor,
-    editingDoctorId,
-    loadingDoctorForEdit,
-    openAddDoctorForm,
-    toggleCsvImport,
-    cancelDoctorForm,
-    handleSaveDoctor,
-    handleEditDoctor,
-    handleToggleActive,
-    expandedId,
-    setExpandedId,
-    togglingId,
-    searchQuery,
-    setSearchQuery,
-    activeFilter,
-    setActiveFilter,
-    filteredDoctors,
+    departments: data?.departments ?? null,
+    doctors: data?.doctors ?? [],
+    onLeaveTodayCount: data?.on_leave_today_count ?? 0,
+    error: queryError ? "Couldn't load doctors — try again." : null,
+    isFetching,
+    load: refetch,
   };
+}
+
+/** Fetches ONE doctor's full record (working days/hours/breaks/quotas --
+ * useDoctors()' own list shape above doesn't carry these), by id. Modeled
+ * as a mutation rather than a query since every caller wants it as a
+ * one-shot, on-demand `await fetchDoctor(id)` -- populating the Add/Edit
+ * Doctor form when "Edit" is clicked (doctors/page.tsx), or getting the
+ * current full record before a doctor-reassign resubmit (Settings ->
+ * Departments' "Assign doctor" flow, DepartmentsTab.tsx) -- not something
+ * rendered directly off cache. */
+export function useDoctor() {
+  const router = useRouter();
+
+  const { mutateAsync, isPending } = useMutation({
+    mutationFn: async (doctorId: string) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}`);
+      return unwrapPortalResult<{ doctor: Record<string, unknown> }>(router, result).doctor;
+    },
+  });
+
+  return { fetchDoctor: mutateAsync, isFetching: isPending };
+}
+
+// Same shape DoctorScheduleForm builds and POSTs -- kept as a plain object
+// type (not imported from the form) since this is the wire payload, not the
+// form's own draft-string state.
+export type DoctorPayload = {
+  department_id: string;
+  name: string;
+  specialization: string;
+  qualification: string;
+  years_experience: string;
+  working_days: string[];
+  working_hours: string[];
+  slot_duration_minutes: string;
+  breaks: string[];
+  max_bookings_per_slot: string;
+  daily_booking_limit: string;
+  online_quota: string;
+  walkin_quota: string;
+  followup_duration_minutes: string;
+  effective_from: string;
+  phone: string;
+  location: string;
+};
+
+/** POST /api/portal/doctors -- create. Caller should refetch useDoctors()'
+ * list on success (its query key isn't invalidated automatically here, to
+ * keep this hook a plain, single-purpose mutation). */
+export function useCreateDoctor() {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: async (payload: DoctorPayload) => {
+      const result = await portalFetch("/api/portal/doctors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<{ errors?: string[] }>(router, result);
+    },
+  });
+}
+
+/** POST /api/portal/doctors/{id} -- full-record update (same route both
+ * "Edit doctor" and Settings -> Departments' "Assign doctor" reassign flow
+ * use; the latter builds its own payload separately in DepartmentsTab.tsx
+ * since it re-sends a fetched record's fields rather than a form's).
+ * Caller should refetch useDoctors()' list on success. */
+export function useUpdateDoctor() {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: async ({
+      doctorId,
+      payload,
+    }: {
+      doctorId: string;
+      payload: DoctorPayload | Record<string, unknown>;
+    }) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<{ errors?: string[] }>(router, result);
+    },
+  });
+}
+
+/** POST /api/portal/doctors/{id}/active -- mark available/unavailable.
+ * Caller should refetch useDoctors()' list on success. */
+export function useToggleDoctorActive() {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: async ({ doctorId, isActive }: { doctorId: string; isActive: boolean }) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}/active`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 }

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import type { LeaveRequestRow, LeaveType } from "@/hooks/useLeaveRequests";
 
@@ -31,76 +33,73 @@ export type HolidayApplicationInitialData = {
  * /api/portal/leave-requests/mine -- StaffDashboardView.tsx passes this in,
  * already having that same data from its single GET /api/portal/staff/
  * dashboard fetch, so this hook doesn't fire a second, redundant request.
- * `initialData` is expected to arrive ASYNCHRONOUSLY (StaffDashboardView's
- * own fetch resolves after mount, not before it) -- so it's seeded via its
- * own effect below rather than only a useState initializer, and the
- * skip-fetch effect re-evaluates whenever `canView`/`initialData` change,
- * not just at mount. The dedicated /portal/holiday-application page
- * (HolidayApplicationView) calls this hook with no second argument, so it
- * keeps doing its own independent fetch exactly as before. `submit()`/
- * `load()` are unaffected either way -- a post-submit refetch always goes
- * through `load()`. */
+ * Once this hook's OWN fetch has run even once (e.g. after `submit()`
+ * calls `load()`), that fetched data takes over as the source of truth
+ * going forward -- `initialData` only ever seeds the very first render.
+ * The dedicated /portal/holiday-application page (HolidayApplicationView)
+ * calls this hook with no second argument, so it keeps doing its own
+ * independent fetch exactly as before. */
 export function useHolidayApplication(canView: boolean, initialData?: HolidayApplicationInitialData) {
   const router = useRouter();
-  const [requests, setRequests] = useState<LeaveRequestRow[] | null>(initialData ? initialData.requests : null);
-  const [balance, setBalance] = useState<LeaveBalance | null>(initialData ? initialData.balance : null);
-  const [leaveTypes, setLeaveTypes] = useState<string[]>(initialData ? initialData.leaveTypes : []);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/leave-requests/mine");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as {
-      requests: LeaveRequestRow[];
-      balance: LeaveBalance;
-      leave_types: string[];
-    };
-    setRequests(data.requests);
-    setBalance(data.balance);
-    setLeaveTypes(data.leave_types);
-  }, [router]);
+  const {
+    data,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["portal-holiday-application-mine"],
+    enabled: canView && !initialData,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/leave-requests/mine");
+      const fetched = unwrapPortalResult<{
+        requests: LeaveRequestRow[];
+        balance: LeaveBalance;
+        leave_types: string[];
+      }>(router, result);
+      return {
+        requests: fetched.requests,
+        balance: fetched.balance,
+        leaveTypes: fetched.leave_types,
+      };
+    },
+  });
 
-  // Seeds from initialData whenever it (later) arrives -- covers the
-  // StaffDashboardView case where its own /api/portal/staff/dashboard
-  // fetch is still in flight on this hook's first render.
-  useEffect(() => {
-    if (!initialData) return;
-    setRequests(initialData.requests);
-    setBalance(initialData.balance);
-    setLeaveTypes(initialData.leaveTypes);
-  }, [initialData]);
+  const requests = data?.requests ?? initialData?.requests ?? null;
+  const balance = data?.balance ?? initialData?.balance ?? null;
+  const leaveTypes = data?.leaveTypes ?? initialData?.leaveTypes ?? [];
 
-  useEffect(() => {
-    if (!canView || initialData) return;
-    load();
-  }, [canView, initialData, load]);
+  const submitMutation = useMutation({
+    mutationFn: async (input: SubmitLeaveRequestInput) => {
+      const result = await staffFetch("/api/portal/leave-requests/mine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   /** Returns an error string on failure, null on success (mirrors this
    * codebase's own established convention for a form submit action). */
   async function submit(input: SubmitLeaveRequestInput): Promise<string | null> {
-    setSubmitting(true);
-    const result = await staffFetch("/api/portal/leave-requests/mine", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    setSubmitting(false);
-    if (!result.ok) {
-      if (result.unauthorized) {
-        router.push("/portal/login");
-        return null;
-      }
-      return result.error;
+    try {
+      await submitMutation.mutateAsync(input);
+      toast.success("Leave application submitted");
+      refetch();
+      return null;
+    } catch (err) {
+      return isPortalMutationError(err) ? err.message : null;
     }
-    toast.success("Leave application submitted");
-    load();
-    return null;
   }
 
-  return { requests, balance, leaveTypes, error, submitting, submit, load };
+  return {
+    requests,
+    balance,
+    leaveTypes,
+    error: queryError ? "Couldn't load leave requests — try again." : null,
+    submitting: submitMutation.isPending,
+    submit,
+    load: refetch,
+  };
 }

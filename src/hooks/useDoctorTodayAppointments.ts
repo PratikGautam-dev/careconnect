@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 
 export type Appointment = {
@@ -14,16 +14,15 @@ export type Appointment = {
  * staff portal -- no separate doctor login exists, so this is just a
  * scoped view any staff member can open. */
 export function useDoctorTodayAppointments(doctorId: string) {
-  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
+  const { data: appointments } = useQuery({
+    queryKey: ["portal-doctor-today-appointments", doctorId],
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}/appointments/today`);
+      if (!result.ok) return null;
+      return (result.data as { appointments: Appointment[] }).appointments;
+    },
+  });
 
-  const load = useCallback(async () => {
-    const result = await portalFetch(`/api/portal/doctors/${doctorId}/appointments/today`);
-    if (result.ok) setAppointments((result.data as { appointments: Appointment[] }).appointments);
-  }, [doctorId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { appointments };
+  return { appointments: appointments ?? null };
 }

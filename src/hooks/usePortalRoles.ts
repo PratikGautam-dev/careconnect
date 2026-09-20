@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
 export type Action = "view" | "write" | "delete";
@@ -42,48 +44,75 @@ export type RoleUser = {
  * member happens to be linked to a doctor profile. */
 export function usePortalRoles(canView: boolean) {
   const router = useRouter();
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: rolesData, refetch: refetchRoles } = useQuery({
+    queryKey: ["portal-roles"],
+    enabled: canView,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/roles");
+      return unwrapPortalResult<{ roles: Role[] }>(router, result).roles;
+    },
+  });
+  const roles = rolesData ?? [];
+
+  const { data: matrixData, refetch: refetchMatrix } = useQuery({
+    queryKey: ["portal-role-permissions"],
+    enabled: canView,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/roles/permissions");
+      // JSON object keys are always strings -- re-cast back to number so
+      // matrix[role.id] lookups (role.id is a number) actually hit.
+      const raw = unwrapPortalResult<{ permissions: Record<string, Record<string, PagePerms>> }>(
+        router,
+        result,
+      ).permissions;
+      return Object.fromEntries(
+        Object.entries(raw).map(([roleId, pages]) => [Number(roleId), pages]),
+      ) as Matrix;
+    },
+  });
+
+  // Local, optimistically-updated copy of the matrix -- re-synced from the
+  // query result every time a fresh fetch lands (tracked via a "last seen"
+  // reference check during render, not an effect), while handleToggle's own
+  // optimistic set + rollback-on-failure works directly against it in
+  // between fetches.
+  const [matrix, setMatrix] = useState<Matrix | null>(null);
+  const [lastMatrixData, setLastMatrixData] = useState<Matrix | undefined>(undefined);
+  if (matrixData && matrixData !== lastMatrixData) {
+    setLastMatrixData(matrixData);
+    setMatrix(matrixData);
+  }
+
   // Tracks the single cell currently in flight, e.g. "3:staff:write", so
   // only that checkbox shows a pending state while its PUT resolves.
   const [savingCell, setSavingCell] = useState<string | null>(null);
 
-  const loadRoles = useCallback(async (): Promise<Role[]> => {
-    const result = await staffFetch("/api/portal/roles");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return [];
-    }
-    const fetched = (result.data as { roles: Role[] }).roles;
-    setRoles(fetched);
-    return fetched;
-  }, [router]);
-
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/roles/permissions");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    // JSON object keys are always strings -- re-cast back to number so
-    // matrix[role.id] lookups (role.id is a number) actually hit.
-    const raw = (result.data as { permissions: Record<string, Record<string, PagePerms>> })
-      .permissions;
-    setMatrix(
-      Object.fromEntries(Object.entries(raw).map(([roleId, pages]) => [Number(roleId), pages])),
-    );
-  }, [router]);
-
-  useEffect(() => {
-    if (canView) {
-      load();
-      loadRoles();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canView, load, loadRoles]);
+  const toggleMutation = useMutation({
+    mutationFn: async (payload: {
+      role_id: number;
+      page_key: string;
+      can_view: boolean;
+      can_write: boolean;
+      can_delete: boolean;
+    }) => {
+      const result = await staffFetch("/api/portal/roles/permissions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // Backend contract (portal/routes/roles.py's PermissionsUpdatePayload)
+        // is a batch of updates, even for a single-cell toggle like this one --
+        // an earlier version of this call sent the fields flat/unwrapped,
+        // which parsed fine (Pydantic ignores unknown fields) but always hit
+        // the route's "no updates provided" 400, since `updates` defaulted to
+        // an empty list.
+        body: JSON.stringify({ updates: [payload] }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   async function handleToggle(roleId: number, pageKey: string, action: Action, next: boolean) {
     if (!matrix) return;
@@ -92,41 +121,42 @@ export function usePortalRoles(canView: boolean) {
     const nextCell = { ...prevCell, [action]: next };
     setMatrix({ ...matrix, [roleId]: { ...matrix[roleId], [pageKey]: nextCell } });
     setSavingCell(cellKey);
-    const result = await staffFetch("/api/portal/roles/permissions", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      // Backend contract (portal/routes/roles.py's PermissionsUpdatePayload)
-      // is a batch of updates, even for a single-cell toggle like this one --
-      // an earlier version of this call sent the fields flat/unwrapped,
-      // which parsed fine (Pydantic ignores unknown fields) but always hit
-      // the route's "no updates provided" 400, since `updates` defaulted to
-      // an empty list.
-      body: JSON.stringify({
-        updates: [
-          {
-            role_id: roleId,
-            page_key: pageKey,
-            can_view: nextCell.view,
-            can_write: nextCell.write,
-            can_delete: nextCell.delete,
-          },
-        ],
-      }),
-    });
-    setSavingCell(null);
-    if (!result.ok) {
+    try {
+      await toggleMutation.mutateAsync({
+        role_id: roleId,
+        page_key: pageKey,
+        can_view: nextCell.view,
+        can_write: nextCell.write,
+        can_delete: nextCell.delete,
+      });
+    } catch (err) {
       // Roll back on failure -- optimistic update kept the UI responsive
       // (this can be a lot of clicking through a wide grid) but must not
       // silently drift from what the backend actually has stored.
       setMatrix({ ...matrix, [roleId]: { ...matrix[roleId], [pageKey]: prevCell } });
-      if (result.unauthorized) {
-        router.push("/portal/login");
-      } else {
-        setError(result.error);
-        toast.error("Couldn't update permission", result.error);
+      if (isPortalMutationError(err)) {
+        setError(err.message);
+        toast.error("Couldn't update permission", err.message);
       }
+    } finally {
+      setSavingCell(null);
     }
   }
+
+  const createRoleMutation = useMutation({
+    mutationFn: async (payload: {
+      name: string;
+      description: string;
+      clone_from_role_id: number | null;
+    }) => {
+      const result = await staffFetch("/api/portal/roles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   /** Add Role modal's submit -- optionally cloning an existing role's
    * actual current permissions (not factory defaults) as a starting point;
@@ -138,19 +168,36 @@ export function usePortalRoles(canView: boolean) {
     description: string,
     cloneFromRoleId: number | null,
   ): Promise<string | null> {
-    const result = await staffFetch("/api/portal/roles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description, clone_from_role_id: cloneFromRoleId }),
-    });
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      return result.unauthorized ? null : result.error;
+    try {
+      await createRoleMutation.mutateAsync({
+        name,
+        description,
+        clone_from_role_id: cloneFromRoleId,
+      });
+      await refetchRoles();
+      await refetchMatrix();
+      return null;
+    } catch (err) {
+      return isPortalMutationError(err) ? err.message : null;
     }
-    await loadRoles();
-    await load();
-    return null;
   }
+
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({
+      roleId,
+      updates,
+    }: {
+      roleId: number;
+      updates: { name?: string; description?: string };
+    }) => {
+      const result = await staffFetch(`/api/portal/roles/${roleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   /** Rename/edit-description for an existing role -- partial update, only
    * the fields actually changed need to be passed. */
@@ -158,46 +205,65 @@ export function usePortalRoles(canView: boolean) {
     roleId: number,
     updates: { name?: string; description?: string },
   ): Promise<string | null> {
-    const result = await staffFetch(`/api/portal/roles/${roleId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    });
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      return result.unauthorized ? null : result.error;
+    try {
+      await updateRoleMutation.mutateAsync({ roleId, updates });
+      await refetchRoles();
+      return null;
+    } catch (err) {
+      return isPortalMutationError(err) ? err.message : null;
     }
-    await loadRoles();
-    return null;
   }
+
+  const deleteRoleMutation = useMutation({
+    mutationFn: async (roleId: number) => {
+      const result = await staffFetch(`/api/portal/roles/${roleId}`, { method: "DELETE" });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
 
   /** Blocked server-side (400) if this role is reserved (the Admin role) or
    * has active staff assigned -- the error message names the specific
    * reason/count. */
   async function deleteRole(roleId: number): Promise<string | null> {
-    const result = await staffFetch(`/api/portal/roles/${roleId}`, { method: "DELETE" });
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      return result.unauthorized ? null : result.error;
+    try {
+      await deleteRoleMutation.mutateAsync(roleId);
+      await refetchRoles();
+      return null;
+    } catch (err) {
+      return isPortalMutationError(err) ? err.message : null;
     }
-    await loadRoles();
-    return null;
   }
 
   /** "Users on this role" panel's own data source (opened lazily from the
    * per-role permissions Dialog, not prefetched for every role up front). */
-  const loadRoleUsers = useCallback(
-    async (roleId: number): Promise<RoleUser[]> => {
-      const result = await staffFetch(`/api/portal/roles/${roleId}/users`);
-      if (!result.ok) {
-        if (result.unauthorized) router.push("/portal/login");
-        else setError(result.error);
-        return [];
-      }
-      return (result.data as { users: RoleUser[] }).users;
+  async function loadRoleUsers(roleId: number): Promise<RoleUser[]> {
+    const result = await staffFetch(`/api/portal/roles/${roleId}/users`);
+    if (!result.ok) {
+      if (result.unauthorized) router.push("/portal/login");
+      else setError(result.error);
+      return [];
+    }
+    return (result.data as { users: RoleUser[] }).users;
+  }
+
+  const updateStaffOverrideMutation = useMutation({
+    mutationFn: async ({
+      staffId,
+      pageKey,
+      next,
+    }: {
+      staffId: number;
+      pageKey: string;
+      next: OverrideCell;
+    }) => {
+      const result = await staffFetch(`/api/portal/staff/${staffId}/permissions`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: [{ page_key: pageKey, ...next }] }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
     },
-    [router],
-  );
+  });
 
   /** Sets/clears one staff member's own override for one page -- `next` is
    * that page's FULL {view,write,delete} cell (each true/false/null), not
@@ -210,21 +276,17 @@ export function usePortalRoles(canView: boolean) {
     pageKey: string,
     next: OverrideCell,
   ): Promise<string | null> {
-    const result = await staffFetch(`/api/portal/staff/${staffId}/permissions`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ updates: [{ page_key: pageKey, ...next }] }),
-    });
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      return result.unauthorized ? null : result.error;
+    try {
+      await updateStaffOverrideMutation.mutateAsync({ staffId, pageKey, next });
+      return null;
+    } catch (err) {
+      return isPortalMutationError(err) ? err.message : null;
     }
-    return null;
   }
 
   return {
     roles,
-    loadRoles,
+    loadRoles: refetchRoles,
     matrix,
     error,
     savingCell,

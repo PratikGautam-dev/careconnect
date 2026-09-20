@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import type { DetailData } from "@/hooks/usePatientDetail";
 
@@ -9,26 +9,16 @@ import type { DetailData } from "@/hooks/usePatientDetail";
  * larger edit/upload/follow-up surface. Mutating any of it still happens on
  * the full record page, one click away from the panel. */
 export function usePatientSummary(patientId: number | null) {
-  const [data, setData] = useState<DetailData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { data, isFetching } = useQuery({
+    queryKey: ["portal-patient-summary", patientId],
+    enabled: patientId != null,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}`);
+      if (!result.ok) return null;
+      return result.data as DetailData;
+    },
+  });
 
-  useEffect(() => {
-    if (patientId == null) {
-      setData(null);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setData(null);
-    portalFetch(`/api/portal/patients/${patientId}`).then((result) => {
-      if (cancelled) return;
-      setLoading(false);
-      if (result.ok) setData(result.data as DetailData);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [patientId]);
-
-  return { data, loading };
+  return { data: data ?? null, loading: isFetching };
 }

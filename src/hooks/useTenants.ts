@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
+import { unwrapAdminResult } from "@/lib/adminMutation";
 
 export type Tenant = {
   id: number;
@@ -12,31 +13,37 @@ export type Tenant = {
 export type StalledSignup = { id: number; email: string; name: string | null; created_at: string };
 
 /** Loads the /admin/tenants overview's two lists: every tenant, and every
- * Google account that signed in but never finished onboarding. */
+ * Google account that signed in but never finished onboarding. The
+ * stalled-signups fetch is best-effort -- its own failure doesn't blank the
+ * (more important) tenants list, so it's a second, independent query rather
+ * than bundled into the first's queryFn. */
 export function useTenants() {
-  const [tenants, setTenants] = useState<Tenant[] | null>(null);
-  const [stalledSignups, setStalledSignups] = useState<StalledSignup[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: tenants,
+    error: tenantsError,
+    refetch,
+  } = useQuery({
+    queryKey: ["admin-tenants"],
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch("/api/admin/tenants");
+      return unwrapAdminResult<{ tenants: Tenant[] }>(result).tenants;
+    },
+  });
 
-  const load = useCallback(async () => {
-    const result = await adminFetch("/api/admin/tenants");
-    if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — refresh to sign in again." : result.error);
-      return;
-    }
-    setTenants((result.data as { tenants: Tenant[] }).tenants);
+  const { data: stalledSignups } = useQuery({
+    queryKey: ["admin-stalled-signups"],
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch("/api/admin/stalled-signups");
+      return unwrapAdminResult<{ users: StalledSignup[] }>(result).users;
+    },
+  });
 
-    // Who's signed in with Google but never finished onboarding -- a
-    // separate, non-fatal fetch, since the main tenants list matters more.
-    const signupsResult = await adminFetch("/api/admin/stalled-signups");
-    if (signupsResult.ok) {
-      setStalledSignups((signupsResult.data as { users: StalledSignup[] }).users);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { tenants, stalledSignups, error };
+  return {
+    tenants: tenants ?? null,
+    stalledSignups: stalledSignups ?? null,
+    error: tenantsError ? (tenantsError as Error).message : null,
+    load: refetch,
+  };
 }

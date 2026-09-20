@@ -24,7 +24,9 @@ import { usePermission } from "@/lib/staffAuth";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { useAttendanceOverview } from "@/hooks/useAttendanceOverview";
 import { useDepartments } from "@/hooks/useDepartments";
-import { useStaffManagement } from "@/hooks/useStaffManagement";
+import { useResetStaffPassword, useStaff, useToggleStaffActive } from "@/hooks/useStaff";
+import { isPortalMutationError } from "@/lib/portalMutation";
+import { toast } from "@/lib/toast";
 import { createStaffColumns, type StaffRow } from "./_components/staff-columns";
 import { StaffDetailPanel } from "./_components/StaffDetailPanel";
 
@@ -43,23 +45,59 @@ export default function StaffManagementPage() {
   const departments = useDepartments(ready && canView);
   const { records: attendanceToday } = useAttendanceOverview(ready && canViewAttendance);
 
-  const {
-    staff,
-    error,
-    togglingId,
-    load,
-    handleToggleActive,
-    resetPasswordTarget,
-    newPassword,
-    setNewPassword,
-    confirmPassword,
-    setConfirmPassword,
-    resetErrors,
-    resetting,
-    openResetPassword,
-    closeResetPassword,
-    handleResetPassword,
-  } = useStaffManagement(canView);
+  const { staff, error, load } = useStaff(canView);
+  const toggleStaffActive = useToggleStaffActive();
+  const resetStaffPassword = useResetStaffPassword();
+
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<StaffRow | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetErrors, setResetErrors] = useState<string[]>([]);
+
+  async function handleToggleActive(member: StaffRow) {
+    setTogglingId(member.id);
+    try {
+      await toggleStaffActive.mutateAsync({ staffId: member.id, isActive: !member.is_active });
+      toast.success(member.is_active ? "Staff member deactivated" : "Staff member activated");
+      load();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't update staff member", err.message);
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  function openResetPassword(member: StaffRow) {
+    setResetPasswordTarget(member);
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetErrors([]);
+  }
+
+  function closeResetPassword() {
+    setResetPasswordTarget(null);
+  }
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetPasswordTarget) return;
+    setResetErrors([]);
+    try {
+      await resetStaffPassword.mutateAsync({
+        staffId: resetPasswordTarget.id,
+        newPassword,
+        confirmPassword,
+      });
+      toast.success(`Password reset for ${resetPasswordTarget.name}`);
+      setResetPasswordTarget(null);
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setResetErrors([err.message]);
+        toast.error("Couldn't reset password", err.message);
+      }
+    }
+  }
 
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffRow | null>(null);
@@ -329,15 +367,15 @@ export default function StaffManagementPage() {
               </ul>
             )}
             <div className="gap-space-2 flex">
-              <Button type="submit" disabled={resetting} size="md">
-                {resetting ? "Resetting…" : "Reset password"}
+              <Button type="submit" disabled={resetStaffPassword.isPending} size="md">
+                {resetStaffPassword.isPending ? "Resetting…" : "Reset password"}
               </Button>
               <Button
                 type="button"
                 variant="secondary"
                 size="md"
                 onClick={closeResetPassword}
-                disabled={resetting}
+                disabled={resetStaffPassword.isPending}
               >
                 Cancel
               </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -21,7 +21,11 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
-import { DoctorScheduleForm } from "@/components/portal/DoctorScheduleForm";
+import {
+  DoctorScheduleForm,
+  emptyDoctorScheduleForm,
+  type DoctorScheduleFormState,
+} from "@/components/portal/DoctorScheduleForm";
 import { DoctorCsvImport } from "@/components/portal/DoctorCsvImport";
 import { AddStaffDialog } from "@/components/portal/AddStaffDialog";
 import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
@@ -30,12 +34,28 @@ import { ResetDoctorPasswordDialog } from "@/components/portal/ResetDoctorPasswo
 import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
 import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
 import { usePermission } from "@/lib/staffAuth";
-import { type Doctor, useDoctors } from "@/hooks/useDoctors";
+import { isPortalMutationError } from "@/lib/portalMutation";
+import { toast } from "@/lib/toast";
+import {
+  type Doctor,
+  type DoctorPayload,
+  useCreateDoctor,
+  useDoctor,
+  useDoctors,
+  useToggleDoctorActive,
+  useUpdateDoctor,
+} from "@/hooks/useDoctors";
 import { createDoctorColumns } from "./_components/doctors-columns";
 import { DoctorDetailPanel } from "./_components/DoctorDetailPanel";
 
 export default function PortalDoctorsPage() {
   const { hospital, ready } = usePortalGuard();
+  const { departments, doctors, onLeaveTodayCount, error, load } = useDoctors(ready);
+  const { fetchDoctor } = useDoctor();
+  const createDoctor = useCreateDoctor();
+  const updateDoctor = useUpdateDoctor();
+  const toggleDoctorActive = useToggleDoctorActive();
+
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
   const [createLoginFor, setCreateLoginFor] = useState<Doctor | null>(null);
   const [runningLateFor, setRunningLateFor] = useState<Doctor | null>(null);
@@ -51,32 +71,33 @@ export default function PortalDoctorsPage() {
   // don't hit an error after filling out a form. Fails open (keeps the
   // controls) while hospital hasn't loaded yet, matching PortalSidebar.
   const canManageDoctors = !hospital || hospital.admin_capabilities?.includes("manage_doctors");
-  const {
-    departments,
-    doctors,
-    onLeaveTodayCount,
-    error,
-    load,
-    showDoctorForm,
-    showCsvImport,
-    doctorForm,
-    setDoctorForm,
-    doctorErrors,
-    savingDoctor,
-    editingDoctorId,
-    openAddDoctorForm,
-    toggleCsvImport,
-    cancelDoctorForm,
-    handleSaveDoctor,
-    handleEditDoctor,
-    handleToggleActive,
-    togglingId,
-    searchQuery,
-    setSearchQuery,
-    activeFilter,
-    setActiveFilter,
-    filteredDoctors,
-  } = useDoctors(ready);
+
+  const [showDoctorForm, setShowDoctorForm] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const [doctorForm, setDoctorForm] = useState<DoctorScheduleFormState>(emptyDoctorScheduleForm());
+  const [doctorErrors, setDoctorErrors] = useState<string[]>([]);
+  // Reuses the same DoctorScheduleForm the "Add doctor" flow uses --
+  // editingDoctorId non-null is what distinguishes "save" meaning POST
+  // /api/portal/doctors (create) vs POST /api/portal/doctors/{id} (update).
+  const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
+
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Search (name/specialization) + active/inactive filter, computed
+  // client-side -- a hospital's own doctor list is small enough that a
+  // server round trip per keystroke isn't needed.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+
+  const filteredDoctors = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return doctors.filter((d) => {
+      if (activeFilter === "active" && !d.is_active) return false;
+      if (activeFilter === "inactive" && d.is_active) return false;
+      if (!q) return true;
+      return d.name.toLowerCase().includes(q) || (d.specialization || "").toLowerCase().includes(q);
+    });
+  }, [doctors, searchQuery, activeFilter]);
 
   const selectedDoctor: Doctor | null =
     doctors.find((d) => d.id === selectedDoctorId) || filteredDoctors[0] || null;
@@ -84,6 +105,144 @@ export default function PortalDoctorsPage() {
 
   function selectDoctor(doc: Doctor) {
     setSelectedDoctorId(doc.id);
+  }
+
+  function openAddDoctorForm() {
+    setShowDoctorForm(true);
+    setShowCsvImport(false);
+    setDoctorForm(emptyDoctorScheduleForm());
+    setDoctorErrors([]);
+    setEditingDoctorId(null);
+  }
+
+  function toggleCsvImport() {
+    setShowCsvImport((v) => !v);
+    setShowDoctorForm(false);
+  }
+
+  function cancelDoctorForm() {
+    setShowDoctorForm(false);
+    setEditingDoctorId(null);
+  }
+
+  async function handleSaveDoctor() {
+    const working_hours = doctorForm.shifts
+      .filter((s) => s.start && s.end)
+      .map((s) => `${s.start}-${s.end}`);
+    // Same "at least one working day and one complete shift" rule
+    // admin/validation.py's own doctor-field validator enforces server-side
+    // -- caught here first so the admin sees it immediately instead of
+    // after a round-trip.
+    if (doctorForm.working_days.length === 0) {
+      setDoctorErrors(["Choose at least one working day."]);
+      return;
+    }
+    if (working_hours.length === 0) {
+      setDoctorErrors(["Add at least one shift with both a start and end time."]);
+      return;
+    }
+    setDoctorErrors([]);
+    const breaks = doctorForm.breaks
+      .filter((b) => b && b.start && b.end)
+      .map((b) => `${b.start}-${b.end}`);
+    const payload: DoctorPayload = {
+      department_id: doctorForm.department_id,
+      name: doctorForm.name,
+      specialization: doctorForm.specialization,
+      qualification: doctorForm.qualification,
+      years_experience: doctorForm.years_experience,
+      working_days: doctorForm.working_days,
+      working_hours,
+      slot_duration_minutes: doctorForm.slot_duration_minutes,
+      breaks,
+      max_bookings_per_slot: doctorForm.max_bookings_per_slot,
+      daily_booking_limit: doctorForm.daily_booking_limit,
+      online_quota: doctorForm.online_quota,
+      walkin_quota: doctorForm.walkin_quota,
+      followup_duration_minutes: doctorForm.followup_duration_minutes,
+      effective_from: doctorForm.effective_from,
+      phone: doctorForm.phone,
+      location: doctorForm.location,
+    };
+
+    try {
+      const data = editingDoctorId
+        ? await updateDoctor.mutateAsync({ doctorId: editingDoctorId, payload })
+        : await createDoctor.mutateAsync(payload);
+      if (data.errors?.length) {
+        setDoctorErrors(data.errors);
+        toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", data.errors[0]);
+        return;
+      }
+      toast.success(editingDoctorId ? "Doctor updated" : "Doctor added");
+      setDoctorForm(emptyDoctorScheduleForm());
+      setShowDoctorForm(false);
+      setEditingDoctorId(null);
+      load();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setDoctorErrors([err.message]);
+        toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", err.message);
+      }
+    }
+  }
+
+  // Fetches the full record (working days/hours/breaks/quotas --
+  // get_all_doctors_for_hospital()'s list-page shape above doesn't carry
+  // these) and maps it into the same form shape "Add doctor" uses,
+  // splitting each stored "HH:MM-HH:MM" string back into a shift/break row.
+  async function handleEditDoctor(doc: Doctor) {
+    let full: Record<string, unknown>;
+    try {
+      full = await fetchDoctor(doc.id);
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't load doctor", err.message);
+      return;
+    }
+    const toRange = (s: string) => {
+      const [start, end] = s.split("-");
+      return { start: start || "", end: end || "" };
+    };
+    const shifts = ((full.working_hours as string[]) || []).map(toRange);
+    setDoctorForm({
+      department_id: (full.department_id as string) || "",
+      name: (full.name as string) || "",
+      specialization: (full.specialization as string) || "",
+      qualification: (full.qualification as string) || "",
+      years_experience: full.years_experience != null ? String(full.years_experience) : "",
+      working_days: (full.working_days as string[]) || [],
+      shifts: shifts.length > 0 ? shifts : [{ start: "", end: "" }],
+      breaks: ((full.breaks as string[]) || []).map(toRange),
+      slot_duration_minutes:
+        full.slot_duration_minutes != null ? String(full.slot_duration_minutes) : "",
+      max_bookings_per_slot:
+        full.max_bookings_per_slot != null ? String(full.max_bookings_per_slot) : "1",
+      daily_booking_limit: full.daily_booking_limit != null ? String(full.daily_booking_limit) : "",
+      online_quota: full.online_quota != null ? String(full.online_quota) : "",
+      walkin_quota: full.walkin_quota != null ? String(full.walkin_quota) : "",
+      followup_duration_minutes:
+        full.followup_duration_minutes != null ? String(full.followup_duration_minutes) : "",
+      effective_from: (full.effective_from as string) || "",
+      phone: (full.phone as string) || "",
+      location: (full.location as string) || "",
+    });
+    setEditingDoctorId(doc.id);
+    setDoctorErrors([]);
+    setShowCsvImport(false);
+    setShowDoctorForm(true);
+  }
+
+  async function handleToggleActive(doc: Doctor) {
+    setTogglingId(doc.id);
+    try {
+      await toggleDoctorActive.mutateAsync({ doctorId: doc.id, isActive: !doc.is_active });
+      toast.success(`${doc.name} marked ${doc.is_active ? "unavailable" : "available"}`);
+      load();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't update availability", err.message);
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   const columns = createDoctorColumns({
@@ -271,7 +430,7 @@ export default function PortalDoctorsPage() {
               onChange={setDoctorForm}
               onSave={handleSaveDoctor}
               onCancel={cancelDoctorForm}
-              saving={savingDoctor}
+              saving={createDoctor.isPending || updateDoctor.isPending}
               errors={doctorErrors}
             />
           )}

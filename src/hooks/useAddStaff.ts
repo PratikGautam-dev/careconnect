@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { staffFetch } from "@/lib/staffAuth";
-import { toast } from "@/lib/toast";
+import { useState } from "react";
 import { useDepartments } from "@/hooks/useDepartments";
-import type { Role } from "@/hooks/usePortalRoles";
+import { isPortalMutationError } from "@/lib/portalMutation";
+import { toast } from "@/lib/toast";
+import {
+  useCreateStaffMember,
+  useStaffOptions,
+  useStaffRoleOptions,
+  type CreateStaffPayload,
+} from "@/hooks/useStaff";
 import type { WorkingScheduleValue } from "@/components/portal/WorkingScheduleFields";
 import { addStaffSchema } from "@/lib/validation/addStaff";
 
 export type AddStaffFieldErrors = { name?: string; email?: string; password?: string };
 
 export type Doctor = { id: string; name: string };
-export type StaffOption = { id: number; name: string };
 
 const EMPTY_SCHEDULE: WorkingScheduleValue = {
   working_days: [],
@@ -45,10 +48,11 @@ export function useAddStaff(
   onCreated?: () => void,
   presetDoctor?: Doctor | null,
 ) {
-  const router = useRouter();
   const departments = useDepartments(open);
-  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const { staffOptions } = useStaffOptions(open);
+  const { roles } = useStaffRoleOptions(open);
+  const createStaffMember = useCreateStaffMember();
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,49 +65,33 @@ export function useAddStaff(
   const [reportsToId, setReportsToId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<AddStaffFieldErrors>({});
-  const [saving, setSaving] = useState(false);
 
-  const loadStaffOptions = useCallback(async () => {
-    // For the "Reports to" picker -- GET /api/portal/staff/options, not the
-    // Staff page's own GET /api/portal/staff (that one excludes doctors
-    // from its directory; this picker still needs to offer a doctor as a
-    // valid manager).
-    const result = await staffFetch("/api/portal/staff/options");
-    if (!result.ok) return;
-    setStaffOptions((result.data as StaffOption[]) || []);
-  }, []);
+  const [seededOpen, setSeededOpen] = useState(false);
+  const [roleDefaulted, setRoleDefaulted] = useState(false);
 
-  const loadRoles = useCallback(async (): Promise<Role[]> => {
-    const result = await staffFetch("/api/portal/roles");
-    if (!result.ok) return [];
-    const fetched = (result.data as { roles: Role[] }).roles;
-    setRoles(fetched);
-    return fetched;
-  }, []);
+  // roles arrives asynchronously (its own query, keyed off `open`) -- this
+  // picks a default the moment a role list actually becomes available,
+  // computed during render (not an effect) so it doesn't cost an extra
+  // render cycle each time. `roleDefaulted` guards it to exactly once per
+  // open, so a later manual pick in the dropdown is never clobbered once
+  // the (possibly slower) roles fetch resolves.
+  if (open && !roleDefaulted && roles.length > 0) {
+    setRoleDefaulted(true);
+    const defaultRole = presetDoctor
+      ? roles.find((r) => r.name.toLowerCase() === "doctor") || roles[0]
+      : roles[0];
+    setRoleId(defaultRole?.id ?? null);
+  }
 
-  useEffect(() => {
-    if (open) {
-      loadStaffOptions();
-      loadRoles().then((fetched) => {
-        // presetDoctor (Doctors page's "Create login" action): default to
-        // whichever role is actually named "Doctor" if this hospital still
-        // has one -- a convenience default only (the picker stays visible
-        // and editable, dynamic-roles migration removed any structural
-        // requirement that a doctor's login sit on a particular role), so
-        // this never silently lands a new doctor's login on the FIRST role
-        // in the list (which sorts Admin first, is_protected DESC).
-        const defaultRole = presetDoctor
-          ? fetched.find((r) => r.name.toLowerCase() === "doctor") || fetched[0]
-          : fetched[0];
-        setRoleId(defaultRole?.id ?? null);
-      });
-      if (presetDoctor) {
-        setDoctorId(presetDoctor.id);
-        setName(presetDoctor.name);
-      }
-      return;
+  if (open && !seededOpen) {
+    setSeededOpen(true);
+    if (presetDoctor) {
+      setDoctorId(presetDoctor.id);
+      setName(presetDoctor.name);
     }
-    // Closed -- drop everything so the next open starts fresh.
+  } else if (!open && seededOpen) {
+    setSeededOpen(false);
+    setRoleDefaulted(false);
     setName("");
     setEmail("");
     setPassword("");
@@ -116,7 +104,7 @@ export function useAddStaff(
     setReportsToId("");
     setFormError(null);
     setFieldErrors({});
-  }, [open, loadStaffOptions, loadRoles, presetDoctor]);
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -139,7 +127,6 @@ export function useAddStaff(
       setFormError("Choose a role.");
       return;
     }
-    setSaving(true);
     setFormError(null);
     const working_hours = schedule.shifts
       .filter((s) => s.start && s.end)
@@ -147,36 +134,31 @@ export function useAddStaff(
     const breaks = schedule.breaks
       .filter((b) => b && b.start && b.end)
       .map((b) => `${b.start}-${b.end}`);
-    const result = await staffFetch("/api/portal/staff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: parsed.data.name,
-        email: parsed.data.email,
-        password: parsed.data.password,
-        role_id: roleId,
-        doctor_id: doctorId || undefined,
-        phone: phone || undefined,
-        address: address || undefined,
-        department_id: !doctorId ? departmentId || undefined : undefined,
-        working_days: schedule.working_days,
-        working_hours,
-        breaks,
-        reports_to_id: reportsToId ? Number(reportsToId) : undefined,
-      }),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else {
-        setFormError(result.error);
-        toast.error("Couldn't create staff member", result.error);
+    const payload: CreateStaffPayload = {
+      name: parsed.data.name,
+      email: parsed.data.email,
+      password: parsed.data.password,
+      role_id: roleId,
+      doctor_id: doctorId || undefined,
+      phone: phone || undefined,
+      address: address || undefined,
+      department_id: !doctorId ? departmentId || undefined : undefined,
+      working_days: schedule.working_days,
+      working_hours,
+      breaks,
+      reports_to_id: reportsToId ? Number(reportsToId) : undefined,
+    };
+    try {
+      await createStaffMember.mutateAsync(payload);
+      toast.success("Staff member created");
+      onOpenChange(false);
+      onCreated?.();
+    } catch (err) {
+      if (isPortalMutationError(err)) {
+        setFormError(err.message);
+        toast.error("Couldn't create staff member", err.message);
       }
-      return;
     }
-    toast.success("Staff member created");
-    onOpenChange(false);
-    onCreated?.();
   }
 
   return {
@@ -204,7 +186,7 @@ export function useAddStaff(
     setReportsToId,
     formError,
     fieldErrors,
-    saving,
+    saving: createStaffMember.isPending,
     handleCreate,
   };
 }
