@@ -37,6 +37,10 @@ export type Settings = {
   followup_validity_days: number;
   followup_fee: number | "";
   new_consultation_fee: number | "";
+  // Same "" (unset) convention as followup_fee/new_consultation_fee above --
+  // tele-consultation and second-opinion booking types' own fees.
+  tele_consultation_fee: number | "";
+  second_opinion_fee: number | "";
   // Flat fee added to a home-collection Lab Test booking's price review,
   // same "" (unset) convention as the two fees above.
   home_collection_charge: number | "";
@@ -70,6 +74,8 @@ function normalizeSettings(
   data: Settings & {
     followup_fee: number | null;
     new_consultation_fee: number | null;
+    tele_consultation_fee: number | null;
+    second_opinion_fee: number | null;
     home_collection_charge: number | null;
     max_appointments_per_day: number | null;
   },
@@ -79,6 +85,8 @@ function normalizeSettings(
     ...data,
     followup_fee: data.followup_fee ?? "",
     new_consultation_fee: data.new_consultation_fee ?? "",
+    tele_consultation_fee: data.tele_consultation_fee ?? "",
+    second_opinion_fee: data.second_opinion_fee ?? "",
     home_collection_charge: data.home_collection_charge ?? "",
     max_appointments_per_day: data.max_appointments_per_day ?? "",
   };
@@ -102,6 +110,8 @@ export function usePortalSettings(ready: boolean) {
         Settings & {
           followup_fee: number | null;
           new_consultation_fee: number | null;
+          tele_consultation_fee: number | null;
+          second_opinion_fee: number | null;
           home_collection_charge: number | null;
           max_appointments_per_day: number | null;
         }

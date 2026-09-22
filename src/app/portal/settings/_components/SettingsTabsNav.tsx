@@ -7,6 +7,7 @@ export type SettingsTabKey =
   | "general"
   | "appointments"
   | "departments"
+  | "procedures"
   | "notifications"
   | "attendance";
 

@@ -325,6 +325,44 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
               />
             </Field>
             <Field
+              label="Tele-consultation Fee (₹)"
+              hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}
+            >
+              <Input
+                type="number"
+                min={0}
+                placeholder="No fee"
+                value={portalSettings?.tele_consultation_fee ?? ""}
+                onChange={(e) =>
+                  portalSettings &&
+                  setPortalSettings({
+                    ...portalSettings,
+                    tele_consultation_fee: e.target.value === "" ? "" : Number(e.target.value),
+                  })
+                }
+                disabled={!portalSettings}
+              />
+            </Field>
+            <Field
+              label="Second Opinion Fee (₹)"
+              hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}
+            >
+              <Input
+                type="number"
+                min={0}
+                placeholder="No fee"
+                value={portalSettings?.second_opinion_fee ?? ""}
+                onChange={(e) =>
+                  portalSettings &&
+                  setPortalSettings({
+                    ...portalSettings,
+                    second_opinion_fee: e.target.value === "" ? "" : Number(e.target.value),
+                  })
+                }
+                disabled={!portalSettings}
+              />
+            </Field>
+            <Field
               label="Home Sample Collection Charge (₹)"
               hint={
                 !portalSettings ? "Loading…" : "Added for home sample collection Lab Test bookings"
