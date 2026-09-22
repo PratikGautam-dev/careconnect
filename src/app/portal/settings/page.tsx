@@ -1,17 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, CalendarDays, Clock, Network, Settings as SettingsIcon, Stethoscope } from "lucide-react";
+import {
+  Bell,
+  CalendarDays,
+  Clock,
+  Network,
+  Settings as SettingsIcon,
+  Stethoscope,
+} from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
+import { ProceduresManager } from "@/components/portal/ProceduresManager";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { AppointmentsTab } from "./_components/AppointmentsTab";
 import { AttendanceSettingsTab } from "./_components/AttendanceSettingsTab";
 import { DepartmentsTab } from "./_components/DepartmentsTab";
 import { GeneralSettingsTab } from "./_components/GeneralSettingsTab";
 import { NotificationsTab } from "./_components/NotificationsTab";
-import { ProceduresTab } from "./_components/ProceduresTab";
 import {
   SettingsTabsNav,
   type SettingsTabDef,
@@ -39,8 +46,8 @@ const BUILT_TABS: SettingsTabKey[] = [
 /** /portal/settings. "General" now covers Hospital Information, Contact
  * Information, Security & Session Settings, Leave Policy, and Google
  * Calendar (a mix of real fields and a few frontend-mock-only ones) --
- * Appointment Settings, Follow-up & Fees, Appointment Types, Diagnostic
- * Tests, and Lab Service Areas moved to their own "Appointments" tab (see
+ * Appointment Settings, Fees & Follow-up Window, Appointment Types,
+ * Diagnostic Tests, and Lab Service Areas moved to their own "Appointments" tab (see
  * AppointmentsTab.tsx), since General had grown too many appointment-
  * related sections to stay legible. "Departments" and "Notifications" are
  * fully real -- see DepartmentsTab.tsx/useDepartmentsAdmin and
@@ -50,6 +57,9 @@ const BUILT_TABS: SettingsTabKey[] = [
 export default function PortalSettingsPage() {
   const { hospital, ready } = usePortalGuard();
   const [tab, setTab] = useState<SettingsTabKey>("general");
+  // !hospital means "still loading", not "no capabilities".
+  const canManageProcedures =
+    !hospital || hospital.admin_capabilities?.includes("manage_procedures");
 
   return (
     <PortalShell hospital={hospital} active="settings">
@@ -62,7 +72,7 @@ export default function PortalSettingsPage() {
           {tab === "general" && <GeneralSettingsTab hospital={hospital} />}
           {tab === "appointments" && <AppointmentsTab hospital={hospital} />}
           {tab === "departments" && <DepartmentsTab />}
-          {tab === "procedures" && <ProceduresTab hospital={hospital} />}
+          {tab === "procedures" && <ProceduresManager canManage={!!canManageProcedures} />}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "attendance" && <AttendanceSettingsTab />}
           {!BUILT_TABS.includes(tab) && (

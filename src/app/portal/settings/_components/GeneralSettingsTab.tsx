@@ -37,8 +37,8 @@ import { NumberSelect, SectionHeader, ToggleRow, withValue } from "./settings-ui
  * the Notifications tab -- it's hospital-identity content, not a
  * notification setting. Notification Preferences live on the
  * Notifications tab (see NotificationsTab.tsx). Appointment Settings,
- * Follow-up & Fees, Appointment Types, Diagnostic Tests, and Lab Service
- * Areas all moved to their own Appointments tab (see AppointmentsTab.tsx)
+ * Fees & Follow-up Window, Appointment Types, Diagnostic Tests, and Lab
+ * Service Areas all moved to their own Appointments tab (see AppointmentsTab.tsx)
  * -- General had grown five appointment-related sections crammed in
  * alongside Hospital Information/Contact/Security, confirmed messy with
  * the user. Leave Policy and Google Calendar stayed here since neither is

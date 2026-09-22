@@ -21,8 +21,8 @@ import { NumberSelect, SectionHeader, ToggleRow, withValue } from "./settings-ui
 /** Appointments tab of /portal/settings -- split out of General (which had
  * grown five appointment-related sections crammed in alongside Hospital
  * Information/Contact/Security, confirmed messy with the user). Everything
- * here is real, backend-wired: Appointment Settings and Follow-up & Fees
- * via usePortalSettings (this tab's own instance, same pattern
+ * here is real, backend-wired: Appointment Settings and Fees & Follow-up
+ * Window via usePortalSettings (this tab's own instance, same pattern
  * NotificationsTab/GeneralSettingsTab each use their own), Appointment
  * Types/Diagnostic Tests/Lab Service Areas each their own independent
  * manager gated by the relevant admin_capabilities. No local mock state at
@@ -255,12 +255,13 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
           <SectionHeader
             icon={Banknote}
             tint="success"
-            title="Follow-up & Fees"
-            subtitle="How long a Follow-up stays bookable after a visit, and the fees shown on booking confirmations"
+            title="Fees & Follow-up Window"
+            subtitle="Fees shown on booking confirmations for every appointment type, and how long a Follow-up stays bookable after a visit"
           />
           <p className="mb-space-3 text-ink-400 text-[12.5px]">
-            Leave a fee blank to omit that line entirely from the confirmation message, rather than
-            showing ₹0.
+            Leave a fee blank rather than showing ₹0: for Follow-up, that omits the fee line from
+            the confirmation message; for New Consultation, Tele-consultation, and Second Opinion,
+            that skips the Pay Now / Pay at Hospital payment step entirely.
           </p>
           <div className="gap-x-space-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
             <Field
@@ -307,7 +308,7 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
             </Field>
             <Field
               label="New Consultation Fee (₹)"
-              hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}
+              hint={!portalSettings ? "Loading…" : "Blank = no payment step shown"}
             >
               <Input
                 type="number"
@@ -326,7 +327,7 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
             </Field>
             <Field
               label="Tele-consultation Fee (₹)"
-              hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}
+              hint={!portalSettings ? "Loading…" : "Blank = no payment step shown"}
             >
               <Input
                 type="number"
@@ -345,7 +346,7 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
             </Field>
             <Field
               label="Second Opinion Fee (₹)"
-              hint={!portalSettings ? "Loading…" : "Not shown to patients yet"}
+              hint={!portalSettings ? "Loading…" : "Blank = no payment step shown"}
             >
               <Input
                 type="number"
