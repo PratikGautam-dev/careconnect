@@ -27,6 +27,7 @@ import {
   type AttendanceOverviewRow,
 } from "@/hooks/useAttendanceOverview";
 import { AVATAR_TINTS, initials, type StaffRow } from "./staff-columns";
+import { Badge } from "@/components/ui/Badge";
 
 function DetailRow({
   icon: Icon,
@@ -45,10 +46,6 @@ function DetailRow({
       <span className="text-ink-900 truncate text-right font-medium">{value}</span>
     </div>
   );
-}
-
-function staffDisplayId(id: number): string {
-  return `ST${String(id).padStart(3, "0")}`;
 }
 
 type Props = {
@@ -136,34 +133,42 @@ export function StaffDetailPanel({
 
   return (
     <Card className="p-space-4">
-      <div className="mb-space-3 flex flex-col items-center text-center">
+      <div className="mb-space-3 gap-space-3 flex items-center">
         <span
           className={cn(
-            "mb-space-2 flex h-16 w-16 items-center justify-center rounded-full text-[20px] font-bold",
+            "flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-[20px] font-bold",
             AVATAR_TINTS[index % AVATAR_TINTS.length],
           )}
         >
           {initials(staff.name)}
         </span>
-        <p className="text-ink-900 text-[15px] font-bold">{staff.name}</p>
-        <p className="text-ink-400 text-[12px]">Staff ID: {staffDisplayId(staff.id)}</p>
-        <p className="text-ink-400 text-[12px]">
-          {staff.role_name} · {staff.department_name || "No department set"}
-        </p>
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <p className="text-ink-900 truncate text-[15px] font-bold">{staff.name}</p>
+          <p className="text-ink-600 truncate text-[12.5px]">
+            Role : <span className="font-bold">{staff.role_name}</span>
+          </p>
+          <span
+            className={cn(
+              "px-space-2 w-fit shrink-0 rounded-full py-0.5 text-[11px] font-semibold",
+              staff.is_active ? "bg-success-tint text-success" : "text-ink-600 bg-black/4",
+            )}
+          >
+            {staff.is_active ? "Active" : "Inactive"}
+          </span>
+        </div>
       </div>
 
       <div className="space-y-space-2 border-line pt-space-3 border-t">
+        <DetailRow icon={IdCard} label="Employee ID" value={staff.employee_id || "—"} />
+        <DetailRow icon={Building2} label="Department" value={staff.department_name || ""} />
         <DetailRow icon={Mail} label="Email" value={staff.email} />
         <DetailRow icon={Phone} label="Phone" value={staff.phone || "—"} />
-        <DetailRow icon={MapPin} label="Location" value={staff.address || "—"} />
+        <DetailRow icon={MapPin} label="Address" value={staff.address || "—"} />
         <DetailRow
           icon={Calendar}
           label="Joined"
           value={staff.created_at ? formatDate(staff.created_at) : "—"}
         />
-        {/* Employee ID auto-numbering feature -- "—" for a doctor-role row,
-            whose employee id lives on its linked doctors row instead. */}
-        <DetailRow icon={IdCard} label="Employee ID" value={staff.employee_id || "—"} />
       </div>
 
       {/* Uniform 2x2 tile grid: Shift hours/Today's attendance/Reports to/
@@ -232,10 +237,6 @@ export function StaffDetailPanel({
           )}
         </div>
       </div>
-
-      <p className="text-hint mt-space-2">
-        Leave balance is real (Leave Requests page, Settings &gt; Leave policy).
-      </p>
 
       <div className="mt-space-4 border-line pt-space-3 border-t">
         <p className="text-label mb-space-2 text-ink-900 font-bold">Quick Actions</p>

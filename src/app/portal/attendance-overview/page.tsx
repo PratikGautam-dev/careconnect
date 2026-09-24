@@ -7,7 +7,6 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import {
@@ -119,7 +118,6 @@ export default function AttendanceOverviewPage() {
       <PageHeader
         title="Attendance Overview"
         description={formatHeaderDate(new Date())}
-        actions={<PortalTopBarActions />}
       />
 
       {!ready || !canView ? (

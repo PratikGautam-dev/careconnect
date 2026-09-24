@@ -15,7 +15,6 @@ import { EditStaffDialog } from "@/components/portal/EditStaffDialog";
 import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
 import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
 import { StatTile } from "@/components/portal/StatTile";
@@ -161,7 +160,6 @@ export default function StaffManagementPage() {
       <PageHeader
         title="Staff"
         description={formatHeaderDate(today)}
-        actions={<PortalTopBarActions />}
       />
 
       {!ready || !canView ? (

@@ -239,6 +239,10 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setSavingConsent(consentType);
     try {
       await setConsentMutation.mutateAsync({ consentType, agreed });
+      // DPDP and Privacy Policy are linked -- when DPDP changes, also update Privacy Policy
+      if (consentType === "dpdp") {
+        await setConsentMutation.mutateAsync({ consentType: "privacy_policy", agreed });
+      }
       toast.success(`${CONSENT_LABELS[consentType]} consent updated`);
       refetch();
     } catch (err) {

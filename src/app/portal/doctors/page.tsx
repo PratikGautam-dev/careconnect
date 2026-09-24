@@ -18,7 +18,6 @@ import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import {
@@ -118,6 +117,10 @@ export default function PortalDoctorsPage() {
   function toggleCsvImport() {
     setShowCsvImport((v) => !v);
     setShowDoctorForm(false);
+  }
+
+  function closeCsvImport() {
+    setShowCsvImport(false);
   }
 
   function cancelDoctorForm() {
@@ -266,7 +269,6 @@ export default function PortalDoctorsPage() {
                 </Button>
               </>
             )}
-            <PortalTopBarActions />
           </>
         }
       />
@@ -330,15 +332,7 @@ export default function PortalDoctorsPage() {
             </Card>
           )}
 
-          {showCsvImport && (
-            <div className="mb-space-4">
-              <DoctorCsvImport
-                onImported={() => {
-                  load();
-                }}
-              />
-            </div>
-          )}
+          
 
           <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">
@@ -434,6 +428,23 @@ export default function PortalDoctorsPage() {
               errors={doctorErrors}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showCsvImport}
+        onOpenChange={(open) => {
+          if (!open) closeCsvImport();
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogTitle>Bulk import from CSV</DialogTitle>
+          <DoctorCsvImport
+            onImported={() => {
+              load();
+              closeCsvImport();
+            }}
+          />
         </DialogContent>
       </Dialog>
 

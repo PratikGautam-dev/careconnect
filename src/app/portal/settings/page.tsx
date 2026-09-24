@@ -7,12 +7,10 @@ import {
   Clock,
   Network,
   Settings as SettingsIcon,
-  Stethoscope,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { ProceduresManager } from "@/components/portal/ProceduresManager";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { AppointmentsTab } from "./_components/AppointmentsTab";
 import { AttendanceSettingsTab } from "./_components/AttendanceSettingsTab";
@@ -29,7 +27,7 @@ const TABS: SettingsTabDef[] = [
   { key: "general", label: "General", icon: SettingsIcon },
   { key: "appointments", label: "Appointments", icon: CalendarDays },
   { key: "departments", label: "Departments", icon: Network },
-  { key: "procedures", label: "Procedures", icon: Stethoscope },
+  // { key: "procedures", label: "Procedures", icon: Stethoscope },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "attendance", label: "Attendance", icon: Clock },
 ];
@@ -38,7 +36,7 @@ const BUILT_TABS: SettingsTabKey[] = [
   "general",
   "appointments",
   "departments",
-  "procedures",
+  // "procedures",
   "notifications",
   "attendance",
 ];
@@ -58,8 +56,8 @@ export default function PortalSettingsPage() {
   const { hospital, ready } = usePortalGuard();
   const [tab, setTab] = useState<SettingsTabKey>("general");
   // !hospital means "still loading", not "no capabilities".
-  const canManageProcedures =
-    !hospital || hospital.admin_capabilities?.includes("manage_procedures");
+  // const canManageProcedures =
+  //   !hospital || hospital.admin_capabilities?.includes("manage_procedures");
 
   return (
     <PortalShell hospital={hospital} active="settings">
@@ -72,7 +70,7 @@ export default function PortalSettingsPage() {
           {tab === "general" && <GeneralSettingsTab hospital={hospital} />}
           {tab === "appointments" && <AppointmentsTab hospital={hospital} />}
           {tab === "departments" && <DepartmentsTab />}
-          {tab === "procedures" && <ProceduresManager canManage={!!canManageProcedures} />}
+          {/* {tab === "procedures" && <ProceduresManager canManage={!!canManageProcedures} />} */}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "attendance" && <AttendanceSettingsTab />}
           {!BUILT_TABS.includes(tab) && (

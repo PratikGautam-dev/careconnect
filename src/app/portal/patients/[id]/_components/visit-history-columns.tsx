@@ -168,7 +168,7 @@ export function createVisitHistoryColumns({
                 onClick={() => (followupPanelId === v.id ? onCloseFollowup() : onOpenFollowup(v))}
                 className="text-brand-600 text-[11.5px] font-semibold hover:underline"
               >
-                {followupPanelId === v.id ? "Close" : "Follow-up…"}
+                {followupPanelId === v.id ? "Close" : "Follow-up"}
               </button>
             </PermissionGate>
           </div>

@@ -148,7 +148,7 @@ export function DepartmentDetailsPanel({
         </h4>
         <ToggleRow
           label="Show Department"
-          subtitle="Controls whether patients see and can book this department on WhatsApp"
+          subtitle="Controls whether patients can book this department on WhatsApp"
           checked={department.show_on_frontend && department.whatsapp_booking_enabled}
           onChange={() => onVisibilityChange(department)}
           disabled={visibilitySaving}

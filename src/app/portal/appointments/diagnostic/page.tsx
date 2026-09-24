@@ -23,7 +23,6 @@ import { FilterActions } from "@/components/portal/FilterActions";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { NewTestBookingDialog } from "@/components/portal/NewTestBookingDialog";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
@@ -353,7 +352,6 @@ export default function PortalDiagnosticAppointmentsPage() {
       <PageHeader
         title="Diagnostic & lab test appointments"
         description={formatHeaderDate(today)}
-        actions={<PortalTopBarActions />}
       />
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}

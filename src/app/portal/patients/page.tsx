@@ -10,7 +10,6 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
@@ -86,7 +85,6 @@ export default function PortalPatientsPage() {
       <PageHeader
         title="Patients"
         description={formatHeaderDate(today)}
-        actions={<PortalTopBarActions />}
       />
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 

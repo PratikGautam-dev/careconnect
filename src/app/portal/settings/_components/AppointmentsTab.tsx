@@ -9,6 +9,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
 import { DiagnosticTestsManager } from "@/components/portal/DiagnosticTestsManager";
 import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
+import { ProceduresManager } from "@/components/portal/ProceduresManager";
 import { usePortalSettings } from "@/hooks/usePortalSettings";
 import type { PortalHospital } from "@/lib/portalAuth";
 import {
@@ -34,6 +35,8 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
     !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
   const canManageTests =
     !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_resources");
+  const canManageProcedures =
+    !hospital || hospital.admin_capabilities?.includes("manage_procedures");
 
   // `true` here (not a `ready` prop) is safe: AppointmentsTab only ever
   // mounts once PortalSettingsPage's own usePortalGuard is already ready.
@@ -445,6 +448,12 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
             Home Collection.
           </p>
           <LabServiceAreasManager canManage={!!canManageAppointmentTypes} />
+        </Card>
+      )}
+
+      {canManageProcedures && (
+        <Card className="p-space-4">
+          <ProceduresManager canManage={!!canManageProcedures} />
         </Card>
       )}
     </div>

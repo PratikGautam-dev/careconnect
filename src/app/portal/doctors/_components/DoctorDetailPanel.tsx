@@ -2,6 +2,7 @@
 
 import {
   Building2,
+  Calendar,
   CalendarCheck,
   CalendarClock,
   CalendarDays,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/cn";
 import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
 import type { Doctor } from "@/hooks/useDoctors";
 import { AVATAR_TINTS } from "./doctors-columns";
+import { formatDate } from "@/lib/formatDate";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -136,7 +138,13 @@ export function DoctorDetailPanel({
       ? [{ label: "Manage leave", icon: CalendarClock, onClick: () => onManageLeave(doctor) }]
       : []),
     ...(canViewAttendance && doctor.login_staff_id
-      ? [{ label: "Attendance history", icon: History, onClick: () => onViewAttendanceHistory(doctor) }]
+      ? [
+          {
+            label: "Attendance history",
+            icon: History,
+            onClick: () => onViewAttendanceHistory(doctor),
+          },
+        ]
       : []),
     ...(canViewLeaveHistory && doctor.login_staff_id
       ? [{ label: "Leave history", icon: CalendarDays, onClick: () => onViewLeaveHistory(doctor) }]
@@ -145,35 +153,38 @@ export function DoctorDetailPanel({
 
   return (
     <Card className="p-space-4">
-      <div className="mb-space-4 flex flex-col items-center text-center">
+      <div className="mb-space-4 gap-space-3 flex items-center">
         <span
           className={cn(
-            "mb-space-2 flex h-16 w-16 items-center justify-center rounded-full text-[20px] font-bold",
+            "flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-[20px] font-bold",
             AVATAR_TINTS[index % AVATAR_TINTS.length],
           )}
         >
           {initials(doctor.name)}
         </span>
-        <span
-          className={cn(
-            "mb-space-1 px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
-            doctor.is_active ? "bg-success-tint text-success" : "text-ink-600 bg-black/4",
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <div className="gap-space-2 flex flex-wrap items-baseline">
+            <p className="text-ink-900 truncate text-[15px] font-bold">{doctor.name}</p>
+            <span
+              className={cn(
+                "px-space-2 shrink-0 rounded-full py-0.5 text-[11px] font-semibold",
+                doctor.is_active ? "bg-success-tint text-success" : "text-ink-600 bg-black/4",
+              )}
+            >
+              {doctor.is_active ? "Available" : "Unavailable"}
+            </span>
+          </div>
+          {doctor.qualification && (
+            <p className="text-ink-600 mt-0.5 truncate text-[12.5px]">
+              Qualification : <span className="font-bold">{doctor.qualification}</span>
+            </p>
           )}
-        >
-          {doctor.is_active ? "Available" : "Unavailable"}
-        </span>
-        <p className="text-ink-900 text-[15px] font-bold">{doctor.name}</p>
-        {doctor.qualification && (
-          <p className="text-ink-600 text-[12.5px]">{doctor.qualification}</p>
-        )}
-        {doctor.specialization && (
-          <p className="text-ink-400 text-[12px]">{doctor.specialization}</p>
-        )}
+        </div>
       </div>
 
       <div className="space-y-space-2 border-line pt-space-3 border-t">
-        <DetailRow icon={Building2} label="Department" value={doctor.department_name} />
         <DetailRow icon={IdCard} label="Employee ID" value={doctor.employee_id || "—"} />
+        <DetailRow icon={Building2} label="Department" value={doctor.department_name} />
         <DetailRow
           icon={CalendarClock}
           label="Experience"
@@ -181,7 +192,12 @@ export function DoctorDetailPanel({
         />
         <DetailRow icon={Phone} label="Phone" value={doctor.phone || "—"} />
         <DetailRow icon={Mail} label="Login email" value={doctor.login_email || "No login yet"} />
-        <DetailRow icon={MapPin} label="Location" value={doctor.location || "—"} />
+        <DetailRow icon={MapPin} label="Address" value={doctor.location || "—"} />
+        {/* <DetailRow
+          icon={Calendar}
+          label="Joined"
+          value={doctor.created_at ? formatDate(doctor.created_at) : "—"}
+        /> */}
       </div>
 
       {/* Same 4-tile-card grid StaffDetailPanel.tsx uses (Shift hours/
@@ -229,12 +245,6 @@ export function DoctorDetailPanel({
           )}
         </div>
       </div>
-
-      <p className="text-hint mt-space-2">
-        Leave balance is real (Leave Requests page, Settings &gt; Leave policy) — applying for leave
-        from here is still a later page. Availability is the real Available/Unavailable toggle, not
-        a live &quot;since HH:MM&quot; check-in.
-      </p>
 
       <div className="mt-space-4 border-line pt-space-3 border-t">
         <p className="text-label mb-space-2 text-ink-900 font-bold">Quick actions</p>

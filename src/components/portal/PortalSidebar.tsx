@@ -38,11 +38,12 @@ import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
 import { hasPermission, useStaffSession } from "@/lib/staffAuth";
 
 // Items with no href render as disabled "Coming soon" rows (see the
-// .filter/.map below) -- there's no backend yet for billing. Billing is
-// additionally `hidden` (kept, not deleted, so re-enabling is a one-line
-// flip). Report review and Report analytics share /portal/report-review
-// as their href -- "Report analytics" is a second nav label, not a second
-// page. All real nav items are gated by hasPermission below.
+// .filter/.map below). Report review (/portal/report-review) and Report analytics
+// (/portal/report-analytics) are two separate real pages with their own
+// independent page_keys -- they used to incorrectly share the same href
+// (report-analytics pointed at report-review's route) until
+// /portal/report-analytics/page.tsx was built. All real nav items are
+// gated by hasPermission below.
 const NAV_ITEMS = [
   {
     key: "dashboard",
@@ -144,14 +145,14 @@ const NAV_ITEMS = [
     key: "billing",
     label: "Billing",
     icon: Receipt,
+    href: "/portal/billing",
     pageKey: "billing",
-    hidden: true,
   },
   {
     key: "report-analytics",
     label: "Report analytics",
     icon: BarChart3,
-    href: "/portal/report-review",
+    href: "/portal/report-analytics",
     pageKey: "report-analytics",
   },
   {
@@ -282,10 +283,9 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             // capabilities, so they skip the permission map entirely --
             // otherwise an unrecognized pageKey would hide them outright.
             (item) =>
-              !item.hidden &&
-              (!item.href ||
-                NO_PERMISSION_GATE_KEYS.has(item.key) ||
-                hasPermission(session, item.pageKey, "view")),
+              !item.href ||
+              NO_PERMISSION_GATE_KEYS.has(item.key) ||
+              hasPermission(session, item.pageKey, "view"),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

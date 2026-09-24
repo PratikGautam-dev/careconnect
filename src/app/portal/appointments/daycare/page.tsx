@@ -11,7 +11,6 @@ import { ManageBedsDialog } from "@/components/portal/ManageBedsDialog";
 import { NewDaycareBookingDialog } from "@/components/portal/NewDaycareBookingDialog";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -218,17 +217,14 @@ export default function PortalDaycareAppointmentsPage() {
         title="Daycare appointments"
         description={formatHeaderDate(today)}
         actions={
-          <div className="gap-space-2 flex items-center">
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={() => setManageBedsOpen(true)}
-            >
-              <Bed size={14} /> Manage Beds
-            </Button>
-            <PortalTopBarActions />
-          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => setManageBedsOpen(true)}
+          >
+            <Bed size={14} /> Manage Beds
+          </Button>
         }
       />
 

@@ -17,7 +17,6 @@ import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
@@ -107,7 +106,6 @@ export default function LeaveRequestsPage() {
                 <Plus size={14} /> New leave request
               </Button>
             )}
-            <PortalTopBarActions />
           </>
         }
       />

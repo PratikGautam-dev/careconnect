@@ -8,7 +8,6 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatHeaderDate } from "@/lib/formatDate";
@@ -44,14 +43,14 @@ const PRIORITY_OPTIONS = [
  * page is mock by design here (not a case of a real page missing a few
  * fields).
  *
- * Reached via two separate sidebar nav items -- "Report review" and
- * "Report analytics" -- pointing at this same route with their own
- * independent page_keys; this page renders for whichever one the
- * signed-in role has view access to (a role could have just one, not both). */
+ * Gated on its own "report-review" page_key only -- it used to also render
+ * for the separate "report-analytics" page_key, back when both nav items
+ * pointed at this one route; "Report analytics" now has its own real page
+ * (/portal/report-analytics/page.tsx), so that fallback no longer applies
+ * here. */
 export default function ReportReviewPage() {
   const { hospital, ready } = usePortalGuard();
   const canViewReview = usePermission("report-review", "view");
-  const canViewAnalytics = usePermission("report-analytics", "view");
   const [reports, setReports] = useState<MockReport[]>(INITIAL_MOCK_REPORTS);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -101,7 +100,7 @@ export default function ReportReviewPage() {
     updateReport(report.id, { priority: report.priority === "Urgent" ? "Normal" : "Urgent" });
   }
 
-  if (ready && !canViewReview && !canViewAnalytics) {
+  if (ready && !canViewReview) {
     return (
       <PortalShell hospital={hospital} active="report-review">
         <p className="text-ink-400 text-[13px]">You don&apos;t have access to Report Review.</p>
@@ -111,11 +110,7 @@ export default function ReportReviewPage() {
 
   return (
     <PortalShell hospital={hospital} active="report-review">
-      <PageHeader
-        title="Report Review"
-        description={formatHeaderDate(today)}
-        actions={<PortalTopBarActions />}
-      />
+      <PageHeader title="Report Review" description={formatHeaderDate(today)} />
 
       {!ready ? null : (
         <>

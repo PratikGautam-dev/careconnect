@@ -23,7 +23,6 @@ import { FilterActions } from "@/components/portal/FilterActions";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
@@ -340,7 +339,6 @@ export default function PortalAppointmentsPage() {
               allLabel="All Appointments"
               options={DOCTOR_MODE_OPTIONS}
             />
-            <PortalTopBarActions />
           </>
         }
       />

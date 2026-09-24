@@ -495,6 +495,40 @@ export default function PatientDetailPage() {
             </div>
           </Card>
 
+           <Card className="p-space-4 h-fit">
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Demographics</h3>
+            <div className="mb-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
+              <Field label="Date of birth" htmlFor="dob">
+                <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
+              </Field>
+              <Field label="Gender" htmlFor="gender">
+                <Input
+                  id="gender"
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+            </div>
+            <Field label="Address" htmlFor="address">
+              <Textarea
+                id="address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                rows={3}
+                placeholder="Optional"
+              />
+            </Field>
+            <Button
+              size="md"
+              onClick={handleSaveDemographics}
+              disabled={savingDemographics}
+              className="w-full"
+            >
+              {savingDemographics ? "Saving…" : "Save"}
+            </Button>
+          </Card>
+
           <Card className="p-space-4">
             <div className="mb-space-3 gap-space-2 flex items-center justify-between">
               <h3 className="text-label text-ink-900 font-bold">Documents</h3>
@@ -567,39 +601,7 @@ export default function PatientDetailPage() {
               </ul>
             )}
           </Card>
-          <Card className="p-space-4 h-fit">
-            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Demographics</h3>
-            <div className="mb-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
-              <Field label="Date of birth" htmlFor="dob">
-                <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
-              </Field>
-              <Field label="Gender" htmlFor="gender">
-                <Input
-                  id="gender"
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  placeholder="Optional"
-                />
-              </Field>
-            </div>
-            <Field label="Address" htmlFor="address">
-              <Textarea
-                id="address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                rows={3}
-                placeholder="Optional"
-              />
-            </Field>
-            <Button
-              size="md"
-              onClick={handleSaveDemographics}
-              disabled={savingDemographics}
-              className="w-full"
-            >
-              {savingDemographics ? "Saving…" : "Save"}
-            </Button>
-          </Card>
+         
         </div>
 
         {/* One wrapping div (not 3 separate grid children) so these stack
@@ -636,17 +638,23 @@ export default function PatientDetailPage() {
             )}
           </Card>
 
-          <Card className="p-space-4 h-fit">
+<Card className="p-space-4 h-fit">
             <h3 className="text-label mb-space-1 text-ink-900 font-bold">Consent management</h3>
             <p className="text-hint mb-space-3">
-              How this patient (or a hospital staff member on their behalf) has responded to each
-              consent. Not agreed yet reads as Disagree -- there&apos;s no separate &quot;not
-              asked&quot; state.
+              DPDP consent is collected from patients via WhatsApp. Privacy Policy mirrors DPDP (linked).
+              Marketing consent is independent but currently has no collection mechanism (mock for now).
             </p>
             <ul className="space-y-space-3">
               {CONSENT_TYPE_ORDER.map((type) => {
                 const key = `${type}_consent` as keyof Consent;
                 const agreed = consent[key];
+                const isPrivacyPolicy = type === "privacy_policy";
+                // DPDP and Privacy Policy are linked -- only DPDP is collected
+                // from patients via WhatsApp; Privacy Policy mirrors DPDP.
+                // Marketing is independent but currently has no collection
+                // mechanism (mock for now).
+                const linkedAgreed = isPrivacyPolicy ? consent.dpdp_consent : agreed;
+                const isLinked = isPrivacyPolicy;
                 return (
                   <li key={type} className="gap-space-2 flex items-center justify-between">
                     <span className="text-ink-900 text-[13px] font-semibold">
@@ -656,9 +664,9 @@ export default function PatientDetailPage() {
                       <label className="text-ink-600 flex items-center gap-1 text-[12px] font-semibold">
                         <input
                           type="checkbox"
-                          checked={agreed}
-                          onChange={() => handleSetConsent(type, true)}
-                          disabled={savingConsent === type}
+                          checked={linkedAgreed}
+                          onChange={() => !isLinked && handleSetConsent(type, true)}
+                          disabled={savingConsent === type || isLinked}
                           className="accent-success h-4 w-4"
                         />
                         Agree
@@ -666,9 +674,9 @@ export default function PatientDetailPage() {
                       <label className="text-ink-600 flex items-center gap-1 text-[12px] font-semibold">
                         <input
                           type="checkbox"
-                          checked={!agreed}
-                          onChange={() => handleSetConsent(type, false)}
-                          disabled={savingConsent === type}
+                          checked={!linkedAgreed}
+                          onChange={() => !isLinked && handleSetConsent(type, false)}
+                          disabled={savingConsent === type || isLinked}
                           className="accent-error h-4 w-4"
                         />
                         Disagree

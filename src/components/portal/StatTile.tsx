@@ -32,6 +32,10 @@ type Props = {
    * appointments list) -- renders a trailing chevron so it reads as
    * navigable, same idea as the mockup's ">" on every tile. */
   href?: string;
+  /** Prepended directly onto the formatted value, e.g. "₹" for a currency
+   * tile (Billing's Total Collected/Today's Collection) -- omitted for a
+   * plain count tile. */
+  prefix?: string;
 };
 
 export function StatTile({
@@ -43,6 +47,7 @@ export function StatTile({
   icon: Icon,
   tint = "brand",
   href,
+  prefix,
 }: Props) {
   const isUp = deltaPct !== null && deltaPct > 0;
   const isDown = deltaPct !== null && deltaPct < 0;
@@ -65,9 +70,9 @@ export function StatTile({
         <p className="text-label mb-space-1 text-ink-600 truncate font-medium">{label}</p>
         <div className="gap-space-2 flex items-baseline justify-between">
           <span className="text-ink-900 text-[26px] leading-none font-semibold">
-            {value === null ? "—" : value.toLocaleString()}
+            {value === null ? "—" : `${prefix ?? ""}${value.toLocaleString()}`}
           </span>
-          <span
+          {/* <span
             className={cn(
               "flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold",
               isGoodDirection && "text-success",
@@ -79,7 +84,7 @@ export function StatTile({
             {isDown && <TrendingDown size={13} />}
             {deltaPct === null && <Minus size={13} />}
             {deltaPct === null ? "—" : `${Math.abs(deltaPct)}%`}
-          </span>
+          </span> */}
         </div>
         {hint && <p className="text-hint mt-space-0.5 truncate">{hint}</p>}
       </div>
