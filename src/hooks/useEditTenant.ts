@@ -75,6 +75,33 @@ function tenantQueryKey(tenantId: number) {
   return ["admin-tenant", tenantId] as const;
 }
 
+export type PaymentSettingsDetail = {
+  payment_mode: "platform" | "hospital_own";
+  razorpay_key_id: string | null;
+  key_secret_configured: boolean;
+  webhook_secret_configured: boolean;
+};
+
+export type PaymentSettingsFormState = {
+  payment_mode: "platform" | "hospital_own";
+  razorpay_key_id: string;
+  razorpay_key_secret: string; // blank = keep current
+  razorpay_webhook_secret: string; // blank = keep current
+};
+
+function paymentFormFromSettings(s: PaymentSettingsDetail): PaymentSettingsFormState {
+  return {
+    payment_mode: s.payment_mode,
+    razorpay_key_id: s.razorpay_key_id ?? "",
+    razorpay_key_secret: "",
+    razorpay_webhook_secret: "",
+  };
+}
+
+function paymentSettingsQueryKey(tenantId: number) {
+  return ["admin-tenant-payment-settings", tenantId] as const;
+}
+
 /** Loads + saves one tenant for the /admin/tenants/[id] edit form, and owns
  * the appointment-type allow-list toggle (its own independent save, not
  * part of the main form submit). Single page, single consumer -- kept as
@@ -106,6 +133,72 @@ export function useEditTenant(tenantId: number) {
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [appointmentTypeError, setAppointmentTypeError] = useState<string | null>(null);
+
+  // Payment gateway routing (super-admin only, admin/payment_settings_api.py)
+  // -- a genuinely separate resource/endpoint from the tenant fields above,
+  // saved independently (same "own mutation, not part of the main form
+  // submit" shape as the appointment-type allow-list toggles further down),
+  // since it's financial-credential data with its own audit trail.
+  const {
+    data: paymentSettings,
+    error: paymentSettingsQueryError,
+    refetch: refetchPaymentSettings,
+  } = useQuery({
+    queryKey: paymentSettingsQueryKey(tenantId),
+    retry: false,
+    queryFn: async () => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}/payment-settings`);
+      return unwrapAdminResult<PaymentSettingsDetail>(result);
+    },
+  });
+
+  const [seededPaymentSettingsTenantId, setSeededPaymentSettingsTenantId] = useState<number | null>(
+    null,
+  );
+  const [paymentForm, setPaymentForm] = useState<PaymentSettingsFormState | null>(null);
+  if (paymentSettings && tenantId !== seededPaymentSettingsTenantId) {
+    setSeededPaymentSettingsTenantId(tenantId);
+    setPaymentForm(paymentFormFromSettings(paymentSettings));
+  }
+
+  const [paymentSettingsErrors, setPaymentSettingsErrors] = useState<string[]>([]);
+  const [paymentSettingsSaved, setPaymentSettingsSaved] = useState(false);
+
+  const savePaymentSettingsMutation = useMutation({
+    mutationFn: async (payload: PaymentSettingsFormState) => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}/payment-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapAdminResult<{ status?: string; errors?: string[] }>(result);
+    },
+  });
+
+  async function handlePaymentSettingsSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!paymentForm) return;
+    setPaymentSettingsSaved(false);
+    setPaymentSettingsErrors([]);
+    try {
+      const data = await savePaymentSettingsMutation.mutateAsync(paymentForm);
+      if (data.errors?.length) {
+        setPaymentSettingsErrors(data.errors);
+        toast.error("Couldn't save payment settings", data.errors[0]);
+        return;
+      }
+      toast.success("Payment settings saved");
+      setPaymentSettingsSaved(true);
+      // Secrets are never echoed back -- refetch so the "configured" flags
+      // and the blanked-out secret fields reflect what was just saved.
+      setSeededPaymentSettingsTenantId(null);
+      refetchPaymentSettings();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setPaymentSettingsErrors([message]);
+      toast.error("Couldn't save payment settings", message);
+    }
+  }
 
   const saveMutation = useMutation({
     mutationFn: async (payload: TenantFormState) => {
@@ -171,7 +264,9 @@ export function useEditTenant(tenantId: number) {
         appointmentTypeId,
         isAllowed,
       });
-      toast.success(updated.is_allowed ? `${updated.label} allowed` : `${updated.label} disallowed`);
+      toast.success(
+        updated.is_allowed ? `${updated.label} allowed` : `${updated.label} disallowed`,
+      );
       queryClient.setQueryData(tenantQueryKey(tenantId), (prev: TenantDetail | undefined) =>
         prev
           ? {
@@ -235,5 +330,15 @@ export function useEditTenant(tenantId: number) {
     toggleCapability,
     toggleAppointmentTypeAllowed,
     handleSubmit,
+    paymentSettings: paymentSettings ?? null,
+    paymentForm,
+    setPaymentForm,
+    paymentSettingsError: paymentSettingsQueryError
+      ? (paymentSettingsQueryError as Error).message
+      : null,
+    paymentSettingsErrors,
+    savingPaymentSettings: savePaymentSettingsMutation.isPending,
+    paymentSettingsSaved,
+    handlePaymentSettingsSubmit,
   };
 }
