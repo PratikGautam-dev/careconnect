@@ -105,10 +105,7 @@ export function useDiagnosticTests() {
 
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
-  const {
-    data: tests,
-    refetch,
-  } = useQuery({
+  const { data: tests, refetch } = useQuery({
     queryKey: ["portal-diagnostic-tests", category],
     retry: false,
     queryFn: async () => {

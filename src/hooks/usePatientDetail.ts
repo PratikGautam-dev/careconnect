@@ -274,13 +274,7 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   }
 
   const addNoteMutation = useMutation({
-    mutationFn: async ({
-      appointmentId,
-      text,
-    }: {
-      appointmentId: number | null;
-      text: string;
-    }) => {
+    mutationFn: async ({ appointmentId, text }: { appointmentId: number | null; text: string }) => {
       const result = await portalFetch(`/api/portal/patients/${patientId}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -338,9 +332,12 @@ export function usePatientDetail(patientId: string, ready: boolean) {
 
   const sendToWhatsappMutation = useMutation({
     mutationFn: async (documentId: number) => {
-      const result = await portalFetch(`/api/portal/patients/${patientId}/documents/${documentId}/send`, {
-        method: "POST",
-      });
+      const result = await portalFetch(
+        `/api/portal/patients/${patientId}/documents/${documentId}/send`,
+        {
+          method: "POST",
+        },
+      );
       return unwrapPortalResult<unknown>(router, result);
     },
   });

@@ -108,7 +108,9 @@ export function usePatients(ready: boolean) {
     try {
       const data = await deleteMutation.mutateAsync(targets.map((p) => p.id));
       const deletedIds = new Set(data.deleted);
-      toast.success(deletedIds.size > 1 ? `${deletedIds.size} patients deleted` : "Patient deleted");
+      toast.success(
+        deletedIds.size > 1 ? `${deletedIds.size} patients deleted` : "Patient deleted",
+      );
       setSelected((prev) => {
         const next = new Set(prev);
         deletedIds.forEach((id) => next.delete(id));

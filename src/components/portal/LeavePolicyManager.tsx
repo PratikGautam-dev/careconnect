@@ -76,7 +76,7 @@ export function LeavePolicyManager({ canManage }: { canManage: boolean }) {
             {leaveTypes.map((t) => (
               <span
                 key={t}
-                className="gap-space-1 pl-space-3 pr-space-2 py-space-1 bg-black/4 text-ink-700 flex items-center rounded-full text-[12.5px] font-medium"
+                className="gap-space-1 pl-space-3 pr-space-2 py-space-1 text-ink-700 flex items-center rounded-full bg-black/4 text-[12.5px] font-medium"
               >
                 {t}
                 {canManage && (
@@ -107,7 +107,12 @@ export function LeavePolicyManager({ canManage }: { canManage: boolean }) {
               }}
               placeholder="e.g. Bereavement Leave"
             />
-            <Button type="button" variant="secondary" onClick={handleAddType} disabled={!newType.trim()}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleAddType}
+              disabled={!newType.trim()}
+            >
               Add
             </Button>
           </div>

@@ -42,6 +42,11 @@ export type Appointment = {
   procedure_estimated_price_max: number | null;
   procedure_order_reference: string | null;
   procedure_reschedule_requested_at: string | null;
+  // Null for a booking that never needed a payment step at all (no fee
+  // applied) -- the appointment detail page's "Record Payment" action shows
+  // only when this is set and not yet 'paid'.
+  payment_status: "pending" | "paid" | "failed" | "pay_at_hospital" | null;
+  payment_amount: number | null;
   // Daycare/Procedure rebuild: which concrete bed/chair/equipment/staff this
   // booking is bound to -- empty for every non-procedure appointment (and
   // for one not yet CONFIRMED, since resources are only reserved at that

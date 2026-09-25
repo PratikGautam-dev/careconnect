@@ -12,7 +12,14 @@ type PortalResult =
  * every hand-rolled hook already did) and throws either UNAUTHORIZED_ERROR
  * (silent, since the redirect already happened) or the server's own error
  * message, so a caller's onError only needs isPortalMutationError() before
- * toasting instead of re-deriving this branch every time. */
+ * toasting instead of re-deriving this branch every time.
+ *
+ * A 402 (subscription inactive, main.py's _subscription_access_gate) is
+ * NOT special-cased here -- it just surfaces as a normal error message.
+ * SubscriptionGate.tsx gates the whole portal from session.
+ * subscription_access (known the moment login/refresh/me resolves), not
+ * from watching individual query failures, so there's nothing for this
+ * layer to silently swallow anymore. */
 export function unwrapPortalResult<T>(
   router: ReturnType<typeof useRouter>,
   result: PortalResult,

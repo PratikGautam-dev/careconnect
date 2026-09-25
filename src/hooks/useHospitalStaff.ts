@@ -44,10 +44,7 @@ export function useHospitalStaff(
     },
   });
 
-  const {
-    data: staff,
-    error: queryError,
-  } = useQuery({
+  const { data: staff, error: queryError } = useQuery({
     queryKey: ["admin-hospital-staff", hospitalId, activeFilter, debouncedSearch],
     retry: false,
     queryFn: async () => {

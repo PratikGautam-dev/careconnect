@@ -34,9 +34,7 @@ export function StaffLeaveHistoryDialog({ staffId, onOpenChange }: Props) {
   return (
     <Dialog open={staffId !== null} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
-        <DialogTitle>
-          {staff ? staff.name : "Leave history"}
-        </DialogTitle>
+        <DialogTitle>{staff ? staff.name : "Leave history"}</DialogTitle>
         <p className="mb-space-4 text-ink-400 text-[12.5px]">
           {staff ? `${staff.role_name} · ` : ""}
           {balance
@@ -51,7 +49,7 @@ export function StaffLeaveHistoryDialog({ staffId, onOpenChange }: Props) {
         ) : requests.length === 0 ? (
           <p className="py-space-4 text-ink-400 text-center text-[13px]">No leave requests yet.</p>
         ) : (
-          <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
+          <div className="max-h-[60vh] overflow-x-auto overflow-y-auto">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-line text-label text-ink-400 border-b text-left">

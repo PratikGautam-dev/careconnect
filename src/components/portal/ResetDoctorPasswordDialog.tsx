@@ -74,9 +74,7 @@ export function ResetDoctorPasswordDialog({ doctor, onOpenChange }: Props) {
   return (
     <Dialog open={doctor !== null} onOpenChange={handleOpenChange}>
       <DialogContent>
-        <DialogTitle>
-          {doctor ? `Reset password for ${doctor.name}` : "Reset password"}
-        </DialogTitle>
+        <DialogTitle>{doctor ? `Reset password for ${doctor.name}` : "Reset password"}</DialogTitle>
         <form onSubmit={handleSubmit} className="gap-space-3 flex flex-col">
           <Field
             label="New password"

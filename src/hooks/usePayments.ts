@@ -18,6 +18,7 @@ export type PaymentRow = {
   status: "pending" | "paid" | "failed" | "expired" | "pay_at_hospital";
   razorpay_order_id: string | null;
   razorpay_payment_id: string | null;
+  bank_reference: string | null;
   created_at: string;
   updated_at: string | null;
   paid_at: string | null;

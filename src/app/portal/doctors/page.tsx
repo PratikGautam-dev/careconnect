@@ -174,7 +174,10 @@ export default function PortalDoctorsPage() {
         : await createDoctor.mutateAsync(payload);
       if (data.errors?.length) {
         setDoctorErrors(data.errors);
-        toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", data.errors[0]);
+        toast.error(
+          editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor",
+          data.errors[0],
+        );
         return;
       }
       toast.success(editingDoctorId ? "Doctor updated" : "Doctor added");
@@ -185,7 +188,10 @@ export default function PortalDoctorsPage() {
     } catch (err) {
       if (isPortalMutationError(err)) {
         setDoctorErrors([err.message]);
-        toast.error(editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor", err.message);
+        toast.error(
+          editingDoctorId ? "Couldn't update doctor" : "Couldn't add doctor",
+          err.message,
+        );
       }
     }
   }
@@ -331,8 +337,6 @@ export default function PortalDoctorsPage() {
               </p>
             </Card>
           )}
-
-          
 
           <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">

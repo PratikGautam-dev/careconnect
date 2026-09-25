@@ -289,8 +289,9 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             // both checks must pass.
             (item) =>
               !item.href ||
-              (NO_PERMISSION_GATE_KEYS.has(item.key) || hasPermission(session, item.pageKey, "view")) &&
-                hasCapability(session, item.pageKey),
+              ((NO_PERMISSION_GATE_KEYS.has(item.key) ||
+                hasPermission(session, item.pageKey, "view")) &&
+                hasCapability(session, item.pageKey)),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import {
   setStaffAccessToken,
   staffSessionFromAuthResponse,
@@ -26,7 +27,6 @@ export default function PortalLoginPage() {
   const [staffPassword, setStaffPassword] = useState("");
   const [staffError, setStaffError] = useState<string | null>(null);
   const [staffSubmitting, setStaffSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   async function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,14 +70,15 @@ export default function PortalLoginPage() {
   return (
     <div className="bg-paper px-space-4 flex min-h-screen items-center justify-center">
       <Card className="p-space-6 w-full max-w-sm">
-        <div className="mb-space-5 gap-space-3 flex items-end">
-          <div className="bg-brand-600 font-display flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[16px] font-extrabold text-white">
-            H
-          </div>
-          <div>
-            <span className="text-eyebrow block">DAAP</span>
-            <span className="text-ink-900 block text-[16px] font-bold">CareConnect</span>
-          </div>
+        <div className="mb-space-5 flex w-full">
+          <Image
+            src="/logo-full.png"
+            alt="DAAP CareConnect"
+            width={1448}
+            height={410}
+            className="w-auto"
+            priority
+          />
         </div>
 
         <h1 className="text-display mb-space-1 !text-[22px]">Sign in</h1>
@@ -111,26 +112,13 @@ export default function PortalLoginPage() {
             />
           </Field>
           <Field label="Password" htmlFor="staff_password" required>
-            <div className="relative">
-              <Input
-                id="staff_password"
-                type={showPassword ? "text" : "password"}
-                value={staffPassword}
-                invalid={!!staffError}
-                onChange={(e) => setStaffPassword(e.target.value)}
-                className="pr-space-9"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                tabIndex={-1}
-                className="right-space-3 text-ink-400 hover:text-ink-700 absolute top-1/2 -translate-y-1/2"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
+            <PasswordInput
+              id="staff_password"
+              value={staffPassword}
+              invalid={!!staffError}
+              onChange={(e) => setStaffPassword(e.target.value)}
+              required
+            />
           </Field>
           {staffError && (
             <p className="-mt-space-2 mb-space-4 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px] font-medium">

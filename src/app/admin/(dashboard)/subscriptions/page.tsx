@@ -13,102 +13,134 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { cn } from "@/lib/cn";
+import { toast } from "@/lib/toast";
 import {
-  createSubscriptionColumns,
-  type SubscriptionRow,
-} from "./_components/subscription-columns";
+  useAdminSubscriptions,
+  type SubscriptionRecord,
+  type SubscriptionStatus,
+} from "@/hooks/useAdminSubscriptions";
+import { useAuditLog } from "@/hooks/useAuditLog";
+import { createSubscriptionColumns } from "./_components/subscription-columns";
+import { AssignSubscriptionDialog } from "./_components/AssignSubscriptionDialog";
 
-// This whole page is mock: CareConnect has no plan/billing/subscription
-// model in the backend yet (only hospitals.data_tier + admin_capabilities +
-// enabled_features exist today), so unlike the other admin pages there's no
-// real hook to read from here -- every row and every stat is fabricated to
-// match the target design 1:1, and every card carries a "Mock" badge so
-// that's never ambiguous. Swap in real data source-by-source once a
-// subscriptions API exists; the DataTable/StatTile/QuickAction wiring stays
-// the same either way.
-const MOCK_SUBSCRIPTIONS: SubscriptionRow[] = [
-  { id: 1, hospitalName: "ABC Super Specialty Hospital", plan: "Professional", billingCycle: "Annual", startDate: "30 Sep 2025", renewalDate: "30 Sep 2026", paymentStatus: "Paid", seats: 120, status: "Active" },
-  { id: 2, hospitalName: "City General Hospital", plan: "Basic", billingCycle: "Monthly", startDate: "12 Jan 2025", renewalDate: "12 Feb 2026", paymentStatus: "Paid", seats: 25, status: "Active" },
-  { id: 3, hospitalName: "Lakeside Medical Center", plan: "Professional", billingCycle: "Annual", startDate: "18 Mar 2025", renewalDate: "18 Mar 2026", paymentStatus: "Paid", seats: 80, status: "Active" },
-  { id: 4, hospitalName: "Metro Care Hospital", plan: "Enterprise", billingCycle: "Annual", startDate: "05 Feb 2025", renewalDate: "05 Feb 2026", paymentStatus: "Paid", seats: 200, status: "Active" },
-  { id: 5, hospitalName: "Sunrise Children's Hospital", plan: "Professional", billingCycle: "Monthly", startDate: "22 Aug 2025", renewalDate: "22 Sep 2025", paymentStatus: "Pending", seats: 60, status: "Renewal Due" },
-  { id: 6, hospitalName: "Green Valley Hospital", plan: "Basic", billingCycle: "Monthly", startDate: "10 Sep 2025", renewalDate: "10 Oct 2025", paymentStatus: "Paid", seats: 30, status: "Trial" },
-  { id: 7, hospitalName: "Riverside Health Institute", plan: "Professional", billingCycle: "Annual", startDate: "15 Nov 2024", renewalDate: "15 Nov 2025", paymentStatus: "Failed", seats: 75, status: "Expired" },
-  { id: 8, hospitalName: "Mountain View Hospital", plan: "Enterprise", billingCycle: "Annual", startDate: "01 Jun 2025", renewalDate: "01 Jun 2026", paymentStatus: "Paid", seats: 150, status: "Active" },
-  { id: 9, hospitalName: "Coastal Care Hospital", plan: "Basic", billingCycle: "Monthly", startDate: "20 Jul 2025", renewalDate: "20 Aug 2025", paymentStatus: "Paid", seats: 40, status: "Trial" },
-  { id: 10, hospitalName: "Heritage Medical Center", plan: "Professional", billingCycle: "Annual", startDate: "03 Jan 2025", renewalDate: "03 Jan 2026", paymentStatus: "Paid", seats: 95, status: "Active" },
-];
-
-const PLAN_OPTIONS = [
-  { value: "Basic", label: "Basic" },
-  { value: "Professional", label: "Professional" },
-  { value: "Enterprise", label: "Enterprise" },
-];
 const STATUS_OPTIONS = [
-  { value: "Active", label: "Active" },
-  { value: "Trial", label: "Trial" },
-  { value: "Renewal Due", label: "Renewal Due" },
-  { value: "Expired", label: "Expired" },
-  { value: "Cancelled", label: "Cancelled" },
+  { value: "trial", label: "Trial" },
+  { value: "authorization_pending", label: "Awaiting Payment Setup" },
+  { value: "active", label: "Active" },
+  { value: "renewal_due", label: "Renewal Due" },
+  { value: "expired", label: "Expired" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "unassigned", label: "Unassigned" },
 ];
 const CYCLE_OPTIONS = [
-  { value: "Monthly", label: "Monthly" },
-  { value: "Annual", label: "Annual" },
+  { value: "monthly", label: "Monthly" },
+  { value: "annual", label: "Annual" },
 ];
 
-const PILL_STATUSES: { key: "all" | SubscriptionRow["status"]; label: string }[] = [
+const PILL_STATUSES: { key: "all" | SubscriptionStatus; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "Active", label: "Active" },
-  { key: "Trial", label: "Trial" },
-  { key: "Renewal Due", label: "Renewal Due" },
-  { key: "Expired", label: "Expired" },
-  { key: "Cancelled", label: "Cancelled" },
+  { key: "active", label: "Active" },
+  { key: "trial", label: "Trial" },
+  { key: "renewal_due", label: "Renewal Due" },
+  { key: "expired", label: "Expired" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "unassigned", label: "Unassigned" },
 ];
 
-function PanelHeader({ title, subtitle, mock }: { title: string; subtitle?: string; mock?: boolean }) {
+function PanelHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="mb-space-3 gap-space-3 flex items-start justify-between">
       <div>
         <h3 className="text-label text-ink-900 font-bold">{title}</h3>
         {subtitle && <p className="text-hint mt-space-0.5">{subtitle}</p>}
       </div>
-      {mock && <Badge tone="clay">Mock</Badge>}
     </div>
   );
 }
 
+function isRenewalThisMonth(renewalDate: string | null): boolean {
+  if (!renewalDate) return false;
+  const d = new Date(renewalDate);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
+type ConfirmAction =
+  | { type: "unassign"; row: SubscriptionRecord }
+  | { type: "cancel-billing"; row: SubscriptionRecord }
+  | { type: "bulk-cancel"; rows: SubscriptionRecord[] };
+
 export default function SubscriptionsPage() {
+  const {
+    subscriptions,
+    plans,
+    error,
+    assign,
+    unassign,
+    cancelBilling,
+    startTrial,
+    markManuallyBilled,
+    assigning,
+    unassigning,
+    cancellingBilling,
+    startingTrial,
+    markingManuallyBilled,
+  } = useAdminSubscriptions();
+  const { entries: auditEntries } = useAuditLog(null, "platform_admin");
+
   const [search, setSearch] = useState("");
-  const [plan, setPlan] = useState("all");
+  const [planFilter, setPlanFilter] = useState("all");
   const [status, setStatus] = useState("all");
   const [cycle, setCycle] = useState("all");
-  const [pill, setPill] = useState<"all" | SubscriptionRow["status"]>("all");
+  const [pill, setPill] = useState<"all" | SubscriptionStatus>("all");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [editing, setEditing] = useState<SubscriptionRecord | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
   const filtered = useMemo(() => {
-    return MOCK_SUBSCRIPTIONS.filter((row) => {
-      if (search && !row.hospitalName.toLowerCase().includes(search.toLowerCase())) return false;
-      if (plan !== "all" && row.plan !== plan) return false;
+    if (!subscriptions) return [];
+    return subscriptions.filter((row) => {
+      if (search && !row.hospital_name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (planFilter !== "all" && String(row.plan_id) !== planFilter) return false;
       if (status !== "all" && row.status !== status) return false;
-      if (cycle !== "all" && row.billingCycle !== cycle) return false;
+      if (cycle !== "all" && row.billing_cycle !== cycle) return false;
       if (pill !== "all" && row.status !== pill) return false;
       return true;
     });
-  }, [search, plan, status, cycle, pill]);
+  }, [subscriptions, search, planFilter, status, cycle, pill]);
 
   const counts = useMemo(() => {
     const byStatus: Record<string, number> = {};
-    for (const row of MOCK_SUBSCRIPTIONS) byStatus[row.status] = (byStatus[row.status] || 0) + 1;
+    for (const row of subscriptions ?? []) byStatus[row.status] = (byStatus[row.status] || 0) + 1;
     return byStatus;
-  }, []);
+  }, [subscriptions]);
+
+  const stats = useMemo(() => {
+    const all = subscriptions ?? [];
+    const active = all.filter((r) => r.status === "active").length;
+    const trials = all.filter((r) => r.status === "trial").length;
+    const renewalsThisMonth = all.filter((r) => isRenewalThisMonth(r.renewal_date)).length;
+    const churned = all.filter((r) => r.status === "cancelled").length;
+    const withValue = all.filter((r) => r.monthly_value != null);
+    const avgValue = withValue.length
+      ? withValue.reduce((sum, r) => sum + (r.monthly_value ?? 0), 0) / withValue.length
+      : 0;
+    const totalACV = withValue.reduce((sum, r) => sum + (r.monthly_value ?? 0) * 12, 0);
+    return { active, trials, renewalsThisMonth, churned, avgValue, totalACV, total: all.length };
+  }, [subscriptions]);
+
+  const subscriptionActivity = useMemo(
+    () => (auditEntries ?? []).filter((e) => e.entity_type === "hospital_subscription").slice(0, 6),
+    [auditEntries],
+  );
 
   function toggle(id: number) {
     setSelectedIds((prev) => {
@@ -119,7 +151,91 @@ export default function SubscriptionsPage() {
     });
   }
   function toggleAll(checked: boolean) {
-    setSelectedIds(checked ? new Set(filtered.map((r) => r.id)) : new Set());
+    setSelectedIds(checked ? new Set(filtered.map((r) => r.hospital_id)) : new Set());
+  }
+
+  function handleUnassign(row: SubscriptionRecord) {
+    setConfirmAction({ type: "unassign", row });
+  }
+
+  function handleCancelBilling(row: SubscriptionRecord) {
+    setConfirmAction({ type: "cancel-billing", row });
+  }
+
+  function selectedRecords(): SubscriptionRecord[] {
+    return (subscriptions ?? []).filter((r) => selectedIds.has(r.hospital_id));
+  }
+
+  async function handleUpgradePlan() {
+    const rows = selectedRecords();
+    if (rows.length !== 1) {
+      toast.error(
+        "Select exactly one hospital",
+        "Upgrade Plan edits one hospital's subscription at a time.",
+      );
+      return;
+    }
+    setEditing(rows[0]);
+  }
+
+  async function handleExtendTrial() {
+    const rows = selectedRecords().filter((r) => r.status === "trial");
+    if (rows.length === 0) {
+      toast.error("No trials selected", "Select one or more hospitals currently in trial.");
+      return;
+    }
+    for (const row of rows) {
+      const base = row.renewal_date ? new Date(row.renewal_date) : new Date();
+      base.setDate(base.getDate() + 14);
+      await assign(row.hospital_id, {
+        plan_id: row.plan_id as number,
+        billing_cycle: row.billing_cycle ?? "monthly",
+        status: "trial",
+        payment_status: row.payment_status ?? "pending",
+        renewal_date: base.toISOString().slice(0, 10),
+      });
+    }
+    toast.success(`Trial extended for ${rows.length} hospital(s)`);
+  }
+
+  function handleCancelSubscriptions() {
+    const rows = selectedRecords().filter(
+      (r) => r.status !== "unassigned" && r.status !== "cancelled",
+    );
+    if (rows.length === 0) {
+      toast.error("Nothing to cancel", "Select one or more active subscriptions first.");
+      return;
+    }
+    setConfirmAction({ type: "bulk-cancel", rows });
+  }
+
+  /** Live Razorpay-billed rows (razorpay_subscription_id set) MUST go
+   * through cancelBilling (cancels the real subscription first, then the
+   * webhook flips status locally) -- the backend's PUT guard rejects
+   * status='cancelled' on those rows with a 409 (admin/subscriptions_api.py's
+   * _is_billed_and_live check), which is exactly the error this used to
+   * surface for every billed hospital swept up in a bulk cancel. Only
+   * manual/comped rows (no real billing) go through the direct assign(). */
+  async function runConfirmedAction() {
+    if (!confirmAction) return;
+    if (confirmAction.type === "unassign") {
+      await unassign(confirmAction.row.hospital_id, confirmAction.row.hospital_name);
+    } else if (confirmAction.type === "cancel-billing") {
+      await cancelBilling(confirmAction.row.hospital_id, confirmAction.row.hospital_name);
+    } else {
+      const billed = confirmAction.rows.filter((r) => r.razorpay_subscription_id);
+      const manual = confirmAction.rows.filter((r) => !r.razorpay_subscription_id);
+      for (const row of billed) await cancelBilling(row.hospital_id, row.hospital_name);
+      for (const row of manual) {
+        await assign(row.hospital_id, {
+          plan_id: row.plan_id as number,
+          billing_cycle: row.billing_cycle ?? "monthly",
+          status: "cancelled",
+          payment_status: row.payment_status ?? "pending",
+        });
+      }
+    }
+    setConfirmAction(null);
   }
 
   return (
@@ -131,21 +247,49 @@ export default function SubscriptionsPage() {
         </p>
       </div>
 
+      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
+
       <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
-        <StatTile label="Active Subscriptions" value={36} deltaPct={12} hint="of 42 total hospitals" icon={Users} mock />
-        <StatTile label="Trials" value={4} deltaPct={33} hint="Hospitals in trial period" icon={FlaskConical} tint="brand" mock />
-        <StatTile label="Renewals This Month" value={5} deltaPct={67} hint="Require attention" icon={Clock} tint="clay" mock />
+        <StatTile
+          label="Active Subscriptions"
+          value={stats.active}
+          deltaPct={null}
+          hint={`of ${stats.total} total hospitals`}
+          icon={Users}
+        />
+        <StatTile
+          label="Trials"
+          value={stats.trials}
+          deltaPct={null}
+          hint="Hospitals in trial period"
+          icon={FlaskConical}
+          tint="brand"
+        />
+        <StatTile
+          label="Renewals This Month"
+          value={stats.renewalsThisMonth}
+          deltaPct={null}
+          hint="Require attention"
+          icon={Clock}
+          tint="clay"
+        />
         <StatTile
           label="Churned Accounts"
-          value={2}
-          deltaPct={-50}
+          value={stats.churned}
+          deltaPct={null}
           upIsGood={false}
-          hint="This month"
+          hint="Cancelled"
           icon={Pause}
           tint="error"
-          mock
         />
-        <StatTile label="Avg. Subscription Value" value={4250} prefix="$" deltaPct={18} hint="Per hospital (annual)" icon={BarChart3} mock />
+        <StatTile
+          label="Avg. Subscription Value"
+          value={Math.round(stats.avgValue)}
+          prefix="₹"
+          deltaPct={null}
+          hint="Per hospital (monthly)"
+          icon={BarChart3}
+        />
       </div>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
@@ -157,21 +301,39 @@ export default function SubscriptionsPage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by hospital name, plan, or location…"
+                  placeholder="Search by hospital name…"
                   className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
                 />
               </div>
               <div>
                 <label className="text-hint mb-space-1 block">Plan</label>
-                <FilterSelect value={plan} onChange={setPlan} options={PLAN_OPTIONS} allLabel="All Plans" className="h-10 w-full" />
+                <FilterSelect
+                  value={planFilter}
+                  onChange={setPlanFilter}
+                  options={plans.map((p) => ({ value: String(p.id), label: p.name }))}
+                  allLabel="All Plans"
+                  className="h-10 w-full"
+                />
               </div>
               <div>
                 <label className="text-hint mb-space-1 block">Status</label>
-                <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All Statuses" className="h-10 w-full" />
+                <FilterSelect
+                  value={status}
+                  onChange={setStatus}
+                  options={STATUS_OPTIONS}
+                  allLabel="All Statuses"
+                  className="h-10 w-full"
+                />
               </div>
               <div>
                 <label className="text-hint mb-space-1 block">Billing Cycle</label>
-                <FilterSelect value={cycle} onChange={setCycle} options={CYCLE_OPTIONS} allLabel="All Cycles" className="h-10 w-full" />
+                <FilterSelect
+                  value={cycle}
+                  onChange={setCycle}
+                  options={CYCLE_OPTIONS}
+                  allLabel="All Cycles"
+                  className="h-10 w-full"
+                />
               </div>
             </div>
           </Card>
@@ -184,16 +346,21 @@ export default function SubscriptionsPage() {
                   type="button"
                   onClick={() => setPill(key)}
                   className={cn(
-                    "px-space-3 py-1.5 gap-space-1 flex items-center rounded-full text-[12.5px] font-semibold transition-colors duration-150",
-                    pill === key ? "bg-brand-600 text-white" : "bg-black/[0.04] text-ink-600 hover:bg-black/[0.07]",
+                    "px-space-3 gap-space-1 flex items-center rounded-full py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
+                    pill === key
+                      ? "bg-brand-600 text-white"
+                      : "text-ink-600 bg-black/4 hover:bg-black/7",
                   )}
                 >
-                  {label} ({key === "all" ? MOCK_SUBSCRIPTIONS.length : counts[key] || 0})
+                  {label} ({key === "all" ? (subscriptions?.length ?? 0) : counts[key] || 0})
                 </button>
               ))}
             </div>
             <button
               type="button"
+              onClick={() =>
+                toast.error("Not available yet", "Export needs a real report pipeline.")
+              }
               className="border-line text-ink-700 gap-space-2 px-space-3 hover:bg-paper flex h-9 items-center rounded-md border text-[12.5px] font-semibold"
             >
               <Download size={14} /> Export
@@ -204,36 +371,77 @@ export default function SubscriptionsPage() {
             <PanelHeader
               title="Hospital Subscriptions"
               subtitle="View and manage subscription records for all hospital clients."
-              mock
             />
-            <DataTable<SubscriptionRow>
-              columns={createSubscriptionColumns({
-                selectedIds,
-                onToggle: toggle,
-                onToggleAll: toggleAll,
-                allSelected: filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id)),
-              })}
-              data={filtered}
-              getRowId={(row) => String(row.id)}
-              pageSize={10}
-              pageSizeOptions={[10, 25, 50]}
-            />
+            {!subscriptions ? (
+              <p className="text-ink-400 text-[13px]">Loading…</p>
+            ) : (
+              <DataTable<SubscriptionRecord>
+                columns={createSubscriptionColumns({
+                  selectedIds,
+                  onToggle: toggle,
+                  onToggleAll: toggleAll,
+                  allSelected:
+                    filtered.length > 0 && filtered.every((r) => selectedIds.has(r.hospital_id)),
+                  onEdit: setEditing,
+                  onUnassign: handleUnassign,
+                  onCancelBilling: handleCancelBilling,
+                })}
+                data={filtered}
+                getRowId={(row) => String(row.hospital_id)}
+                pageSize={10}
+                pageSizeOptions={[10, 25, 50]}
+              />
+            )}
           </Card>
+
+          {editing && (
+            <AssignSubscriptionDialog
+              open={!!editing}
+              onOpenChange={(open) => !open && setEditing(null)}
+              record={editing}
+              plans={plans}
+              onStartTrial={startTrial}
+              onMarkManuallyBilled={markManuallyBilled}
+              startingTrial={startingTrial}
+              markingManuallyBilled={markingManuallyBilled}
+            />
+          )}
         </div>
 
         <div className="space-y-space-4">
           <Card className="p-space-4">
-            <PanelHeader title="Subscription Summary" mock />
+            <PanelHeader title="Subscription Summary" />
             <div className="space-y-space-2 text-[12.5px]">
               {[
-                ["Total Hospitals", "42"],
-                ["Active Subscriptions", "36 (86%)"],
-                ["Trial Subscriptions", "4 (10%)"],
-                ["Renewal Due (Next 30 Days)", "5 (12%)"],
-                ["Expired Subscriptions", "3 (7%)"],
-                ["Cancelled Accounts", "2 (5%)"],
-                ["Total Annual Contract Value (ACV)", "$178,500"],
-                ["Average Subscription Value", "$4,250"],
+                ["Total Hospitals", String(stats.total)],
+                [
+                  "Active Subscriptions",
+                  `${counts.active || 0} (${stats.total ? Math.round(((counts.active || 0) / stats.total) * 100) : 0}%)`,
+                ],
+                [
+                  "Trial Subscriptions",
+                  `${counts.trial || 0} (${stats.total ? Math.round(((counts.trial || 0) / stats.total) * 100) : 0}%)`,
+                ],
+                [
+                  "Renewal Due",
+                  `${counts.renewal_due || 0} (${stats.total ? Math.round(((counts.renewal_due || 0) / stats.total) * 100) : 0}%)`,
+                ],
+                [
+                  "Expired Subscriptions",
+                  `${counts.expired || 0} (${stats.total ? Math.round(((counts.expired || 0) / stats.total) * 100) : 0}%)`,
+                ],
+                [
+                  "Cancelled Accounts",
+                  `${counts.cancelled || 0} (${stats.total ? Math.round(((counts.cancelled || 0) / stats.total) * 100) : 0}%)`,
+                ],
+                [
+                  "Total Annual Contract Value (ACV)",
+                  `₹${Math.round(stats.totalACV).toLocaleString("en-IN")}`,
+                ],
+                [
+                  "Average Subscription Value",
+                  `₹${Math.round(stats.avgValue).toLocaleString("en-IN")}`,
+                ],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-ink-400">{label}</span>
@@ -244,46 +452,85 @@ export default function SubscriptionsPage() {
           </Card>
 
           <Card className="p-space-4">
-            <PanelHeader title="Quick Actions" subtitle="Common subscription management actions." mock />
+            <PanelHeader title="Quick Actions" subtitle="Common subscription management actions." />
             <QuickActionList
               size="sm"
               columns={2}
               actions={[
-                { label: "Upgrade Plan", icon: TrendingUp, onClick: () => {} },
-                { label: "Extend Trial", icon: FlaskConical, onClick: () => {} },
-                { label: "Pause Subscription", icon: Pause, onClick: () => {} },
-                { label: "Send Renewal Reminder", icon: Send, onClick: () => {} },
+                { label: "Upgrade Plan", icon: TrendingUp, onClick: handleUpgradePlan },
+                { label: "Extend Trial", icon: FlaskConical, onClick: handleExtendTrial },
+                { label: "Cancel Subscription", icon: Pause, onClick: handleCancelSubscriptions },
+                {
+                  label: "Send Renewal Reminder",
+                  icon: Send,
+                  onClick: () =>
+                    toast.error("Not available yet", "No notification system exists yet."),
+                },
               ]}
             >
-              <QuickActionButton label="Download Invoice" icon={FileDown} size="sm" onClick={() => {}} className="col-span-2" />
+              <QuickActionButton
+                label="Download Invoice"
+                icon={FileDown}
+                size="sm"
+                onClick={() => toast.error("Not available yet", "No invoice model exists yet.")}
+                className="col-span-2"
+              />
             </QuickActionList>
           </Card>
 
           <Card className="p-space-4">
-            <PanelHeader title="Recent Subscription Activities" mock />
-            <ul className="divide-line divide-y">
-              {[
-                { time: "Today, 10:24 AM", action: "Renewal Reminder", details: "Sent to Sunrise Children's Hospital", by: "SA" },
-                { time: "Today, 09:15 AM", action: "Plan Upgraded", details: "Green Valley Hospital: Basic → Professional", by: "SA" },
-                { time: "08 Sep 2025, 04:32 PM", action: "Payment Failed", details: "Riverside Health Institute: Invoice #INV-2025-4481", by: "SA" },
-                { time: "07 Sep 2025, 11:18 AM", action: "Trial Extended", details: "Coastal Care Hospital: Extended by 14 days", by: "SA" },
-              ].map((entry, i) => (
-                <li key={i} className="py-space-2 gap-space-0.5 flex flex-col text-[12px]">
-                  <div className="flex items-center justify-between">
-                    <span className="gap-space-1 text-ink-900 flex items-center font-semibold">
-                      <RefreshCw size={12} /> {entry.action}
+            <PanelHeader title="Recent Subscription Activities" />
+            {!auditEntries ? (
+              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">Loading…</p>
+            ) : subscriptionActivity.length === 0 ? (
+              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">No changes yet.</p>
+            ) : (
+              <ul className="divide-line divide-y">
+                {subscriptionActivity.map((entry) => (
+                  <li key={entry.id} className="py-space-2 gap-space-0.5 flex flex-col text-[12px]">
+                    <div className="flex items-center justify-between">
+                      <span className="gap-space-1 text-ink-900 flex items-center font-semibold">
+                        <RefreshCw size={12} /> {entry.action}
+                      </span>
+                      <span className="text-ink-400">
+                        {new Date(entry.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <span className="text-ink-600">
+                      {entry.hospital_name ?? "—"} · {entry.actor_label}
                     </span>
-                    <span className="text-ink-400">{entry.time}</span>
-                  </div>
-                  <span className="text-ink-600">
-                    {entry.details} · {entry.by}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={
+          confirmAction?.type === "unassign"
+            ? "Unassign Subscription"
+            : confirmAction?.type === "cancel-billing"
+              ? "Cancel Billing"
+              : "Cancel Subscriptions"
+        }
+        message={
+          confirmAction?.type === "unassign"
+            ? `Unassign ${confirmAction.row.hospital_name} from ${confirmAction.row.plan_name}?`
+            : confirmAction?.type === "cancel-billing"
+              ? `Cancel ${confirmAction.row.hospital_name}'s live Razorpay subscription? This stops their billing.`
+              : confirmAction?.type === "bulk-cancel"
+                ? `Cancel ${confirmAction.rows.length} subscription(s)? Hospitals on live Razorpay billing will have their real subscription cancelled; others are marked cancelled directly.`
+                : ""
+        }
+        confirmLabel={confirmAction?.type === "unassign" ? "Unassign" : "Cancel"}
+        destructive
+        busy={assigning || unassigning || cancellingBilling}
+        onConfirm={runConfirmedAction}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   );
 }

@@ -34,7 +34,10 @@ import { formatShortDateTime } from "@/lib/formatDate";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
 import { useEditTenant } from "@/hooks/useEditTenant";
 import { useTenantAuditLog } from "@/hooks/useTenantAuditLog";
-import { createFeatureTogglesColumns, type FeatureRow } from "./_components/feature-toggles-columns";
+import {
+  createFeatureTogglesColumns,
+  type FeatureRow,
+} from "./_components/feature-toggles-columns";
 
 // Module/Feature rows = the real per-hospital hospitals.enabled_features set
 // (flows/patient_identity/menu.py's REAL_FEATURES) -- the WhatsApp bot's
@@ -62,7 +65,15 @@ const FEATURE_ICONS: Record<string, LucideIcon> = {
 const TENANT_TYPE_LABELS: Record<string, string> = { hospital: "Hospital", clinic: "Clinic" };
 const OPTIONAL_EXTRAS = ["faq", "consent_privacy", "manage_language", "hospital_info"];
 
-function PanelHeader({ title, subtitle, mock }: { title: string; subtitle?: string; mock?: boolean }) {
+function PanelHeader({
+  title,
+  subtitle,
+  mock,
+}: {
+  title: string;
+  subtitle?: string;
+  mock?: boolean;
+}) {
   return (
     <div className="mb-space-3 gap-space-3 flex items-start justify-between">
       <div>
@@ -109,7 +120,13 @@ function FeatureTogglesContent({
   return (
     <div>
       <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total Hospitals" value={tenants.length} deltaPct={null} hint="Across all subscriptions" icon={Building2} />
+        <StatTile
+          label="Total Hospitals"
+          value={tenants.length}
+          deltaPct={null}
+          hint="Across all subscriptions"
+          icon={Building2}
+        />
         <StatTile
           label="Total Features"
           value={allFeatureKeys.length}
@@ -117,7 +134,14 @@ function FeatureTogglesContent({
           hint="Configurable WhatsApp menu rows"
           icon={Settings2}
         />
-        <StatTile label="Custom Overrides" value={8} deltaPct={null} hint="Hospitals with overrides" icon={Users} mock />
+        <StatTile
+          label="Custom Overrides"
+          value={8}
+          deltaPct={null}
+          hint="Hospitals with overrides"
+          icon={Users}
+          mock
+        />
         <StatTile
           label="Pending Changes"
           value={pendingChanges}
@@ -152,7 +176,9 @@ function FeatureTogglesContent({
                 disabled
                 className="border-line bg-paper px-space-3 text-ink-600 h-10 min-w-45 rounded-md border text-[13px]"
               >
-                <option value={form.tenant_type}>{TENANT_TYPE_LABELS[form.tenant_type] || form.tenant_type}</option>
+                <option value={form.tenant_type}>
+                  {TENANT_TYPE_LABELS[form.tenant_type] || form.tenant_type}
+                </option>
               </select>
             </div>
             <div>
@@ -194,8 +220,9 @@ function FeatureTogglesContent({
               </button>
             </div>
             <p className="text-hint mb-space-3">
-              &quot;Included in Plan&quot; / &quot;Custom Override&quot; don&apos;t apply to WhatsApp features
-              (no plan-based defaults exist for these) — shown as &quot;—&quot; for layout parity.
+              &quot;Included in Plan&quot; / &quot;Custom Override&quot; don&apos;t apply to
+              WhatsApp features (no plan-based defaults exist for these) — shown as &quot;—&quot;
+              for layout parity.
             </p>
 
             <DataTable<FeatureRow>
@@ -248,7 +275,9 @@ function FeatureTogglesContent({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Configuration Status</span>
-                <Badge tone={hasUnsaved ? "clay" : "success"}>{hasUnsaved ? "Unsaved" : "Applied"}</Badge>
+                <Badge tone={hasUnsaved ? "clay" : "success"}>
+                  {hasUnsaved ? "Unsaved" : "Applied"}
+                </Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Support Level</span>
@@ -261,7 +290,10 @@ function FeatureTogglesContent({
           </Card>
 
           <Card className="p-space-4">
-            <PanelHeader title="Quick Actions" subtitle="Common feature control actions for the selected hospital." />
+            <PanelHeader
+              title="Quick Actions"
+              subtitle="Common feature control actions for the selected hospital."
+            />
             <QuickActionList
               size="sm"
               columns={2}
@@ -277,7 +309,9 @@ function FeatureTogglesContent({
                   onClick: () =>
                     setForm({
                       ...form,
-                      enabled_features: form.enabled_features.filter((k) => !OPTIONAL_EXTRAS.includes(k)),
+                      enabled_features: form.enabled_features.filter(
+                        (k) => !OPTIONAL_EXTRAS.includes(k),
+                      ),
                     }),
                 },
                 {
@@ -291,7 +325,12 @@ function FeatureTogglesContent({
               full-color (not disabled/greyed) with a no-op onClick and a
               "Mock" badge instead. */}
               <div className="relative">
-                <QuickActionButton label="Clone Feature Profile" icon={Copy} size="sm" onClick={() => {}} />
+                <QuickActionButton
+                  label="Clone Feature Profile"
+                  icon={Copy}
+                  size="sm"
+                  onClick={() => {}}
+                />
                 <Badge tone="clay" className="absolute -top-2 -right-2">
                   Mock
                 </Badge>
@@ -316,8 +355,10 @@ function FeatureTogglesContent({
                       <span className="text-ink-400">{formatShortDateTime(entry.created_at)}</span>
                     </div>
                     <span className="text-ink-600">
-                      {entry.after_value ? Object.keys(entry.after_value).join(", ") : entry.entity_type || "—"} ·{" "}
-                      {entry.actor_label}
+                      {entry.after_value
+                        ? Object.keys(entry.after_value).join(", ")
+                        : entry.entity_type || "—"}{" "}
+                      · {entry.actor_label}
                     </span>
                   </li>
                 ))}
@@ -352,7 +393,11 @@ export default function FeatureTogglesPage() {
       ) : tenants.length === 0 ? (
         <p className="text-ink-400 text-[13px]">No hospitals onboarded yet.</p>
       ) : (
-        <FeatureTogglesContent tenants={tenants} selectedId={activeId as number} onSelect={setSelectedId} />
+        <FeatureTogglesContent
+          tenants={tenants}
+          selectedId={activeId as number}
+          onSelect={setSelectedId}
+        />
       )}
     </div>
   );

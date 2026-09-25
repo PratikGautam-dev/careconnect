@@ -115,14 +115,13 @@ export default function AttendanceOverviewPage() {
 
   return (
     <PortalShell hospital={hospital} active="attendance-overview">
-      <PageHeader
-        title="Attendance Overview"
-        description={formatHeaderDate(new Date())}
-      />
+      <PageHeader title="Attendance Overview" description={formatHeaderDate(new Date())} />
 
       {!ready || !canView ? (
         !ready ? null : (
-          <p className="text-ink-400 text-[13px]">You don&apos;t have access to Attendance Overview.</p>
+          <p className="text-ink-400 text-[13px]">
+            You don&apos;t have access to Attendance Overview.
+          </p>
         )
       ) : (
         <>
@@ -164,7 +163,9 @@ export default function AttendanceOverviewPage() {
             <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
               <div>
                 <h3 className="text-label text-ink-900 font-bold">{dateLabel(date)}</h3>
-                <p className="text-hint mt-space-1">Hospital-wide attendance for the selected day.</p>
+                <p className="text-hint mt-space-1">
+                  Hospital-wide attendance for the selected day.
+                </p>
               </div>
               <Input
                 type="date"
@@ -200,7 +201,9 @@ export default function AttendanceOverviewPage() {
               <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
             ) : filteredRows.length === 0 ? (
               <p className="py-space-4 text-ink-400 text-center text-[13px]">
-                {rows.length === 0 ? "No staff at this hospital yet." : "No staff match your search/filters."}
+                {rows.length === 0
+                  ? "No staff at this hospital yet."
+                  : "No staff match your search/filters."}
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -223,7 +226,7 @@ export default function AttendanceOverviewPage() {
                         <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
                           {r.employee_id || "—"}
                         </td>
-                        <td className="py-space-3 pr-space-3 text-ink-900 whitespace-nowrap font-semibold">
+                        <td className="py-space-3 pr-space-3 text-ink-900 font-semibold whitespace-nowrap">
                           {r.staff_name}
                         </td>
                         <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">

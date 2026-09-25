@@ -25,7 +25,12 @@ import {
   type HolidayApplicationInitialData,
   type LeaveBalance,
 } from "@/hooks/useHolidayApplication";
-import { formatLeaveTypeLabel, type LeaveRequestRow, type LeaveRequestStatus, type LeaveType } from "@/hooks/useLeaveRequests";
+import {
+  formatLeaveTypeLabel,
+  type LeaveRequestRow,
+  type LeaveRequestStatus,
+  type LeaveType,
+} from "@/hooks/useLeaveRequests";
 import { formatDate, formatHeaderDateNoYear, formatTimeOnly } from "@/lib/formatDate";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
@@ -128,7 +133,9 @@ export function StaffDashboardView() {
   // useHolidayApplication below is only ever told canView=true once we
   // actually know the answer, never fetching a second time speculatively.
   const [leavePermitted, setLeavePermitted] = useState<boolean | null>(null);
-  const [leaveInitialData, setLeaveInitialData] = useState<HolidayApplicationInitialData | undefined>(undefined);
+  const [leaveInitialData, setLeaveInitialData] = useState<
+    HolidayApplicationInitialData | undefined
+  >(undefined);
 
   // Single combined fetch (attendance + leave) replaces the two independent
   // GETs this view used to make (its own /api/portal/attendance/today, plus
@@ -184,11 +191,16 @@ export function StaffDashboardView() {
     const result = await staffFetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(position ? { latitude: position.latitude, longitude: position.longitude } : {}),
+      body: JSON.stringify(
+        position ? { latitude: position.latitude, longitude: position.longitude } : {},
+      ),
     });
     setBusy(false);
     if (!result.ok) {
-      toast.error("That didn't go through", result.unauthorized ? "Please sign in again." : result.error);
+      toast.error(
+        "That didn't go through",
+        result.unauthorized ? "Please sign in again." : result.error,
+      );
       return;
     }
     await loadDashboard();
@@ -381,7 +393,10 @@ export function StaffDashboardView() {
                 allowDecimals={false}
                 unit="h"
               />
-              <Tooltip content={<WeeklyHoursTooltip />} cursor={{ fill: "#00949E", fillOpacity: 0.08 }} />
+              <Tooltip
+                content={<WeeklyHoursTooltip />}
+                cursor={{ fill: "#00949E", fillOpacity: 0.08 }}
+              />
               <Bar dataKey="hours" fill="#00949E" radius={[4, 4, 0, 0]} maxBarSize={40} />
             </BarChart>
           </ResponsiveContainer>
@@ -408,7 +423,9 @@ export function StaffDashboardView() {
             </div>
             <div>
               <p className="text-hint">Total today</p>
-              <p className="text-ink-900 text-[13.5px] font-bold">{formatMinutes(workingMinutes)}</p>
+              <p className="text-ink-900 text-[13.5px] font-bold">
+                {formatMinutes(workingMinutes)}
+              </p>
             </div>
           </div>
           <div className="gap-space-2 grid grid-cols-2">
@@ -445,7 +462,10 @@ export function StaffDashboardView() {
             </Button>
           </div>
           <p className="text-hint mt-space-2 text-center">
-            <Link href="/portal/check-in-out" className="text-brand-600 font-semibold hover:underline">
+            <Link
+              href="/portal/check-in-out"
+              className="text-brand-600 font-semibold hover:underline"
+            >
               Full check-in / check-out page →
             </Link>
           </p>
@@ -569,7 +589,11 @@ export function StaffDashboardView() {
  * appointments, a different domain entirely) -- this is this staff
  * member's own leave calendar, built from data useHolidayApplication
  * already loaded, no separate fetch. */
-function MiniLeaveCalendar({ leaveDatesByStatus }: { leaveDatesByStatus: Map<string, LeaveRequestStatus> }) {
+function MiniLeaveCalendar({
+  leaveDatesByStatus,
+}: {
+  leaveDatesByStatus: Map<string, LeaveRequestStatus>;
+}) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
@@ -603,7 +627,10 @@ function MiniLeaveCalendar({ leaveDatesByStatus }: { leaveDatesByStatus: Map<str
   const cells: { key: string | null; day: number | null }[] = [];
   for (let i = 0; i < leadingBlanks; i++) cells.push({ key: null, day: null });
   for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({ key: `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`, day: d });
+    cells.push({
+      key: `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+      day: d,
+    });
   }
 
   const DOT_STYLES: Record<LeaveRequestStatus, string> = {
@@ -661,7 +688,9 @@ function MiniLeaveCalendar({ leaveDatesByStatus }: { leaveDatesByStatus: Map<str
               key={c.key}
               className={cn(
                 "flex aspect-square flex-col items-center justify-center gap-0.5 rounded-md border text-[12px]",
-                isToday ? "border-brand-300 bg-brand-50 text-ink-900" : "border-transparent text-ink-700",
+                isToday
+                  ? "border-brand-300 bg-brand-50 text-ink-900"
+                  : "text-ink-700 border-transparent",
               )}
             >
               <span className="font-semibold">{c.day}</span>

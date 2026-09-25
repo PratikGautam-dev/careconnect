@@ -57,9 +57,19 @@ export const HOSPITAL_CAPABILITIES: HospitalCapability[] = [
   { key: "manage_staff", label: "Staff", icon: UserCog, pageKeys: ["staff"] },
   { key: "manage_diagnostic_resources", label: "Manage Diagnostic Resources", icon: FlaskConical },
   { key: "manage_procedures", label: "Manage Procedures", icon: FileText },
-  { key: "report_review", label: "Report Review", icon: ClipboardCheck, pageKeys: ["report-review"] },
+  {
+    key: "report_review",
+    label: "Report Review",
+    icon: ClipboardCheck,
+    pageKeys: ["report-review"],
+  },
   { key: "patients", label: "Patients", icon: Users, pageKeys: ["patients"] },
-  { key: "leave_requests", label: "Leave Requests", icon: CalendarClock, pageKeys: ["leave_requests"] },
+  {
+    key: "leave_requests",
+    label: "Leave Requests",
+    icon: CalendarClock,
+    pageKeys: ["leave_requests"],
+  },
   {
     key: "attendance_overview",
     label: "Attendance Overview",
@@ -68,7 +78,12 @@ export const HOSPITAL_CAPABILITIES: HospitalCapability[] = [
   },
   { key: "messages", label: "Messages", icon: MessageCircle, pageKeys: ["messages"] },
   { key: "billing", label: "Billing", icon: Receipt, pageKeys: ["billing"] },
-  { key: "report_analytics", label: "Report Analytics", icon: BarChart3, pageKeys: ["report-analytics"] },
+  {
+    key: "report_analytics",
+    label: "Report Analytics",
+    icon: BarChart3,
+    pageKeys: ["report-analytics"],
+  },
   { key: "roles", label: "Roles & Permissions", icon: ShieldCheck, pageKeys: ["roles"] },
 ];
 
@@ -82,5 +97,7 @@ export const CAPABILITY_META: Record<string, { label: string; icon: LucideIcon }
  * from this map has no capability concept and is gated by hasPermission
  * (RBAC) alone. */
 export const PAGE_CAPABILITY: Record<string, string> = Object.fromEntries(
-  HOSPITAL_CAPABILITIES.flatMap(({ key, pageKeys }) => (pageKeys ?? []).map((pageKey) => [pageKey, key])),
+  HOSPITAL_CAPABILITIES.flatMap(({ key, pageKeys }) =>
+    (pageKeys ?? []).map((pageKey) => [pageKey, key]),
+  ),
 );

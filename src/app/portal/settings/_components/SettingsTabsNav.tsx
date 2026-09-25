@@ -9,7 +9,8 @@ export type SettingsTabKey =
   | "departments"
   | "procedures"
   | "notifications"
-  | "attendance";
+  | "attendance"
+  | "billing";
 
 export type SettingsTabDef = { key: SettingsTabKey; label: string; icon: LucideIcon };
 

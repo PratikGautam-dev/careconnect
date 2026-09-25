@@ -79,7 +79,9 @@ export function createTenantColumns({
       id: "plan",
       header: "Plan",
       cell: ({ row }) => (
-        <span className="text-ink-600">{TIER_LABELS[row.original.data_tier] || row.original.data_tier}</span>
+        <span className="text-ink-600">
+          {TIER_LABELS[row.original.data_tier] || row.original.data_tier}
+        </span>
       ),
     },
     {
@@ -104,7 +106,9 @@ export function createTenantColumns({
       id: "onboarded",
       header: "Onboarded",
       cell: ({ row }) => (
-        <span className="text-ink-600 whitespace-nowrap">{formatDate(row.original.created_at)}</span>
+        <span className="text-ink-600 whitespace-nowrap">
+          {formatDate(row.original.created_at)}
+        </span>
       ),
     },
     {

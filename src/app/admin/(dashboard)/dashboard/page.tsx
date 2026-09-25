@@ -44,19 +44,79 @@ const TIER_COLORS = ["#2a78d6", "#7c5cf5", "#1baf7a", "#eda100"];
 // real table as soon as it exists. Rendered full-color (not greyed out, per
 // explicit feedback) with a small "Mock" badge as the only signal.
 const MOCK_RECENT_RENEWALS = [
-  { hospital: "Sunrise General Hospital", plan: "Professional", renewalDate: "30 Sep 2025", daysLeft: 7, status: "Expiring Soon" },
-  { hospital: "City Care Medical Center", plan: "Enterprise", renewalDate: "12 Oct 2025", daysLeft: 19, status: "Upcoming" },
-  { hospital: "Lifeline Specialty Hospital", plan: "Professional", renewalDate: "25 Oct 2025", daysLeft: 32, status: "Upcoming" },
-  { hospital: "Metro Health Network", plan: "Enterprise", renewalDate: "02 Nov 2025", daysLeft: 40, status: "Upcoming" },
-  { hospital: "Riverside Community Hospital", plan: "Basic", renewalDate: "10 Nov 2025", daysLeft: 48, status: "Upcoming" },
+  {
+    hospital: "Sunrise General Hospital",
+    plan: "Professional",
+    renewalDate: "30 Sep 2025",
+    daysLeft: 7,
+    status: "Expiring Soon",
+  },
+  {
+    hospital: "City Care Medical Center",
+    plan: "Enterprise",
+    renewalDate: "12 Oct 2025",
+    daysLeft: 19,
+    status: "Upcoming",
+  },
+  {
+    hospital: "Lifeline Specialty Hospital",
+    plan: "Professional",
+    renewalDate: "25 Oct 2025",
+    daysLeft: 32,
+    status: "Upcoming",
+  },
+  {
+    hospital: "Metro Health Network",
+    plan: "Enterprise",
+    renewalDate: "02 Nov 2025",
+    daysLeft: 40,
+    status: "Upcoming",
+  },
+  {
+    hospital: "Riverside Community Hospital",
+    plan: "Basic",
+    renewalDate: "10 Nov 2025",
+    daysLeft: 48,
+    status: "Upcoming",
+  },
 ];
 
 const MOCK_SUPPORT_TICKETS = [
-  { id: "#4582", hospital: "City Care Medical", subject: "Unable to export reports", priority: "High", status: "Open" },
-  { id: "#4581", hospital: "Sunrise General", subject: "Login issues for staff", priority: "Medium", status: "Open" },
-  { id: "#4578", hospital: "Lifeline Specialty", subject: "Feature request – Lab Integration", priority: "Low", status: "In Progress" },
-  { id: "#4575", hospital: "Metro Health", subject: "Billing module not syncing", priority: "High", status: "Open" },
-  { id: "#4573", hospital: "Riverside Community", subject: "Need user access for new staff", priority: "Low", status: "Resolved" },
+  {
+    id: "#4582",
+    hospital: "City Care Medical",
+    subject: "Unable to export reports",
+    priority: "High",
+    status: "Open",
+  },
+  {
+    id: "#4581",
+    hospital: "Sunrise General",
+    subject: "Login issues for staff",
+    priority: "Medium",
+    status: "Open",
+  },
+  {
+    id: "#4578",
+    hospital: "Lifeline Specialty",
+    subject: "Feature request – Lab Integration",
+    priority: "Low",
+    status: "In Progress",
+  },
+  {
+    id: "#4575",
+    hospital: "Metro Health",
+    subject: "Billing module not syncing",
+    priority: "High",
+    status: "Open",
+  },
+  {
+    id: "#4573",
+    hospital: "Riverside Community",
+    subject: "Need user access for new staff",
+    priority: "Low",
+    status: "Resolved",
+  },
 ];
 
 const MOCK_PLATFORM_SERVICES = [
@@ -85,7 +145,12 @@ const TICKET_STATUS_CLASSES: Record<string, string> = {
 
 function Pill({ label, className }: { label: string; className?: string }) {
   return (
-    <span className={cn("px-space-2 inline-block rounded-full py-0.5 text-[11px] font-semibold", className)}>
+    <span
+      className={cn(
+        "px-space-2 inline-block rounded-full py-0.5 text-[11px] font-semibold",
+        className,
+      )}
+    >
       {label}
     </span>
   );
@@ -325,14 +390,19 @@ function DashboardContent() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-ink-900 text-[20px] leading-none font-bold">{statusTotal}</span>
+                  <span className="text-ink-900 text-[20px] leading-none font-bold">
+                    {statusTotal}
+                  </span>
                   <span className="text-ink-400 text-[11px]">Hospitals</span>
                 </div>
               </div>
               <ul className="space-y-space-2 mt-space-3">
                 {statusData.map((s) => (
                   <li key={s.name} className="gap-space-2 flex items-center text-[12.5px]">
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: s.color }}
+                    />
                     <span className="text-ink-900 flex-1">{s.name}</span>
                     <span className="text-ink-600 font-semibold">
                       {s.value} · {statusTotal ? Math.round((s.value / statusTotal) * 100) : 0}%
@@ -442,7 +512,10 @@ function DashboardContent() {
                 <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
-                      data={tierEntries.map(([tier, count]) => ({ name: TIER_LABELS[tier] || tier, value: count }))}
+                      data={tierEntries.map(([tier, count]) => ({
+                        name: TIER_LABELS[tier] || tier,
+                        value: count,
+                      }))}
                       dataKey="value"
                       nameKey="name"
                       innerRadius={44}
@@ -458,7 +531,9 @@ function DashboardContent() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-ink-900 text-[18px] leading-none font-bold">{tierTotal}</span>
+                  <span className="text-ink-900 text-[18px] leading-none font-bold">
+                    {tierTotal}
+                  </span>
                   <span className="text-ink-400 text-[11px]">Hospitals</span>
                 </div>
               </div>
@@ -547,8 +622,8 @@ function DashboardContent() {
       <div className="mt-space-3 gap-space-1 text-ink-400 flex items-center text-[11.5px]">
         <Activity size={12} />
         <span>
-          Cards tagged &quot;Mock&quot; have no real data source yet — they&apos;ll be wired up as soon as
-          subscriptions/billing/support-tickets/monitoring exist as real tables.
+          Cards tagged &quot;Mock&quot; have no real data source yet — they&apos;ll be wired up as
+          soon as subscriptions/billing/support-tickets/monitoring exist as real tables.
         </span>
       </div>
     </div>

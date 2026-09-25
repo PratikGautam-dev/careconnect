@@ -157,10 +157,7 @@ export default function StaffManagementPage() {
 
   return (
     <PortalShell hospital={hospital} active="staff">
-      <PageHeader
-        title="Staff"
-        description={formatHeaderDate(today)}
-      />
+      <PageHeader title="Staff" description={formatHeaderDate(today)} />
 
       {!ready || !canView ? (
         !ready ? null : (

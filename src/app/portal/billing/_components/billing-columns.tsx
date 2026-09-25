@@ -55,9 +55,7 @@ export function createBillingColumns({
     {
       id: "reference",
       header: "Reference",
-      cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.reference_id || "—"}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-600">{row.original.reference_id || "—"}</span>,
     },
     {
       id: "amount",

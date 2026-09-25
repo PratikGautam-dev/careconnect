@@ -73,7 +73,10 @@ export function useDoctorSlots(doctorId: string) {
     setPendingId(slot.scheduled_at);
     setError(null);
     try {
-      await toggleBlockMutation.mutateAsync({ scheduledAt: slot.scheduled_at, blocked: !slot.blocked });
+      await toggleBlockMutation.mutateAsync({
+        scheduledAt: slot.scheduled_at,
+        blocked: !slot.blocked,
+      });
       toast.success(slot.blocked ? "Slot unblocked" : "Slot blocked");
       refetch();
     } catch (err) {

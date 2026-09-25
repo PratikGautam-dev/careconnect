@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Bell,
   CalendarDays,
   Clock,
+  CreditCard,
   Network,
   Settings as SettingsIcon,
 } from "lucide-react";
@@ -14,6 +16,7 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { AppointmentsTab } from "./_components/AppointmentsTab";
 import { AttendanceSettingsTab } from "./_components/AttendanceSettingsTab";
+import { BillingTab } from "./_components/BillingTab";
 import { DepartmentsTab } from "./_components/DepartmentsTab";
 import { GeneralSettingsTab } from "./_components/GeneralSettingsTab";
 import { NotificationsTab } from "./_components/NotificationsTab";
@@ -30,6 +33,7 @@ const TABS: SettingsTabDef[] = [
   // { key: "procedures", label: "Procedures", icon: Stethoscope },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "attendance", label: "Attendance", icon: Clock },
+  { key: "billing", label: "Billing", icon: CreditCard },
 ];
 
 const BUILT_TABS: SettingsTabKey[] = [
@@ -39,6 +43,7 @@ const BUILT_TABS: SettingsTabKey[] = [
   // "procedures",
   "notifications",
   "attendance",
+  "billing",
 ];
 
 /** /portal/settings. "General" now covers Hospital Information, Contact
@@ -53,8 +58,25 @@ const BUILT_TABS: SettingsTabKey[] = [
  * yet" fallback stays as a safety net for a future tab added to TABS
  * without being wired up here. */
 export default function PortalSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <PortalSettingsPageInner />
+    </Suspense>
+  );
+}
+
+function PortalSettingsPageInner() {
   const { hospital, ready } = usePortalGuard();
-  const [tab, setTab] = useState<SettingsTabKey>("general");
+  // SubscriptionGate's "Go to Billing" CTA links here with ?tab=billing so
+  // a blocked hospital lands directly on the tab that can unblock it,
+  // instead of General -- any other/missing value falls back to General.
+  // useSearchParams() requires the Suspense boundary above (Next.js bails
+  // out of static rendering otherwise).
+  const searchParams = useSearchParams();
+  const initialTab = BUILT_TABS.includes(searchParams.get("tab") as SettingsTabKey)
+    ? (searchParams.get("tab") as SettingsTabKey)
+    : "general";
+  const [tab, setTab] = useState<SettingsTabKey>(initialTab);
   // !hospital means "still loading", not "no capabilities".
   // const canManageProcedures =
   //   !hospital || hospital.admin_capabilities?.includes("manage_procedures");
@@ -73,6 +95,7 @@ export default function PortalSettingsPage() {
           {/* {tab === "procedures" && <ProceduresManager canManage={!!canManageProcedures} />} */}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "attendance" && <AttendanceSettingsTab />}
+          {tab === "billing" && <BillingTab />}
           {!BUILT_TABS.includes(tab) && (
             <Card className="p-space-6">
               <p className="text-ink-400 text-center text-[13px]">

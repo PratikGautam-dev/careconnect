@@ -82,10 +82,7 @@ export default function PortalPatientsPage() {
 
   return (
     <PortalShell hospital={hospital} active="patients">
-      <PageHeader
-        title="Patients"
-        description={formatHeaderDate(today)}
-      />
+      <PageHeader title="Patients" description={formatHeaderDate(today)} />
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">

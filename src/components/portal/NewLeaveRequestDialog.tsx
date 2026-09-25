@@ -74,7 +74,13 @@ export function NewLeaveRequestDialog({
 
   async function submitForOther(
     staffId: number,
-    input: { leave_type: string; from_date: string; to_date: string; is_half_day: boolean; reason: string },
+    input: {
+      leave_type: string;
+      from_date: string;
+      to_date: string;
+      is_half_day: boolean;
+      reason: string;
+    },
   ): Promise<string | null> {
     setSubmittingForOther(true);
     const result = await staffFetch(`/api/portal/leave-requests/staff/${staffId}`, {
@@ -83,7 +89,8 @@ export function NewLeaveRequestDialog({
       body: JSON.stringify(input),
     });
     setSubmittingForOther(false);
-    if (!result.ok) return result.unauthorized ? "Session expired -- please log in again." : result.error;
+    if (!result.ok)
+      return result.unauthorized ? "Session expired -- please log in again." : result.error;
     toast.success("Leave request created");
     return null;
   }
@@ -140,7 +147,8 @@ export function NewLeaveRequestDialog({
       is_half_day: duration === "half",
       reason: reason.trim(),
     };
-    const err = subjectStaffId != null ? await submitForOther(subjectStaffId, input) : await submitOwn(input);
+    const err =
+      subjectStaffId != null ? await submitForOther(subjectStaffId, input) : await submitOwn(input);
     if (err) {
       setFormError(err);
       return;
@@ -159,7 +167,11 @@ export function NewLeaveRequestDialog({
       }}
     >
       <DialogContent>
-        <DialogTitle>{subjectStaffId != null ? `New leave request${subjectName ? ` for ${subjectName}` : ""}` : "New leave request"}</DialogTitle>
+        <DialogTitle>
+          {subjectStaffId != null
+            ? `New leave request${subjectName ? ` for ${subjectName}` : ""}`
+            : "New leave request"}
+        </DialogTitle>
         <DialogDescription>
           {subjectStaffId != null
             ? "This is approved automatically -- it skips the review queue."

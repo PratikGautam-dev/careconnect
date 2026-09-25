@@ -45,7 +45,11 @@ function DetailRow({
 // instant, same master-detail convention Staff/Billing already use).
 // Hardcoded to match the target design's layout, tagged Mock rather than
 // left out.
-const MOCK_PRIMARY_ADMIN = { name: "Dr. Priya Sharma", role: "IT Administrator", email: "admin@hospital.com" };
+const MOCK_PRIMARY_ADMIN = {
+  name: "Dr. Priya Sharma",
+  role: "IT Administrator",
+  email: "admin@hospital.com",
+};
 const MOCK_MODULES = ["Appointments", "Patients", "Doctors", "Billing", "Reports"];
 
 type Props = {

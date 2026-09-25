@@ -34,7 +34,12 @@ const NAV_ITEMS = [
   // separate real per-hospital gates, portal/capabilities.py's own module
   // docstring is the source of truth for why the two must never be conflated.
   { key: "access-control", label: "Access Control", icon: Lock, href: "/admin/access-control" },
-  { key: "feature-toggles", label: "Feature Toggles", icon: Settings2, href: "/admin/feature-toggles" },
+  {
+    key: "feature-toggles",
+    label: "Feature Toggles",
+    icon: Settings2,
+    href: "/admin/feature-toggles",
+  },
   { key: "audit-log", label: "Audit Log", icon: ClipboardList, href: "/admin/audit-log" },
   {
     key: "platform-settings",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, IndianRupee, Receipt, TrendingUp } from "lucide-react";
+import { Banknote, CalendarDays, CreditCard, IndianRupee, Receipt, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -73,10 +73,7 @@ export default function BillingPage() {
   const selected = rows.find((p) => p.id === selectedId) || filteredRows[0] || null;
 
   const paidRows = useMemo(() => rows.filter((p) => p.status === "paid"), [rows]);
-  const totalCollected = useMemo(
-    () => paidRows.reduce((sum, p) => sum + p.amount, 0),
-    [paidRows],
-  );
+  const totalCollected = useMemo(() => paidRows.reduce((sum, p) => sum + p.amount, 0), [paidRows]);
   const todaysCollection = useMemo(
     () =>
       paidRows
@@ -84,9 +81,20 @@ export default function BillingPage() {
         .reduce((sum, p) => sum + p.amount, 0),
     [paidRows, today],
   );
-  const pendingCount = useMemo(
-    () => rows.filter((p) => p.status === "pending").length,
-    [rows],
+  const pendingCount = useMemo(() => rows.filter((p) => p.status === "pending").length, [rows]);
+  // Front-desk cash reconciliation -- "collected" means status='paid', not
+  // merely method='pay_at_hospital' (a patient CHOOSING to pay at the
+  // hospital doesn't mean staff has the money yet -- see
+  // db.mark_payment_collected_cash's own docstring for the confirmation
+  // step this now requires).
+  const cashCollected = useMemo(
+    () =>
+      paidRows.filter((p) => p.method === "pay_at_hospital").reduce((sum, p) => sum + p.amount, 0),
+    [paidRows],
+  );
+  const onlineCollected = useMemo(
+    () => paidRows.filter((p) => p.method === "online").reduce((sum, p) => sum + p.amount, 0),
+    [paidRows],
   );
 
   return (
@@ -101,13 +109,30 @@ export default function BillingPage() {
         <>
           {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             <StatTile
               label="Total Collected"
               value={payments ? totalCollected : null}
               deltaPct={null}
               hint="All paid transactions"
               icon={IndianRupee}
+              prefix="₹"
+            />
+            <StatTile
+              label="Cash Collected"
+              value={payments ? cashCollected : null}
+              deltaPct={null}
+              hint="Confirmed pay-at-hospital collections"
+              icon={Banknote}
+              prefix="₹"
+              tint="clay"
+            />
+            <StatTile
+              label="Online Collected"
+              value={payments ? onlineCollected : null}
+              deltaPct={null}
+              hint="Razorpay payments"
+              icon={CreditCard}
               prefix="₹"
             />
             <StatTile

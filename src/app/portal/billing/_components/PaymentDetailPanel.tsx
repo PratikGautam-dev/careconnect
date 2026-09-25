@@ -109,18 +109,28 @@ export function PaymentDetailPanel({ payment }: Props) {
         </div>
       </div>
 
-      <div className="mt-space-4 border-line pt-space-3 border-t">
-        <p className="text-label mb-space-2 text-ink-900 font-bold">Razorpay Details</p>
-        <div className="space-y-space-2">
-          <DetailRow icon={Receipt} label="Order ID" value={payment.razorpay_order_id || "—"} />
-          <DetailRow
-            icon={Receipt}
-            label="Payment ID"
-            value={payment.razorpay_payment_id || "—"}
-          />
-          <DetailRow icon={Calendar} label="Created" value={formatDateTime(payment.created_at)} />
+      {payment.method === "pay_at_hospital" ? (
+        <div className="mt-space-4 border-line pt-space-3 border-t">
+          <p className="text-label mb-space-2 text-ink-900 font-bold">Collection Details</p>
+          <div className="space-y-space-2">
+            <DetailRow icon={Receipt} label="Reference" value={payment.bank_reference || "—"} />
+            <DetailRow icon={Calendar} label="Created" value={formatDateTime(payment.created_at)} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="mt-space-4 border-line pt-space-3 border-t">
+          <p className="text-label mb-space-2 text-ink-900 font-bold">Razorpay Details</p>
+          <div className="space-y-space-2">
+            <DetailRow icon={Receipt} label="Order ID" value={payment.razorpay_order_id || "—"} />
+            <DetailRow
+              icon={Receipt}
+              label="Payment ID"
+              value={payment.razorpay_payment_id || "—"}
+            />
+            <DetailRow icon={Calendar} label="Created" value={formatDateTime(payment.created_at)} />
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

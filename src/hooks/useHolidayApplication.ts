@@ -39,7 +39,10 @@ export type HolidayApplicationInitialData = {
  * The dedicated /portal/holiday-application page (HolidayApplicationView)
  * calls this hook with no second argument, so it keeps doing its own
  * independent fetch exactly as before. */
-export function useHolidayApplication(canView: boolean, initialData?: HolidayApplicationInitialData) {
+export function useHolidayApplication(
+  canView: boolean,
+  initialData?: HolidayApplicationInitialData,
+) {
   const router = useRouter();
 
   const {

@@ -66,7 +66,13 @@ export function useMarkAppointmentAttendance() {
   const router = useRouter();
 
   return useMutation({
-    mutationFn: async ({ appointmentId, attended }: { appointmentId: string; attended: boolean }) => {
+    mutationFn: async ({
+      appointmentId,
+      attended,
+    }: {
+      appointmentId: string;
+      attended: boolean;
+    }) => {
       const result = await portalFetch(`/api/portal/bookings/${appointmentId}/attendance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -104,19 +110,41 @@ export function useDeleteAppointmentDetail() {
   return { deleteAndRedirect, deleting: mutation.isPending };
 }
 
+/** POST /api/portal/bookings/{id}/collect-cash -- front-desk confirms cash
+ * was actually collected (the "Record Payment" action on the appointment
+ * detail page). Caller should refetch useAppointmentDetail() on success. */
+export function useCollectCashPayment() {
+  return useMutation({
+    mutationFn: async ({
+      appointmentId,
+      amount,
+      reference,
+    }: {
+      appointmentId: string;
+      amount: number;
+      reference: string;
+    }) => {
+      const result = await portalFetch(`/api/portal/bookings/${appointmentId}/collect-cash`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, reference: reference.trim() || undefined }),
+      });
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired — please log in again." : result.error,
+        );
+      }
+    },
+  });
+}
+
 /** POST /api/portal/patients/{patientId}/notes -- same patient-scoped note
  * system the patient record page already uses, not a separate appointment-
  * scoped note system. Caller should refetch useAppointmentDetail() on
  * success (the new note only shows up there). */
 export function useAddVisitNote() {
   return useMutation({
-    mutationFn: async ({
-      patientId,
-      noteText,
-    }: {
-      patientId: number;
-      noteText: string;
-    }) => {
+    mutationFn: async ({ patientId, noteText }: { patientId: number; noteText: string }) => {
       const result = await portalFetch(`/api/portal/patients/${patientId}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

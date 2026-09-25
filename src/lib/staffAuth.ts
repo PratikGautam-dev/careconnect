@@ -7,6 +7,13 @@ import type { PortalHospital } from "@/lib/portalAuth";
 // Roles are admin-defined per hospital; see usePortalRoles.ts's Role type for the fetched shape.
 export type StaffPermissions = Record<string, { view: boolean; write: boolean; delete: boolean }>;
 
+export type SubscriptionAccessStatus = {
+  allowed: boolean;
+  reason: string | null;
+  status: string;
+  renewal_date: string | null;
+};
+
 export type StaffSession = {
   id: number;
   name: string;
@@ -25,6 +32,16 @@ export type StaffSession = {
   doctor_id: string | null;
   hospital: PortalHospital;
   permissions: StaffPermissions;
+  // db.get_hospital_access_status(), arrives atomically in the SAME
+  // response as the rest of this session (login/refresh/me all embed it
+  // server-side) -- SubscriptionGate.tsx reads this straight off the
+  // session instead of discovering it reactively from some later API
+  // call's 402, so it's known the instant we know who's logged in, never
+  // before (naturally never shows on /portal/login, where session is
+  // null) and never via a background poll (checked again only on the
+  // next login/refresh/me, by design -- see SubscriptionGate's own
+  // docstring for why that's deliberate, not a gap).
+  subscription_access: SubscriptionAccessStatus;
 };
 
 /** The access token lives ONLY in this module-level variable, never in
@@ -114,7 +131,17 @@ function tryRefresh(): Promise<string | null> {
  * reload), so this ALWAYS tries a silent refresh first when there's no
  * token on hand yet, and again on a 401 mid-session, before giving up --
  * otherwise a fresh page load (or routine token expiry during normal use)
- * would look indistinguishable from being logged out. */
+ * would look indistinguishable from being logged out.
+ *
+ * A 402 (main.py's _subscription_access_gate) is deliberately NOT
+ * special-cased here anymore -- it just falls into the generic error
+ * branch below. SubscriptionGate.tsx no longer discovers "blocked"
+ * reactively from some arbitrary call's 402; it reads session.
+ * subscription_access, known atomically the moment login/refresh/me
+ * resolves (staff_auth.py embeds it server-side). That removed an entire
+ * class of bugs this used to have (a flash on every reload, the modal
+ * appearing on /portal/login where no session even exists, a background
+ * poll hitting an endpoint that turned out to always return 200). */
 export async function staffFetch(path: string, init?: RequestInit): Promise<FetchResult> {
   let token = getStaffAccessToken();
   if (!token) {
@@ -274,6 +301,7 @@ export type StaffAuthResponse = {
     is_admin: boolean;
     doctor_id: string | null;
     hospital: PortalHospital;
+    subscription_access: SubscriptionAccessStatus;
   };
   permissions: StaffPermissions;
 };
@@ -289,6 +317,7 @@ export function staffSessionFromAuthResponse(data: StaffAuthResponse): StaffSess
     doctor_id: data.staff.doctor_id,
     hospital: data.staff.hospital,
     permissions: data.permissions,
+    subscription_access: data.staff.subscription_access,
   };
 }
 

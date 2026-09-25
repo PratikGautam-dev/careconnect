@@ -114,9 +114,7 @@ export default function ProfileSettingsPage() {
                     {initials(profile.name)}
                   </span>
                   <div>
-                    <p className="text-ink-900 text-[15px] font-bold">
-                      {profile.name}
-                    </p>
+                    <p className="text-ink-900 text-[15px] font-bold">{profile.name}</p>
                     <p className="text-ink-600 text-[12.5px]">{profile.role_name}</p>
                     {(profile.is_doctor_role
                       ? profile.specialization

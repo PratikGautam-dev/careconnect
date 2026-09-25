@@ -495,7 +495,7 @@ export default function PatientDetailPage() {
             </div>
           </Card>
 
-           <Card className="p-space-4 h-fit">
+          <Card className="p-space-4 h-fit">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Demographics</h3>
             <div className="mb-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
               <Field label="Date of birth" htmlFor="dob">
@@ -601,7 +601,6 @@ export default function PatientDetailPage() {
               </ul>
             )}
           </Card>
-         
         </div>
 
         {/* One wrapping div (not 3 separate grid children) so these stack
@@ -638,11 +637,12 @@ export default function PatientDetailPage() {
             )}
           </Card>
 
-<Card className="p-space-4 h-fit">
+          <Card className="p-space-4 h-fit">
             <h3 className="text-label mb-space-1 text-ink-900 font-bold">Consent management</h3>
             <p className="text-hint mb-space-3">
-              DPDP consent is collected from patients via WhatsApp. Privacy Policy mirrors DPDP (linked).
-              Marketing consent is independent but currently has no collection mechanism (mock for now).
+              DPDP consent is collected from patients via WhatsApp. Privacy Policy mirrors DPDP
+              (linked). Marketing consent is independent but currently has no collection mechanism
+              (mock for now).
             </p>
             <ul className="space-y-space-3">
               {CONSENT_TYPE_ORDER.map((type) => {

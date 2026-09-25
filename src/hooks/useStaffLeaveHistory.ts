@@ -4,8 +4,17 @@ import { staffFetch } from "@/lib/staffAuth";
 import { unwrapPortalResult } from "@/lib/portalMutation";
 import type { LeaveRequestRow } from "@/hooks/useLeaveRequests";
 
-export type StaffLeaveHistoryStaff = { id: number; name: string; role_name: string; is_doctor_role: boolean };
-export type StaffLeaveHistoryBalance = { quota_days: number; used_days: number; remaining_days: number };
+export type StaffLeaveHistoryStaff = {
+  id: number;
+  name: string;
+  role_name: string;
+  is_doctor_role: boolean;
+};
+export type StaffLeaveHistoryBalance = {
+  quota_days: number;
+  used_days: number;
+  remaining_days: number;
+};
 
 /** Staff/Doctor detail panels' own "Leave history" quick action -- one
  * staff member's leave requests, fetched only once opened (staffId starts

@@ -12,7 +12,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/formatDate";
-import { formatLeaveTypeLabel, type LeaveRequestRow, type LeaveRequestStatus } from "@/hooks/useLeaveRequests";
+import {
+  formatLeaveTypeLabel,
+  type LeaveRequestRow,
+  type LeaveRequestStatus,
+} from "@/hooks/useLeaveRequests";
 
 export const STATUS_LABELS: Record<LeaveRequestStatus, string> = {
   pending: "Pending",
@@ -61,9 +65,7 @@ export function createLeaveRequestColumns({
         const r = row.original;
         return (
           <button type="button" onClick={() => onSelect(r)} className="text-left">
-            <p className="text-ink-900 font-semibold">
-              {r.applicant_name}
-            </p>
+            <p className="text-ink-900 font-semibold">{r.applicant_name}</p>
           </button>
         );
       },

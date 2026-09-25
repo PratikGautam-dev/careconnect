@@ -14,7 +14,12 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { useHolidayApplication } from "@/hooks/useHolidayApplication";
-import { formatLeaveTypeLabel, type LeaveRequestRow, type LeaveRequestStatus, type LeaveType } from "@/hooks/useLeaveRequests";
+import {
+  formatLeaveTypeLabel,
+  type LeaveRequestRow,
+  type LeaveRequestStatus,
+  type LeaveType,
+} from "@/hooks/useLeaveRequests";
 import { cn } from "@/lib/cn";
 
 const STATUS_STYLES: Record<LeaveRequestStatus, string> = {

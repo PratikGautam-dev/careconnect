@@ -102,13 +102,41 @@ function TenantsList() {
           label="Active Hospitals"
           value={activeCount}
           deltaPct={null}
-          hint={totalCount ? `${Math.round(((activeCount ?? 0) / totalCount) * 100)}% of total hospitals` : "Loading…"}
+          hint={
+            totalCount
+              ? `${Math.round(((activeCount ?? 0) / totalCount) * 100)}% of total hospitals`
+              : "Loading…"
+          }
           icon={Users}
           tint="success"
         />
-        <StatTile label="On Trial" value={4} deltaPct={null} hint="10% of total hospitals" icon={Hourglass} tint="clay" mock />
-        <StatTile label="Suspended" value={2} deltaPct={null} hint="5% of total hospitals" icon={PauseCircle} tint="error" mock />
-        <StatTile label="Expiring Soon" value={5} deltaPct={null} hint="Within next 30 days" icon={Clock} tint="clay" mock />
+        <StatTile
+          label="On Trial"
+          value={4}
+          deltaPct={null}
+          hint="10% of total hospitals"
+          icon={Hourglass}
+          tint="clay"
+          mock
+        />
+        <StatTile
+          label="Suspended"
+          value={2}
+          deltaPct={null}
+          hint="5% of total hospitals"
+          icon={PauseCircle}
+          tint="error"
+          mock
+        />
+        <StatTile
+          label="Expiring Soon"
+          value={5}
+          deltaPct={null}
+          hint="Within next 30 days"
+          icon={Clock}
+          tint="clay"
+          mock
+        />
       </div>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">

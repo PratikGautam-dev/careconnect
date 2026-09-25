@@ -29,7 +29,10 @@ import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
 import { useEditTenant } from "@/hooks/useEditTenant";
 import { useTenantAuditLog } from "@/hooks/useTenantAuditLog";
-import { createAccessControlColumns, type CapabilityRow } from "./_components/access-control-columns";
+import {
+  createAccessControlColumns,
+  type CapabilityRow,
+} from "./_components/access-control-columns";
 import { createAppointmentTypeColumns } from "./_components/appointment-type-columns";
 
 // Module/Feature rows = the real per-hospital admin_capabilities set
@@ -51,7 +54,15 @@ function capabilitiesMatch(a: string[], b: string[]): boolean {
   return sortedA.length === sortedB.length && sortedA.every((v, i) => v === sortedB[i]);
 }
 
-function PanelHeader({ title, subtitle, mock }: { title: string; subtitle?: string; mock?: boolean }) {
+function PanelHeader({
+  title,
+  subtitle,
+  mock,
+}: {
+  title: string;
+  subtitle?: string;
+  mock?: boolean;
+}) {
   return (
     <div className="mb-space-3 gap-space-3 flex items-start justify-between">
       <div>
@@ -63,7 +74,15 @@ function PanelHeader({ title, subtitle, mock }: { title: string; subtitle?: stri
   );
 }
 
-function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tenant[]; selectedId: number; onSelect: (id: number) => void }) {
+function AccessControlContent({
+  tenants,
+  selectedId,
+  onSelect,
+}: {
+  tenants: Tenant[];
+  selectedId: number;
+  onSelect: (id: number) => void;
+}) {
   const {
     tenant,
     form,
@@ -98,8 +117,21 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
   return (
     <div>
       <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total Hospitals" value={tenants.length} deltaPct={null} hint="Across all subscriptions" icon={Building2} />
-        <StatTile label="Active Subscriptions" value={36} deltaPct={null} hint="86% of total hospitals" icon={FileText} mock />
+        <StatTile
+          label="Total Hospitals"
+          value={tenants.length}
+          deltaPct={null}
+          hint="Across all subscriptions"
+          icon={Building2}
+        />
+        <StatTile
+          label="Active Subscriptions"
+          value={36}
+          deltaPct={null}
+          hint="86% of total hospitals"
+          icon={FileText}
+          mock
+        />
         <StatTile
           label="Custom Access Profiles"
           value={customCount}
@@ -108,7 +140,15 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
           icon={Users}
           tint="success"
         />
-        <StatTile label="Expiring This Month" value={5} deltaPct={null} hint="Require renewal action" icon={Clock} tint="clay" mock />
+        <StatTile
+          label="Expiring This Month"
+          value={5}
+          deltaPct={null}
+          hint="Require renewal action"
+          icon={Clock}
+          tint="clay"
+          mock
+        />
       </div>
 
       <Card className="p-space-4 mb-space-4">
@@ -135,7 +175,9 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
                 disabled
                 className="border-line bg-paper px-space-3 text-ink-600 h-10 min-w-45 rounded-md border text-[13px]"
               >
-                <option value={form.tenant_type}>{TENANT_TYPE_LABELS[form.tenant_type] || form.tenant_type}</option>
+                <option value={form.tenant_type}>
+                  {TENANT_TYPE_LABELS[form.tenant_type] || form.tenant_type}
+                </option>
               </select>
             </div>
             <div>
@@ -163,7 +205,7 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
           type="button"
           onClick={() => setTab("menu")}
           className={cn(
-            "px-space-3 py-1.5 gap-space-2 flex items-center rounded-sm text-[12.5px] font-semibold transition-colors duration-150",
+            "px-space-3 gap-space-2 flex items-center rounded-sm py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
             tab === "menu" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-paper",
           )}
         >
@@ -173,7 +215,7 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
           type="button"
           onClick={() => setTab("appointment_types")}
           className={cn(
-            "px-space-3 py-1.5 gap-space-2 flex items-center rounded-sm text-[12.5px] font-semibold transition-colors duration-150",
+            "px-space-3 gap-space-2 flex items-center rounded-sm py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
             tab === "appointment_types" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-paper",
           )}
         >
@@ -188,7 +230,9 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
               <>
                 <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
                   <div>
-                    <h3 className="text-label text-ink-900 font-bold">Hospital Feature &amp; Menu Access</h3>
+                    <h3 className="text-label text-ink-900 font-bold">
+                      Hospital Feature &amp; Menu Access
+                    </h3>
                     <p className="text-hint mt-space-1">
                       Configure which staff-portal management screens are enabled for this hospital.
                     </p>
@@ -224,8 +268,8 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
                   <h3 className="text-label text-ink-900 font-bold">Appointment Types</h3>
                   <p className="text-hint mt-space-1">
                     Which types this hospital may offer at all. Unchecking one also turns it off in
-                    the hospital&apos;s own portal immediately — the hospital can then only switch it
-                    back on if you re-allow it here first.
+                    the hospital&apos;s own portal immediately — the hospital can then only switch
+                    it back on if you re-allow it here first.
                   </p>
                 </div>
                 {appointmentTypeError && (
@@ -294,7 +338,10 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
           </Card>
 
           <Card className="p-space-4">
-            <PanelHeader title="Quick Actions" subtitle="Common access control actions for the selected hospital." />
+            <PanelHeader
+              title="Quick Actions"
+              subtitle="Common access control actions for the selected hospital."
+            />
             <QuickActionList
               size="sm"
               columns={2}
@@ -315,13 +362,23 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
               (not disabled/greyed, per the app's mock convention) with a
               no-op onClick and a "Mock" badge instead. */}
               <div className="relative">
-                <QuickActionButton label="Disable Check In / Check Out" icon={Shield} size="sm" onClick={() => {}} />
+                <QuickActionButton
+                  label="Disable Check In / Check Out"
+                  icon={Shield}
+                  size="sm"
+                  onClick={() => {}}
+                />
                 <Badge tone="clay" className="absolute -top-2 -right-2">
                   Mock
                 </Badge>
               </div>
               <div className="relative">
-                <QuickActionButton label="Clone Access Profile" icon={Copy} size="sm" onClick={() => {}} />
+                <QuickActionButton
+                  label="Clone Access Profile"
+                  icon={Copy}
+                  size="sm"
+                  onClick={() => {}}
+                />
                 <Badge tone="clay" className="absolute -top-2 -right-2">
                   Mock
                 </Badge>
@@ -346,8 +403,10 @@ function AccessControlContent({ tenants, selectedId, onSelect }: { tenants: Tena
                       <span className="text-ink-400">{formatShortDateTime(entry.created_at)}</span>
                     </div>
                     <span className="text-ink-600">
-                      {entry.after_value ? Object.keys(entry.after_value).join(", ") : entry.entity_type || "—"} ·{" "}
-                      {entry.actor_label}
+                      {entry.after_value
+                        ? Object.keys(entry.after_value).join(", ")
+                        : entry.entity_type || "—"}{" "}
+                      · {entry.actor_label}
                     </span>
                   </li>
                 ))}
@@ -383,7 +442,11 @@ export default function AccessControlPage() {
       ) : tenants.length === 0 ? (
         <p className="text-ink-400 text-[13px]">No hospitals onboarded yet.</p>
       ) : (
-        <AccessControlContent tenants={tenants} selectedId={activeId as number} onSelect={setSelectedId} />
+        <AccessControlContent
+          tenants={tenants}
+          selectedId={activeId as number}
+          onSelect={setSelectedId}
+        />
       )}
     </div>
   );

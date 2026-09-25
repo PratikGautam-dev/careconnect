@@ -221,13 +221,7 @@ export function useUpdateStaffMember() {
   const router = useRouter();
 
   return useMutation({
-    mutationFn: async ({
-      staffId,
-      payload,
-    }: {
-      staffId: number;
-      payload: UpdateStaffPayload;
-    }) => {
+    mutationFn: async ({ staffId, payload }: { staffId: number; payload: UpdateStaffPayload }) => {
       const result = await staffFetch(`/api/portal/staff/${staffId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

@@ -24,10 +24,7 @@ export type LeavePolicy = {
 export function useLeavePolicy(ready: boolean) {
   const router = useRouter();
 
-  const {
-    data: policy,
-    error: queryError,
-  } = useQuery({
+  const { data: policy, error: queryError } = useQuery({
     queryKey: ["portal-leave-policy"],
     enabled: ready,
     retry: false,

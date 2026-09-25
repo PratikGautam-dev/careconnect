@@ -1,86 +1,93 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { MoreVertical } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import type { BillingRecord } from "@/hooks/useAdminBillingRecords";
 
-export type BillingRecordRow = {
-  id: string;
-  invoiceNo: string;
-  hospital: string;
-  plan: string;
-  amount: number;
-  paymentMethod: string;
-  issueDate: string;
-  dueDate: string;
-  status: "Paid" | "Failed" | "Pending";
+const STATUS_LABEL: Record<BillingRecord["status"], string> = {
+  paid: "Paid",
+  pending: "Pending",
+  failed: "Failed",
+};
+const STATUS_TONE: Record<BillingRecord["status"], "success" | "clay" | "neutral"> = {
+  paid: "success",
+  pending: "clay",
+  failed: "clay",
 };
 
-const STATUS_TONE: Record<BillingRecordRow["status"], "success" | "clay" | "neutral"> = {
-  Paid: "success",
-  Failed: "clay",
-  Pending: "clay",
-};
+function formatDateTime(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 /** Column defs for the Plans & Billing "Recent Billing Records" table --
- * fully mock, same reasoning as subscriptions/_components/subscription-
- * columns.tsx (no billing/invoice model in the backend yet). */
-export function createBillingColumns(): ColumnDef<BillingRecordRow>[] {
+ * real hospital->CareConnect subscription charge events (payments table,
+ * payment_for='subscription'), one row per webhook-confirmed charge, via
+ * useAdminBillingRecords. */
+export function createBillingColumns(): ColumnDef<BillingRecord>[] {
   return [
     {
-      id: "invoiceNo",
-      header: "Invoice #",
-      cell: ({ row }) => <span className="text-brand-600 font-semibold">{row.original.invoiceNo}</span>,
+      id: "paymentId",
+      header: "Payment ID",
+      cell: ({ row }) => (
+        <span className="text-brand-600 font-semibold">
+          {row.original.razorpay_payment_id ?? `#${row.original.id}`}
+        </span>
+      ),
     },
     {
       id: "hospital",
       header: "Hospital",
-      cell: ({ row }) => <span className="text-ink-900 font-semibold">{row.original.hospital}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900 font-semibold">{row.original.hospital_name}</span>
+      ),
     },
     {
       id: "plan",
       header: "Plan",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.plan}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">
+          {row.original.plan_name ?? "—"}
+          {row.original.billing_cycle ? ` (${row.original.billing_cycle})` : ""}
+        </span>
+      ),
     },
     {
       id: "amount",
       header: "Amount",
       cell: ({ row }) => (
-        <span className="text-ink-900 font-semibold">${row.original.amount.toLocaleString()}.00</span>
+        <span className="text-ink-900 font-semibold">
+          ₹{row.original.amount.toLocaleString("en-IN")}
+        </span>
       ),
     },
     {
-      id: "paymentMethod",
-      header: "Payment Method",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.paymentMethod}</span>,
+      id: "createdAt",
+      header: "Charged On",
+      cell: ({ row }) => (
+        <span className="text-ink-600 whitespace-nowrap">
+          {formatDateTime(row.original.created_at)}
+        </span>
+      ),
     },
     {
-      id: "issueDate",
-      header: "Issue Date",
-      cell: ({ row }) => <span className="text-ink-600 whitespace-nowrap">{row.original.issueDate}</span>,
-    },
-    {
-      id: "dueDate",
-      header: "Due Date",
-      cell: ({ row }) => <span className="text-ink-600 whitespace-nowrap">{row.original.dueDate}</span>,
+      id: "paidAt",
+      header: "Paid At",
+      cell: ({ row }) => (
+        <span className="text-ink-600 whitespace-nowrap">
+          {formatDateTime(row.original.paid_at)}
+        </span>
+      ),
     },
     {
       id: "status",
       header: "Status",
-      cell: ({ row }) => <Badge tone={STATUS_TONE[row.original.status]}>{row.original.status}</Badge>,
-    },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: () => (
-        <button
-          type="button"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="More actions"
-          className="text-ink-400 hover:bg-paper flex h-7 w-7 items-center justify-center rounded-md hover:text-ink-700"
-        >
-          <MoreVertical size={15} />
-        </button>
+      cell: ({ row }) => (
+        <Badge tone={STATUS_TONE[row.original.status]}>{STATUS_LABEL[row.original.status]}</Badge>
       ),
     },
   ];

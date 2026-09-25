@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { getAdminToken, setAdminToken } from "@/lib/adminAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -54,14 +56,15 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
     return (
       <div className="bg-paper px-space-4 flex min-h-screen items-center justify-center">
         <Card className="p-space-6 w-full max-w-sm">
-          <div className="mb-space-5 gap-space-3 flex items-center">
-            <div className="bg-brand-600 font-display flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[16px] font-extrabold text-white">
-              H
-            </div>
-            <div>
-              <span className="text-eyebrow block">DAAP</span>
-              <span className="text-ink-900 block text-[16px] font-bold">CareConnect</span>
-            </div>
+          <div className="mb-space-5 flex">
+            <Image
+              src="/logo-full.png"
+              alt="DAAP CareConnect"
+              width={1448}
+              height={410}
+              className="h-10 w-auto"
+              priority
+            />
           </div>
           <h1 className="text-display mb-space-1 !text-[22px]">{title}</h1>
           <p className="text-body mb-space-5">
@@ -78,9 +81,8 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
               />
             </Field>
             <Field label="Password" htmlFor="super_admin_password" error={error || undefined}>
-              <Input
+              <PasswordInput
                 id="super_admin_password"
-                type="password"
                 value={password}
                 invalid={!!error}
                 onChange={(e) => setPassword(e.target.value)}

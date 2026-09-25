@@ -4,9 +4,17 @@ import { staffFetch } from "@/lib/staffAuth";
 import { unwrapPortalResult } from "@/lib/portalMutation";
 import type { AttendanceOverviewRow } from "@/hooks/useAttendanceOverview";
 
-export type StaffAttendanceHistoryRecord = Omit<AttendanceOverviewRow, "staff_id" | "staff_name" | "employee_id" | "role_name" | "is_doctor_role" | "department_name">;
+export type StaffAttendanceHistoryRecord = Omit<
+  AttendanceOverviewRow,
+  "staff_id" | "staff_name" | "employee_id" | "role_name" | "is_doctor_role" | "department_name"
+>;
 
-export type StaffAttendanceHistoryStaff = { id: number; name: string; role_name: string; is_doctor_role: boolean };
+export type StaffAttendanceHistoryStaff = {
+  id: number;
+  name: string;
+  role_name: string;
+  is_doctor_role: boolean;
+};
 
 /** Attendance Overview roster's own drill-down -- one staff member's
  * attendance history, fetched only once a row is actually clicked (staffId
