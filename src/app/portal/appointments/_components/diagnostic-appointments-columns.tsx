@@ -3,7 +3,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { cn } from "@/lib/cn";
-import { formatShortDateTime, formatTimeOnly } from "@/lib/formatDate";
+import { formatShortDateTime } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
 import { AVATAR_TINTS, initials, STATUS_LABELS, STATUS_STYLES } from "./appointments-columns";

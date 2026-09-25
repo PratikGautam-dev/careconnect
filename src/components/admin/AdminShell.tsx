@@ -24,16 +24,32 @@ export function AdminShell({ active, children }: Props) {
   const pathname = usePathname();
 
   useEffect(() => {
+    // Deliberately a real effect, not restructured: `collapsed` has to
+    // start `false` on both the server render and the client's first
+    // (hydration) render -- reading localStorage directly during render
+    // would desync those two and trigger a hydration mismatch. Correcting
+    // it one tick after mount (a brief, accepted layout shift for restoring
+    // a per-viewer UI preference) is the standard fix for exactly this,
+    // same as any other "read a browser-only API, then setState" effect.
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
     } catch {
       // localStorage unavailable (private window, blocked site data) -- stays expanded
     }
   }, []);
 
-  useEffect(() => {
+  // A nav Link tap already covers most navigations, but this also catches
+  // back/forward and any other route change -- adjusted directly in the
+  // render body (comparing against a tracked previous pathname) rather than
+  // in an effect, per React's own "Adjusting some state when a prop
+  // changes" guide: this resets local UI state in response to a changing
+  // value, it doesn't synchronize with anything external.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
     setSidebarOpen(false);
-  }, [pathname]);
+  }
 
   function toggleCollapsed() {
     setCollapsed((prev) => {

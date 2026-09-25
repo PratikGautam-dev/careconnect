@@ -2,18 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  ArrowLeft,
-  Banknote,
-  Trash2,
-  Video,
-  Calendar,
-  Clock,
-  Phone,
-  User,
-  FileText,
-  Tag,
-} from "lucide-react";
+import { ArrowLeft, Banknote, Trash2, Video, Calendar, User, FileText, Tag } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";

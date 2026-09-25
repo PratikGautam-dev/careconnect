@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import {
   CalendarCheck,
   CheckCircle2,
@@ -12,7 +12,6 @@ import {
   Video,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   AVATAR_TINTS,
   STATUS_LABELS,
@@ -21,6 +20,7 @@ import {
   initials,
 } from "@/app/portal/appointments/_components/appointments-columns";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
+import { useDoctorDashboard } from "@/hooks/useDoctorDashboard";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -35,57 +35,17 @@ import { staffFetch } from "@/lib/staffAuth";
 
 const DELAY_PRESETS = [10, 15, 30, 45, 60];
 
-type Appointment = {
-  id: number;
-  phone: string;
-  patient_display_id: string | null;
-  department_name: string;
-  scheduled_at: string;
-  status: string;
-  reference_id: string | null;
-  appointment_type_id: string | null;
-  video_link: string | null;
-};
-
-type Insights = {
-  new_patients_this_week: number;
-  new_patients_this_week_delta_pct: number | null;
-  follow_ups_this_week: number;
-  follow_ups_this_week_delta_pct: number | null;
-  // No prescriptions table or consult-duration capture anywhere in this
-  // app yet -- null renders as "—" rather than a made-up number (see
-  // get_doctor_patient_insights()'s own docstring on the backend).
-  prescriptions_issued_this_week: number | null;
-  avg_consult_minutes: number | null;
-};
-
-type DashboardData = {
-  stats: {
-    today_appointments: number;
-    confirmed_today: number;
-    attended_today: number;
-    no_shows_today: number;
-    upcoming_appointments: number;
-  };
-  today_appointments: Appointment[];
-  weekly_counts: { date: string; label: string; count: number }[];
-  insights: Insights;
-};
+type DashboardData = NonNullable<ReturnType<typeof useDoctorDashboard>["data"]>;
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-// Same reasoning as PortalDashboardPage's own polling -- no websocket/SSE
-// infra, so a doctor's numbers only update on a manual refresh otherwise.
-const POLL_INTERVAL_MS = 20_000;
-
-/** This doctor's own dashboard content. Self-fetches /api/doctor/dashboard;
- * the caller owns auth/guard/shell. */
+/** This doctor's own dashboard content. Self-fetches /api/doctor/dashboard
+ * (via useDoctorDashboard, React-Query-backed -- see that hook for the
+ * polling rationale); the caller owns auth/guard/shell. */
 export function DoctorDashboardView() {
-  const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, refetch } = useDoctorDashboard();
 
   // "Running late": shifts every remaining still-booked appointment today
   // forward by the chosen number of minutes, with an automated WhatsApp
@@ -95,22 +55,6 @@ export function DoctorDashboardView() {
   const [delaying, setDelaying] = useState(false);
   const [delayResult, setDelayResult] = useState<string | null>(null);
   const [delayError, setDelayError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/doctor/dashboard");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setData(result.data as DashboardData);
-  }, [router]);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [load]);
 
   async function handleDelay() {
     const minutes = Number(delayMinutes);
@@ -136,7 +80,7 @@ export function DoctorDashboardView() {
             delayed.notified === 1 ? "the patient" : "each patient"
           } on WhatsApp.`,
     );
-    load();
+    refetch();
   }
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   KeyRound,
@@ -110,8 +111,6 @@ export default function RolesPermissionsPage() {
   // prefetched for every role up front. overrideStaffId picks which user's
   // own override grid (a second, nested Dialog) is currently open.
   const [manageUsersRoleId, setManageUsersRoleId] = useState<number | null>(null);
-  const [roleUsers, setRoleUsers] = useState<RoleUser[] | null>(null);
-  const [loadingRoleUsers, setLoadingRoleUsers] = useState(false);
   const [overrideStaffId, setOverrideStaffId] = useState<number | null>(null);
   const [savingOverrideCell, setSavingOverrideCell] = useState<string | null>(null);
 
@@ -123,18 +122,33 @@ export default function RolesPermissionsPage() {
   const [roleFormError, setRoleFormError] = useState<string | null>(null);
   const [savingRoleForm, setSavingRoleForm] = useState(false);
 
-  useEffect(() => {
-    if (manageUsersRoleId === null) {
-      setRoleUsers(null);
-      setOverrideStaffId(null);
-      return;
-    }
-    setLoadingRoleUsers(true);
-    loadRoleUsers(manageUsersRoleId).then((users) => {
-      setRoleUsers(users);
-      setLoadingRoleUsers(false);
-    });
-  }, [manageUsersRoleId, loadRoleUsers]);
+  // Loaded lazily the moment "Manage Users" opens -- React-Query-backed
+  // (queryKey includes manageUsersRoleId) instead of a hand-rolled
+  // fetch-inside-a-useEffect, so this doesn't trip react-hooks/
+  // set-state-in-effect (see useDoctorDashboard.ts for the same reasoning
+  // applied elsewhere).
+  const queryClient = useQueryClient();
+  const roleUsersQueryKey = ["portal-role-users", manageUsersRoleId] as const;
+  const { data: roleUsersData, isFetching: loadingRoleUsers } = useQuery({
+    queryKey: roleUsersQueryKey,
+    enabled: manageUsersRoleId !== null,
+    queryFn: () => loadRoleUsers(manageUsersRoleId as number),
+  });
+  const roleUsers = manageUsersRoleId === null ? null : (roleUsersData ?? null);
+
+  // Resets the nested per-staff override dialog's target whenever the
+  // "Manage Users" dialog closes (manageUsersRoleId -> null) -- adjusted
+  // directly in the render body (comparing against the previous
+  // manageUsersRoleId) rather than in an effect, per React's own
+  // "Adjusting some state when a prop changes" guide. Mirrors the original
+  // effect's own `if (manageUsersRoleId === null) setOverrideStaffId(null)`
+  // branch exactly -- switching between two already-open non-null role ids
+  // deliberately does NOT reset it, same as before.
+  const [prevManageUsersRoleId, setPrevManageUsersRoleId] = useState(manageUsersRoleId);
+  if (manageUsersRoleId !== prevManageUsersRoleId) {
+    setPrevManageUsersRoleId(manageUsersRoleId);
+    if (manageUsersRoleId === null) setOverrideStaffId(null);
+  }
 
   if (!canView) {
     return (
@@ -212,7 +226,8 @@ export default function RolesPermissionsPage() {
       return;
     }
     const isCleared = next.view === null && next.write === null && next.delete === null;
-    setRoleUsers(
+    queryClient.setQueryData<RoleUser[]>(
+      roleUsersQueryKey,
       (prev) =>
         prev &&
         prev.map((u) => {

@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -23,31 +22,23 @@ import { Input, Textarea } from "@/components/ui/Input";
 import {
   useHolidayApplication,
   type HolidayApplicationInitialData,
-  type LeaveBalance,
 } from "@/hooks/useHolidayApplication";
 import {
   formatLeaveTypeLabel,
-  type LeaveRequestRow,
   type LeaveRequestStatus,
   type LeaveType,
 } from "@/hooks/useLeaveRequests";
+import { useStaffDashboard, type AttendanceRecord } from "@/hooks/useStaffDashboard";
 import { formatDate, formatHeaderDateNoYear, formatTimeOnly } from "@/lib/formatDate";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 
-type AttendanceRecord = {
-  date: string;
-  check_in_at: string | null;
-  check_out_at: string | null;
-  break_started_at: string | null;
-  break_minutes: number;
-  status: "on_time" | "late" | "absent" | "leave" | "half_day";
-  late_minutes: number;
-  working_minutes: number;
-  overtime_minutes: number;
-  check_in_verified_method: string | null;
-};
+// A stable empty-array reference for when there's no attendance history yet
+// -- `dashboardData?.attendance?.history ?? EMPTY_HISTORY` avoids handing
+// weeklyHours' useMemo (which depends on `history`) a fresh `[]` literal
+// every render.
+const EMPTY_HISTORY: AttendanceRecord[] = [];
 
 const REQUEST_STATUS_LABELS: Record<LeaveRequestStatus, string> = {
   pending: "Pending",
@@ -121,64 +112,30 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * session.is_admin -- confirmed with the user staff should get a self-
  * service dashboard of their own instead). */
 export function StaffDashboardView() {
-  const router = useRouter();
-  const [today, setToday] = useState<AttendanceRecord | null>(null);
-  const [history, setHistory] = useState<AttendanceRecord[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  // null = not yet known (the combined dashboard fetch below hasn't
-  // resolved yet, or hasn't run again since a check-in/out action) --
-  // distinct from `false` (the dashboard fetch resolved and the
-  // "holiday_application" permission genuinely isn't granted), so
-  // useHolidayApplication below is only ever told canView=true once we
-  // actually know the answer, never fetching a second time speculatively.
-  const [leavePermitted, setLeavePermitted] = useState<boolean | null>(null);
-  const [leaveInitialData, setLeaveInitialData] = useState<
-    HolidayApplicationInitialData | undefined
-  >(undefined);
 
   // Single combined fetch (attendance + leave) replaces the two independent
   // GETs this view used to make (its own /api/portal/attendance/today, plus
   // useHolidayApplication's own /api/portal/leave-requests/mine) -- each
   // section comes back `null` when its own permission ("check_in_out"/view
-  // or "holiday_application"/view respectively) isn't granted, handled the
-  // same way a load failure/empty state already was here (loaded=true,
-  // today=null/history=[], or leavePermitted=false so the holiday-
-  // application UI just never lights up).
-  const loadDashboard = useCallback(async () => {
-    const result = await staffFetch("/api/portal/staff/dashboard");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      setLoaded(true);
-      return;
-    }
-    const data = result.data as {
-      attendance: { today: AttendanceRecord | null; history: AttendanceRecord[] } | null;
-      leave: { requests: LeaveRequestRow[]; balance: LeaveBalance; leave_types: string[] } | null;
-    };
-    if (data.attendance) {
-      setToday(data.attendance.today);
-      setHistory(data.attendance.history);
-    } else {
-      setToday(null);
-      setHistory([]);
-    }
-    if (data.leave) {
-      setLeaveInitialData({
-        requests: data.leave.requests,
-        balance: data.leave.balance,
-        leaveTypes: data.leave.leave_types,
-      });
-      setLeavePermitted(true);
-    } else {
-      setLeavePermitted(false);
-    }
-    setLoaded(true);
-  }, [router]);
+  // or "holiday_application"/view respectively) isn't granted.
+  const { data: dashboardData, loaded, refetch: refetchDashboard } = useStaffDashboard();
 
-  useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
+  const today = dashboardData?.attendance?.today ?? null;
+  const history = dashboardData?.attendance?.history ?? EMPTY_HISTORY;
+  // null = not yet known (the combined dashboard fetch hasn't resolved yet,
+  // or failed) -- distinct from `false` (the dashboard fetch resolved and
+  // the "holiday_application" permission genuinely isn't granted), so
+  // useHolidayApplication below is only ever told canView=true once we
+  // actually know the answer, never fetching a second time speculatively.
+  const leavePermitted = dashboardData === null ? null : !!dashboardData.leave;
+  const leaveInitialData: HolidayApplicationInitialData | undefined = dashboardData?.leave
+    ? {
+        requests: dashboardData.leave.requests,
+        balance: dashboardData.leave.balance,
+        leaveTypes: dashboardData.leave.leave_types,
+      }
+    : undefined;
 
   const { requests, balance, leaveTypes, submitting, submit } = useHolidayApplication(
     !!leavePermitted,
@@ -203,7 +160,7 @@ export function StaffDashboardView() {
       );
       return;
     }
-    await loadDashboard();
+    await refetchDashboard();
   }
 
   const isCheckedIn = !!today?.check_in_at && !today?.check_out_at;

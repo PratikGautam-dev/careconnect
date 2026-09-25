@@ -27,7 +27,6 @@ import {
   type AttendanceOverviewRow,
 } from "@/hooks/useAttendanceOverview";
 import { AVATAR_TINTS, initials, type StaffRow } from "./staff-columns";
-import { Badge } from "@/components/ui/Badge";
 
 function DetailRow({
   icon: Icon,

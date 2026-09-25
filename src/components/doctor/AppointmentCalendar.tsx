@@ -1,21 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import { formatTimeOnly } from "@/lib/formatDate";
-import { staffFetch } from "@/lib/staffAuth";
+import {
+  useDoctorAppointmentsCalendar,
+  type DoctorCalendarAppointment,
+} from "@/hooks/useDoctorAppointmentsCalendar";
 
-type Appointment = {
-  id: number;
-  phone: string;
-  department_name: string;
-  scheduled_at: string;
-  status: string;
-  patient_display_id: string | null;
-};
+type Appointment = DoctorCalendarAppointment;
 
 const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
@@ -39,34 +34,23 @@ function dateKey(y: number, m: number, d: number) {
 }
 
 export function AppointmentCalendar() {
-  const router = useRouter();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
-  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setAppointments(null);
-    const result = await staffFetch(
-      `/api/doctor/appointments/calendar?year=${year}&month=${month}`,
-    );
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setAppointments((result.data as { appointments: Appointment[] }).appointments);
-  }, [year, month, router]);
+  const { appointments, error } = useDoctorAppointmentsCalendar(year, month);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
+  // Resets the selected-day drill-down whenever the month being viewed
+  // changes -- adjusted directly in the render body (comparing against a
+  // tracked previous [year, month]) rather than in an effect, per React's
+  // own "Adjusting some state when a prop changes" guide.
+  const [prevYearMonth, setPrevYearMonth] = useState(`${year}-${month}`);
+  const yearMonth = `${year}-${month}`;
+  if (yearMonth !== prevYearMonth) {
+    setPrevYearMonth(yearMonth);
     setSelectedDay(null);
-  }, [year, month]);
+  }
 
   function goToMonth(delta: number) {
     let m = month + delta;

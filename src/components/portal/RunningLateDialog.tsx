@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
@@ -53,7 +53,19 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Resets the form to defaults whenever `doctor` changes and is set --
+  // the dialog opening, or a different doctor being picked while it's
+  // already open (also fires, as a no-op, on the close transition to
+  // null, so reopening on the SAME doctor still resets -- same as the
+  // original effect's `[doctor]` dependency firing on every change and
+  // only acting `if (doctor)`). Adjusted directly in the render body
+  // (comparing against the previous `doctor`) rather than in an effect,
+  // per React's own "Adjusting some state when a prop changes" guide: this
+  // is resetting local form state in response to a changing prop, not
+  // synchronizing with anything external.
+  const [prevDoctor, setPrevDoctor] = useState<Doctor | null>(doctor);
+  if (doctor !== prevDoctor) {
+    setPrevDoctor(doctor);
     if (doctor) {
       setDate(todayStr());
       setFromTime(nowTimeStr());
@@ -61,7 +73,7 @@ export function RunningLateDialog({ doctor, onOpenChange }: Props) {
       setShiftMinutes("15");
       setError(null);
     }
-  }, [doctor]);
+  }
 
   const totalMinutes = (Number(shiftHours) || 0) * 60 + (Number(shiftMinutes) || 0);
 

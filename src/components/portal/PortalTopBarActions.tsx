@@ -1,29 +1,17 @@
 "use client";
 
-import { Bell, LogOut, Search, Settings } from "lucide-react";
-import { useRouter } from "next/navigation";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { clearPortalSession } from "@/lib/portalAuth";
-import { useStaffSession } from "@/lib/staffAuth";
+import { Bell, Search } from "lucide-react";
 
 // Shared PageHeader actions cluster for portal pages (dashboard, appointments,
 // ...). Search/notifications are disabled -- no cross-entity search endpoint
 // or notification system exists ("Coming soon", same convention PortalSidebar
-// uses). The account menu is real, same session/logout as its dropdown.
+// uses). The account menu below is commented out pending re-enable -- its
+// imports/session/logout wiring were removed from here (unused while it's
+// off) but the JSX + intended behavior is left in place as reference for
+// whoever re-enables it (see git history / DropdownMenuTrigger, LogOut,
+// Settings, useStaffSession, clearPortalSession, useRouter for the pieces
+// to restore alongside it).
 export function PortalTopBarActions() {
-  const router = useRouter();
-  const session = useStaffSession();
-
-  function handleLogout() {
-    clearPortalSession();
-    router.push("/");
-  }
-
   return (
     <div className="gap-space-2 flex items-center">
       <div className="relative hidden sm:block">

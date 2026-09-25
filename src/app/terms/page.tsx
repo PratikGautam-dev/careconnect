@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Mail } from "lucide-react";
 import { BrandMark } from "@/components/marketing/BrandMark";
 import { Card } from "@/components/ui/Card";
@@ -51,9 +52,9 @@ export default function TermsOfServicePage() {
     <>
       <header className="gap-space-3 border-line bg-paper/90 px-space-4 py-space-4 md:px-space-7 lg:px-space-9 sticky top-0 z-10 flex items-center justify-between border-b backdrop-blur-sm">
         <BrandMark />
-        <a href="/" className="text-brand-600 text-[13.5px] font-semibold hover:underline">
+        <Link href="/" className="text-brand-600 text-[13.5px] font-semibold hover:underline">
           Back to home
-        </a>
+        </Link>
       </header>
 
       <main className="px-space-4 py-space-8 md:px-space-7 lg:px-space-9 mx-auto max-w-[1080px]">

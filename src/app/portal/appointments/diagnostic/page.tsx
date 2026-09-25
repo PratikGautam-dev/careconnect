@@ -10,7 +10,6 @@ import {
   Search,
   Send,
   Trash2,
-  UploadCloud,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";

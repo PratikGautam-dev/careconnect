@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CalendarClock,
   CalendarOff,
@@ -13,9 +13,9 @@ import {
   Trash2,
   Video,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { AVATAR_TINTS, initials } from "@/app/portal/appointments/_components/appointments-columns";
 import { TYPE_LABELS as APPT_TYPE_LABELS } from "@/hooks/useAppointments";
+import { useDoctorSchedule, type DoctorSchedule, type LeaveEntry } from "@/hooks/useDoctorSchedule";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -29,19 +29,6 @@ import { toast } from "@/lib/toast";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SLOT_MIN = 30;
-
-type DoctorSchedule = {
-  id: string;
-  name: string;
-  specialization: string | null;
-  working_days: string[];
-  working_hours: string[];
-  breaks: string[];
-  slot_duration_minutes: number;
-  effective_from: string | null;
-};
-
-type LeaveEntry = { id: number; date: string; reason: string | null };
 
 type Appointment = {
   id: number;
@@ -128,19 +115,17 @@ function typeLabel(id: string | null): string {
  * Self-fetches /api/doctor/schedule + /api/doctor/appointments/week; the
  * caller owns auth/guard/shell. */
 export function DoctorScheduleView() {
-  const router = useRouter();
-
-  const [schedule, setSchedule] = useState<DoctorSchedule | null>(null);
-  const [leave, setLeave] = useState<LeaveEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const [view, setView] = useState<"week" | "month" | "list">("week");
   const [weekStartKey, setWeekStartKey] = useState(() => dateKey(mondayOf(new Date())));
-  const [weekAppointments, setWeekAppointments] = useState<Appointment[] | null>(null);
-  // Today's own appointments for the header stat tiles + "Today's schedule"
-  // panel -- fetched independently of `weekStartKey` so navigating the grid
-  // to a different week never changes what "today" means up top.
-  const [todayAppointments, setTodayAppointments] = useState<Appointment[] | null>(null);
+
+  const {
+    schedule,
+    leave,
+    todayAppointments,
+    weekAppointments,
+    error: loadError,
+    refetchSchedule,
+  } = useDoctorSchedule(weekStartKey);
 
   const [editOpen, setEditOpen] = useState(false);
 
@@ -151,62 +136,29 @@ export function DoctorScheduleView() {
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const error = saveError || loadError;
 
-  const loadSchedule = useCallback(async () => {
-    const result = await staffFetch("/api/doctor/schedule");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    const data = result.data as { doctor: DoctorSchedule; leave: LeaveEntry[] };
-    setSchedule(data.doctor);
-    setLeave(data.leave);
-    setWorkingDays(data.doctor.working_days);
+  // Seeds the editable form fields from the fetched schedule -- whenever
+  // `schedule` changes identity (first load, or the refetch handleSave
+  // triggers after a successful save), not via an effect: React allows
+  // (and its own "Adjusting some state when a prop changes" guide
+  // recommends) calling setState directly in the render body, comparing
+  // against a tracked previous value, for exactly this "reset local state
+  // when some other value changes" shape.
+  const [seededSchedule, setSeededSchedule] = useState<DoctorSchedule | null>(null);
+  if (schedule && schedule !== seededSchedule) {
+    setSeededSchedule(schedule);
+    setWorkingDays(schedule.working_days);
     setShifts(
-      parseRanges(data.doctor.working_hours).length
-        ? parseRanges(data.doctor.working_hours)
+      parseRanges(schedule.working_hours).length
+        ? parseRanges(schedule.working_hours)
         : [{ start: "", end: "" }],
     );
-    setBreaks(parseRanges(data.doctor.breaks));
-    setSlotDuration(String(data.doctor.slot_duration_minutes));
-    setEffectiveFrom(data.doctor.effective_from || "");
-  }, [router]);
-
-  const loadWeek = useCallback(
-    async (startKey: string) => {
-      setWeekAppointments(null);
-      const result = await staffFetch(`/api/doctor/appointments/week?start=${startKey}`);
-      if (!result.ok) {
-        if (result.unauthorized) router.push("/portal/login");
-        else setError(result.error);
-        return;
-      }
-      setWeekAppointments((result.data as { appointments: Appointment[] }).appointments);
-    },
-    [router],
-  );
-
-  const loadToday = useCallback(async () => {
-    const result = await staffFetch("/api/doctor/appointments/week");
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      return;
-    }
-    const todayKey = dateKey(new Date());
-    const all = (result.data as { appointments: Appointment[] }).appointments;
-    setTodayAppointments(all.filter((a) => dateKey(new Date(a.scheduled_at)) === todayKey));
-  }, [router]);
-
-  useEffect(() => {
-    loadSchedule();
-  }, [loadSchedule]);
-  useEffect(() => {
-    loadToday();
-  }, [loadToday]);
-  useEffect(() => {
-    loadWeek(weekStartKey);
-  }, [weekStartKey, loadWeek]);
+    setBreaks(parseRanges(schedule.breaks));
+    setSlotDuration(String(schedule.slot_duration_minutes));
+    setEffectiveFrom(schedule.effective_from || "");
+  }
 
   function toggleDay(day: string) {
     setWorkingDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
@@ -235,7 +187,7 @@ export function DoctorScheduleView() {
   async function handleSave() {
     setSaving(true);
     setSaved(false);
-    setError(null);
+    setSaveError(null);
     const result = await staffFetch("/api/doctor/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -249,13 +201,13 @@ export function DoctorScheduleView() {
     });
     setSaving(false);
     if (!result.ok) {
-      setError(result.unauthorized ? "Session expired — please log in again." : result.error);
+      setSaveError(result.unauthorized ? "Session expired — please log in again." : result.error);
       if (!result.unauthorized) toast.error("Couldn't save schedule", result.error);
       return;
     }
     setSaved(true);
     toast.success("Schedule saved");
-    loadSchedule();
+    refetchSchedule();
   }
 
   const weekStart = useMemo(() => new Date(`${weekStartKey}T00:00:00`), [weekStartKey]);

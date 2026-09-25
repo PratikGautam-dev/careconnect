@@ -23,6 +23,14 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    // Deliberately a real effect, not restructured: `status` has to start
+    // "checking" (renders nothing) on both the server render and the
+    // client's first (hydration) render, specifically so an already-
+    // unlocked admin never sees even a flash of the login gate -- reading
+    // sessionStorage directly during render would desync server/client
+    // output and trip a hydration mismatch, and deferring the correction
+    // is exactly what this effect exists to do.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus(getAdminToken() ? "unlocked" : "gate");
   }, []);
 

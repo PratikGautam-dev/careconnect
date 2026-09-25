@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { API_BASE_URL, getStaffAccessToken, staffFetch } from "@/lib/staffAuth";
+import { useGoogleCalendarStatus } from "@/hooks/useGoogleCalendarStatus";
 import { toast } from "@/lib/toast";
-
-type CalendarStatus = { configured: boolean; connected: boolean; google_email: string | null };
 
 const CONNECT_ERROR_MESSAGES: Record<string, string> = {
   session_expired: "That took too long — please try connecting again.",
@@ -25,18 +24,9 @@ const CONNECT_ERROR_MESSAGES: Record<string, string> = {
 export function GoogleCalendarCard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<CalendarStatus | null>(null);
+  const { status, refetch: refetchStatus } = useGoogleCalendarStatus();
   const [error, setError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
-
-  const load = useCallback(async () => {
-    const result = await staffFetch("/api/portal/calendar/status");
-    if (result.ok) setStatus(result.data as CalendarStatus);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   // The connect flow is a full-page redirect back here with ?calendar=
   // connected -- the only place that success can be reported from, so it's
@@ -55,7 +45,7 @@ export function GoogleCalendarCard() {
     } else if (!result.unauthorized) {
       toast.error("Couldn't disconnect Google Calendar", result.error);
     }
-    load();
+    refetchStatus();
   }
 
   function handleConnect() {
@@ -69,7 +59,12 @@ export function GoogleCalendarCard() {
     // as a query param here (the only way to identify them on a plain <a>-
     // style navigation), same as auth/google_oauth.py's own callback
     // delivers ITS tokens back via redirect query params in the other
-    // direction.
+    // direction. Deliberately window.location.href, not router.push(): the
+    // destination is API_BASE_URL (the backend host, a different origin
+    // from this Next.js app, which then 302s on to Google's own consent
+    // screen) -- not an internal Next.js page, so router.push() can't take
+    // us there at all.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = `${API_BASE_URL}/auth/google/calendar/connect?token=${encodeURIComponent(token)}`;
   }
 

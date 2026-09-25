@@ -78,6 +78,7 @@ export function AdminSidebar({
     // AdminSecretGate-gated layout, and that gate only checks for a token
     // once on mount -- a client-side push would leave the page rendered as
     // still logged in until something else happened to force a reload.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- intentional, see comment above
     window.location.href = "/admin/tenants";
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
@@ -34,14 +34,26 @@ export function DepartmentFormDialog({
   const [description, setDescription] = useState("");
   const [headDoctorId, setHeadDoctorId] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    setName(department?.name || "");
-    setFloorWing(department?.floor_wing || "");
-    setConsultationHours(department?.consultation_hours || "");
-    setDescription(department?.description || "");
-    setHeadDoctorId(department?.head_doctor?.id || "");
-  }, [open, department]);
+  // Resets the form from `department` whenever the dialog opens, or a
+  // different department is targeted while it's already open -- adjusted
+  // directly in the render body (comparing against the previous `open`/
+  // `department`) rather than in an effect, per React's own "Adjusting
+  // some state when a prop changes" guide. Mirrors the original effect's
+  // `[open, department]` dependency array firing on either change, only
+  // acting `if (open)`.
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevDepartment, setPrevDepartment] = useState(department);
+  if (open !== prevOpen || department !== prevDepartment) {
+    setPrevOpen(open);
+    setPrevDepartment(department);
+    if (open) {
+      setName(department?.name || "");
+      setFloorWing(department?.floor_wing || "");
+      setConsultationHours(department?.consultation_hours || "");
+      setDescription(department?.description || "");
+      setHeadDoctorId(department?.head_doctor?.id || "");
+    }
+  }
 
   if (!open) return null;
 

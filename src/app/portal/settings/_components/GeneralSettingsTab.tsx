@@ -13,7 +13,7 @@ import type { PortalHospital } from "@/lib/portalAuth";
 import { usePermission } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 import {
-  PASSWORD_EXPIRY_OPTIONS,
+  // PASSWORD_EXPIRY_OPTIONS,
   SESSION_TIMEOUT_OPTIONS,
   initialGeneralSettings,
   type GeneralSettingsState,
@@ -61,12 +61,12 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
     handleSave: savePortalSettings,
   } = usePortalSettings(true);
 
-  function patch<K extends keyof GeneralSettingsState>(
-    section: K,
-    value: Partial<GeneralSettingsState[K]>,
-  ) {
-    setSettings((prev) => ({ ...prev, [section]: { ...prev[section], ...value } }));
-  }
+  // function patch<K extends keyof GeneralSettingsState>(
+  //   section: K,
+  //   value: Partial<GeneralSettingsState[K]>,
+  // ) {
+  //   setSettings((prev) => ({ ...prev, [section]: { ...prev[section], ...value } }));
+  // }
 
   function handleReset() {
     // Only resets the mock portion -- everything else on this tab
@@ -84,7 +84,7 @@ export function GeneralSettingsTab({ hospital }: { hospital: PortalHospital | nu
     await savePortalSettings(e);
   }
 
-  const { security } = settings;
+  // const { security } = settings;
 
   return (
     <div className="gap-space-4 flex flex-col">

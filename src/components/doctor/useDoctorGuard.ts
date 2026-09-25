@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useStaffSession, useStaffSessionStatus, type StaffSession } from "@/lib/staffAuth";
 
@@ -17,19 +17,17 @@ export function useDoctorGuard() {
   const router = useRouter();
   const session = useStaffSession();
   const status = useStaffSessionStatus();
-  const [ready, setReady] = useState(false);
+  // Derived, not state-plus-effect: `ready` doesn't need its own setState
+  // once it's just a function of `status`/`session`, which are already
+  // reactive values this hook re-renders on.
+  const ready = status === "authenticated" && !!session?.is_doctor_role;
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/doctor/login");
-      return;
-    }
-    if (status !== "authenticated") return;
-    if (!session?.is_doctor_role) {
+    } else if (status === "authenticated" && !session?.is_doctor_role) {
       router.push("/portal/dashboard");
-      return;
     }
-    setReady(true);
   }, [status, session, router]);
 
   return { doctor: session as StaffSession | null, ready };

@@ -16,7 +16,6 @@ import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { usePatients, type Patient } from "@/hooks/usePatients";
 import { GENDER_LABELS, STATUS_LABELS, createPatientColumns } from "./_components/patients-columns";
-import { PatientDetailPanel } from "./_components/PatientDetailPanel";
 
 const PATIENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({
   value,
@@ -57,9 +56,9 @@ export default function PortalPatientsPage() {
 
   const selectedPatient: Patient | null =
     (patients ?? []).find((p) => p.id === selectedPatientId) || filteredPatients[0] || null;
-  const selectedIndex = selectedPatient
-    ? (patients ?? []).findIndex((p) => p.id === selectedPatient.id)
-    : 0;
+  // const selectedIndex = selectedPatient
+  //   ? (patients ?? []).findIndex((p) => p.id === selectedPatient.id)
+  //   : 0;
 
   function selectPatient(p: Patient) {
     setSelectedPatientId(p.id);

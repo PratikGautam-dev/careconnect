@@ -70,9 +70,9 @@ export function BillingTab() {
   async function handleStartFresh() {
     if (!pickedPlanId) return;
     const checkoutUrl = await startBilling(Number(pickedPlanId), pickedCycle);
-    // Same-tab -- Razorpay's redirect_url sends this tab straight back to
-    // /portal/dashboard once checkout finishes.
-    if (checkoutUrl) window.location.href = checkoutUrl;
+    // New tab -- Razorpay's Subscriptions checkout has no redirect_url
+    // support, so this keeps the portal tab open/usable during checkout.
+    if (checkoutUrl) window.open(checkoutUrl, "_blank", "noopener,noreferrer");
   }
 
   if (!subscription) {
@@ -137,7 +137,7 @@ export function BillingTab() {
       plan.id,
       (subscription.billing_cycle ?? "monthly") as "monthly" | "annual",
     );
-    if (checkoutUrl) window.location.href = checkoutUrl;
+    if (checkoutUrl) window.open(checkoutUrl, "_blank", "noopener,noreferrer");
   }
 
   async function handleChangePlan() {
@@ -229,6 +229,8 @@ export function BillingTab() {
             ) : subscription.razorpay_short_url ? (
               <a
                 href={subscription.razorpay_short_url}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="bg-brand-600 hover:bg-brand-700 gap-space-2 px-space-4 inline-flex h-10 items-center rounded-md text-[13px] font-semibold text-white"
               >
                 <ExternalLink size={14} /> Complete Payment Setup

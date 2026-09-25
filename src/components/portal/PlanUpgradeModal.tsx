@@ -40,12 +40,17 @@ export function PlanUpgradeModal({ open, onOpenChange }: Props) {
       }
       const checkoutUrl = (result.data as { checkout_url?: string }).checkout_url;
       if (checkoutUrl) {
-        // Same-tab navigation -- Razorpay's redirect_url
-        // (modules/razorpay_subscriptions.py) sends the browser straight
-        // back to /portal/dashboard once checkout finishes, so leaving in
-        // this tab is what makes that redirect land somewhere meaningful
-        // instead of a second, orphaned tab.
-        window.location.href = checkoutUrl;
+        // New tab -- Razorpay's Subscriptions checkout has no redirect_url
+        // support (confirmed against the real API: it 400s if sent), so
+        // there's no way to send the browser back to the portal
+        // automatically. Keeping the portal tab open/usable while checkout
+        // happens elsewhere is the next best thing.
+        window.open(checkoutUrl, "_blank", "noopener,noreferrer");
+        toast.success(
+          "Opening secure checkout…",
+          "Complete payment in the new tab, then log back in here.",
+        );
+        onOpenChange(false);
       }
     } finally {
       setStartingPlanId(null);

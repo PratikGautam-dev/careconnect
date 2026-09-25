@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { DoctorSidebar } from "@/components/doctor/DoctorSidebar";
 import type { StaffSession } from "@/lib/staffAuth";
@@ -21,9 +21,16 @@ export function DoctorShell({ doctor, active, children }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
-  useEffect(() => {
+  // Adjusted directly in the render body (comparing against a tracked
+  // previous pathname) rather than in an effect, per React's own
+  // "Adjusting some state when a prop changes" guide: this resets local UI
+  // state in response to a changing value, it doesn't synchronize with
+  // anything external.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
     setSidebarOpen(false);
-  }, [pathname]);
+  }
 
   return (
     <div className="bg-paper flex h-screen overflow-hidden">

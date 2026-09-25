@@ -1,23 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import { formatDateHeading, formatMonthYear, formatTimeOnly } from "@/lib/formatDate";
-import { portalFetch } from "@/lib/portalAuth";
+import {
+  usePortalBookingsCalendar,
+  type CalendarAppointment,
+} from "@/hooks/usePortalBookingsCalendar";
 
-type Appointment = {
-  id: number;
-  phone: string;
-  patient_name: string | null;
-  patient_display_id: string | null;
-  doctor_name: string | null;
-  department_name: string | null;
-  scheduled_at: string;
-  status: string;
-};
+type Appointment = CalendarAppointment;
 
 const STATUS_STYLES: Record<string, string> = {
   booked: "bg-success-tint text-success",
@@ -59,34 +52,24 @@ type Props = {
  * GET /api/portal/bookings/calendar (60s-cached server-side, see that
  * route's own comment on why no invalidation is wired up for it). */
 export function PortalMiniCalendar({ category }: Props) {
-  const router = useRouter();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
-  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setAppointments(null);
-    const params = new URLSearchParams({ year: String(year), month: String(month) });
-    if (category) params.set("category", category);
-    const result = await portalFetch(`/api/portal/bookings/calendar?${params.toString()}`);
-    if (!result.ok) {
-      if (result.unauthorized) router.push("/portal/login");
-      else setError(result.error);
-      return;
-    }
-    setAppointments((result.data as { appointments: Appointment[] }).appointments);
-  }, [year, month, category, router]);
+  const { appointments, error } = usePortalBookingsCalendar(year, month, category);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
+  // Resets the selected-day drill-down whenever the month being viewed
+  // changes -- adjusted directly in the render body (comparing against a
+  // tracked previous [year, month], per React's own "Adjusting some state
+  // when a prop changes" guide) rather than in an effect, since this isn't
+  // synchronizing with anything external, just resetting local UI state.
+  const [prevYearMonth, setPrevYearMonth] = useState(`${year}-${month}`);
+  const yearMonth = `${year}-${month}`;
+  if (yearMonth !== prevYearMonth) {
+    setPrevYearMonth(yearMonth);
     setSelectedDay(null);
-  }, [year, month]);
+  }
 
   function goToMonth(delta: number) {
     let m = month + delta;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import {
   BarChart3,
   Briefcase,
@@ -20,6 +20,7 @@ import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatDateTime, formatHeaderDateDayMonth, formatTimeOnly } from "@/lib/formatDate";
 import { portalFetch } from "@/lib/portalAuth";
 import { usePermission } from "@/lib/staffAuth";
+import { usePortalAttendanceToday, type AttendanceRecord } from "@/hooks/usePortalAttendanceToday";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import {
@@ -29,21 +30,10 @@ import {
   type CheckInHistoryStatus,
 } from "./check-in-out-mock";
 
-type AttendanceRecord = {
-  date: string;
-  check_in_at: string | null;
-  check_out_at: string | null;
-  break_started_at: string | null;
-  break_minutes: number;
-  status: "on_time" | "late" | "absent" | "leave" | "half_day";
-  late_minutes: number;
-  working_minutes: number;
-  overtime_minutes: number;
-  check_in_verified_method: string | null;
-};
-
 type ActivityEventKind = "check_in" | "break_start" | "current_session";
 type ActivityEvent = { time: string; kind: ActivityEventKind; title: string; subtitle: string };
+
+const EMPTY_HISTORY: AttendanceRecord[] = [];
 
 const ATTENDANCE_STATUS_LABELS: Record<AttendanceRecord["status"], string> = {
   on_time: "On Time",
@@ -138,25 +128,15 @@ export default function CheckInOutPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("check_in_out", "view");
   const canWrite = usePermission("check_in_out", "write");
-  const [today, setToday] = useState<AttendanceRecord | null>(null);
-  const [history, setHistory] = useState<AttendanceRecord[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const {
+    data: attendanceData,
+    loaded,
+    refetch: reloadAttendance,
+  } = usePortalAttendanceToday(ready && canView);
+  const today = attendanceData?.today ?? null;
+  const history = attendanceData?.history ?? EMPTY_HISTORY;
   const [busy, setBusy] = useState(false);
   const [checkInModal, setCheckInModal] = useState<AttendanceRecord | null>(null);
-
-  const load = useCallback(async () => {
-    const result = await portalFetch("/api/portal/attendance/today");
-    if (result.ok) {
-      const data = result.data as { today: AttendanceRecord | null; history: AttendanceRecord[] };
-      setToday(data.today);
-      setHistory(data.history);
-    }
-    setLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (ready && canView) load();
-  }, [ready, canView, load]);
 
   async function runAction(path: string, body?: object) {
     setBusy(true);
@@ -176,7 +156,7 @@ export default function CheckInOutPage() {
       );
       return;
     }
-    await load();
+    await reloadAttendance();
     if (path === "/api/portal/attendance/check-in") {
       setCheckInModal((result.data as { record: AttendanceRecord }).record);
     }

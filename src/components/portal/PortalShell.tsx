@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { PortalSidebar } from "@/components/portal/PortalSidebar";
 import type { PortalHospital } from "@/lib/portalAuth";
@@ -22,10 +22,16 @@ export function PortalShell({ hospital, active, children }: Props) {
 
   // A nav Link tap already calls onClose directly, but this also covers
   // back/forward navigation and any other route change that isn't a click
-  // on the sidebar itself.
-  useEffect(() => {
+  // on the sidebar itself. Adjusted directly in the render body (comparing
+  // against a tracked previous pathname) rather than in an effect -- this
+  // is resetting local UI state in response to a changing value, not
+  // synchronizing with anything external, so React's own "Adjusting some
+  // state when a prop changes" guide applies.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
     setSidebarOpen(false);
-  }, [pathname]);
+  }
 
   return (
     <div className="bg-paper flex h-screen overflow-hidden">

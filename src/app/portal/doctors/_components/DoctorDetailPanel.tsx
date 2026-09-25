@@ -2,7 +2,6 @@
 
 import {
   Building2,
-  Calendar,
   CalendarCheck,
   CalendarClock,
   CalendarDays,
@@ -24,7 +23,6 @@ import { cn } from "@/lib/cn";
 import { formatWorkingDays, formatWorkingHours } from "@/lib/formatSchedule";
 import type { Doctor } from "@/hooks/useDoctors";
 import { AVATAR_TINTS } from "./doctors-columns";
-import { formatDate } from "@/lib/formatDate";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
