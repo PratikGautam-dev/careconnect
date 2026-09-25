@@ -25,7 +25,6 @@ function HospitalStaffList({ hospitalId }: { hospitalId: number }) {
       </Link>
 
       <div className="mb-space-5">
-        <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">{hospitalName || "Staff"}</h1>
         <p className="text-ink-600 text-[13px]">
           Read-only here — edit a person&apos;s role or active status from that hospital&apos;s own

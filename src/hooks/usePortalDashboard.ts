@@ -1,7 +1,8 @@
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { portalFetch, type PortalHospital } from "@/lib/portalAuth";
-import { useStaffSession } from "@/lib/staffAuth";
+import { useStaffSession, useStaffSessionPatchHospital } from "@/lib/staffAuth";
 
 export type DashboardData = {
   hospital: PortalHospital;
@@ -66,6 +67,7 @@ const POLL_INTERVAL_MS = 20_000;
 export function usePortalDashboard() {
   const router = useRouter();
   const session = useStaffSession();
+  const patchHospital = useStaffSessionPatchHospital();
 
   const { data, error: queryError } = useQuery({
     queryKey: ["portal-dashboard"],
@@ -79,6 +81,15 @@ export function usePortalDashboard() {
       return result.data as DashboardData;
     },
   });
+
+  // Every poll already carries a fresh hospital.admin_capabilities/
+  // enabled_features (backend embeds _hospital_summary()) -- sync it into
+  // the shared session so the sidebar/nav and every other page reacts to an
+  // admin's Access Control change within one poll interval, without a
+  // second request.
+  useEffect(() => {
+    if (data?.hospital) patchHospital(data.hospital);
+  }, [data?.hospital, patchHospital]);
 
   return {
     data: data ?? null,

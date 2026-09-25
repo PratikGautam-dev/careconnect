@@ -5,14 +5,20 @@ import { AdminSecretGate } from "@/components/admin/AdminSecretGate";
 import { AdminShell } from "@/components/admin/AdminShell";
 
 const ACTIVE_BY_SEGMENT: Record<string, string> = {
+  dashboard: "dashboard",
   tenants: "tenants",
+  subscriptions: "subscriptions",
+  "plans-billing": "plans-billing",
   users: "users",
+  "access-control": "access-control",
+  "feature-toggles": "feature-toggles",
   "audit-log": "audit-log",
   "platform-settings": "platform-settings",
 };
 
-/** Shared layout for the sidebar-shell pages (tenants, users, audit-log,
- * platform-settings) -- a Next.js layout persists across
+/** Shared layout for the sidebar-shell pages (dashboard, tenants, users,
+ * access-control, feature-toggles, audit-log, platform-settings) -- a
+ * Next.js layout persists across
  * navigations within it (only the page content below swaps), unlike each
  * page mounting its own <AdminSecretGate>/<AdminShell>, which was
  * remounting BOTH on every navigation between them. AdminSecretGate starts

@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
-import { hasPermission, useStaffSession } from "@/lib/staffAuth";
+import { hasCapability, hasPermission, useStaffSession } from "@/lib/staffAuth";
 
 // Items with no href render as disabled "Coming soon" rows (see the
 // .filter/.map below). Report review (/portal/report-review) and Report analytics
@@ -282,10 +282,15 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
             // Hrefless rows are visual placeholders, not real gated
             // capabilities, so they skip the permission map entirely --
             // otherwise an unrecognized pageKey would hide them outright.
+            // hasCapability is the separate, tenant-level Access Control
+            // gate (super-admin, portal/capabilities.py) -- a role can have
+            // full permission on a page the hospital's plan/tenant doesn't
+            // have at all (e.g. manage_doctors off for a clinic tenant), so
+            // both checks must pass.
             (item) =>
               !item.href ||
-              NO_PERMISSION_GATE_KEYS.has(item.key) ||
-              hasPermission(session, item.pageKey, "view"),
+              (NO_PERMISSION_GATE_KEYS.has(item.key) || hasPermission(session, item.pageKey, "view")) &&
+                hasCapability(session, item.pageKey),
           ).map(({ key, label, icon: Icon, href }) => {
             const isActive = key === active;
             const itemClasses = cn(

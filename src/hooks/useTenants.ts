@@ -8,6 +8,17 @@ export type Tenant = {
   whatsapp_phone_number_id: string;
   data_tier: string;
   is_active: boolean;
+  // Settings -> General's "Contact Information" address field -- the
+  // closest real thing to a directory "location" column, free-text/optional.
+  contact_address: string | null;
+  // Raw HospitalRow.created_at (db.get_hospital_created_at_map()) -- null
+  // only for a malformed/legacy row, never for an ordinary one.
+  created_at: string | null;
+  tenant_type: string;
+  // True once an operator has ever saved an explicit admin_capabilities
+  // list for this tenant (Access Control page) -- false means it's still
+  // following its tenant_type default (portal/capabilities.py).
+  has_custom_capabilities: boolean;
 };
 
 export type StalledSignup = { id: number; email: string; name: string | null; created_at: string };

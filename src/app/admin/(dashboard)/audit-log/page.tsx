@@ -40,7 +40,6 @@ function AuditLogList() {
     <div>
       <div className="mb-space-5 gap-space-3 flex flex-col items-start sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-eyebrow mb-space-1">Platform admin</p>
           <h1 className="text-display">
             Audit log
             {hospitalIdParam && <span className="text-ink-400"> · tenant #{hospitalIdParam}</span>}

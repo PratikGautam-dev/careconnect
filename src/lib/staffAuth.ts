@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import axios, { isAxiosError } from "axios";
 import { requestInitToAxiosConfig } from "@/lib/apiClient";
+import { PAGE_CAPABILITY } from "@/lib/hospitalCapabilities";
 import type { PortalHospital } from "@/lib/portalAuth";
 
 // Roles are admin-defined per hospital; see usePortalRoles.ts's Role type for the fetched shape.
@@ -205,6 +206,7 @@ export type StaffSessionContextValue = {
   error: string | null;
   reload: () => void;
   setSession: (session: StaffSession) => void;
+  patchHospital: (hospital: PortalHospital) => void;
 };
 
 /** Populated by StaffSessionProvider (wraps every /portal/* page via
@@ -223,6 +225,7 @@ export const StaffSessionContext = createContext<StaffSessionContextValue>({
   error: null,
   reload: () => {},
   setSession: () => {},
+  patchHospital: () => {},
 });
 
 /** SSR-hydration-safe read of the current staff session: `null` on the
@@ -302,6 +305,17 @@ export function useSetStaffSession(): (session: StaffSession) => void {
   return useContext(StaffSessionContext).setSession;
 }
 
+/** Overwrites just `session.hospital` in place, without a full /me
+ * round-trip -- the cheap path back into the shared session for callers
+ * that already received a fresher copy of the hospital (admin_capabilities/
+ * enabled_features) as a side effect of some other request, e.g.
+ * usePortalDashboard's 20s poll, whose response already embeds
+ * _hospital_summary(). Lets an admin's Access Control change reach the
+ * sidebar/nav without waiting for the next full session reload. */
+export function useStaffSessionPatchHospital(): (hospital: PortalHospital) => void {
+  return useContext(StaffSessionContext).patchHospital;
+}
+
 /** Reads permissions off the cached session (refreshed on every staff
  * login/refresh). No session -> fails CLOSED (hides the item) rather than
  * open: while StaffSessionProvider's initial /me (+ silent-refresh) round
@@ -335,4 +349,18 @@ export function hasPermission(
 ): boolean {
   if (!session) return false;
   return !!session.permissions[pageKey]?.[action];
+}
+
+/** Same idea as hasPermission, but checks the hospital's tenant-level
+ * admin_capabilities (Access Control, super-admin-only) instead of a
+ * staff member's per-role permissions -- a hospital can have every staff
+ * permission granted and still not see a screen the platform admin turned
+ * off for its tenant/plan. Fails CLOSED (hides the item) while the session
+ * hasn't loaded yet, same reasoning as hasPermission. Pages with no entry
+ * in PAGE_CAPABILITY are unaffected (always passes). */
+export function hasCapability(session: StaffSession | null, pageKey: string): boolean {
+  const capability = PAGE_CAPABILITY[pageKey];
+  if (!capability) return true;
+  if (!session) return false;
+  return !!session.hospital.admin_capabilities?.includes(capability);
 }

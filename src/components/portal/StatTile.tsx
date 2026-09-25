@@ -36,6 +36,14 @@ type Props = {
    * tile (Billing's Total Collected/Today's Collection) -- omitted for a
    * plain count tile. */
   prefix?: string;
+  /** Stamps a small "Mock" badge on the tile -- for cards whose data has no
+   * real backend source yet (e.g. the super-admin dashboard's revenue/
+   * subscription tiles, until a billing/plan model exists), so it's visually
+   * obvious which numbers on a page are placeholders. Deliberately full
+   * color, not greyed out (per explicit feedback) -- the badge alone is the
+   * signal. Never paired with `href` -- a mock tile isn't a real navigable
+   * destination. */
+  mock?: boolean;
 };
 
 export function StatTile({
@@ -48,6 +56,7 @@ export function StatTile({
   tint = "brand",
   href,
   prefix,
+  mock = false,
 }: Props) {
   const isUp = deltaPct !== null && deltaPct > 0;
   const isDown = deltaPct !== null && deltaPct < 0;
@@ -55,7 +64,12 @@ export function StatTile({
   const isBadDirection = (isUp && !upIsGood) || (isDown && upIsGood);
 
   const body = (
-    <div className="gap-space-3 flex items-center">
+    <div className="gap-space-3 relative flex items-center">
+      {mock && (
+        <span className="bg-ink-900 absolute -top-2 -right-2 rounded-full px-2 py-0.5 text-[9.5px] font-bold tracking-wide text-white uppercase">
+          Mock
+        </span>
+      )}
       {Icon && (
         <span
           className={cn(
@@ -72,19 +86,21 @@ export function StatTile({
           <span className="text-ink-900 text-[26px] leading-none font-semibold">
             {value === null ? "—" : `${prefix ?? ""}${value.toLocaleString()}`}
           </span>
-          {/* <span
-            className={cn(
-              "flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold",
-              isGoodDirection && "text-success",
-              isBadDirection && "text-error",
-              deltaPct === null && "text-ink-400",
-            )}
-          >
-            {isUp && <TrendingUp size={13} />}
-            {isDown && <TrendingDown size={13} />}
-            {deltaPct === null && <Minus size={13} />}
-            {deltaPct === null ? "—" : `${Math.abs(deltaPct)}%`}
-          </span> */}
+          {deltaPct !== null && (
+            <span
+              className={cn(
+                "flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold",
+                isGoodDirection && "text-success",
+                isBadDirection && "text-error",
+                !isUp && !isDown && "text-ink-400",
+              )}
+            >
+              {isUp && <TrendingUp size={13} />}
+              {isDown && <TrendingDown size={13} />}
+              {!isUp && !isDown && <Minus size={13} />}
+              {`${Math.abs(deltaPct)}%`}
+            </span>
+          )}
         </div>
         {hint && <p className="text-hint mt-space-0.5 truncate">{hint}</p>}
       </div>

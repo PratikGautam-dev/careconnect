@@ -4,8 +4,13 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
+  CreditCard,
+  Lock,
+  LayoutDashboard,
   LogOut,
+  Receipt,
   Settings,
+  Settings2,
   ShieldCheck,
   Users,
   X,
@@ -15,8 +20,21 @@ import { cn } from "@/lib/cn";
 import { clearAdminToken, getSuperAdmin } from "@/lib/adminAuth";
 
 const NAV_ITEMS = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/admin/dashboard" },
   { key: "tenants", label: "Tenants", icon: ShieldCheck, href: "/admin/tenants" },
+  // Subscriptions/Plans & Billing are both fully mock pages today -- there's
+  // no plan/pricing/invoice model in the backend yet (only hospitals.data_tier
+  // exists), see each page's own top comment. Kept in the sidebar anyway so
+  // the target design's navigation is complete; wire to a real API later.
+  { key: "subscriptions", label: "Subscriptions", icon: CreditCard, href: "/admin/subscriptions" },
+  { key: "plans-billing", label: "Plans & Billing", icon: Receipt, href: "/admin/plans-billing" },
   { key: "users", label: "Users", icon: Users, href: "/admin/users" },
+  // Access Control = admin_capabilities (staff-portal management screens);
+  // Feature Toggles = enabled_features (WhatsApp bot menu) -- deliberately
+  // separate real per-hospital gates, portal/capabilities.py's own module
+  // docstring is the source of truth for why the two must never be conflated.
+  { key: "access-control", label: "Access Control", icon: Lock, href: "/admin/access-control" },
+  { key: "feature-toggles", label: "Feature Toggles", icon: Settings2, href: "/admin/feature-toggles" },
   { key: "audit-log", label: "Audit Log", icon: ClipboardList, href: "/admin/audit-log" },
   {
     key: "platform-settings",

@@ -26,7 +26,6 @@ function UsersOverview() {
   return (
     <div>
       <div className="mb-space-5">
-        <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Users</h1>
         <p className="text-ink-600 text-[13px]">
           Staff headcount by hospital. Pick a hospital to see its staff list — read-only here, edit

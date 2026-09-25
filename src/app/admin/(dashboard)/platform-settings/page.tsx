@@ -40,7 +40,6 @@ function PlatformSettingsForm() {
   return (
     <div>
       <div className="mb-space-5">
-        <p className="text-eyebrow mb-space-1">Platform admin</p>
         <h1 className="text-display">Platform settings</h1>
         <p className="text-ink-600 text-[13px]">
           Global values that apply identically across every hospital — no per-tenant override.
