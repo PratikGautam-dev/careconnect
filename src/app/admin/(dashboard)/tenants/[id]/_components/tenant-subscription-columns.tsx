@@ -54,7 +54,9 @@ export function createTenantSubscriptionColumns(): ColumnDef<SubscriptionRecord>
       id: "startDate",
       header: "Start Date",
       cell: ({ row }) => (
-        <span className="text-ink-600 whitespace-nowrap">{formatDate(row.original.start_date)}</span>
+        <span className="text-ink-600 whitespace-nowrap">
+          {formatDate(row.original.start_date)}
+        </span>
       ),
     },
     {

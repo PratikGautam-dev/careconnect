@@ -5,7 +5,11 @@ import { cn } from "@/lib/cn";
 
 export type PlatformSettingsTabKey = "general" | "menu_labels" | "notifications" | "audit_logs";
 
-export type PlatformSettingsTabDef = { key: PlatformSettingsTabKey; label: string; icon: LucideIcon };
+export type PlatformSettingsTabDef = {
+  key: PlatformSettingsTabKey;
+  label: string;
+  icon: LucideIcon;
+};
 
 type Props = {
   tabs: PlatformSettingsTabDef[];

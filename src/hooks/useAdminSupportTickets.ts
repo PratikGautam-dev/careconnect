@@ -98,7 +98,12 @@ export function useAdminSupportTickets() {
   };
 }
 
-export type SupportTicketCategory = { id: number; name: string; is_active: boolean; created_at: string };
+export type SupportTicketCategory = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+};
 
 const CATEGORIES_QUERY_KEY = ["admin-support-ticket-categories"] as const;
 
@@ -160,7 +165,10 @@ export function useAdminSupportTicketCategories() {
       refetch();
       return true;
     } catch (err) {
-      toast.error("Couldn't add category", err instanceof Error ? err.message : "Something went wrong.");
+      toast.error(
+        "Couldn't add category",
+        err instanceof Error ? err.message : "Something went wrong.",
+      );
       return false;
     }
   }

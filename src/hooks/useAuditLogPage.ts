@@ -47,7 +47,11 @@ export const EMPTY_AUDIT_LOG_FILTERS: AuditLogFilters = {
  * only ever populates a subset of AuditLogFilters (portal never sets
  * hospital_id/actor_level, since its route hardcodes actor_level="portal"
  * server-side regardless of what's sent). */
-export function auditLogSearchParams(filters: AuditLogFilters, beforeId: number | null, limit: number) {
+export function auditLogSearchParams(
+  filters: AuditLogFilters,
+  beforeId: number | null,
+  limit: number,
+) {
   const params = new URLSearchParams();
   if (filters.action) params.set("action", filters.action);
   if (filters.entity_type) params.set("entity_type", filters.entity_type);

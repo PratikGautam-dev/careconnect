@@ -3,7 +3,11 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/formatDate";
-import type { SupportTicketRow, TicketPriority, TicketStatus } from "@/hooks/useAdminSupportTickets";
+import type {
+  SupportTicketRow,
+  TicketPriority,
+  TicketStatus,
+} from "@/hooks/useAdminSupportTickets";
 
 export const STATUS_LABELS: Record<TicketStatus, string> = {
   open: "Open",
@@ -20,7 +24,12 @@ const STATUS_TINT: Record<TicketStatus, string> = {
 
 export function StatusBadge({ status }: { status: TicketStatus }) {
   return (
-    <span className={cn("px-space-2 rounded-full py-0.5 text-[11px] font-semibold", STATUS_TINT[status])}>
+    <span
+      className={cn(
+        "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+        STATUS_TINT[status],
+      )}
+    >
       {STATUS_LABELS[status]}
     </span>
   );
@@ -40,7 +49,11 @@ const PRIORITY_TINT: Record<TicketPriority, string> = {
 };
 
 export function PriorityLabel({ priority }: { priority: TicketPriority }) {
-  return <span className={cn("font-semibold", PRIORITY_TINT[priority])}>{PRIORITY_LABELS[priority]}</span>;
+  return (
+    <span className={cn("font-semibold", PRIORITY_TINT[priority])}>
+      {PRIORITY_LABELS[priority]}
+    </span>
+  );
 }
 
 type CreateColumnsOptions = {
@@ -105,7 +118,9 @@ export function createSupportTicketColumns({
     {
       id: "created_at",
       header: "Submitted",
-      cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.created_at)}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{formatDate(row.original.created_at)}</span>
+      ),
     },
     {
       id: "status",

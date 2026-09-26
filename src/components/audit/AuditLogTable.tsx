@@ -109,7 +109,9 @@ export function AuditLogTable({
         {showActorLevelFilter && (
           <FilterSelect
             value={filters.actor_level || "all"}
-            onChange={(v) => set("actor_level", v === "all" ? "" : (v as AuditLogFilters["actor_level"]))}
+            onChange={(v) =>
+              set("actor_level", v === "all" ? "" : (v as AuditLogFilters["actor_level"]))
+            }
             options={ACTOR_LEVEL_OPTIONS}
             allLabel="All levels"
           />
@@ -123,7 +125,11 @@ export function AuditLogTable({
           />
         )}
         {hasActiveFilters && (
-          <Button variant="secondary" className="h-9 text-[12.5px]" onClick={() => onFiltersChange(EMPTY_AUDIT_LOG_FILTERS)}>
+          <Button
+            variant="secondary"
+            className="h-9 text-[12.5px]"
+            onClick={() => onFiltersChange(EMPTY_AUDIT_LOG_FILTERS)}
+          >
             Clear filters
           </Button>
         )}
@@ -153,13 +159,15 @@ export function AuditLogTable({
           ) : entries.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="text-ink-400 py-space-6 text-center text-[13px]">
-                {hasActiveFilters ? "No activity matches these filters." : "No activity recorded yet."}
+                {hasActiveFilters
+                  ? "No activity matches these filters."
+                  : "No activity recorded yet."}
               </TableCell>
             </TableRow>
           ) : (
             entries.map((entry) => (
               <TableRow key={entry.id}>
-                <TableCell className="text-ink-400 whitespace-nowrap align-top tabular-nums">
+                <TableCell className="text-ink-400 align-top whitespace-nowrap tabular-nums">
                   {entry.created_at}
                 </TableCell>
                 <TableCell className="text-ink-900 align-top font-medium whitespace-nowrap">
@@ -181,12 +189,17 @@ export function AuditLogTable({
                 )}
                 {showHospitalColumn && (
                   <TableCell className="text-ink-600 align-top whitespace-nowrap">
-                    {entry.hospital_name || (entry.hospital_id ? `Tenant #${entry.hospital_id}` : "—")}
+                    {entry.hospital_name ||
+                      (entry.hospital_id ? `Tenant #${entry.hospital_id}` : "—")}
                   </TableCell>
                 )}
-                <TableCell className="text-ink-600 align-top whitespace-nowrap">{entry.actor_label}</TableCell>
                 <TableCell className="text-ink-600 align-top whitespace-nowrap">
-                  {entry.entity_type ? `${entry.entity_type}${entry.entity_id ? ` #${entry.entity_id}` : ""}` : "—"}
+                  {entry.actor_label}
+                </TableCell>
+                <TableCell className="text-ink-600 align-top whitespace-nowrap">
+                  {entry.entity_type
+                    ? `${entry.entity_type}${entry.entity_id ? ` #${entry.entity_id}` : ""}`
+                    : "—"}
                 </TableCell>
                 <TableCell className="align-top">
                   <AuditChangeDiff entry={entry} />
@@ -217,10 +230,20 @@ export function AuditLogTable({
         </div>
         <div className="gap-space-2 flex items-center">
           <span className="text-ink-400 text-[12.5px]">Page {pageNumber}</span>
-          <Button variant="secondary" className="h-9 px-space-3" disabled={!hasPrev} onClick={goPrev}>
+          <Button
+            variant="secondary"
+            className="px-space-3 h-9"
+            disabled={!hasPrev}
+            onClick={goPrev}
+          >
             <ChevronLeft size={14} /> Previous
           </Button>
-          <Button variant="secondary" className="h-9 px-space-3" disabled={!hasNext} onClick={goNext}>
+          <Button
+            variant="secondary"
+            className="px-space-3 h-9"
+            disabled={!hasNext}
+            onClick={goNext}
+          >
             Next <ChevronRight size={14} />
           </Button>
         </div>

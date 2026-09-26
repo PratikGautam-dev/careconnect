@@ -7,7 +7,10 @@ import type { BillingRecord } from "@/hooks/useAdminBillingRecords";
 import type { RecentActivity } from "@/hooks/useSuperAdminDashboard";
 import type { SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
 import type { SupportTicketRow } from "@/hooks/useAdminSupportTickets";
-import { PriorityLabel, StatusBadge } from "../../support-tickets/_components/support-ticket-columns";
+import {
+  PriorityLabel,
+  StatusBadge,
+} from "../../support-tickets/_components/support-ticket-columns";
 
 // Same status vocabulary as subscription-columns.tsx (admin/subscriptions)
 // -- duplicated rather than imported since that file's copy is a local

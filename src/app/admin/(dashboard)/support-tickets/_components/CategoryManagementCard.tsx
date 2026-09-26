@@ -13,7 +13,8 @@ import { useAdminSupportTicketCategories } from "@/hooks/useAdminSupportTickets"
  * hospital's own portal admin configures. Deletion is refused server-side
  * (409) while any ticket still references the category. */
 export function CategoryManagementCard() {
-  const { categories, error, create, toggleActive, remove, creating } = useAdminSupportTicketCategories();
+  const { categories, error, create, toggleActive, remove, creating } =
+    useAdminSupportTicketCategories();
   const [newName, setNewName] = useState("");
 
   async function handleCreate(e: React.FormEvent) {

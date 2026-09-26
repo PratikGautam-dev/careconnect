@@ -48,7 +48,7 @@ type SessionQueryResult =
  * loading. Doesn't redirect on unauthenticated itself -- usePortalGuard.ts
  * (and each page's own staffFetch calls) own that.
  *
- * 
+ *
  * React-Query-backed (queryKey ["staff-session"]) rather than a hand-rolled
  * fetch-inside-a-useEffect: this fetch+setState is exactly the pattern
  * react-hooks/set-state-in-effect flags (calling setState from an effect

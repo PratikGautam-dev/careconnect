@@ -354,7 +354,9 @@ export default function PortalDoctorsPage() {
                         type="text"
                         placeholder="Search doctors by name or specialization…"
                         value={doctorsFilters.search}
-                        onChange={(e) => setDoctorsFilters((f) => ({ ...f, search: e.target.value }))}
+                        onChange={(e) =>
+                          setDoctorsFilters((f) => ({ ...f, search: e.target.value }))
+                        }
                         className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
                       />
                     </div>
@@ -363,7 +365,8 @@ export default function PortalDoctorsPage() {
                       onChange={(e) =>
                         setDoctorsFilters((f) => ({
                           ...f,
-                          is_active: e.target.value === "all" ? "" : (e.target.value as "true" | "false"),
+                          is_active:
+                            e.target.value === "all" ? "" : (e.target.value as "true" | "false"),
                         }))
                       }
                       className="border-line bg-card px-space-3 text-ink-900 h-10 rounded-md border text-[13px]"

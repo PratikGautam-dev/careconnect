@@ -253,7 +253,7 @@ export function createAppointmentColumns({
               target="_blank"
               rel="noopener noreferrer"
               variant="primary"
-              className="h-8 px-space-3 text-[12.5px] items-center"
+              className="px-space-3 h-8 items-center text-[12.5px]"
             >
               <Video size={13} /> Join
             </Button>

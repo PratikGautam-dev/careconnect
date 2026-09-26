@@ -47,7 +47,9 @@ export function SupportTicketDetailPanel({ ticket, onStatusChange, updating }: P
   if (!ticket) {
     return (
       <Card className="p-space-4">
-        <p className="py-space-4 text-ink-400 text-center text-[13px]">Select a ticket to review it.</p>
+        <p className="py-space-4 text-ink-400 text-center text-[13px]">
+          Select a ticket to review it.
+        </p>
       </Card>
     );
   }
@@ -55,7 +57,9 @@ export function SupportTicketDetailPanel({ ticket, onStatusChange, updating }: P
   return (
     <Card className="p-space-4">
       <div className="mb-space-3">
-        <p className="text-brand-600 text-[11.5px] font-bold tracking-wide">{ticket.ticket_number}</p>
+        <p className="text-brand-600 text-[11.5px] font-bold tracking-wide">
+          {ticket.ticket_number}
+        </p>
         <p className="text-ink-900 text-[15px] font-bold">{ticket.subject}</p>
         <p className="text-ink-400 text-[12px]">{ticket.category_name || "Uncategorized"}</p>
       </div>
@@ -67,7 +71,11 @@ export function SupportTicketDetailPanel({ ticket, onStatusChange, updating }: P
           label="Submitted By"
           value={ticket.submitted_by_name || ticket.submitted_by_email}
         />
-        <DetailRow icon={Tag} label="Priority" value={<PriorityLabel priority={ticket.priority} />} />
+        <DetailRow
+          icon={Tag}
+          label="Priority"
+          value={<PriorityLabel priority={ticket.priority} />}
+        />
         <DetailRow icon={Calendar} label="Submitted On" value={formatDate(ticket.created_at)} />
         {ticket.problem_reference && (
           <DetailRow icon={Link2} label="Reference" value={ticket.problem_reference} />
@@ -80,7 +88,7 @@ export function SupportTicketDetailPanel({ ticket, onStatusChange, updating }: P
 
       <div className="mt-space-3 border-line bg-paper p-space-3 rounded-md border">
         <p className="mb-space-1 text-ink-400 text-[11px] font-semibold">Question</p>
-        <p className="text-ink-900 whitespace-pre-wrap text-[13px]">{ticket.question}</p>
+        <p className="text-ink-900 text-[13px] whitespace-pre-wrap">{ticket.question}</p>
       </div>
 
       {ticket.attachment_url && (

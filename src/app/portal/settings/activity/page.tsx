@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/Button";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { AuditLogTable } from "@/components/audit/AuditLogTable";
-import { EMPTY_AUDIT_LOG_FILTERS, useAuditLogPage, type AuditLogPageResponse } from "@/hooks/useAuditLogPage";
+import {
+  EMPTY_AUDIT_LOG_FILTERS,
+  useAuditLogPage,
+  type AuditLogPageResponse,
+} from "@/hooks/useAuditLogPage";
 import { portalFetch } from "@/lib/portalAuth";
 
 const DEFAULT_PAGE_SIZE = 25;

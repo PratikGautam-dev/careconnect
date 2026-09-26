@@ -147,8 +147,8 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                   Feature Toggles
                 </Link>
                 . Appointment reminder offsets and template name, and the WhatsApp welcome message,
-                are managed by the hospital itself, under its own Settings → Notifications /
-                General tabs.
+                are managed by the hospital itself, under its own Settings → Notifications / General
+                tabs.
               </p>
 
               {form.data_tier === "tier2" && (

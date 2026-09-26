@@ -78,13 +78,17 @@ export function NewSupportTicketDialog({ open, onOpenChange, onCreated }: Props)
     if (image) formData.append("image", image);
 
     setSubmitting(true);
-    const result = await staffFetch("/api/portal/support-tickets", { method: "POST", body: formData });
+    const result = await staffFetch("/api/portal/support-tickets", {
+      method: "POST",
+      body: formData,
+    });
     setSubmitting(false);
     if (!result.ok) {
       setFormError(result.unauthorized ? "Session expired -- please log in again." : result.error);
       return;
     }
-    const ticketNumber = (result.data as { ticket?: { ticket_number?: string } })?.ticket?.ticket_number;
+    const ticketNumber = (result.data as { ticket?: { ticket_number?: string } })?.ticket
+      ?.ticket_number;
     toast.success(ticketNumber ? `Ticket ${ticketNumber} submitted` : "Ticket submitted");
     resetForm();
     onOpenChange(false);
@@ -172,7 +176,7 @@ export function NewSupportTicketDialog({ open, onOpenChange, onCreated }: Props)
           </Field>
 
           <Field label="Attachment" htmlFor="ticket_image" hint="Optional image">
-            <label className="border-line text-ink-600 gap-space-2 hover:bg-black/4 flex h-11 w-full cursor-pointer items-center rounded-md border px-3 text-[13px]">
+            <label className="border-line text-ink-600 gap-space-2 flex h-11 w-full cursor-pointer items-center rounded-md border px-3 text-[13px] hover:bg-black/4">
               <Paperclip size={14} className="shrink-0" />
               {image ? image.name : "Choose an image"}
               <input

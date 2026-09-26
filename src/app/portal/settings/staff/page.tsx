@@ -231,7 +231,9 @@ export default function StaffManagementPage() {
                   </div>
                   <FilterSelect
                     value={staffFilters.department_id || "all"}
-                    onChange={(v) => setStaffFilters((f) => ({ ...f, department_id: v === "all" ? "" : v }))}
+                    onChange={(v) =>
+                      setStaffFilters((f) => ({ ...f, department_id: v === "all" ? "" : v }))
+                    }
                     allLabel="All Departments"
                     options={departmentOptions}
                   />

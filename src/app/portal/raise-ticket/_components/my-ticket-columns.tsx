@@ -24,7 +24,12 @@ const STATUS_TINT: Record<TicketStatus, string> = {
 
 export function StatusBadge({ status }: { status: TicketStatus }) {
   return (
-    <span className={cn("px-space-2 rounded-full py-0.5 text-[11px] font-semibold", STATUS_TINT[status])}>
+    <span
+      className={cn(
+        "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+        STATUS_TINT[status],
+      )}
+    >
       {STATUS_LABELS[status]}
     </span>
   );
@@ -44,7 +49,11 @@ const PRIORITY_TINT: Record<TicketPriority, string> = {
 };
 
 export function PriorityLabel({ priority }: { priority: TicketPriority }) {
-  return <span className={cn("font-semibold", PRIORITY_TINT[priority])}>{PRIORITY_LABELS[priority]}</span>;
+  return (
+    <span className={cn("font-semibold", PRIORITY_TINT[priority])}>
+      {PRIORITY_LABELS[priority]}
+    </span>
+  );
 }
 
 export const myTicketColumns: ColumnDef<MySupportTicketRow>[] = [
@@ -52,7 +61,9 @@ export const myTicketColumns: ColumnDef<MySupportTicketRow>[] = [
     id: "ticket_number",
     header: "Ticket #",
     cell: ({ row }) => (
-      <span className="text-ink-900 font-semibold whitespace-nowrap">{row.original.ticket_number}</span>
+      <span className="text-ink-900 font-semibold whitespace-nowrap">
+        {row.original.ticket_number}
+      </span>
     ),
   },
   {

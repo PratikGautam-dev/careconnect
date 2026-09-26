@@ -94,7 +94,7 @@ export function NotificationsTab() {
           {recipients.map((email) => (
             <span
               key={email}
-              className="gap-space-1 px-space-2 bg-black/4 text-ink-700 inline-flex items-center rounded-full py-1 text-[12px]"
+              className="gap-space-1 px-space-2 text-ink-700 inline-flex items-center rounded-full bg-black/4 py-1 text-[12px]"
             >
               {email}
               <button

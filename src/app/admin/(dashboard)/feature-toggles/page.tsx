@@ -270,8 +270,8 @@ function FeatureTogglesContent({
                 </div>
                 <p className="text-hint mb-space-3">
                   &quot;Included in Plan&quot; / &quot;Custom Override&quot; don&apos;t apply to
-                  WhatsApp features (no plan-based defaults exist for these) — shown as &quot;—&quot;
-                  for layout parity.
+                  WhatsApp features (no plan-based defaults exist for these) — shown as
+                  &quot;—&quot; for layout parity.
                 </p>
 
                 <DataTable<FeatureRow>

@@ -111,7 +111,8 @@ function AccessControlContent({
   // Real subscription stats (useAdminSubscriptions / db.list_subscriptions())
   // -- same source the Super Admin Dashboard and /admin/subscriptions use.
   const now = new Date();
-  const activeSubscriptionsCount = subscriptions?.filter((s) => s.status === "active").length ?? null;
+  const activeSubscriptionsCount =
+    subscriptions?.filter((s) => s.status === "active").length ?? null;
   const expiringThisMonthCount =
     subscriptions?.filter((s) => {
       if (!s.renewal_date) return false;
@@ -279,8 +280,8 @@ function AccessControlContent({
               <div>
                 <p className="text-hint mb-space-2">
                   <span className="text-ink-900 font-semibold">{assignedPlan.name}</span> allows{" "}
-                  {assignedPlan.capabilities.length} of {tenant.all_capabilities.length} capabilities —{" "}
-                  {form.admin_capabilities.length} currently active
+                  {assignedPlan.capabilities.length} of {tenant.all_capabilities.length}{" "}
+                  capabilities — {form.admin_capabilities.length} currently active
                 </p>
                 <div className="gap-space-1 mb-space-3 flex flex-wrap">
                   {tenant.all_capabilities.map((key) => {
@@ -303,7 +304,7 @@ function AccessControlContent({
                             ? "bg-success-tint text-success"
                             : inPlanAtAll
                               ? "bg-clay-100 text-clay-700"
-                              : "bg-black/4 text-ink-300 line-through",
+                              : "text-ink-300 bg-black/4 line-through",
                         )}
                       >
                         {meta.label}
@@ -322,9 +323,7 @@ function AccessControlContent({
                 </button>
               </div>
             ) : (
-              <p className="text-ink-400 text-[12.5px]">
-                Assigned plan no longer exists.
-              </p>
+              <p className="text-ink-400 text-[12.5px]">Assigned plan no longer exists.</p>
             )}
           </Card>
 
@@ -348,9 +347,7 @@ function AccessControlContent({
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Users Allowed</span>
                 <span className="text-ink-900 font-semibold">
-                  {!subscription?.plan_id
-                    ? "—"
-                    : (subscription.max_users ?? "Unlimited")}
+                  {!subscription?.plan_id ? "—" : (subscription.max_users ?? "Unlimited")}
                 </span>
               </div>
               <div className="flex items-center justify-between">

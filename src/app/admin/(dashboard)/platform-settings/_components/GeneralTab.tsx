@@ -13,7 +13,13 @@ type Props = {
   error: string | null;
 };
 
-export function GeneralTab({ maxActiveLinks, setMaxActiveLinks, dpdpRequired, setDpdpRequired, error }: Props) {
+export function GeneralTab({
+  maxActiveLinks,
+  setMaxActiveLinks,
+  dpdpRequired,
+  setDpdpRequired,
+  error,
+}: Props) {
   return (
     <div className="gap-space-5 flex flex-col">
       <Card className="p-space-5">
@@ -39,9 +45,8 @@ export function GeneralTab({ maxActiveLinks, setMaxActiveLinks, dpdpRequired, se
         <p className="mb-space-3 text-ink-400 text-[12.5px]">
           When enabled, a fresh conversation on ANY hospital&apos;s bot must tap &quot;I Agree&quot;
           on a fixed Digital Personal Data Protection (DPDP) Act notice right after choosing a
-          language, before anything else — including registration or picking a patient. The
-          decision is remembered per phone number, so a patient who has already agreed is never
-          asked again.
+          language, before anything else — including registration or picking a patient. The decision
+          is remembered per phone number, so a patient who has already agreed is never asked again.
         </p>
         <CheckboxRow checked={dpdpRequired} onChange={setDpdpRequired}>
           Require DPDP consent before entering the menu, for every hospital

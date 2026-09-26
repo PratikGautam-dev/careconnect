@@ -34,7 +34,12 @@ import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { useAdminSubscriptions, type SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
 import { useAdminSupportTickets } from "@/hooks/useAdminSupportTickets";
 import { useSuperAdminDashboard } from "@/hooks/useSuperAdminDashboard";
-import { activityColumns, billingRecordColumns, renewalColumns, ticketColumns } from "./_components/dashboard-columns";
+import {
+  activityColumns,
+  billingRecordColumns,
+  renewalColumns,
+  ticketColumns,
+} from "./_components/dashboard-columns";
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
 const PLAN_COLORS = ["#2a78d6", "#7c5cf5", "#1baf7a", "#eda100", "#c3c2b7"];
@@ -119,7 +124,14 @@ function DashboardContent() {
       planCounts.set(key, (planCounts.get(key) ?? 0) + 1);
     }
 
-    return { activeCount, mrr, expiringCount: expiring.length, upcomingRenewals, byStatus, planCounts };
+    return {
+      activeCount,
+      mrr,
+      expiringCount: expiring.length,
+      upcomingRenewals,
+      byStatus,
+      planCounts,
+    };
   }, [subscriptions]);
 
   const statusData = subscriptionStats
@@ -399,7 +411,8 @@ function DashboardContent() {
               </ul>
               {tierEntries.length > 0 && (
                 <p className="text-ink-400 mt-space-3 border-line pt-space-2 border-t text-[11px]">
-                  By data tier: {tierEntries.map(([t, c]) => `${TIER_LABELS[t] || t} ${c}`).join(" · ")}
+                  By data tier:{" "}
+                  {tierEntries.map(([t, c]) => `${TIER_LABELS[t] || t} ${c}`).join(" · ")}
                   {` (${tierTotal} total)`}
                 </p>
               )}
@@ -437,7 +450,6 @@ function DashboardContent() {
           </a>
         </Card>
       </div>
-
     </div>
   );
 }

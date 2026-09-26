@@ -57,8 +57,8 @@ function SupportTicketsList() {
       <div className="mb-space-5">
         <h1 className="text-display">Support Tickets</h1>
         <p className="text-ink-600 text-[13px]">
-          Every ticket raised by any staff member, across every hospital -- reviewed only here, not by
-          a hospital&apos;s own admin.
+          Every ticket raised by any staff member, across every hospital -- reviewed only here, not
+          by a hospital&apos;s own admin.
         </p>
       </div>
 
@@ -149,7 +149,9 @@ function SupportTicketsList() {
                   pageSize={10}
                   pageSizeOptions={[10, 25, 50]}
                   emptyMessage={
-                    rows.length === 0 ? "No support tickets yet." : "No tickets match your search/filter."
+                    rows.length === 0
+                      ? "No support tickets yet."
+                      : "No tickets match your search/filter."
                   }
                 />
               </>
@@ -162,7 +164,11 @@ function SupportTicketsList() {
         </div>
 
         <div>
-          <SupportTicketDetailPanel ticket={selected} onStatusChange={setStatus} updating={updatingStatus} />
+          <SupportTicketDetailPanel
+            ticket={selected}
+            onStatusChange={setStatus}
+            updating={updatingStatus}
+          />
         </div>
       </div>
     </div>
