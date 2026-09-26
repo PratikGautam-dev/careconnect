@@ -4,25 +4,16 @@ import { use } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { CheckboxRow } from "@/components/ui/Checkbox";
+import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Switch } from "@/components/ui/Switch";
 import { useEditTenant } from "@/hooks/useEditTenant";
-
-function capabilitiesMatch(a: string[], b: string[]): boolean {
-  const sortedA = [...a].sort();
-  const sortedB = [...b].sort();
-  return sortedA.length === sortedB.length && sortedA.every((v, i) => v === sortedB[i]);
-}
-
-function titleCaseCapability(key: string): string {
-  return key
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
+import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
+import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
+import { createTenantSubscriptionColumns } from "./_components/tenant-subscription-columns";
+import { createBillingColumns } from "../../plans-billing/_components/billing-columns";
 
 function EditTenantForm({ tenantId }: { tenantId: number }) {
   const {
@@ -33,11 +24,6 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     errors,
     saving,
     saved,
-    appointmentTypeError,
-    toggleFeature,
-    resetCapabilitiesToDefaults,
-    toggleCapability,
-    toggleAppointmentTypeAllowed,
     handleSubmit,
     paymentSettings,
     paymentForm,
@@ -48,6 +34,18 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     paymentSettingsSaved,
     handlePaymentSettingsSubmit,
   } = useEditTenant(tenantId);
+
+  const { subscriptions } = useAdminSubscriptions();
+  const { records: billingRecords } = useAdminBillingRecords();
+
+  // Both real lists are global (every hospital), scoped down to just this
+  // tenant here -- list_subscriptions() always has exactly one row per
+  // hospital (status "unassigned" until a plan is set), so this is
+  // currently a single-row table, but built as a real DataTable rather than
+  // a one-off summary so it holds up if subscription HISTORY (more than one
+  // row per hospital) is ever added later.
+  const subscriptionsForTenant = (subscriptions ?? []).filter((s) => s.hospital_id === tenantId);
+  const billingForTenant = (billingRecords ?? []).filter((r) => r.hospital_id === tenantId);
 
   return (
     <div>
@@ -114,49 +112,6 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 </Field>
               </div>
 
-              <Field label="Welcome message text" htmlFor="welcome_message_text">
-                <Textarea
-                  id="welcome_message_text"
-                  rows={2}
-                  value={form.welcome_message_text}
-                  onChange={(e) => setForm({ ...form, welcome_message_text: e.target.value })}
-                />
-              </Field>
-
-              <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
-                <Field label="Reminder offsets (hours)" htmlFor="reminder_offsets_hours">
-                  <Input
-                    id="reminder_offsets_hours"
-                    value={form.reminder_offsets_hours}
-                    onChange={(e) => setForm({ ...form, reminder_offsets_hours: e.target.value })}
-                  />
-                </Field>
-                <Field label="Reminder template name" htmlFor="reminder_template_name">
-                  <Input
-                    id="reminder_template_name"
-                    value={form.reminder_template_name}
-                    onChange={(e) => setForm({ ...form, reminder_template_name: e.target.value })}
-                  />
-                </Field>
-              </div>
-
-              <Field
-                label="Bookings portal password"
-                htmlFor="portal_password"
-                hint={
-                  tenant.has_portal_password
-                    ? "Leave blank to keep the current password."
-                    : "Not set yet — set one so staff can log in."
-                }
-              >
-                <Input
-                  id="portal_password"
-                  type="password"
-                  value={form.portal_password}
-                  onChange={(e) => setForm({ ...form, portal_password: e.target.value })}
-                />
-              </Field>
-
               <Field label="Tenant type" htmlFor="tenant_type">
                 <select
                   id="tenant_type"
@@ -167,61 +122,6 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                   <option value="hospital">Hospital</option>
                   <option value="clinic">Clinic</option>
                 </select>
-              </Field>
-
-              <Field
-                label="Admin capabilities"
-                htmlFor="admin_capabilities"
-                hint="Controls which staff-portal management screens this tenant can use. Changing tenant type above does NOT change these automatically — use Reset to defaults if you want them to match."
-              >
-                <div className="mb-space-2 gap-space-2 flex items-center">
-                  <Button type="button" variant="secondary" onClick={resetCapabilitiesToDefaults}>
-                    Reset to {form.tenant_type} defaults
-                  </Button>
-                  {!capabilitiesMatch(
-                    form.admin_capabilities,
-                    tenant.default_capabilities_by_type[form.tenant_type] ?? [],
-                  ) && (
-                    <span className="text-error text-[13px]">
-                      Custom — doesn&apos;t match the {form.tenant_type} default set.
-                    </span>
-                  )}
-                </div>
-                <div
-                  id="admin_capabilities"
-                  className="gap-space-1 grid grid-cols-1 md:grid-cols-2"
-                >
-                  {tenant.all_capabilities.map((key) => (
-                    <CheckboxRow
-                      key={key}
-                      checked={form.admin_capabilities.includes(key)}
-                      onChange={(checked) => toggleCapability(key, checked)}
-                    >
-                      {titleCaseCapability(key)}
-                    </CheckboxRow>
-                  ))}
-                </div>
-              </Field>
-
-              <Field
-                label="Appointment types"
-                htmlFor="appointment_types"
-                hint="Which types this tenant may offer at all. Unchecking one also turns it off in the tenant's own portal immediately — the tenant can then only switch it back on if you re-allow it here first."
-              >
-                {appointmentTypeError && (
-                  <p className="mb-space-2 text-error text-[12.5px]">{appointmentTypeError}</p>
-                )}
-                <div id="appointment_types" className="gap-space-1 grid grid-cols-1 md:grid-cols-2">
-                  {tenant.appointment_types.map((at) => (
-                    <CheckboxRow
-                      key={at.id}
-                      checked={at.is_allowed}
-                      onChange={(checked) => toggleAppointmentTypeAllowed(at.id, checked)}
-                    >
-                      {at.label}
-                    </CheckboxRow>
-                  ))}
-                </div>
               </Field>
 
               <Field label="Data connection tier" htmlFor="data_tier">
@@ -237,23 +137,19 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 </select>
               </Field>
 
-              <Field
-                label="Enabled WhatsApp features"
-                htmlFor="enabled_features"
-                hint="Only set once, at onboarding -- this is the one place to change it afterward. A hospital's own /portal/settings can rename a label for an already-enabled feature, but can't turn one on or off."
-              >
-                <div id="enabled_features" className="gap-space-1 grid grid-cols-1 md:grid-cols-2">
-                  {Object.entries(tenant.feature_default_labels).map(([key, label]) => (
-                    <CheckboxRow
-                      key={key}
-                      checked={form.enabled_features.includes(key)}
-                      onChange={(checked) => toggleFeature(key, checked)}
-                    >
-                      {label}
-                    </CheckboxRow>
-                  ))}
-                </div>
-              </Field>
+              <p className="text-hint mb-space-4">
+                Staff-portal module access moved to{" "}
+                <Link href="/admin/access-control" className="text-brand-600 hover:underline">
+                  Access Control
+                </Link>
+                . WhatsApp menu features and appointment types moved to{" "}
+                <Link href="/admin/feature-toggles" className="text-brand-600 hover:underline">
+                  Feature Toggles
+                </Link>
+                . Appointment reminder offsets and template name, and the WhatsApp welcome message,
+                are managed by the hospital itself, under its own Settings → Notifications /
+                General tabs.
+              </p>
 
               {form.data_tier === "tier2" && (
                 <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">
@@ -397,6 +293,45 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               </form>
             </Card>
           )}
+
+          <Card className="p-space-5 mt-space-4">
+            <div className="mb-space-2 gap-space-3 flex flex-wrap items-start justify-between">
+              <div>
+                <p className="text-eyebrow mb-space-1">Subscription</p>
+                <h2 className="text-display text-[18px]">Plan &amp; renewal</h2>
+              </div>
+              <Link
+                href="/admin/subscriptions"
+                className="text-brand-600 text-[13px] font-semibold hover:underline"
+              >
+                Manage subscriptions →
+              </Link>
+            </div>
+            <p className="text-body mb-space-4">
+              Assigning a plan, starting a trial or cancelling billing all happen on Subscriptions —
+              this is a read-only summary for this hospital.
+            </p>
+            <DataTable
+              columns={createTenantSubscriptionColumns()}
+              data={subscriptionsForTenant}
+              getRowId={(row) => String(row.hospital_id)}
+              loading={!subscriptions}
+              emptyMessage="No subscription for this hospital yet."
+            />
+          </Card>
+
+          <Card className="p-space-5 mt-space-4">
+            <p className="text-eyebrow mb-space-1">Billing</p>
+            <h2 className="text-display mb-space-4 text-[18px]">Billing history</h2>
+            <DataTable
+              columns={createBillingColumns()}
+              data={billingForTenant}
+              getRowId={(row) => String(row.id)}
+              loading={!billingRecords}
+              emptyMessage="No billing records yet -- these appear once this hospital's real Razorpay billing starts collecting payments."
+              pageSize={10}
+            />
+          </Card>
         </>
       )}
     </div>

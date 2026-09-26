@@ -12,13 +12,14 @@ const ACTIVE_BY_SEGMENT: Record<string, string> = {
   users: "users",
   "access-control": "access-control",
   "feature-toggles": "feature-toggles",
-  "audit-log": "audit-log",
   "platform-settings": "platform-settings",
+  "support-tickets": "support-tickets",
 };
 
 /** Shared layout for the sidebar-shell pages (dashboard, tenants, users,
- * access-control, feature-toggles, audit-log, platform-settings) -- a
- * Next.js layout persists across
+ * access-control, feature-toggles, platform-settings -- audit-log folded
+ * into platform-settings' own "Audit Logs" tab, no longer a standalone
+ * route) -- a Next.js layout persists across
  * navigations within it (only the page content below swaps), unlike each
  * page mounting its own <AdminSecretGate>/<AdminShell>, which was
  * remounting BOTH on every navigation between them. AdminSecretGate starts

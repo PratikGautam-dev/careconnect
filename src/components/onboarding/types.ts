@@ -65,7 +65,6 @@ export type WizardState = {
   welcomeMessageText: string;
   reminderOffsetsHours: string;
   reminderTemplateName: string;
-  portalPassword: string;
   departments: DepartmentForm[];
   topics: TopicForm[];
   // This hospital's first staff_users admin login, used for ongoing sign-in.
@@ -126,7 +125,6 @@ export function initialWizardState(): WizardState {
     welcomeMessageText: "",
     reminderOffsetsHours: "24",
     reminderTemplateName: "",
-    portalPassword: "",
     departments: [],
     topics: [],
     adminEmail: "",
@@ -181,7 +179,6 @@ export function buildSubmissionPayload(state: WizardState) {
     welcome_message_text: state.welcomeMessageText,
     reminder_offsets_hours: state.reminderOffsetsHours,
     reminder_template_name: state.reminderTemplateName,
-    portal_password: state.portalPassword,
     admin_email: state.adminEmail,
     admin_password: state.adminPassword,
     enabled_features: state.enabledFeatures,

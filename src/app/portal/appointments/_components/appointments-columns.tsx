@@ -2,6 +2,7 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { CalendarCheck, RotateCcw, Video, type LucideIcon } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { cn } from "@/lib/cn";
@@ -28,6 +29,18 @@ export const STATUS_LABELS: Record<string, string> = {
   rescheduled: "Rescheduled",
   attended: "Attended",
   no_show: "No-show",
+};
+// Same tone vocabulary as STATUS_STYLES/Badge.tsx (no new colors
+// introduced) -- one color per appointment type so they read apart at a
+// glance in the badge below.
+export const TYPE_STYLES: Record<string, string> = {
+  new: "bg-brand-50 text-brand-700",
+  followup: "bg-black/[0.04] text-ink-600",
+  tele: "bg-success-tint text-success",
+  second_opinion: "bg-black/[0.04] text-ink-600",
+  diagnostic: "bg-clay-100 text-clay-700",
+  lab: "bg-clay-100 text-clay-700",
+  daycare: "bg-error-tint text-error",
 };
 export const SOURCE_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
@@ -194,12 +207,19 @@ export function createAppointmentColumns({
       cell: ({ row }) => {
         const a = row.original;
         const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+        const label = a.appointment_type_id
+          ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
+          : "Consultation";
         return (
-          <span className="gap-space-2 text-ink-600 inline-flex items-center">
-            <Icon size={14} strokeWidth={2} className="text-ink-400 shrink-0" />
-            {a.appointment_type_id
-              ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
-              : "Consultation"}
+          <span
+            className={cn(
+              "gap-space-1 px-space-2 inline-flex items-center rounded-full py-0.5 text-[11px] font-semibold",
+              (a.appointment_type_id && TYPE_STYLES[a.appointment_type_id]) ||
+                "text-ink-600 bg-black/4",
+            )}
+          >
+            <Icon size={12} strokeWidth={2} className="shrink-0" />
+            {label}
           </span>
         );
       },
@@ -228,14 +248,15 @@ export function createAppointmentColumns({
         // mockup's "Room / Mode" column, this never shows a room.
         if (a.appointment_type_id === "tele") {
           return a.video_link ? (
-            <a
+            <Button
               href={a.video_link}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-brand-600 text-[12.5px] font-semibold hover:underline"
+              variant="primary"
+              className="h-8 px-space-3 text-[12.5px] items-center"
             >
-              Video · Join
-            </a>
+              <Video size={13} /> Join
+            </Button>
           ) : (
             <span className="text-ink-600 text-[12.5px]">Video</span>
           );

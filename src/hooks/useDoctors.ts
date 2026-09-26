@@ -1,7 +1,8 @@
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import { unwrapPortalResult } from "@/lib/portalMutation";
+import { useCursorPage, type CursorPageResult } from "@/hooks/useCursorPage";
 
 export type Department = { id: string; name: string };
 // login_staff_id/login_email/login_active come from an outer join to
@@ -43,48 +44,80 @@ export type Doctor = {
   reports_to_name: string | null;
 };
 
-type DoctorsResponse = {
+type DoctorsResponse = CursorPageResult<Doctor> & {
   departments: Department[];
   doctors: Doctor[];
   on_leave_today_count: number;
+  total_count: number;
+  active_count: number;
 };
 
-export const DOCTORS_QUERY_KEY = ["portal-doctors"] as const;
+export const DOCTORS_QUERY_KEY = "portal-doctors";
 
-/** Read-only: the /portal/doctors list, its department picker options, and
- * today's on-leave count -- all bundled off the one GET /api/portal/doctors
- * response (db.get_all_doctors_for_hospital()). Department CREATION/editing
- * lives entirely under /portal/settings' own Departments tab (confirmed
- * with the user) -- this hook only ever READS departments, to populate the
- * doctor list's own department column and the Add/Edit Doctor form's
- * department picker. Mutations (create/update/toggle-active/single-doctor
- * fetch) live in their own hooks below -- call this hook's `load()` after
- * one succeeds to refresh the list. */
-export function useDoctors(ready: boolean) {
+export type DoctorsFilters = {
+  search: string;
+  is_active: "" | "true" | "false";
+};
+
+export const EMPTY_DOCTORS_FILTERS: DoctorsFilters = { search: "", is_active: "" };
+
+/** Keyset-paginated (before_id/next_cursor/has_more): the /portal/doctors
+ * list, its department picker options, and today's on-leave count -- all
+ * bundled off the one GET /api/portal/doctors response (db.get_doctors_
+ * page()). Department CREATION/editing lives entirely under
+ * /portal/settings' own Departments tab (confirmed with the user) -- this
+ * hook only ever READS departments, to populate the doctor list's own
+ * department column and the Add/Edit Doctor form's department picker.
+ * search/is_active are applied SERVER-SIDE now (db.get_doctors_page()) --
+ * moved off the page's old client-side filter, which silently broke once
+ * real pagination replaced the old "fetch every doctor, filter in the
+ * browser" shape. Mutations (create/update/toggle-active/single-doctor
+ * fetch) live in their own hooks below -- call `load()` after one succeeds
+ * to refresh the current page.
+ *
+ * filters/pageSize default to "no filter, one big page" for callers that
+ * just want a picker's worth of every doctor (Settings -> Departments'
+ * "Assign doctor" dropdown) rather than the /portal/doctors page's own
+ * real pagination -- 200 comfortably covers any real hospital's doctor
+ * count (MAX_DOCTORS_PAGE_SIZE on the backend), so this reads as "give me
+ * everyone" in practice without a second, parallel unpaginated endpoint. */
+export function useDoctors(
+  ready: boolean,
+  filters: DoctorsFilters = EMPTY_DOCTORS_FILTERS,
+  pageSize: number = 200,
+) {
   const router = useRouter();
 
-  const {
-    data,
-    error: queryError,
-    isFetching,
-    refetch,
-  } = useQuery({
-    queryKey: DOCTORS_QUERY_KEY,
-    enabled: ready,
-    retry: false,
-    queryFn: async () => {
-      const result = await portalFetch("/api/portal/doctors");
+  const page = useCursorPage<DoctorsFilters, DoctorsResponse>(
+    DOCTORS_QUERY_KEY,
+    async (f, beforeId, limit) => {
+      const params = new URLSearchParams();
+      if (f.search) params.set("search", f.search);
+      if (f.is_active) params.set("is_active", f.is_active);
+      if (beforeId !== null) params.set("before_id", String(beforeId));
+      params.set("limit", String(limit));
+      const result = await portalFetch(`/api/portal/doctors?${params.toString()}`);
       return unwrapPortalResult<DoctorsResponse>(router, result);
     },
-  });
+    filters,
+    pageSize,
+    ready,
+  );
 
   return {
-    departments: data?.departments ?? null,
-    doctors: data?.doctors ?? [],
-    onLeaveTodayCount: data?.on_leave_today_count ?? 0,
-    error: queryError ? "Couldn't load doctors — try again." : null,
-    isFetching,
-    load: refetch,
+    departments: page.data?.departments ?? null,
+    doctors: page.data?.doctors ?? [],
+    onLeaveTodayCount: page.data?.on_leave_today_count ?? 0,
+    totalCount: page.data?.total_count ?? 0,
+    activeCount: page.data?.active_count ?? 0,
+    error: page.error ? "Couldn't load doctors — try again." : null,
+    isFetching: page.isLoading,
+    hasNext: page.hasNext,
+    hasPrev: page.hasPrev,
+    pageNumber: page.pageNumber,
+    goNext: page.goNext,
+    goPrev: page.goPrev,
+    load: page.reload,
   };
 }
 

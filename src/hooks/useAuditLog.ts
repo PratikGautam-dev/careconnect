@@ -30,6 +30,13 @@ export function useAuditLog(
       const query = new URLSearchParams();
       if (hospitalIdParam) query.set("hospital_id", hospitalIdParam);
       if (levelFilter) query.set("actor_level", levelFilter);
+      // This hook backs "latest N" widgets (subscriptions page's own
+      // recent-activity panel), not a paginated view -- the route's default
+      // page size is 50 (tuned for the real audit-log page's own table),
+      // so ask for the wider pool this widget's own client-side slice/
+      // filter (entity_type === "hospital_subscription") needs to find
+      // enough matching rows in, same as this route's old fixed limit=200.
+      query.set("limit", "200");
       const result = await adminFetch(`/api/admin/audit-log?${query.toString()}`);
       return unwrapAdminResult<{ entries: AuditEntry[] }>(result).entries;
     },

@@ -6,6 +6,8 @@ import { formatDate, formatShortDateTime } from "@/lib/formatDate";
 import type { BillingRecord } from "@/hooks/useAdminBillingRecords";
 import type { RecentActivity } from "@/hooks/useSuperAdminDashboard";
 import type { SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
+import type { SupportTicketRow } from "@/hooks/useAdminSupportTickets";
+import { PriorityLabel, StatusBadge } from "../../support-tickets/_components/support-ticket-columns";
 
 // Same status vocabulary as subscription-columns.tsx (admin/subscriptions)
 // -- duplicated rather than imported since that file's copy is a local
@@ -165,39 +167,15 @@ export const activityColumns: ColumnDef<RecentActivity, unknown>[] = [
   },
 ];
 
-export type MockTicket = {
-  id: string;
-  hospital: string;
-  subject: string;
-  priority: "High" | "Medium" | "Low";
-  status: "Open" | "In Progress" | "Resolved";
-};
-
-const TICKET_PRIORITY_TONE: Record<MockTicket["priority"], "clay" | "neutral"> = {
-  High: "clay",
-  Medium: "clay",
-  Low: "neutral",
-};
-const TICKET_STATUS_TONE: Record<MockTicket["status"], "clay" | "brand" | "success"> = {
-  Open: "clay",
-  "In Progress": "brand",
-  Resolved: "success",
-};
-
-// Only table on this page still backed by mock data -- no support-ticket
-// model exists in this codebase yet (confirmed against the backend); every
-// other table/tile here is real.
-export const ticketColumns: ColumnDef<MockTicket, unknown>[] = [
-  {
-    id: "id",
-    header: "#",
-    cell: ({ row }) => <span className="text-ink-600">{row.original.id}</span>,
-  },
+/** "Recent Support Tickets" preview -- real, cross-tenant queue
+ * (useAdminSupportTickets / admin/support_tickets_api.py), same table the
+ * full /admin/support-tickets page uses, most recent first. */
+export const ticketColumns: ColumnDef<SupportTicketRow, unknown>[] = [
   {
     id: "hospital",
     header: "Hospital",
     cell: ({ row }) => (
-      <span className="text-ink-900 font-semibold">{row.original.hospital}</span>
+      <span className="text-ink-900 font-semibold">{row.original.hospital_name}</span>
     ),
   },
   {
@@ -208,15 +186,11 @@ export const ticketColumns: ColumnDef<MockTicket, unknown>[] = [
   {
     id: "priority",
     header: "Priority",
-    cell: ({ row }) => (
-      <Badge tone={TICKET_PRIORITY_TONE[row.original.priority]}>{row.original.priority}</Badge>
-    ),
+    cell: ({ row }) => <PriorityLabel priority={row.original.priority} />,
   },
   {
     id: "status",
     header: "Status",
-    cell: ({ row }) => (
-      <Badge tone={TICKET_STATUS_TONE[row.original.status]}>{row.original.status}</Badge>
-    ),
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
   },
 ];

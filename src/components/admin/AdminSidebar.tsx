@@ -3,8 +3,8 @@
 import {
   ChevronsLeft,
   ChevronsRight,
-  ClipboardList,
   CreditCard,
+  HeadphonesIcon,
   Lock,
   LayoutDashboard,
   LogOut,
@@ -29,6 +29,12 @@ const NAV_ITEMS = [
   { key: "subscriptions", label: "Subscriptions", icon: CreditCard, href: "/admin/subscriptions" },
   { key: "plans-billing", label: "Plans & Billing", icon: Receipt, href: "/admin/plans-billing" },
   { key: "users", label: "Users", icon: Users, href: "/admin/users" },
+  {
+    key: "support-tickets",
+    label: "Support Tickets",
+    icon: HeadphonesIcon,
+    href: "/admin/support-tickets",
+  },
   // Access Control = admin_capabilities (staff-portal management screens);
   // Feature Toggles = enabled_features (WhatsApp bot menu) -- deliberately
   // separate real per-hospital gates, portal/capabilities.py's own module
@@ -40,7 +46,6 @@ const NAV_ITEMS = [
     icon: Settings2,
     href: "/admin/feature-toggles",
   },
-  { key: "audit-log", label: "Audit Log", icon: ClipboardList, href: "/admin/audit-log" },
   {
     key: "platform-settings",
     label: "Platform Settings",

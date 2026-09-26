@@ -10,6 +10,9 @@ export type PlatformSettings = {
   feature_labels: Record<string, string>;
   feature_default_labels: Record<string, string>;
   dpdp_consent_required: boolean;
+  // How long audit_logs rows are kept before an external cron
+  // (POST /internal/purge-audit-logs) deletes them. 30-730 days.
+  audit_log_retention_days: number;
 };
 
 /** Loads + saves the /admin/platform-settings form -- global values applied
@@ -29,11 +32,13 @@ export function usePlatformSettings() {
   const [maxActiveLinks, setMaxActiveLinksRaw] = useState("");
   const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({});
   const [dpdpRequired, setDpdpRequiredRaw] = useState(false);
+  const [auditLogRetentionDays, setAuditLogRetentionDaysRaw] = useState("180");
   if (settings && !seeded) {
     setSeeded(true);
     setMaxActiveLinksRaw(String(settings.max_active_patient_links));
     setFeatureLabels(settings.feature_labels);
     setDpdpRequiredRaw(settings.dpdp_consent_required);
+    setAuditLogRetentionDaysRaw(String(settings.audit_log_retention_days));
   }
 
   const [saved, setSaved] = useState(false);
@@ -54,11 +59,17 @@ export function usePlatformSettings() {
     setSaved(false);
   }
 
+  function updateAuditLogRetentionDays(value: string) {
+    setAuditLogRetentionDaysRaw(value);
+    setSaved(false);
+  }
+
   const saveMutation = useMutation({
     mutationFn: async (payload: {
       max_active_patient_links: number;
       feature_labels: Record<string, string>;
       dpdp_consent_required: boolean;
+      audit_log_retention_days: number;
     }) => {
       const result = await adminFetch("/api/admin/platform-settings", {
         method: "POST",
@@ -78,9 +89,11 @@ export function usePlatformSettings() {
         max_active_patient_links: Number(maxActiveLinks),
         feature_labels: featureLabels,
         dpdp_consent_required: dpdpRequired,
+        audit_log_retention_days: Number(auditLogRetentionDays),
       });
       setFeatureLabels(data.feature_labels);
       setDpdpRequiredRaw(data.dpdp_consent_required);
+      setAuditLogRetentionDaysRaw(String(data.audit_log_retention_days));
       setSaved(true);
       toast.success("Platform settings saved");
     } catch (err) {
@@ -98,6 +111,8 @@ export function usePlatformSettings() {
     setFeatureLabel,
     dpdpRequired,
     setDpdpRequired: updateDpdpRequired,
+    auditLogRetentionDays,
+    setAuditLogRetentionDays: updateAuditLogRetentionDays,
     error: saveError ?? (queryError ? (queryError as Error).message : null),
     saved,
     saving: saveMutation.isPending,

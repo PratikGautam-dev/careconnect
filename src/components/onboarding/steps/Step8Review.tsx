@@ -130,10 +130,6 @@ export function Step8Review({
           <>
             <Row label="Reminder offsets (hours)" value={state.reminderOffsetsHours} />
             <Row label="Reminder template name" value={state.reminderTemplateName || "(not set)"} />
-            <Row
-              label="Bookings portal password"
-              value={state.portalPassword ? "Set" : "Not set — can add later"}
-            />
             {isClinic ? (
               <Row label="Doctor" value={state.departments[0]?.doctors[0]?.name || "(not set)"} />
             ) : (

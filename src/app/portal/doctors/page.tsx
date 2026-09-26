@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -35,7 +35,9 @@ import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDi
 import { usePermission } from "@/lib/staffAuth";
 import { isPortalMutationError } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
+import { CursorPaginationControls } from "@/components/portal/CursorPaginationControls";
 import {
+  EMPTY_DOCTORS_FILTERS,
   type Doctor,
   type DoctorPayload,
   useCreateDoctor,
@@ -49,7 +51,22 @@ import { DoctorDetailPanel } from "./_components/DoctorDetailPanel";
 
 export default function PortalDoctorsPage() {
   const { hospital, ready } = usePortalGuard();
-  const { departments, doctors, onLeaveTodayCount, error, load } = useDoctors(ready);
+  const [doctorsFilters, setDoctorsFilters] = useState(EMPTY_DOCTORS_FILTERS);
+  const [doctorsPageSize, setDoctorsPageSize] = useState(25);
+  const {
+    departments,
+    doctors,
+    onLeaveTodayCount,
+    totalCount,
+    activeCount,
+    error,
+    load,
+    hasNext,
+    hasPrev,
+    pageNumber,
+    goNext,
+    goPrev,
+  } = useDoctors(ready, doctorsFilters, doctorsPageSize);
   const { fetchDoctor } = useDoctor();
   const createDoctor = useCreateDoctor();
   const updateDoctor = useUpdateDoctor();
@@ -82,24 +99,8 @@ export default function PortalDoctorsPage() {
 
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  // Search (name/specialization) + active/inactive filter, computed
-  // client-side -- a hospital's own doctor list is small enough that a
-  // server round trip per keystroke isn't needed.
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
-
-  const filteredDoctors = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return doctors.filter((d) => {
-      if (activeFilter === "active" && !d.is_active) return false;
-      if (activeFilter === "inactive" && d.is_active) return false;
-      if (!q) return true;
-      return d.name.toLowerCase().includes(q) || (d.specialization || "").toLowerCase().includes(q);
-    });
-  }, [doctors, searchQuery, activeFilter]);
-
   const selectedDoctor: Doctor | null =
-    doctors.find((d) => d.id === selectedDoctorId) || filteredDoctors[0] || null;
+    doctors.find((d) => d.id === selectedDoctorId) || doctors[0] || null;
   const selectedIndex = selectedDoctor ? doctors.findIndex((d) => d.id === selectedDoctor.id) : 0;
 
   function selectDoctor(doc: Doctor) {
@@ -294,16 +295,16 @@ export default function PortalDoctorsPage() {
           <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Total doctors"
-              value={doctors.length}
+              value={totalCount}
               deltaPct={null}
               hint="Live count"
               icon={UserRound}
             />
             <StatTile
               label="Active doctors"
-              value={doctors.filter((d) => d.is_active).length}
+              value={activeCount}
               deltaPct={null}
-              hint={`of ${doctors.length} total`}
+              hint={`of ${totalCount} total`}
               icon={UserRoundCheck}
             />
             <StatTile
@@ -342,7 +343,7 @@ export default function PortalDoctorsPage() {
             <div className="lg:col-span-2">
               <Card className="p-space-4">
                 <h3 className="text-label mb-space-3 text-ink-900 font-bold">All doctors</h3>
-                {doctors.length > 0 && (
+                {(doctors.length > 0 || doctorsFilters.search || doctorsFilters.is_active) && (
                   <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
                     <div className="relative min-w-[200px] flex-1">
                       <Search
@@ -351,20 +352,25 @@ export default function PortalDoctorsPage() {
                       />
                       <input
                         type="text"
-                        placeholder="Search doctors by name, department or specialization…"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search doctors by name or specialization…"
+                        value={doctorsFilters.search}
+                        onChange={(e) => setDoctorsFilters((f) => ({ ...f, search: e.target.value }))}
                         className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
                       />
                     </div>
                     <select
-                      value={activeFilter}
-                      onChange={(e) => setActiveFilter(e.target.value)}
+                      value={doctorsFilters.is_active || "all"}
+                      onChange={(e) =>
+                        setDoctorsFilters((f) => ({
+                          ...f,
+                          is_active: e.target.value === "all" ? "" : (e.target.value as "true" | "false"),
+                        }))
+                      }
                       className="border-line bg-card px-space-3 text-ink-900 h-10 rounded-md border text-[13px]"
                     >
                       <option value="all">All doctors</option>
-                      <option value="active">Available only</option>
-                      <option value="inactive">Unavailable only</option>
+                      <option value="true">Available only</option>
+                      <option value="false">Unavailable only</option>
                     </select>
                     <Button type="button" variant="secondary" disabled title="Coming soon">
                       <SlidersHorizontal size={14} /> Filters
@@ -373,15 +379,25 @@ export default function PortalDoctorsPage() {
                 )}
                 <DataTable
                   columns={columns}
-                  data={filteredDoctors}
+                  data={doctors}
+                  pageSize={doctorsPageSize}
                   getRowId={(d) => d.id}
                   onRowClick={selectDoctor}
                   rowClassName={(d) => (d.id === selectedDoctor?.id ? "bg-brand-50" : "")}
                   emptyMessage={
-                    doctors.length === 0
-                      ? "No doctors yet."
-                      : "No doctors match your search/filter."
+                    doctorsFilters.search || doctorsFilters.is_active
+                      ? "No doctors match your search/filter."
+                      : "No doctors yet."
                   }
+                />
+                <CursorPaginationControls
+                  pageNumber={pageNumber}
+                  hasNext={hasNext}
+                  hasPrev={hasPrev}
+                  goNext={goNext}
+                  goPrev={goPrev}
+                  pageSize={doctorsPageSize}
+                  onPageSizeChange={setDoctorsPageSize}
                 />
               </Card>
             </div>

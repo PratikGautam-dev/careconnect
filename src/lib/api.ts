@@ -5,7 +5,6 @@ export type OnboardingSuccess = {
   hospital_name: string;
   whatsapp_phone_number_id: string;
   data_tier: string;
-  portal_password_set: boolean;
   warnings: string[];
 };
 

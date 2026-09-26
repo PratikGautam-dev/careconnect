@@ -18,12 +18,18 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
 import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
 import { StatTile } from "@/components/portal/StatTile";
+import { CursorPaginationControls } from "@/components/portal/CursorPaginationControls";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { useAttendanceOverview } from "@/hooks/useAttendanceOverview";
 import { useDepartments } from "@/hooks/useDepartments";
-import { useResetStaffPassword, useStaff, useToggleStaffActive } from "@/hooks/useStaff";
+import {
+  EMPTY_STAFF_FILTERS,
+  useResetStaffPassword,
+  useStaff,
+  useToggleStaffActive,
+} from "@/hooks/useStaff";
 import { isPortalMutationError } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { createStaffColumns, type StaffRow } from "./_components/staff-columns";
@@ -44,7 +50,21 @@ export default function StaffManagementPage() {
   const departments = useDepartments(ready && canView);
   const { records: attendanceToday } = useAttendanceOverview(ready && canViewAttendance);
 
-  const { staff, error, load } = useStaff(canView);
+  const [staffFilters, setStaffFilters] = useState(EMPTY_STAFF_FILTERS);
+  const [staffPageSize, setStaffPageSize] = useState(25);
+  const {
+    staff,
+    totalCount,
+    activeCount,
+    departmentsCoveredCount,
+    error,
+    load,
+    hasNext,
+    hasPrev,
+    pageNumber,
+    goNext,
+    goPrev,
+  } = useStaff(canView, staffFilters, staffPageSize);
   const toggleStaffActive = useToggleStaffActive();
   const resetStaffPassword = useResetStaffPassword();
 
@@ -104,9 +124,6 @@ export default function StaffManagementPage() {
   const [leaveHistoryStaffId, setLeaveHistoryStaffId] = useState<number | null>(null);
   const [manageLeaveFor, setManageLeaveFor] = useState<StaffRow | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [departmentFilter, setDepartmentFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
 
   const today = new Date();
 
@@ -116,26 +133,11 @@ export default function StaffManagementPage() {
     [departments],
   );
 
-  const filteredRows = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return rows.filter((s) => {
-      if (departmentFilter !== "all" && s.department_id !== departmentFilter) return false;
-      if (statusFilter !== "all" && (statusFilter === "active") !== s.is_active) return false;
-      if (!q) return true;
-      return (
-        s.name.toLowerCase().includes(q) ||
-        s.email.toLowerCase().includes(q) ||
-        (s.department_name || "").toLowerCase().includes(q) ||
-        (s.phone || "").includes(q)
-      );
-    });
-  }, [rows, searchQuery, departmentFilter, statusFilter]);
-
   // Auto-selects the first (visible) row when nothing's been explicitly
   // clicked yet -- same convention as the Doctors page's own detail panel --
   // so the detail panel never starts on an empty "select someone" state
   // while the directory has at least one row to show.
-  const selected = rows.find((s) => s.id === selectedId) || filteredRows[0] || null;
+  const selected = rows.find((s) => s.id === selectedId) || rows[0] || null;
   const selectedIndex = selected ? rows.findIndex((s) => s.id === selected.id) : 0;
 
   const attendanceByStaffId = useMemo(
@@ -149,11 +151,6 @@ export default function StaffManagementPage() {
   const absentTodayCount = attendanceToday
     ? attendanceToday.filter((r) => r.status === "absent").length
     : null;
-  // department_name, not department_id -- a doctor-role row's department
-  // comes via doctor_id -> doctors.department_id (department_id itself is
-  // always null there by design), so counting department_id alone would
-  // silently ignore every doctor's department.
-  const departmentsCovered = new Set(rows.map((s) => s.department_name).filter(Boolean)).size;
 
   return (
     <PortalShell hospital={hospital} active="staff">
@@ -172,16 +169,16 @@ export default function StaffManagementPage() {
           <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Total Staff"
-              value={staff ? staff.length : null}
+              value={staff ? totalCount : null}
               deltaPct={null}
               hint="Live count"
               icon={Users}
             />
             <StatTile
               label="Active Staff"
-              value={staff ? staff.filter((s) => s.is_active).length : null}
+              value={staff ? activeCount : null}
               deltaPct={null}
-              hint={staff ? `of ${staff.length} total` : ""}
+              hint={staff ? `of ${totalCount} total` : ""}
               icon={UserCheck}
             />
             <StatTile
@@ -194,7 +191,7 @@ export default function StaffManagementPage() {
             />
             <StatTile
               label="Departments"
-              value={staff ? departmentsCovered : null}
+              value={staff ? departmentsCoveredCount : null}
               deltaPct={null}
               hint="Live count"
               icon={Building2}
@@ -226,21 +223,32 @@ export default function StaffManagementPage() {
                     />
                     <input
                       type="text"
-                      placeholder="Search by name, role, department or phone…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search by name, email, department or phone…"
+                      value={staffFilters.search}
+                      onChange={(e) => setStaffFilters((f) => ({ ...f, search: e.target.value }))}
                       className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
                     />
                   </div>
                   <FilterSelect
-                    value={departmentFilter}
-                    onChange={setDepartmentFilter}
+                    value={staffFilters.department_id || "all"}
+                    onChange={(v) => setStaffFilters((f) => ({ ...f, department_id: v === "all" ? "" : v }))}
                     allLabel="All Departments"
                     options={departmentOptions}
                   />
                   <FilterSelect
-                    value={statusFilter}
-                    onChange={setStatusFilter}
+                    value={
+                      staffFilters.is_active === "true"
+                        ? "active"
+                        : staffFilters.is_active === "false"
+                          ? "inactive"
+                          : "all"
+                    }
+                    onChange={(v) =>
+                      setStaffFilters((f) => ({
+                        ...f,
+                        is_active: v === "active" ? "true" : v === "inactive" ? "false" : "",
+                      }))
+                    }
                     allLabel="All Status"
                     options={STATUS_OPTIONS}
                   />
@@ -250,18 +258,26 @@ export default function StaffManagementPage() {
                   columns={createStaffColumns({
                     onSelect: (s) => setSelectedId(s.id),
                   })}
-                  data={filteredRows}
+                  data={rows}
                   getRowId={(s) => String(s.id)}
                   onRowClick={(s) => setSelectedId(s.id)}
                   rowClassName={(s) => (s.id === selected?.id ? "bg-brand-50" : "")}
-                  pageSize={10}
-                  pageSizeOptions={[10, 25, 50]}
+                  pageSize={staffPageSize}
                   loading={!staff}
                   emptyMessage={
-                    staff && staff.length > 0
+                    staffFilters.search || staffFilters.department_id || staffFilters.is_active
                       ? "No staff match your search/filters."
                       : "No staff members yet."
                   }
+                />
+                <CursorPaginationControls
+                  pageNumber={pageNumber}
+                  hasNext={hasNext}
+                  hasPrev={hasPrev}
+                  goNext={goNext}
+                  goPrev={goPrev}
+                  pageSize={staffPageSize}
+                  onPageSizeChange={setStaffPageSize}
                 />
               </Card>
             </div>

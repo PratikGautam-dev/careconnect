@@ -4,6 +4,7 @@ import { staffFetch } from "@/lib/staffAuth";
 import { unwrapPortalResult } from "@/lib/portalMutation";
 import { setStaffPasswordSchema } from "@/lib/validation/setStaffPassword";
 import type { Role } from "@/hooks/usePortalRoles";
+import { useCursorPage, type CursorPageResult } from "@/hooks/useCursorPage";
 
 // Matches portal/routes/staff.py's _staff_row() -- department_id/
 // leave_balance_total/used are both null for an admin row, since the leave
@@ -39,39 +40,76 @@ export type StaffMember = {
   employee_id: string;
 };
 
-export const STAFF_QUERY_KEY = ["portal-staff"] as const;
+export const STAFF_QUERY_KEY = "portal-staff";
 
-/** Read-only: the /portal/settings/staff directory. Doctors are excluded
- * server-side (see GET /api/portal/staff's own docstring): they have their
- * own dedicated page + "Create login" action there, so a role="doctor"
- * staff_details row (needed purely so that login can authenticate through
- * the shared unified staff login) never shows up as a row in THIS "hospital
- * staff" list. Mutations (create/update/toggle-active/reset-password) live
- * in their own hooks below -- call this hook's `load()` after one succeeds
- * to refresh the list. */
-export function useStaff(canView: boolean) {
+export type StaffFilters = {
+  search: string;
+  department_id: string;
+  is_active: "" | "true" | "false";
+};
+
+export const EMPTY_STAFF_FILTERS: StaffFilters = { search: "", department_id: "", is_active: "" };
+
+type StaffResponse = CursorPageResult<StaffMember> & {
+  staff: StaffMember[];
+  total_count: number;
+  active_count: number;
+  departments_covered_count: number;
+};
+
+/** Keyset-paginated (before_id/next_cursor/has_more): the /portal/settings/
+ * staff directory. Doctors are excluded server-side (see GET /api/portal/
+ * staff's own docstring): they have their own dedicated page + "Create
+ * login" action there, so a role="doctor" staff_details row (needed purely
+ * so that login can authenticate through the shared unified staff login)
+ * never shows up as a row in THIS "hospital staff" list.
+ * search/department_id/is_active are applied SERVER-SIDE now
+ * (db.get_staff_users_page()) -- moved off the page's old client-side
+ * filter, which silently broke once real pagination replaced the old
+ * "fetch every staff member, filter in the browser" shape. Mutations
+ * (create/update/toggle-active/reset-password) live in their own hooks
+ * below -- call `load()` after one succeeds to refresh the current page.
+ *
+ * filters/pageSize default to "no filter, one big page" for callers that
+ * just want a full staff list rather than the Staff page's own real
+ * pagination -- same reasoning useDoctors()'s identical defaults document. */
+export function useStaff(
+  canView: boolean,
+  filters: StaffFilters = EMPTY_STAFF_FILTERS,
+  pageSize: number = 200,
+) {
   const router = useRouter();
 
-  const {
-    data,
-    error: queryError,
-    isFetching,
-    refetch,
-  } = useQuery({
-    queryKey: STAFF_QUERY_KEY,
-    enabled: canView,
-    retry: false,
-    queryFn: async () => {
-      const result = await staffFetch("/api/portal/staff");
-      return unwrapPortalResult<StaffMember[]>(router, result);
+  const page = useCursorPage<StaffFilters, StaffResponse>(
+    STAFF_QUERY_KEY,
+    async (f, beforeId, limit) => {
+      const params = new URLSearchParams();
+      if (f.search) params.set("search", f.search);
+      if (f.department_id) params.set("department_id", f.department_id);
+      if (f.is_active) params.set("is_active", f.is_active);
+      if (beforeId !== null) params.set("before_id", String(beforeId));
+      params.set("limit", String(limit));
+      const result = await staffFetch(`/api/portal/staff?${params.toString()}`);
+      return unwrapPortalResult<StaffResponse>(router, result);
     },
-  });
+    filters,
+    pageSize,
+    canView,
+  );
 
   return {
-    staff: data ?? null,
-    error: queryError ? "Couldn't load staff — try again." : null,
-    isFetching,
-    load: refetch,
+    staff: page.data?.staff ?? null,
+    totalCount: page.data?.total_count ?? 0,
+    activeCount: page.data?.active_count ?? 0,
+    departmentsCoveredCount: page.data?.departments_covered_count ?? 0,
+    error: page.error ? "Couldn't load staff — try again." : null,
+    isFetching: page.isLoading,
+    hasNext: page.hasNext,
+    hasPrev: page.hasPrev,
+    pageNumber: page.pageNumber,
+    goNext: page.goNext,
+    goPrev: page.goPrev,
+    load: page.reload,
   };
 }
 

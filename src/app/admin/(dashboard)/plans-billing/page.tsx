@@ -241,7 +241,7 @@ export default function PlansBillingPage() {
                           <span className="text-ink-700">
                             {plan.max_bookings == null
                               ? "Unlimited Bookings"
-                              : `Up to ${plan.max_bookings.toLocaleString("en-IN")} Bookings / period`}
+                              : `Up to ${plan.max_bookings.toLocaleString("en-IN")} Bookings`}
                           </span>
                         </li>
                       </ul>

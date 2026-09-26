@@ -17,7 +17,6 @@ export type TenantDetail = {
   data_tier: string;
   external_api_base_url: string;
   external_api_key: string;
-  has_portal_password: boolean;
   is_active: boolean;
   enabled_features: string[];
   feature_default_labels: Record<string, string>;
@@ -43,7 +42,6 @@ export type TenantFormState = {
   welcome_message_text: string;
   reminder_offsets_hours: string;
   reminder_template_name: string;
-  portal_password: string;
   data_tier: string;
   api_base_url: string;
   api_key: string;
@@ -61,7 +59,6 @@ function formFromTenant(t: TenantDetail): TenantFormState {
     welcome_message_text: t.welcome_message_text,
     reminder_offsets_hours: t.reminder_offsets_hours,
     reminder_template_name: t.reminder_template_name,
-    portal_password: "",
     data_tier: t.data_tier,
     api_base_url: t.external_api_base_url,
     api_key: t.external_api_key,

@@ -1,28 +1,36 @@
 "use client";
 
+import { useState } from "react";
+import { Bell, ClipboardList, ListChecks, Settings as SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { CheckboxRow } from "@/components/ui/Checkbox";
-import { Field } from "@/components/ui/Field";
-import { Input } from "@/components/ui/Input";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { AuditLogsTab } from "./_components/AuditLogsTab";
+import { GeneralTab } from "./_components/GeneralTab";
+import { MenuLabelsTab } from "./_components/MenuLabelsTab";
+import { NotificationsTab } from "./_components/NotificationsTab";
+import {
+  SettingsTabsNav,
+  type PlatformSettingsTabDef,
+  type PlatformSettingsTabKey,
+} from "./_components/SettingsTabsNav";
 
-const FEATURE_DISPLAY_NAMES: Record<string, string> = {
-  book_doctor_appointment: "Book Doctor Appointment",
-  tests_diagnostics: "Tests & Diagnostics",
-  procedure: "Daycare / Procedure",
-  reschedule: "Reschedule Appointment",
-  cancel: "Cancel Appointment",
-  view_appointments: "My Appointments",
-  reports_prescriptions: "Reports & Prescriptions",
-  manage_patients: "Manage Patients",
-  consent_privacy: "Consent & Privacy",
-  manage_language: "Manage Language",
-  hospital_info: "Hospital Information",
-  reception_handoff: "Talk to Reception",
-  faq: "FAQ / Information",
-};
+const TABS: PlatformSettingsTabDef[] = [
+  { key: "general", label: "General", icon: SettingsIcon },
+  { key: "menu_labels", label: "Menu Labels", icon: ListChecks },
+  { key: "notifications", label: "Notifications", icon: Bell },
+  { key: "audit_logs", label: "Audit Logs", icon: ClipboardList },
+];
 
+/** /admin/platform-settings -- same segmented-tab layout as /portal/settings
+ * (SettingsTabsNav), just this page's own local copy/vocabulary since the
+ * two pages' tabs are unrelated. Unlike the portal page, every tab here
+ * shares ONE form/save (usePlatformSettings' single combined payload) --
+ * tabs are purely a display filter over one draft, not independent
+ * per-tab saves, so the Save button stays visible regardless of which tab
+ * is active. Notifications is the one exception: it's a local-only design
+ * preview (see NotificationsTab's own docstring), not part of the saved
+ * payload at all. */
 function PlatformSettingsForm() {
   const {
     settings,
@@ -32,11 +40,15 @@ function PlatformSettingsForm() {
     setFeatureLabel,
     dpdpRequired,
     setDpdpRequired,
+    auditLogRetentionDays,
+    setAuditLogRetentionDays,
     error,
     saved,
     saving,
     handleSubmit,
   } = usePlatformSettings();
+
+  const [tab, setTab] = useState<PlatformSettingsTabKey>("general");
 
   return (
     <div>
@@ -53,61 +65,38 @@ function PlatformSettingsForm() {
         </Card>
       ) : (
         <form onSubmit={handleSubmit} className="gap-space-5 flex flex-col">
-          <Card className="p-space-5">
-            <Field
-              label="Max active patient links"
-              htmlFor="max_active_patient_links"
-              hint="How many patients a single WhatsApp number can stay linked to at once, across every hospital."
-              error={error || undefined}
-            >
-              <Input
-                id="max_active_patient_links"
-                type="number"
-                min={1}
-                value={maxActiveLinks}
-                invalid={!!error}
-                onChange={(e) => setMaxActiveLinks(e.target.value)}
-              />
-            </Field>
-          </Card>
+          <SettingsTabsNav tabs={TABS} active={tab} onChange={setTab} />
 
-          <Card className="p-space-5">
-            <h2 className="mb-space-1 text-ink-900 text-[15px] font-bold">Menu labels</h2>
-            <p className="mb-space-3 text-ink-400 text-[12.5px]">
-              Rename how a feature appears in every hospital&apos;s WhatsApp menu. Leave a field
-              blank to use the default. Applies platform-wide — a hospital&apos;s own Settings page
-              can no longer override this.
-            </p>
-            {Object.keys(settings.feature_default_labels).map((key) => (
-              <Field key={key} label={FEATURE_DISPLAY_NAMES[key] || key} htmlFor={`label_${key}`}>
-                <Input
-                  id={`label_${key}`}
-                  placeholder={settings.feature_default_labels[key] || ""}
-                  value={featureLabels[key] || ""}
-                  onChange={(e) => setFeatureLabel(key, e.target.value)}
-                />
-              </Field>
-            ))}
-          </Card>
+          {tab === "general" && (
+            <GeneralTab
+              maxActiveLinks={maxActiveLinks}
+              setMaxActiveLinks={setMaxActiveLinks}
+              dpdpRequired={dpdpRequired}
+              setDpdpRequired={setDpdpRequired}
+              error={error}
+            />
+          )}
+          {tab === "menu_labels" && (
+            <MenuLabelsTab
+              defaultLabels={settings.feature_default_labels}
+              featureLabels={featureLabels}
+              setFeatureLabel={setFeatureLabel}
+            />
+          )}
+          {tab === "notifications" && <NotificationsTab />}
+          {tab === "audit_logs" && (
+            <AuditLogsTab
+              auditLogRetentionDays={auditLogRetentionDays}
+              setAuditLogRetentionDays={setAuditLogRetentionDays}
+            />
+          )}
 
-          <Card className="p-space-5">
-            <h2 className="mb-space-1 text-ink-900 text-[15px] font-bold">DPDP Act consent</h2>
-            <p className="mb-space-3 text-ink-400 text-[12.5px]">
-              When enabled, a fresh conversation on ANY hospital&apos;s bot must tap &quot;I
-              Agree&quot; on a fixed Digital Personal Data Protection (DPDP) Act notice right after
-              choosing a language, before anything else — including registration or picking a
-              patient. The decision is remembered per phone number, so a patient who has already
-              agreed is never asked again.
-            </p>
-            <CheckboxRow checked={dpdpRequired} onChange={setDpdpRequired}>
-              Require DPDP consent before entering the menu, for every hospital
-            </CheckboxRow>
-          </Card>
-
-          {saved && <p className="text-success text-[13px]">Saved.</p>}
-          <Button type="submit" disabled={saving || !maxActiveLinks} className="self-start">
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          <div className="gap-space-3 border-line pt-space-4 flex items-center border-t">
+            {saved && <p className="text-success text-[13px]">Saved.</p>}
+            <Button type="submit" disabled={saving || !maxActiveLinks} className="ml-auto">
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
         </form>
       )}
     </div>

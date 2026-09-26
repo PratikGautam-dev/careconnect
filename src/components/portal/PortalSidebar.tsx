@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   FlaskConical,
+  HeadphonesIcon,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -202,6 +203,17 @@ const NAV_ITEMS = [
     icon: Plane,
     href: "/portal/holiday-application",
     pageKey: "holiday_application",
+  },
+  // Self-service support-ticket submission, open to any role -- same
+  // "view+write for every role" weight as Holiday Application above.
+  // Reviewing a submitted ticket is the platform super admin's own surface
+  // (admin/support_tickets_api.py), not a portal page at all.
+  {
+    key: "raise-ticket",
+    label: "Raise a Ticket",
+    icon: HeadphonesIcon,
+    href: "/portal/raise-ticket",
+    pageKey: "raise_ticket",
   },
 ];
 

@@ -185,7 +185,7 @@ export function PlanFormDialog({
               />
             </label>
             <label className="text-[12.5px]">
-              <span className="text-hint mb-space-1 block">Total bookings / period</span>
+              <span className="text-hint mb-space-1 block">Total bookings</span>
               <input
                 type="number"
                 min={1}

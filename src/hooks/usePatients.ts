@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
 import { unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
+import { useCursorPage, type CursorPageResult } from "@/hooks/useCursorPage";
 
 export type Patient = {
   id: number;
@@ -32,52 +33,63 @@ export type Patient = {
   duplicate_flag_reason: string | null;
 };
 
-const NEW_REGISTRATION_WINDOW_DAYS = 7;
+export type PatientsFilters = {
+  search: string;
+  department_name: string;
+  status: string;
+  gender: string;
+};
 
-/** Loads + searches the portal's patients list, and owns row selection and
- * delete (single or bulk) for the /portal/patients page. Single page,
- * single consumer -- kept as one hook (like useEditTenant) rather than
- * separated into per-mutation hooks nothing else would import. `search` is
- * debounced 300ms before it hits the query key, same as before. */
-export function usePatients(ready: boolean) {
+export const EMPTY_PATIENTS_FILTERS: PatientsFilters = {
+  search: "",
+  department_name: "",
+  status: "",
+  gender: "",
+};
+
+type PatientsResponse = CursorPageResult<Patient> & {
+  patients: Patient[];
+  total_count: number;
+  active_count: number;
+  new_registrations_count: number;
+};
+
+export const PATIENTS_QUERY_KEY = "portal-patients";
+
+/** Keyset-paginated (before_id/next_cursor/has_more): the portal's patients
+ * list, row selection, and delete (single or bulk) for the /portal/patients
+ * page. search/department_name/status/gender are all applied SERVER-SIDE
+ * now (db.get_patients_page()) -- moved off the page's old client-side
+ * filter (department/status/gender used to be applied to whatever page
+ * happened to already be loaded), which silently broke once real
+ * pagination replaced the old "fetch up to 200, filter in the browser"
+ * shape -- a matching patient sitting on page 3 would never surface from a
+ * page-1-only client filter. total/active/new-registration counts come
+ * from the same response (db.get_patient_counts(), scoped by `search` only
+ * -- see that function's own docstring for why), not len(this page). */
+export function usePatients(ready: boolean, filters: PatientsFilters, pageSize: number) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<Patient[] | null>(null);
 
-  // Client-side filters on top of the already-loaded (search-scoped) list --
-  // same "list is small, no extra round trip" reasoning as the Doctors page.
-  const [departmentFilter, setDepartmentFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [genderFilter, setGenderFilter] = useState("all");
-
-  const [debouncedSearch, setDebouncedSearch] = useState(search);
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  const {
-    data,
-    error: queryError,
-    refetch,
-  } = useQuery({
-    queryKey: ["portal-patients", debouncedSearch],
-    enabled: ready,
-    retry: false,
-    queryFn: async () => {
-      const result = await portalFetch(
-        `/api/portal/patients?search=${encodeURIComponent(debouncedSearch)}`,
-      );
-      const patients = unwrapPortalResult<{ patients: Patient[] }>(router, result).patients;
-      // Snapshotted here (inside the fetch, not Date.now() during render or
-      // an effect -- both of which the newer react-hooks lint rules
-      // disallow) -- close enough for the upcoming/past-style splits below
-      // on a page that isn't left open for hours.
-      return { patients, fetchedAt: Date.now() };
+  const page = useCursorPage<PatientsFilters, PatientsResponse>(
+    PATIENTS_QUERY_KEY,
+    async (f, beforeId, limit) => {
+      const params = new URLSearchParams();
+      if (f.search) params.set("search", f.search);
+      if (f.department_name) params.set("department_name", f.department_name);
+      if (f.status) params.set("status", f.status);
+      if (f.gender) params.set("gender", f.gender);
+      if (beforeId !== null) params.set("before_id", String(beforeId));
+      params.set("limit", String(limit));
+      const result = await portalFetch(`/api/portal/patients?${params.toString()}`);
+      return unwrapPortalResult<PatientsResponse>(router, result);
     },
-  });
-  const patients = data?.patients;
+    filters,
+    pageSize,
+    ready,
+  );
+  const patients = page.data?.patients;
 
   const deleteMutation = useMutation({
     mutationFn: async (patientIds: number[]) => {
@@ -116,7 +128,7 @@ export function usePatients(ready: boolean) {
         deletedIds.forEach((id) => next.delete(id));
         return next;
       });
-      refetch();
+      page.reload();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong.";
       toast.error("Couldn't delete patient" + (targets.length > 1 ? "s" : ""), message);
@@ -126,47 +138,15 @@ export function usePatients(ready: boolean) {
   const selectedPatients = (patients ?? []).filter((p) => selected.has(p.id));
   const allSelected = (patients?.length ?? 0) > 0 && selected.size === patients?.length;
 
-  // Department options are scoped to departments this patient list has
-  // actually had a visit in (derived from the real last-visit department on
-  // each row) -- not the hospital's full department catalog, which isn't
-  // fetched on this page.
-  const departmentOptions = useMemo(() => {
-    const names = new Set(
-      (patients ?? []).map((p) => p.department_name).filter((n): n is string => !!n),
-    );
-    return [...names].sort();
-  }, [patients]);
-
-  const filteredPatients = useMemo(() => {
-    return (patients ?? []).filter((p) => {
-      if (departmentFilter !== "all" && p.department_name !== departmentFilter) return false;
-      if (statusFilter !== "all" && p.status !== statusFilter) return false;
-      if (genderFilter !== "all" && p.gender !== genderFilter) return false;
-      return true;
-    });
-  }, [patients, departmentFilter, statusFilter, genderFilter]);
-
-  const now = data?.fetchedAt ?? null;
-
-  const stats = useMemo(() => {
-    const list = patients ?? [];
-    const cutoff = (now ?? 0) - NEW_REGISTRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    return {
-      total: list.length,
-      active: list.filter((p) => p.status === "active").length,
-      newRegistrations:
-        now === null
-          ? 0
-          : list.filter((p) => p.created_at && new Date(p.created_at).getTime() >= cutoff).length,
-    };
-  }, [patients, now]);
-
   return {
     patients: patients ?? null,
-    error: queryError ? (queryError as Error).message : null,
-    load: refetch,
-    search,
-    setSearch,
+    error: page.error,
+    load: page.reload,
+    hasNext: page.hasNext,
+    hasPrev: page.hasPrev,
+    pageNumber: page.pageNumber,
+    goNext: page.goNext,
+    goPrev: page.goPrev,
     selected,
     toggleSelected,
     toggleSelectAll,
@@ -176,14 +156,10 @@ export function usePatients(ready: boolean) {
     setPendingDelete,
     deleting: deleteMutation.isPending,
     runDelete,
-    departmentFilter,
-    setDepartmentFilter,
-    statusFilter,
-    setStatusFilter,
-    genderFilter,
-    setGenderFilter,
-    departmentOptions,
-    filteredPatients,
-    stats,
+    stats: {
+      total: page.data?.total_count ?? 0,
+      active: page.data?.active_count ?? 0,
+      newRegistrations: page.data?.new_registrations_count ?? 0,
+    },
   };
 }

@@ -11,10 +11,12 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { CursorPaginationControls } from "@/components/portal/CursorPaginationControls";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { formatHeaderDate } from "@/lib/formatDate";
-import { usePatients, type Patient } from "@/hooks/usePatients";
+import { useDepartments } from "@/hooks/useDepartments";
+import { EMPTY_PATIENTS_FILTERS, usePatients, type Patient } from "@/hooks/usePatients";
 import { GENDER_LABELS, STATUS_LABELS, createPatientColumns } from "./_components/patients-columns";
 
 const PATIENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({
@@ -25,12 +27,18 @@ const GENDER_OPTIONS = Object.entries(GENDER_LABELS).map(([value, label]) => ({ 
 
 export default function PortalPatientsPage() {
   const { hospital, ready } = usePortalGuard();
+  const departments = useDepartments(ready);
+  const [patientsFilters, setPatientsFilters] = useState(EMPTY_PATIENTS_FILTERS);
+  const [patientsPageSize, setPatientsPageSize] = useState(25);
   const {
     patients,
     error,
     load,
-    search,
-    setSearch,
+    hasNext,
+    hasPrev,
+    pageNumber,
+    goNext,
+    goPrev,
     selected,
     toggleSelected,
     toggleSelectAll,
@@ -40,22 +48,14 @@ export default function PortalPatientsPage() {
     setPendingDelete,
     deleting,
     runDelete,
-    departmentFilter,
-    setDepartmentFilter,
-    statusFilter,
-    setStatusFilter,
-    genderFilter,
-    setGenderFilter,
-    departmentOptions,
-    filteredPatients,
     stats,
-  } = usePatients(ready);
+  } = usePatients(ready, patientsFilters, patientsPageSize);
 
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
   const [bookingOpen, setBookingOpen] = useState(false);
 
   const selectedPatient: Patient | null =
-    (patients ?? []).find((p) => p.id === selectedPatientId) || filteredPatients[0] || null;
+    (patients ?? []).find((p) => p.id === selectedPatientId) || (patients ?? [])[0] || null;
   // const selectedIndex = selectedPatient
   //   ? (patients ?? []).findIndex((p) => p.id === selectedPatient.id)
   //   : 0;
@@ -148,26 +148,28 @@ export default function PortalPatientsPage() {
             <input
               type="text"
               placeholder="Search by name, patient ID, phone or email…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={patientsFilters.search}
+              onChange={(e) => setPatientsFilters((f) => ({ ...f, search: e.target.value }))}
               className="border-line bg-card pr-space-2 pl-space-7 text-ink-900 focus:border-brand-400 h-9 w-full rounded-md border text-[12.5px] outline-none"
             />
           </div>
           <FilterSelect
-            value={departmentFilter}
-            onChange={setDepartmentFilter}
+            value={patientsFilters.department_name || "all"}
+            onChange={(v) =>
+              setPatientsFilters((f) => ({ ...f, department_name: v === "all" ? "" : v }))
+            }
             allLabel="All Departments"
-            options={departmentOptions.map((d) => ({ value: d, label: d }))}
+            options={(departments ?? []).map((d) => ({ value: d.name, label: d.name }))}
           />
           <FilterSelect
-            value={statusFilter}
-            onChange={setStatusFilter}
+            value={patientsFilters.status || "all"}
+            onChange={(v) => setPatientsFilters((f) => ({ ...f, status: v === "all" ? "" : v }))}
             allLabel="All Status"
             options={PATIENT_STATUS_OPTIONS}
           />
           <FilterSelect
-            value={genderFilter}
-            onChange={setGenderFilter}
+            value={patientsFilters.gender || "all"}
+            onChange={(v) => setPatientsFilters((f) => ({ ...f, gender: v === "all" ? "" : v }))}
             allLabel="All Genders"
             options={GENDER_OPTIONS}
           />
@@ -177,14 +179,13 @@ export default function PortalPatientsPage() {
           <div className="xl:col-span-2">
             <DataTable
               columns={columns}
-              data={filteredPatients}
+              data={patients ?? []}
               getRowId={(p) => String(p.id)}
               onRowClick={selectPatient}
               // rowClassName={(p) => (p.id === selectedPatient?.id ? "bg-brand-50" : "")}
               enableColumnVisibility
               tableId="patients"
-              pageSize={10}
-              pageSizeOptions={[10, 25, 50, 100]}
+              pageSize={patientsPageSize}
               loading={!patients}
               emptyMessage={
                 patients && patients.length > 0 ? (
@@ -193,13 +194,22 @@ export default function PortalPatientsPage() {
                   <div className="py-space-2 text-center">
                     <UserRound size={28} className="mb-space-2 text-ink-300 mx-auto" />
                     <p className="text-ink-400 text-[13px]">
-                      {search
+                      {patientsFilters.search
                         ? "No patients match that search."
                         : "No patients yet — they appear here after a first booking."}
                     </p>
                   </div>
                 )
               }
+            />
+            <CursorPaginationControls
+              pageNumber={pageNumber}
+              hasNext={hasNext}
+              hasPrev={hasPrev}
+              goNext={goNext}
+              goPrev={goPrev}
+              pageSize={patientsPageSize}
+              onPageSizeChange={setPatientsPageSize}
             />
           </div>
           {/* <div>

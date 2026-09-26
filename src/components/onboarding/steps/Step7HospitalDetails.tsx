@@ -150,23 +150,6 @@ export function Step7HospitalDetails({ state, dispatch, error }: Props) {
             </Field>
           </div>
 
-          <Field
-            label="Bookings portal password"
-            htmlFor="portal_password"
-            required
-            hint="Your staff will use this to log into the bookings dashboard and see every appointment booked through WhatsApp. You can change it anytime after onboarding too."
-          >
-            <Input
-              id="portal_password"
-              type="password"
-              required
-              value={state.portalPassword}
-              onChange={(e) =>
-                dispatch({ type: "set", field: "portalPassword", value: e.target.value })
-              }
-            />
-          </Field>
-
           {isClinic ? (
             <>
               <p className="text-label mb-space-2 mt-space-5">Doctor details</p>
@@ -238,7 +221,6 @@ export function validateStep7(state: WizardState): string | null {
         ? "Booking is enabled, so your doctor's details are required."
         : "Booking is enabled, so at least one department with at least one doctor is required.";
     }
-    if (!state.portalPassword.trim()) return "A bookings portal password is required.";
     // Same client-side check Settings -> Notifications' own reminder-
     // offsets field uses (src/lib/validation/reminderOffsets.ts) -- the
     // backend's own parser silently drops anything it can't read rather

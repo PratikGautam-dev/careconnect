@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import {
-  Activity,
   Building2,
   Calendar,
   ChevronRight,
@@ -33,58 +32,12 @@ import { StatTile } from "@/components/portal/StatTile";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { useAdminSubscriptions, type SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
+import { useAdminSupportTickets } from "@/hooks/useAdminSupportTickets";
 import { useSuperAdminDashboard } from "@/hooks/useSuperAdminDashboard";
-import {
-  activityColumns,
-  billingRecordColumns,
-  renewalColumns,
-  ticketColumns,
-  type MockTicket,
-} from "./_components/dashboard-columns";
+import { activityColumns, billingRecordColumns, renewalColumns, ticketColumns } from "./_components/dashboard-columns";
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
 const PLAN_COLORS = ["#2a78d6", "#7c5cf5", "#1baf7a", "#eda100", "#c3c2b7"];
-
-// Only table/tile left backed by mock data -- there's no support-ticket
-// model in this codebase yet. Everything else on this page (stats, both
-// donuts, both tables, the growth chart, activity log) reads real data.
-const MOCK_SUPPORT_TICKETS: MockTicket[] = [
-  {
-    id: "#4582",
-    hospital: "City Care Medical",
-    subject: "Unable to export reports",
-    priority: "High",
-    status: "Open",
-  },
-  {
-    id: "#4581",
-    hospital: "Sunrise General",
-    subject: "Login issues for staff",
-    priority: "Medium",
-    status: "Open",
-  },
-  {
-    id: "#4578",
-    hospital: "Lifeline Specialty",
-    subject: "Feature request – Lab Integration",
-    priority: "Low",
-    status: "In Progress",
-  },
-  {
-    id: "#4575",
-    hospital: "Metro Health",
-    subject: "Billing module not syncing",
-    priority: "High",
-    status: "Open",
-  },
-  {
-    id: "#4573",
-    hospital: "Riverside Community",
-    subject: "Need user access for new staff",
-    priority: "Low",
-    status: "Resolved",
-  },
-];
 
 function PanelHeader({
   title,
@@ -125,6 +78,7 @@ function DashboardContent() {
   const { dashboard, error } = useSuperAdminDashboard();
   const { subscriptions, error: subscriptionsError } = useAdminSubscriptions();
   const { records: billingRecords, error: billingError } = useAdminBillingRecords();
+  const { tickets, summary: ticketSummary, error: ticketsError } = useAdminSupportTickets();
   const hospitals = dashboard?.hospitals ?? null;
 
   const growthTrend = (hospitals?.growth_trend ?? []).map((p) => ({
@@ -198,7 +152,7 @@ function DashboardContent() {
   const planEntries = subscriptionStats ? [...subscriptionStats.planCounts.entries()] : [];
   const planTotal = planEntries.reduce((sum, [, count]) => sum + count, 0);
 
-  const combinedError = error || subscriptionsError || billingError;
+  const combinedError = error || subscriptionsError || billingError || ticketsError;
 
   // Same shared QuickActionButton/QuickActions the portal dashboard uses
   // (src/components/portal/QuickActions.tsx) -- no separate admin-only
@@ -210,7 +164,7 @@ function DashboardContent() {
     { label: "Manage Subscriptions", icon: FileText, href: "/admin/subscriptions" },
     { label: "Manage Plans", icon: Receipt, href: "/admin/plans-billing" },
     { label: "Send Reminder", icon: Megaphone, disabled: true, title: "Coming soon" },
-    { label: "View Tickets", icon: HeadphonesIcon, disabled: true, title: "Coming soon" },
+    { label: "View Tickets", icon: HeadphonesIcon, href: "/admin/support-tickets" },
   ];
 
   return (
@@ -224,8 +178,7 @@ function DashboardContent() {
 
       {combinedError && <p className="mb-space-4 text-error text-[13px]">{combinedError}</p>}
 
-      {/* Top stat row -- real everywhere except Support Tickets Open, which
-      has no backend model to read from yet. */}
+      {/* Top stat row -- every tile now reads real data. */}
       <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile
           label="Total Hospitals"
@@ -271,13 +224,13 @@ function DashboardContent() {
         />
         <StatTile
           label="Support Tickets Open"
-          value={12}
+          value={ticketSummary ? ticketSummary.open : null}
           deltaPct={null}
-          hint="from last week"
+          hint={ticketSummary ? `${ticketSummary.total} total` : "Loading…"}
           icon={HeadphonesIcon}
           tint="clay"
           upIsGood={false}
-          mock
+          href="/admin/support-tickets"
         />
       </div>
 
@@ -382,11 +335,13 @@ function DashboardContent() {
         </Card>
 
         <Card className="p-space-4">
-          <PanelHeader title="Recent Support Tickets" mock />
+          <PanelHeader title="Recent Support Tickets" subtitle="Across all hospitals" />
           <DataTable
             columns={ticketColumns}
-            data={MOCK_SUPPORT_TICKETS}
-            getRowId={(row) => row.id}
+            data={tickets?.slice(0, 5) ?? []}
+            getRowId={(row) => String(row.id)}
+            loading={!tickets}
+            emptyMessage="No support tickets yet."
             pageSize={5}
           />
         </Card>
@@ -483,13 +438,6 @@ function DashboardContent() {
         </Card>
       </div>
 
-      <div className="mt-space-3 gap-space-1 text-ink-400 flex items-center text-[11.5px]">
-        <Activity size={12} />
-        <span>
-          Only the &quot;Support Tickets&quot; card is mock data -- there&apos;s no support-ticket
-          model in this codebase yet. Everything else on this page is real.
-        </span>
-      </div>
     </div>
   );
 }

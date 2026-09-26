@@ -1,60 +1,30 @@
 "use client";
 
-import type { ColumnDef } from "@tanstack/react-table";
+import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
-import { usePortalAuditLog, type AuditEntry } from "@/hooks/usePortalAuditLog";
+import { AuditLogTable } from "@/components/audit/AuditLogTable";
+import { EMPTY_AUDIT_LOG_FILTERS, useAuditLogPage, type AuditLogPageResponse } from "@/hooks/useAuditLogPage";
+import { portalFetch } from "@/lib/portalAuth";
 
-function formatAuditChanges(entry: AuditEntry): string {
-  const keys = new Set([
-    ...Object.keys(entry.before_value || {}),
-    ...Object.keys(entry.after_value || {}),
-  ]);
-  if (keys.size === 0) return "";
-  return Array.from(keys)
-    .map((key) => {
-      const before = entry.before_value?.[key];
-      const after = entry.after_value?.[key];
-      if (before !== undefined && after !== undefined)
-        return `${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
-      if (after !== undefined) return `${key}: ${JSON.stringify(after)}`;
-      return `${key}: ${JSON.stringify(before)}`;
-    })
-    .join(", ");
+const DEFAULT_PAGE_SIZE = 25;
+
+async function fetchPortalAuditPage(params: URLSearchParams): Promise<AuditLogPageResponse> {
+  const result = await portalFetch(`/api/portal/audit-log?${params.toString()}`);
+  if (!result.ok) throw new Error(result.unauthorized ? "Not authenticated." : result.error);
+  return result.data as AuditLogPageResponse;
 }
-
-const columns: ColumnDef<AuditEntry>[] = [
-  {
-    id: "created_at",
-    header: "Date",
-    cell: ({ row }) => (
-      <span className="text-ink-400 whitespace-nowrap tabular-nums">{row.original.created_at}</span>
-    ),
-  },
-  {
-    id: "action",
-    header: "Action",
-    cell: ({ row }) => <span className="text-ink-900 font-medium">{row.original.action}</span>,
-  },
-  {
-    id: "changes",
-    header: "Details",
-    cell: ({ row }) => (
-      <span className="text-ink-600 whitespace-normal">
-        {formatAuditChanges(row.original) || "—"}
-      </span>
-    ),
-  },
-];
 
 export default function PortalActivityLogPage() {
   const { hospital, ready } = usePortalGuard();
-  const { entries } = usePortalAuditLog(ready);
+  const [filters, setFilters] = useState(EMPTY_AUDIT_LOG_FILTERS);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
+  const auditPage = useAuditLogPage(fetchPortalAuditPage, filters, pageSize, ready);
 
   return (
     <PortalShell hospital={hospital} active="settings">
@@ -69,18 +39,16 @@ export default function PortalActivityLogPage() {
         }
       />
 
-      {entries === null ? (
-        <p className="text-ink-400 text-[13px]">
-          Activity log isn&apos;t available for your account type.
-        </p>
+      {!ready ? null : auditPage.error ? (
+        <p className="text-ink-400 text-[13px]">{auditPage.error}</p>
       ) : (
         <Card className="p-space-4">
-          <DataTable
-            columns={columns}
-            data={entries ?? []}
-            getRowId={(e) => String(e.id)}
-            loading={entries === undefined}
-            emptyMessage="No activity recorded yet."
+          <AuditLogTable
+            page={auditPage}
+            filters={filters}
+            onFiltersChange={setFilters}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
           />
         </Card>
       )}

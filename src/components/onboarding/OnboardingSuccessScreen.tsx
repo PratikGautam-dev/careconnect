@@ -27,16 +27,9 @@ export function OnboardingSuccessScreen({ result }: { result: OnboardingSuccess 
 
         <p className="mb-space-5 text-ink-600 text-[13.5px]">{TIER_NOTES[result.data_tier]}</p>
 
-        {result.portal_password_set ? (
-          <Button href="/portal/login" size="lg" className="mb-space-3">
-            Log into bookings dashboard
-          </Button>
-        ) : (
-          <div className="mb-space-5 border-clay-300 bg-clay-100/40 p-space-4 text-ink-600 rounded-lg border text-left text-[13.5px]">
-            No bookings portal password was set, so there&apos;s no way to log in yet — edit this
-            tenant later to add one.
-          </div>
-        )}
+        <Button href="/portal/login" size="lg" className="mb-space-3">
+          Log into bookings dashboard
+        </Button>
 
         <p className="text-hint mb-space-5">
           Reminder: this only recorded the credentials you entered — the hospital&apos;s own Meta
