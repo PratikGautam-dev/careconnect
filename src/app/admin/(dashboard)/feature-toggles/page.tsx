@@ -13,6 +13,7 @@ import {
   Headphones,
   HelpCircle,
   History,
+  LayoutGrid,
   ListChecks,
   Power,
   PowerOff,
@@ -31,6 +32,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
 import { useEditTenant } from "@/hooks/useEditTenant";
@@ -39,15 +41,23 @@ import {
   createFeatureTogglesColumns,
   type FeatureRow,
 } from "./_components/feature-toggles-columns";
+import { createAppointmentTypeColumns } from "./_components/appointment-type-columns";
 
-// Module/Feature rows = the real per-hospital hospitals.enabled_features set
-// (flows/patient_identity/menu.py's REAL_FEATURES) -- the WhatsApp bot's
-// main-menu rows shown to a PATIENT, a deliberately separate concept from
-// admin_capabilities (staff-portal screens, managed on the Access Control
-// page instead). Unlike admin_capabilities, there's no tenant_type default
-// for these -- they're only ever set explicitly, once at onboarding, and
-// changed here after -- so "Included in Plan"/"Custom Override" genuinely
-// don't apply and are shown as "—" rather than fabricated.
+// Module/Feature rows (the "Menu & Modules" tab) = the real per-hospital
+// hospitals.enabled_features set (flows/patient_identity/menu.py's
+// REAL_FEATURES) -- the WhatsApp bot's main-menu rows shown to a PATIENT, a
+// deliberately separate concept from admin_capabilities (staff-portal
+// screens, managed on the Access Control page instead). Unlike
+// admin_capabilities, there's no tenant_type default for these -- they're
+// only ever set explicitly, once at onboarding, and changed here after --
+// so "Included in Plan"/"Custom Override" genuinely don't apply and are
+// shown as "—" rather than fabricated.
+//
+// The "Appointment Types" tab is a separate real per-hospital allow-list
+// (db/repositories/appointment_types.py's `appointment_types` table, not
+// enabled_features) -- moved here from Access Control, which only ever
+// managed admin_capabilities, a different concept from either tab on this
+// page.
 const FEATURE_ICONS: Record<string, LucideIcon> = {
   book_doctor_appointment: CalendarCheck,
   tests_diagnostics: FlaskConical,
@@ -96,10 +106,22 @@ function FeatureTogglesContent({
   selectedId: number;
   onSelect: (id: number) => void;
 }) {
-  const { tenant, form, setForm, toggleFeature, handleSubmit, saving, saved, errors } =
-    useEditTenant(selectedId);
+  const {
+    tenant,
+    form,
+    setForm,
+    toggleFeature,
+    toggleAppointmentTypeAllowed,
+    appointmentTypeError,
+    handleSubmit,
+    saving,
+    saved,
+    errors,
+  } = useEditTenant(selectedId);
 
   const { entries: auditEntries } = useTenantAuditLog(selectedId);
+
+  const [tab, setTab] = useState<"menu" | "appointment_types">("menu");
 
   if (!tenant || !form) {
     return <p className="text-ink-400 text-[13px]">Loading…</p>;
@@ -203,41 +225,89 @@ function FeatureTogglesContent({
         {errors.length > 0 && <p className="text-error mt-space-2 text-[12.5px]">{errors[0]}</p>}
       </Card>
 
+      <div className="mb-space-4 gap-space-1 border-line bg-card inline-flex rounded-md border p-1">
+        <button
+          type="button"
+          onClick={() => setTab("menu")}
+          className={cn(
+            "px-space-3 gap-space-2 flex items-center rounded-sm py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
+            tab === "menu" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-paper",
+          )}
+        >
+          <LayoutGrid size={14} /> WhatsApp Features
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("appointment_types")}
+          className={cn(
+            "px-space-3 gap-space-2 flex items-center rounded-sm py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
+            tab === "appointment_types" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-paper",
+          )}
+        >
+          <ListChecks size={14} /> Appointment Types
+        </button>
+      </div>
+
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="p-space-4">
-            <div className="mb-space-1 gap-space-3 flex flex-wrap items-start justify-between">
-              <div>
-                <h3 className="text-label text-ink-900 font-bold">Hospital Feature Toggles</h3>
-                <p className="text-hint mt-space-1">
-                  Enable or disable WhatsApp menu features for the selected hospital.
+            {tab === "menu" ? (
+              <>
+                <div className="mb-space-1 gap-space-3 flex flex-wrap items-start justify-between">
+                  <div>
+                    <h3 className="text-label text-ink-900 font-bold">WhatsApp Menu Features</h3>
+                    <p className="text-hint mt-space-1">
+                      Enable or disable WhatsApp menu features for the selected hospital.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, enabled_features: tenant.enabled_features })}
+                    className="text-brand-600 gap-space-1 flex items-center text-[12.5px] font-semibold hover:underline"
+                  >
+                    <RotateCcw size={13} /> Discard Unsaved Changes
+                  </button>
+                </div>
+                <p className="text-hint mb-space-3">
+                  &quot;Included in Plan&quot; / &quot;Custom Override&quot; don&apos;t apply to
+                  WhatsApp features (no plan-based defaults exist for these) — shown as &quot;—&quot;
+                  for layout parity.
                 </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, enabled_features: tenant.enabled_features })}
-                className="text-brand-600 gap-space-1 flex items-center text-[12.5px] font-semibold hover:underline"
-              >
-                <RotateCcw size={13} /> Discard Unsaved Changes
-              </button>
-            </div>
-            <p className="text-hint mb-space-3">
-              &quot;Included in Plan&quot; / &quot;Custom Override&quot; don&apos;t apply to
-              WhatsApp features (no plan-based defaults exist for these) — shown as &quot;—&quot;
-              for layout parity.
-            </p>
 
-            <DataTable<FeatureRow>
-              columns={createFeatureTogglesColumns({ onToggle: toggleFeature })}
-              data={allFeatureKeys.map((key) => ({
-                key,
-                label: tenant.feature_default_labels[key] || key,
-                icon: FEATURE_ICONS[key] || Settings2,
-                enabled: form.enabled_features.includes(key),
-              }))}
-              getRowId={(row) => row.key}
-              pageSize={25}
-            />
+                <DataTable<FeatureRow>
+                  columns={createFeatureTogglesColumns({ onToggle: toggleFeature })}
+                  data={allFeatureKeys.map((key) => ({
+                    key,
+                    label: tenant.feature_default_labels[key] || key,
+                    icon: FEATURE_ICONS[key] || Settings2,
+                    enabled: form.enabled_features.includes(key),
+                  }))}
+                  getRowId={(row) => row.key}
+                  pageSize={25}
+                />
+              </>
+            ) : (
+              <>
+                <div className="mb-space-3">
+                  <h3 className="text-label text-ink-900 font-bold">Appointment Types</h3>
+                  <p className="text-hint mt-space-1">
+                    Which types this hospital may offer at all. Unchecking one also turns it off in
+                    the hospital&apos;s own portal immediately — the hospital can then only switch
+                    it back on if you re-allow it here first.
+                  </p>
+                </div>
+                {appointmentTypeError && (
+                  <p className="mb-space-2 text-error text-[12.5px]">{appointmentTypeError}</p>
+                )}
+
+                <DataTable
+                  columns={createAppointmentTypeColumns({ onToggle: toggleAppointmentTypeAllowed })}
+                  data={tenant.appointment_types}
+                  getRowId={(row) => row.id}
+                  pageSize={25}
+                />
+              </>
+            )}
           </Card>
         </div>
 

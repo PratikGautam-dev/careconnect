@@ -3,12 +3,11 @@
 import { useState } from "react";
 import {
   Building2,
+  ClipboardCheck,
   Clock,
   Copy,
   FileText,
   History,
-  LayoutGrid,
-  ListChecks,
   Power,
   RotateCcw,
   Save,
@@ -24,16 +23,17 @@ import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { cn } from "@/lib/cn";
-import { formatShortDateTime } from "@/lib/formatDate";
+import { formatDate, formatShortDateTime } from "@/lib/formatDate";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
 import { useEditTenant } from "@/hooks/useEditTenant";
 import { useTenantAuditLog } from "@/hooks/useTenantAuditLog";
+import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
+import { useAdminPlans } from "@/hooks/useAdminPlans";
 import {
   createAccessControlColumns,
   type CapabilityRow,
 } from "./_components/access-control-columns";
-import { createAppointmentTypeColumns } from "./_components/appointment-type-columns";
 
 // Module/Feature rows = the real per-hospital admin_capabilities set
 // (portal/capabilities.py, ALL_CAPABILITIES) -- "which staff-portal
@@ -89,8 +89,6 @@ function AccessControlContent({
     setForm,
     toggleCapability,
     resetCapabilitiesToDefaults,
-    toggleAppointmentTypeAllowed,
-    appointmentTypeError,
     handleSubmit,
     saving,
     saved,
@@ -98,8 +96,8 @@ function AccessControlContent({
   } = useEditTenant(selectedId);
 
   const { entries: auditEntries } = useTenantAuditLog(selectedId);
-
-  const [tab, setTab] = useState<"menu" | "appointment_types">("menu");
+  const { subscriptions } = useAdminSubscriptions();
+  const { plans } = useAdminPlans();
 
   const customCount = tenants.filter((t) => t.has_custom_capabilities).length;
 
@@ -109,6 +107,28 @@ function AccessControlContent({
 
   const includedInPlan = tenant.default_capabilities_by_type[form.tenant_type] ?? [];
   const isCustom = !capabilitiesMatch(form.admin_capabilities, includedInPlan);
+
+  // Real subscription stats (useAdminSubscriptions / db.list_subscriptions())
+  // -- same source the Super Admin Dashboard and /admin/subscriptions use.
+  const now = new Date();
+  const activeSubscriptionsCount = subscriptions?.filter((s) => s.status === "active").length ?? null;
+  const expiringThisMonthCount =
+    subscriptions?.filter((s) => {
+      if (!s.renewal_date) return false;
+      const d = new Date(`${s.renewal_date}T00:00:00`);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }).length ?? null;
+  const subscription = subscriptions?.find((s) => s.hospital_id === tenant.id) ?? null;
+
+  // Real Plan.capabilities preview (admin/plans_api.py / useAdminPlans) --
+  // distinct from `includedInPlan` above, which is the hardcoded hospital/
+  // clinic tenant_type default "Reset to Plan Defaults" still uses. Plans
+  // are meant to drive admin_capabilities (see Plan's own docstring in
+  // orm_models.py) but nothing wires that up yet -- this preview + apply
+  // control is that wiring. Always the hospital's OWN assigned plan
+  // (subscription.plan_id) -- no manual plan picker, so there's nothing to
+  // get out of sync with what /admin/subscriptions actually has assigned.
+  const assignedPlan = plans?.find((p) => p.id === subscription?.plan_id) ?? null;
 
   function submit() {
     handleSubmit({ preventDefault() {} } as React.FormEvent);
@@ -126,11 +146,14 @@ function AccessControlContent({
         />
         <StatTile
           label="Active Subscriptions"
-          value={36}
+          value={activeSubscriptionsCount}
           deltaPct={null}
-          hint="86% of total hospitals"
+          hint={
+            activeSubscriptionsCount !== null
+              ? `${Math.round((activeSubscriptionsCount / Math.max(tenants.length, 1)) * 100)}% of total hospitals`
+              : "Loading…"
+          }
           icon={FileText}
-          mock
         />
         <StatTile
           label="Custom Access Profiles"
@@ -142,12 +165,11 @@ function AccessControlContent({
         />
         <StatTile
           label="Expiring This Month"
-          value={5}
+          value={expiringThisMonthCount}
           deltaPct={null}
           hint="Require renewal action"
           icon={Clock}
           tint="clay"
-          mock
         />
       </div>
 
@@ -200,94 +222,112 @@ function AccessControlContent({
         {errors.length > 0 && <p className="text-error mt-space-2 text-[12.5px]">{errors[0]}</p>}
       </Card>
 
-      <div className="mb-space-4 gap-space-1 border-line bg-card inline-flex rounded-md border p-1">
-        <button
-          type="button"
-          onClick={() => setTab("menu")}
-          className={cn(
-            "px-space-3 gap-space-2 flex items-center rounded-sm py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
-            tab === "menu" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-paper",
-          )}
-        >
-          <LayoutGrid size={14} /> Menu &amp; Modules
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("appointment_types")}
-          className={cn(
-            "px-space-3 gap-space-2 flex items-center rounded-sm py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
-            tab === "appointment_types" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-paper",
-          )}
-        >
-          <ListChecks size={14} /> Appointment Types
-        </button>
-      </div>
-
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="p-space-4">
-            {tab === "menu" ? (
-              <>
-                <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
-                  <div>
-                    <h3 className="text-label text-ink-900 font-bold">
-                      Hospital Feature &amp; Menu Access
-                    </h3>
-                    <p className="text-hint mt-space-1">
-                      Configure which staff-portal management screens are enabled for this hospital.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={resetCapabilitiesToDefaults}
-                    className="text-brand-600 gap-space-1 flex items-center text-[12.5px] font-semibold hover:underline"
-                  >
-                    <RotateCcw size={13} /> Reset to Plan Defaults
-                  </button>
-                </div>
+            <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
+              <div>
+                <h3 className="text-label text-ink-900 font-bold">Portal Management Access</h3>
+                <p className="text-hint mt-space-1">
+                  Configure which staff-portal management screens are enabled for this hospital.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={resetCapabilitiesToDefaults}
+                className="text-brand-600 gap-space-1 flex items-center text-[12.5px] font-semibold hover:underline"
+              >
+                <RotateCcw size={13} /> Reset to Plan Defaults
+              </button>
+            </div>
 
-                <DataTable<CapabilityRow>
-                  columns={createAccessControlColumns({ onToggle: toggleCapability })}
-                  data={tenant.all_capabilities.map((key) => {
-                    const meta = CAPABILITY_META[key] || { label: key, icon: Settings };
-                    return {
-                      key,
-                      label: meta.label,
-                      icon: meta.icon,
-                      enabled: form.admin_capabilities.includes(key),
-                      inPlan: includedInPlan.includes(key),
-                    };
-                  })}
-                  getRowId={(row) => row.key}
-                  pageSize={25}
-                />
-              </>
-            ) : (
-              <>
-                <div className="mb-space-3">
-                  <h3 className="text-label text-ink-900 font-bold">Appointment Types</h3>
-                  <p className="text-hint mt-space-1">
-                    Which types this hospital may offer at all. Unchecking one also turns it off in
-                    the hospital&apos;s own portal immediately — the hospital can then only switch
-                    it back on if you re-allow it here first.
-                  </p>
-                </div>
-                {appointmentTypeError && (
-                  <p className="mb-space-2 text-error text-[12.5px]">{appointmentTypeError}</p>
-                )}
-
-                <DataTable
-                  columns={createAppointmentTypeColumns({ onToggle: toggleAppointmentTypeAllowed })}
-                  data={tenant.appointment_types}
-                  getRowId={(row) => row.id}
-                  pageSize={25}
-                />
-              </>
-            )}
+            <DataTable<CapabilityRow>
+              columns={createAccessControlColumns({ onToggle: toggleCapability })}
+              data={tenant.all_capabilities.map((key) => {
+                const meta = CAPABILITY_META[key] || { label: key, icon: Settings };
+                return {
+                  key,
+                  label: meta.label,
+                  icon: meta.icon,
+                  enabled: form.admin_capabilities.includes(key),
+                  inPlan: includedInPlan.includes(key),
+                };
+              })}
+              getRowId={(row) => row.key}
+              pageSize={25}
+            />
           </Card>
         </div>
 
         <div className="space-y-space-4">
+          <Card className="p-space-4">
+            <PanelHeader
+              title="Plan Capabilities"
+              subtitle="This hospital's assigned plan and the capabilities it includes."
+            />
+            {!plans || !subscriptions ? (
+              <p className="text-ink-400 text-[12.5px]">Loading…</p>
+            ) : !subscription?.plan_id ? (
+              <p className="text-ink-400 text-[12.5px]">
+                No plan assigned yet —{" "}
+                <a href="/admin/subscriptions" className="text-brand-600 hover:underline">
+                  assign one
+                </a>
+                .
+              </p>
+            ) : assignedPlan ? (
+              <div>
+                <p className="text-hint mb-space-2">
+                  <span className="text-ink-900 font-semibold">{assignedPlan.name}</span> allows{" "}
+                  {assignedPlan.capabilities.length} of {tenant.all_capabilities.length} capabilities —{" "}
+                  {form.admin_capabilities.length} currently active
+                </p>
+                <div className="gap-space-1 mb-space-3 flex flex-wrap">
+                  {tenant.all_capabilities.map((key) => {
+                    // Greyed whenever this hospital doesn't currently have it
+                    // switched on (form.admin_capabilities) -- NOT just
+                    // whether the plan allows it, so this can't show "16 of
+                    // 16" all green while the table right next to it shows 2
+                    // of those same capabilities toggled off (a custom
+                    // override). Plan membership is what "Apply to This
+                    // Hospital" below would turn on, not what's on now.
+                    const active = form.admin_capabilities.includes(key);
+                    const inPlanAtAll = assignedPlan.capabilities.includes(key);
+                    const meta = CAPABILITY_META[key] || { label: key, icon: Settings };
+                    return (
+                      <span
+                        key={key}
+                        className={cn(
+                          "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                          active
+                            ? "bg-success-tint text-success"
+                            : inPlanAtAll
+                              ? "bg-clay-100 text-clay-700"
+                              : "bg-black/4 text-ink-300 line-through",
+                        )}
+                      >
+                        {meta.label}
+                      </span>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm({ ...form, admin_capabilities: assignedPlan.capabilities })
+                  }
+                  className="text-brand-600 gap-space-1 flex items-center text-[12.5px] font-semibold hover:underline"
+                >
+                  <ClipboardCheck size={13} /> Apply to This Hospital
+                </button>
+              </div>
+            ) : (
+              <p className="text-ink-400 text-[12.5px]">
+                Assigned plan no longer exists.
+              </p>
+            )}
+          </Card>
+
           <Card className="p-space-4">
             <PanelHeader title="Subscription Summary" />
             <div className="space-y-space-2 text-[12.5px]">
@@ -297,22 +337,20 @@ function AccessControlContent({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Plan</span>
-                <span className="text-ink-900 font-semibold">
-                  {TENANT_TYPE_LABELS[form.tenant_type] || form.tenant_type}
-                </span>
+                <span className="text-ink-900 font-semibold">{subscription?.plan_name ?? "—"}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Renewal Date</span>
-                <span className="gap-space-1 flex items-center">
-                  <span className="text-ink-900 font-semibold">30 Sep 2026</span>
-                  <Badge tone="clay">Mock</Badge>
+                <span className="text-ink-900 font-semibold">
+                  {subscription?.renewal_date ? formatDate(subscription.renewal_date) : "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Users Allowed</span>
-                <span className="gap-space-1 flex items-center">
-                  <span className="text-ink-900 font-semibold">120</span>
-                  <Badge tone="clay">Mock</Badge>
+                <span className="text-ink-900 font-semibold">
+                  {!subscription?.plan_id
+                    ? "—"
+                    : (subscription.max_users ?? "Unlimited")}
                 </span>
               </div>
               <div className="flex items-center justify-between">

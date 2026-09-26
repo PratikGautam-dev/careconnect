@@ -1,9 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Activity,
   Building2,
-  CheckCircle2,
+  Calendar,
   ChevronRight,
   Clock,
   CreditCard,
@@ -11,15 +12,13 @@ import {
   HeadphonesIcon,
   Megaphone,
   Plus,
-  Zap,
+  Receipt,
 } from "lucide-react";
 import {
   Area,
   CartesianGrid,
   Cell,
   ComposedChart,
-  Legend,
-  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -28,60 +27,28 @@ import {
   YAxis,
 } from "recharts";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { cn } from "@/lib/cn";
+import { DataTable } from "@/components/ui/DataTable";
 import { StatTile } from "@/components/portal/StatTile";
-import { formatShortDateTime } from "@/lib/formatDate";
+import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
+import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
+import { useAdminSubscriptions, type SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
 import { useSuperAdminDashboard } from "@/hooks/useSuperAdminDashboard";
+import {
+  activityColumns,
+  billingRecordColumns,
+  renewalColumns,
+  ticketColumns,
+  type MockTicket,
+} from "./_components/dashboard-columns";
 
 const TIER_LABELS: Record<string, string> = { tier1: "Tier 1", tier2: "Tier 2", tier3: "Tier 3" };
-const TIER_COLORS = ["#2a78d6", "#7c5cf5", "#1baf7a", "#eda100"];
+const PLAN_COLORS = ["#2a78d6", "#7c5cf5", "#1baf7a", "#eda100", "#c3c2b7"];
 
-// Everything below has no real backend source yet (no subscription/plan/
-// billing/support-ticket/monitoring model in this codebase) -- hardcoded so
-// the layout/data-shape matches the target design, wire each one up to a
-// real table as soon as it exists. Rendered full-color (not greyed out, per
-// explicit feedback) with a small "Mock" badge as the only signal.
-const MOCK_RECENT_RENEWALS = [
-  {
-    hospital: "Sunrise General Hospital",
-    plan: "Professional",
-    renewalDate: "30 Sep 2025",
-    daysLeft: 7,
-    status: "Expiring Soon",
-  },
-  {
-    hospital: "City Care Medical Center",
-    plan: "Enterprise",
-    renewalDate: "12 Oct 2025",
-    daysLeft: 19,
-    status: "Upcoming",
-  },
-  {
-    hospital: "Lifeline Specialty Hospital",
-    plan: "Professional",
-    renewalDate: "25 Oct 2025",
-    daysLeft: 32,
-    status: "Upcoming",
-  },
-  {
-    hospital: "Metro Health Network",
-    plan: "Enterprise",
-    renewalDate: "02 Nov 2025",
-    daysLeft: 40,
-    status: "Upcoming",
-  },
-  {
-    hospital: "Riverside Community Hospital",
-    plan: "Basic",
-    renewalDate: "10 Nov 2025",
-    daysLeft: 48,
-    status: "Upcoming",
-  },
-];
-
-const MOCK_SUPPORT_TICKETS = [
+// Only table/tile left backed by mock data -- there's no support-ticket
+// model in this codebase yet. Everything else on this page (stats, both
+// donuts, both tables, the growth chart, activity log) reads real data.
+const MOCK_SUPPORT_TICKETS: MockTicket[] = [
   {
     id: "#4582",
     hospital: "City Care Medical",
@@ -119,43 +86,6 @@ const MOCK_SUPPORT_TICKETS = [
   },
 ];
 
-const MOCK_PLATFORM_SERVICES = [
-  { name: "Application Services", status: "Operational" },
-  { name: "Database", status: "Operational" },
-  { name: "Integrations", status: "Operational" },
-  { name: "File Storage", status: "Operational" },
-];
-
-const RENEWAL_STATUS_CLASSES: Record<string, string> = {
-  "Expiring Soon": "bg-amber-100 text-amber-700",
-  Upcoming: "bg-blue-100 text-blue-700",
-};
-
-const TICKET_PRIORITY_CLASSES: Record<string, string> = {
-  High: "bg-red-100 text-red-700",
-  Medium: "bg-amber-100 text-amber-700",
-  Low: "bg-ink-100 text-ink-600",
-};
-
-const TICKET_STATUS_CLASSES: Record<string, string> = {
-  Open: "bg-red-100 text-red-700",
-  "In Progress": "bg-blue-100 text-blue-700",
-  Resolved: "bg-green-100 text-green-700",
-};
-
-function Pill({ label, className }: { label: string; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "px-space-2 inline-block rounded-full py-0.5 text-[11px] font-semibold",
-        className,
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
 function PanelHeader({
   title,
   subtitle,
@@ -176,49 +106,25 @@ function PanelHeader({
   );
 }
 
-function QuickActionButton({
-  label,
-  icon: Icon,
-  href,
-  mock,
-}: {
-  label: string;
-  icon: React.ElementType;
-  href?: string;
-  mock?: boolean;
-}) {
-  const content = (
-    <div
-      className={cn(
-        "gap-space-3 px-space-3 py-space-3 mb-space-2 flex w-full items-center rounded-md text-left text-[13px] font-semibold transition-colors duration-150",
-        href
-          ? "bg-brand-600 hover:bg-brand-700 text-white"
-          : "border-line bg-card text-ink-900 hover:bg-paper border",
-      )}
-    >
-      <Icon size={16} strokeWidth={2} className="shrink-0" />
-      <span className="flex-1">{label}</span>
-      {mock && <Badge tone="clay">Mock</Badge>}
-      <ChevronRight size={16} className="shrink-0 opacity-70" />
-    </div>
-  );
+// Renewal_date within this many days counts as "expiring soon" -- same
+// window the Recent Renewals table's own "days left" highlighting and the
+// stat tile share, so the number in the tile always matches what the badge
+// styling implies.
+const EXPIRING_WINDOW_DAYS = 30;
+// Statuses that represent a currently-billed hospital (mirrors
+// subscription-columns.tsx's LIVE_BILLING_STATUSES plus "active"/"trial",
+// i.e. anything that isn't unassigned/expired/cancelled).
+const LIVE_STATUSES = new Set(["trial", "authorization_pending", "active", "renewal_due"]);
 
-  if (href) {
-    return (
-      <a href={href} className="block">
-        {content}
-      </a>
-    );
-  }
-  return (
-    <button type="button" className="block w-full">
-      {content}
-    </button>
-  );
+function daysUntil(iso: string): number {
+  const ms = new Date(`${iso}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime();
+  return Math.round(ms / 86_400_000);
 }
 
 function DashboardContent() {
   const { dashboard, error } = useSuperAdminDashboard();
+  const { subscriptions, error: subscriptionsError } = useAdminSubscriptions();
+  const { records: billingRecords, error: billingError } = useAdminBillingRecords();
   const hospitals = dashboard?.hospitals ?? null;
 
   const growthTrend = (hospitals?.growth_trend ?? []).map((p) => ({
@@ -227,22 +133,85 @@ function DashboardContent() {
       month: "short",
       year: "2-digit",
     }),
-    // Mock second series -- no subscriptions table exists yet, this is a
-    // rough proportion of the real hospital count just to shape the chart
-    // like the target design's two-line trend.
-    mock_active_subscriptions: Math.round(p.total_hospitals * 0.86),
   }));
-
-  const statusData = hospitals
-    ? [
-        { name: "Active", value: hospitals.active, color: "#1baf7a" },
-        { name: "Inactive", value: hospitals.inactive, color: "#c3c2b7" },
-      ]
-    : [];
-  const statusTotal = hospitals ? hospitals.total : 0;
 
   const tierEntries = Object.entries(hospitals?.by_tier ?? {});
   const tierTotal = tierEntries.reduce((sum, [, count]) => sum + count, 0);
+
+  const subscriptionStats = useMemo(() => {
+    if (!subscriptions) return null;
+    const activeCount = subscriptions.filter((s) => s.status === "active").length;
+    const mrr = subscriptions
+      .filter((s) => s.status === "active" && s.monthly_value != null)
+      .reduce((sum, s) => sum + (s.monthly_value ?? 0), 0);
+    const expiring = subscriptions.filter(
+      (s) =>
+        LIVE_STATUSES.has(s.status) &&
+        s.renewal_date &&
+        daysUntil(s.renewal_date) >= 0 &&
+        daysUntil(s.renewal_date) <= EXPIRING_WINDOW_DAYS,
+    );
+    const upcomingRenewals = subscriptions
+      .filter((s): s is SubscriptionRecord & { renewal_date: string } => Boolean(s.renewal_date))
+      .sort((a, b) => a.renewal_date.localeCompare(b.renewal_date))
+      .slice(0, 8);
+
+    const byStatus: Record<string, number> = {};
+    for (const s of subscriptions) byStatus[s.status] = (byStatus[s.status] ?? 0) + 1;
+
+    const planCounts = new Map<string, number>();
+    for (const s of subscriptions) {
+      const key = s.plan_name ?? "Unassigned";
+      planCounts.set(key, (planCounts.get(key) ?? 0) + 1);
+    }
+
+    return { activeCount, mrr, expiringCount: expiring.length, upcomingRenewals, byStatus, planCounts };
+  }, [subscriptions]);
+
+  const statusData = subscriptionStats
+    ? Object.entries(subscriptionStats.byStatus)
+        .filter(([, count]) => count > 0)
+        .map(([status, count]) => ({
+          name:
+            status === "unassigned"
+              ? "Unassigned"
+              : status === "authorization_pending"
+                ? "Awaiting Payment"
+                : status.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+          value: count,
+          color:
+            status === "active"
+              ? "#1baf7a"
+              : status === "trial"
+                ? "#00949E"
+                : status === "renewal_due"
+                  ? "#eda100"
+                  : status === "authorization_pending"
+                    ? "#7c5cf5"
+                    : status === "expired" || status === "cancelled"
+                      ? "#d8735f"
+                      : "#c3c2b7",
+        }))
+    : [];
+  const statusTotal = statusData.reduce((sum, s) => sum + s.value, 0);
+
+  const planEntries = subscriptionStats ? [...subscriptionStats.planCounts.entries()] : [];
+  const planTotal = planEntries.reduce((sum, [, count]) => sum + count, 0);
+
+  const combinedError = error || subscriptionsError || billingError;
+
+  // Same shared QuickActionButton/QuickActions the portal dashboard uses
+  // (src/components/portal/QuickActions.tsx) -- no separate admin-only
+  // button component. "disabled" + a title stands in for the old "mock"
+  // badge for the two actions with no real destination yet, matching
+  // DashboardQuickActions' own "Export report" pattern.
+  const quickActions: QuickAction[] = [
+    { label: "Add Hospital", icon: Plus, href: "/admin/onboard-hospital" },
+    { label: "Manage Subscriptions", icon: FileText, href: "/admin/subscriptions" },
+    { label: "Manage Plans", icon: Receipt, href: "/admin/plans-billing" },
+    { label: "Send Reminder", icon: Megaphone, disabled: true, title: "Coming soon" },
+    { label: "View Tickets", icon: HeadphonesIcon, disabled: true, title: "Coming soon" },
+  ];
 
   return (
     <div>
@@ -253,10 +222,10 @@ function DashboardContent() {
         </p>
       </div>
 
-      {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
+      {combinedError && <p className="mb-space-4 text-error text-[13px]">{combinedError}</p>}
 
-      {/* Top stat row -- same 6 cards as the target design, same order. Only
-      Total Hospitals has a real backing table today; the rest carry a Mock badge. */}
+      {/* Top stat row -- real everywhere except Support Tickets Open, which
+      has no backend model to read from yet. */}
       <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile
           label="Total Hospitals"
@@ -267,59 +236,55 @@ function DashboardContent() {
         />
         <StatTile
           label="Active Subscriptions"
-          value={36}
+          value={subscriptionStats ? subscriptionStats.activeCount : null}
           deltaPct={null}
-          hint="86% of total hospitals"
+          hint={
+            hospitals && subscriptionStats
+              ? `${Math.round((subscriptionStats.activeCount / Math.max(hospitals.total, 1)) * 100)}% of total hospitals`
+              : "Loading…"
+          }
           icon={FileText}
-          mock
         />
         <StatTile
           label="Monthly Recurring Revenue"
-          value={36950}
-          deltaPct={12}
-          hint="from last month"
+          value={subscriptionStats ? Math.round(subscriptionStats.mrr) : null}
+          deltaPct={null}
+          hint="from active subscriptions"
           icon={CreditCard}
-          prefix="$"
+          prefix="₹"
           tint="success"
-          mock
         />
         <StatTile
           label="Expiring Renewals"
-          value={5}
+          value={subscriptionStats ? subscriptionStats.expiringCount : null}
           deltaPct={null}
-          hint="in next 30 days"
+          hint={`in next ${EXPIRING_WINDOW_DAYS} days`}
           icon={Clock}
           tint="clay"
-          mock
+        />
+        <StatTile
+          label="Total Bookings"
+          value={dashboard ? dashboard.total_bookings : null}
+          deltaPct={null}
+          hint="all-time, across hospitals"
+          icon={Calendar}
         />
         <StatTile
           label="Support Tickets Open"
           value={12}
-          deltaPct={-25}
+          deltaPct={null}
           hint="from last week"
           icon={HeadphonesIcon}
           tint="clay"
           upIsGood={false}
           mock
         />
-        <StatTile
-          label="Feature Activations"
-          value={148}
-          deltaPct={18}
-          hint="from last month"
-          icon={Zap}
-          tint="success"
-          mock
-        />
       </div>
 
-      {/* Row 2: growth trend chart (wide) + hospital status donut + quick actions */}
+      {/* Row 2: growth trend chart (wide) + subscription status donut + quick actions */}
       <div className="gap-space-4 mb-space-4 grid grid-cols-1 lg:grid-cols-4">
         <Card className="p-space-4 lg:col-span-2">
-          <PanelHeader
-            title="Subscription Growth Trend"
-            subtitle="Total Hospitals is real · Active Subscriptions is mock"
-          />
+          <PanelHeader title="Hospital Growth Trend" subtitle="Total hospitals over time" />
           <ResponsiveContainer width="100%" height={240}>
             <ComposedChart data={growthTrend} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
               <CartesianGrid stroke="#e1e0d9" vertical={false} />
@@ -336,12 +301,6 @@ function DashboardContent() {
                 allowDecimals={false}
               />
               <Tooltip contentStyle={{ fontSize: 12.5, borderRadius: 8, borderColor: "#e1e0d9" }} />
-              <Legend
-                verticalAlign="top"
-                align="right"
-                height={28}
-                formatter={(value) => <span className="text-ink-600 text-[12px]">{value}</span>}
-              />
               <Area
                 type="monotone"
                 dataKey="total_hospitals"
@@ -351,22 +310,13 @@ function DashboardContent() {
                 fillOpacity={0.15}
                 strokeWidth={2}
               />
-              <Line
-                type="monotone"
-                dataKey="mock_active_subscriptions"
-                name="Active Subscriptions (mock)"
-                stroke="#7c5cf5"
-                strokeDasharray="4 3"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
             </ComposedChart>
           </ResponsiveContainer>
         </Card>
 
         <Card className="p-space-4">
-          <PanelHeader title="Hospital Status Overview" />
-          {!hospitals ? (
+          <PanelHeader title="Subscription Status" subtitle="Across all hospitals" />
+          {!subscriptionStats ? (
             <p className="text-ink-400 py-space-4 text-center text-[13px]">Loading…</p>
           ) : (
             <div>
@@ -409,102 +359,46 @@ function DashboardContent() {
                     </span>
                   </li>
                 ))}
-                <li className="gap-space-2 flex items-center text-[12.5px]">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400" />
-                  <span className="text-ink-900 flex-1">Trial</span>
-                  <Badge tone="clay">Mock</Badge>
-                </li>
-                <li className="gap-space-2 flex items-center text-[12.5px]">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-400" />
-                  <span className="text-ink-900 flex-1">Suspended</span>
-                  <Badge tone="clay">Mock</Badge>
-                </li>
               </ul>
             </div>
           )}
         </Card>
 
-        <Card className="p-space-4">
-          <PanelHeader title="Quick Actions" subtitle="Common tasks for hospital management" />
-          <QuickActionButton label="Add Hospital" icon={Plus} href="/admin/onboard-hospital" />
-          <QuickActionButton label="Create Plan" icon={FileText} mock />
-          <QuickActionButton label="Send Reminder" icon={Megaphone} mock />
-          <QuickActionButton label="View Tickets" icon={HeadphonesIcon} mock />
-        </Card>
+        <QuickActions title="Quick Actions" actions={quickActions} />
       </div>
 
-      {/* Row 3: recent renewals + recent support tickets (both mock) */}
+      {/* Row 3: recent renewals (real) + recent support tickets (mock) */}
       <div className="gap-space-4 mb-space-4 grid grid-cols-1 lg:grid-cols-2">
         <Card className="p-space-4">
-          <PanelHeader title="Recent Renewals" mock />
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[12.5px]">
-              <thead>
-                <tr className="text-ink-400 border-line border-b text-[11px] tracking-wide uppercase">
-                  <th className="py-space-2 font-semibold">Hospital</th>
-                  <th className="py-space-2 font-semibold">Plan</th>
-                  <th className="py-space-2 font-semibold">Renewal Date</th>
-                  <th className="py-space-2 font-semibold">Days Left</th>
-                  <th className="py-space-2 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-line divide-y">
-                {MOCK_RECENT_RENEWALS.map((r) => (
-                  <tr key={r.hospital}>
-                    <td className="py-space-2.5 text-ink-900 font-semibold">{r.hospital}</td>
-                    <td className="py-space-2.5 text-ink-600">{r.plan}</td>
-                    <td className="py-space-2.5 text-ink-600">{r.renewalDate}</td>
-                    <td className="py-space-2.5 text-ink-600">{r.daysLeft}</td>
-                    <td className="py-space-2.5">
-                      <Pill label={r.status} className={RENEWAL_STATUS_CLASSES[r.status]} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PanelHeader title="Recent Renewals" subtitle="Soonest upcoming, real subscriptions" />
+          <DataTable
+            columns={renewalColumns}
+            data={subscriptionStats?.upcomingRenewals ?? []}
+            getRowId={(row) => String(row.hospital_id)}
+            loading={!subscriptionStats}
+            emptyMessage="No upcoming renewals."
+            pageSize={5}
+          />
         </Card>
 
         <Card className="p-space-4">
           <PanelHeader title="Recent Support Tickets" mock />
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[12.5px]">
-              <thead>
-                <tr className="text-ink-400 border-line border-b text-[11px] tracking-wide uppercase">
-                  <th className="py-space-2 font-semibold">#</th>
-                  <th className="py-space-2 font-semibold">Hospital</th>
-                  <th className="py-space-2 font-semibold">Subject</th>
-                  <th className="py-space-2 font-semibold">Priority</th>
-                  <th className="py-space-2 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-line divide-y">
-                {MOCK_SUPPORT_TICKETS.map((t) => (
-                  <tr key={t.id}>
-                    <td className="py-space-2.5 text-ink-600">{t.id}</td>
-                    <td className="py-space-2.5 text-ink-900 font-semibold">{t.hospital}</td>
-                    <td className="py-space-2.5 text-ink-600">{t.subject}</td>
-                    <td className="py-space-2.5">
-                      <Pill label={t.priority} className={TICKET_PRIORITY_CLASSES[t.priority]} />
-                    </td>
-                    <td className="py-space-2.5">
-                      <Pill label={t.status} className={TICKET_STATUS_CLASSES[t.status]} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={ticketColumns}
+            data={MOCK_SUPPORT_TICKETS}
+            getRowId={(row) => row.id}
+            pageSize={5}
+          />
         </Card>
       </div>
 
-      {/* Row 4: plan distribution (real, by data_tier) + activity log (real) + platform health (mock) */}
+      {/* Row 4: plan distribution (real) + activity log (real) + recent billing records (real) */}
       <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-4">
         <Card className="p-space-4">
-          <PanelHeader title="Plan Distribution" subtitle="By data connection tier" />
-          {tierEntries.length === 0 ? (
+          <PanelHeader title="Plan Distribution" subtitle="Hospitals per plan" />
+          {planEntries.length === 0 ? (
             <p className="text-ink-400 py-space-4 text-center text-[13px]">
-              {hospitals ? "No hospitals yet." : "Loading…"}
+              {subscriptionStats ? "No hospitals yet." : "Loading…"}
             </p>
           ) : (
             <div>
@@ -512,10 +406,7 @@ function DashboardContent() {
                 <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
-                      data={tierEntries.map(([tier, count]) => ({
-                        name: TIER_LABELS[tier] || tier,
-                        value: count,
-                      }))}
+                      data={planEntries.map(([name, count]) => ({ name, value: count }))}
                       dataKey="value"
                       nameKey="name"
                       innerRadius={44}
@@ -523,8 +414,8 @@ function DashboardContent() {
                       paddingAngle={2}
                       strokeWidth={0}
                     >
-                      {tierEntries.map(([tier], i) => (
-                        <Cell key={tier} fill={TIER_COLORS[i % TIER_COLORS.length]} />
+                      {planEntries.map(([name], i) => (
+                        <Cell key={name} fill={PLAN_COLORS[i % PLAN_COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip />
@@ -532,98 +423,71 @@ function DashboardContent() {
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                   <span className="text-ink-900 text-[18px] leading-none font-bold">
-                    {tierTotal}
+                    {planTotal}
                   </span>
                   <span className="text-ink-400 text-[11px]">Hospitals</span>
                 </div>
               </div>
               <ul className="space-y-space-2 mt-space-3">
-                {tierEntries.map(([tier, count], i) => (
-                  <li key={tier} className="gap-space-2 flex items-center text-[12.5px]">
+                {planEntries.map(([name, count], i) => (
+                  <li key={name} className="gap-space-2 flex items-center text-[12.5px]">
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: TIER_COLORS[i % TIER_COLORS.length] }}
+                      style={{ backgroundColor: PLAN_COLORS[i % PLAN_COLORS.length] }}
                     />
-                    <span className="text-ink-900 flex-1">{TIER_LABELS[tier] || tier}</span>
+                    <span className="text-ink-900 flex-1">{name}</span>
                     <span className="text-ink-600 font-semibold">
-                      {count} · {Math.round((count / tierTotal) * 100)}%
+                      {count} · {planTotal ? Math.round((count / planTotal) * 100) : 0}%
                     </span>
                   </li>
                 ))}
               </ul>
+              {tierEntries.length > 0 && (
+                <p className="text-ink-400 mt-space-3 border-line pt-space-2 border-t text-[11px]">
+                  By data tier: {tierEntries.map(([t, c]) => `${TIER_LABELS[t] || t} ${c}`).join(" · ")}
+                  {` (${tierTotal} total)`}
+                </p>
+              )}
             </div>
           )}
         </Card>
 
         <Card className="p-space-4 lg:col-span-2">
           <PanelHeader title="Latest Activity Log" subtitle="Real, cross-tenant audit log" />
-          {!dashboard ? (
-            <p className="text-ink-400 py-space-4 text-center text-[13px]">Loading…</p>
-          ) : dashboard.recent_activity.length === 0 ? (
-            <p className="text-ink-400 py-space-4 text-center text-[13px]">No activity yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[12.5px]">
-                <thead>
-                  <tr className="text-ink-400 border-line border-b text-[11px] tracking-wide uppercase">
-                    <th className="py-space-2 font-semibold">Time</th>
-                    <th className="py-space-2 font-semibold">Action</th>
-                    <th className="py-space-2 font-semibold">Details</th>
-                    <th className="py-space-2 font-semibold">By</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-line divide-y">
-                  {dashboard.recent_activity.map((entry) => (
-                    <tr key={entry.id}>
-                      <td className="py-space-2.5 text-ink-600 whitespace-nowrap">
-                        {formatShortDateTime(entry.created_at)}
-                      </td>
-                      <td className="py-space-2.5">
-                        <Pill label={entry.action} className="bg-brand-50 text-brand-700" />
-                      </td>
-                      <td className="py-space-2.5 text-ink-600">{entry.hospital_name || "—"}</td>
-                      <td className="py-space-2.5 text-ink-600">{entry.actor_label}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={activityColumns}
+            data={dashboard?.recent_activity ?? []}
+            getRowId={(row) => String(row.id)}
+            loading={!dashboard}
+            emptyMessage="No activity yet."
+            pageSize={8}
+          />
         </Card>
 
         <Card className="p-space-4">
-          <PanelHeader title="Platform Health" mock />
-          <div className="mb-space-3 gap-space-2 flex items-center">
-            <CheckCircle2 size={18} className="text-success shrink-0" />
-            <div className="min-w-0 flex-1">
-              <p className="text-ink-900 text-[13px] font-bold">All Systems Operational</p>
-            </div>
-            <span className="text-ink-600 text-[12px] font-semibold">99.9% uptime</span>
-          </div>
-          <ul className="space-y-space-2 border-line pt-space-2 border-t">
-            {MOCK_PLATFORM_SERVICES.map((s) => (
-              <li key={s.name} className="flex items-center justify-between text-[12.5px]">
-                <span className="gap-space-2 text-ink-600 flex items-center">
-                  <CheckCircle2 size={13} className="text-success shrink-0" /> {s.name}
-                </span>
-                <span className="text-success font-semibold">{s.status}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="border-line mt-space-3 pt-space-2 gap-space-2 flex items-center justify-between border-t">
-            <span className="text-ink-400 text-[11px]">Last checked just now</span>
-            <Button variant="ghost" className="h-auto! p-0! text-[11.5px]">
-              View Status
-            </Button>
-          </div>
+          <PanelHeader title="Recent Billing Records" subtitle="Real payments ledger" />
+          <DataTable
+            columns={billingRecordColumns}
+            data={billingRecords?.slice(0, 5) ?? []}
+            getRowId={(row) => String(row.id)}
+            loading={!billingRecords}
+            emptyMessage="No billing records yet."
+            pageSize={5}
+          />
+          <a
+            href="/admin/plans-billing"
+            className="text-brand-600 mt-space-3 gap-space-1 flex items-center text-[12px] font-semibold"
+          >
+            View all billing records <ChevronRight size={13} />
+          </a>
         </Card>
       </div>
 
       <div className="mt-space-3 gap-space-1 text-ink-400 flex items-center text-[11.5px]">
         <Activity size={12} />
         <span>
-          Cards tagged &quot;Mock&quot; have no real data source yet — they&apos;ll be wired up as
-          soon as subscriptions/billing/support-tickets/monitoring exist as real tables.
+          Only the &quot;Support Tickets&quot; card is mock data -- there&apos;s no support-ticket
+          model in this codebase yet. Everything else on this page is real.
         </span>
       </div>
     </div>

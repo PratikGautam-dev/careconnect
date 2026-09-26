@@ -9,12 +9,13 @@ type CreateAppointmentTypeColumnsOptions = {
   onToggle: (appointmentTypeId: string, isAllowed: boolean) => void;
 };
 
-/** Column defs for Access Control's "Appointment Types" tab -- the same
+/** Column defs for Feature Toggles' "Appointment Types" tab -- the same
  * real per-hospital allow-list toggler that already lives on
  * /admin/tenants/[id] (POST /api/admin/tenants/{id}/appointment-types/{id}/allowed,
- * useEditTenant.ts's toggleAppointmentTypeAllowed), surfaced here too so an
- * operator doesn't have to leave Access Control to reach it. Same DataTable
- * component every list page uses, not a hand-rolled <table>. */
+ * useEditTenant.ts's toggleAppointmentTypeAllowed). Moved here from Access
+ * Control (which only ever managed admin_capabilities, a different concept)
+ * so it lives alongside the other hospital-facing feature/menu controls.
+ * Same DataTable component every list page uses, not a hand-rolled <table>. */
 export function createAppointmentTypeColumns({
   onToggle,
 }: CreateAppointmentTypeColumnsOptions): ColumnDef<AppointmentTypeRow>[] {
