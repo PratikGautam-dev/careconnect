@@ -10,6 +10,7 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 const FEATURE_DISPLAY_NAMES: Record<string, string> = {
   book_doctor_appointment: "Book Doctor Appointment",
   tests_diagnostics: "Tests & Diagnostics",
+  procedure: "Daycare / Procedure",
   reschedule: "Reschedule Appointment",
   cancel: "Cancel Appointment",
   view_appointments: "My Appointments",

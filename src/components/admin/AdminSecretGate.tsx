@@ -70,7 +70,7 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
               alt="DAAP CareConnect"
               width={1448}
               height={410}
-              className="h-10 w-auto"
+              className=" w-auto"
               priority
             />
           </div>

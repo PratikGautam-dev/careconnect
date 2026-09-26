@@ -7,6 +7,7 @@ import {
   Info,
   Languages,
   ListChecks,
+  Stethoscope,
   UserRound,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -14,6 +15,7 @@ import { Card } from "@/components/ui/Card";
 const FEATURE_META: Record<string, { label: string; Icon: typeof Calendar }> = {
   book_doctor_appointment: { label: "Book Doctor Appointment", Icon: Calendar },
   tests_diagnostics: { label: "Tests & Diagnostics", Icon: FlaskConical },
+  procedure: { label: "Daycare / Procedure", Icon: Stethoscope },
   reschedule: { label: "Reschedule Appointment", Icon: CalendarClock },
   cancel: { label: "Cancel Appointment", Icon: CalendarX },
   view_appointments: { label: "View Appointments", Icon: ListChecks },

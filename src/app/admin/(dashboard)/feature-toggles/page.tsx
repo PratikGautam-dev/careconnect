@@ -20,6 +20,7 @@ import {
   Save,
   Settings2,
   ShieldCheck,
+  Stethoscope,
   Users,
   XCircle,
   type LucideIcon,
@@ -50,6 +51,7 @@ import {
 const FEATURE_ICONS: Record<string, LucideIcon> = {
   book_doctor_appointment: CalendarCheck,
   tests_diagnostics: FlaskConical,
+  procedure: Stethoscope,
   reschedule: CalendarClock,
   cancel: XCircle,
   view_appointments: ListChecks,

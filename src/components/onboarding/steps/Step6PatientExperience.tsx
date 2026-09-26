@@ -9,6 +9,7 @@ import {
   Languages,
   ListChecks,
   ShieldCheck,
+  Stethoscope,
   UserRound,
   Users,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import type { WizardDispatch } from "../useWizardState";
 const FEATURE_ICONS: Record<FeatureKey, typeof Calendar> = {
   book_doctor_appointment: Calendar,
   tests_diagnostics: FlaskConical,
+  procedure: Stethoscope,
   reschedule: CalendarClock,
   cancel: CalendarX,
   view_appointments: ListChecks,
@@ -35,7 +37,8 @@ const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
   book_doctor_appointment:
     "Patients pick a department, doctor, and time slot for a doctor consultation.",
   tests_diagnostics:
-    "Patients book a diagnostic test, lab test, or daycare/procedure -- instantly or by request, depending on how you configure it.",
+    "Patients book a diagnostic test or lab test -- instantly or by request, depending on how you configure it.",
+  procedure: "Patients book a daycare visit or procedure.",
   reschedule: "Move an existing booking to a new time.",
   cancel: "Cancel an existing booking.",
   view_appointments: "See a list of upcoming bookings.",

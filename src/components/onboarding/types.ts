@@ -37,6 +37,7 @@ export type TopicForm = {
 export type FeatureKey =
   | "book_doctor_appointment"
   | "tests_diagnostics"
+  | "procedure"
   | "reschedule"
   | "cancel"
   | "view_appointments"
@@ -113,6 +114,7 @@ export function initialWizardState(): WizardState {
     enabledFeatures: [
       "book_doctor_appointment",
       "tests_diagnostics",
+      "procedure",
       "reschedule",
       "cancel",
       "view_appointments",
@@ -147,6 +149,7 @@ export const RAIL_TITLES = [
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   book_doctor_appointment: "Book Doctor Appointment",
   tests_diagnostics: "Tests & Diagnostics",
+  procedure: "Daycare / Procedure",
   reschedule: "Reschedule Appointment",
   cancel: "Cancel Appointment",
   view_appointments: "View My Appointments",

@@ -34,7 +34,8 @@ const TENANT_TYPE_OPTIONS: {
 export function Step7HospitalDetails({ state, dispatch, error }: Props) {
   const bookingEnabled =
     state.enabledFeatures.includes("book_doctor_appointment") ||
-    state.enabledFeatures.includes("tests_diagnostics");
+    state.enabledFeatures.includes("tests_diagnostics") ||
+    state.enabledFeatures.includes("procedure");
   const faqEnabled = state.enabledFeatures.includes("faq");
   const isClinic = state.tenantType === "clinic";
 
@@ -228,7 +229,8 @@ export function validateStep7(state: WizardState): string | null {
     return isClinic ? "Clinic name is required." : "Hospital name is required.";
   if (
     state.enabledFeatures.includes("book_doctor_appointment") ||
-    state.enabledFeatures.includes("tests_diagnostics")
+    state.enabledFeatures.includes("tests_diagnostics") ||
+    state.enabledFeatures.includes("procedure")
   ) {
     const doctorCount = state.departments.reduce((n, d) => n + d.doctors.length, 0);
     if (doctorCount === 0) {
