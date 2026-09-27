@@ -8,9 +8,17 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
 import { formatDate } from "@/lib/formatDate";
-import { useTenants, type Tenant } from "@/hooks/useTenants";
+import { useTenants, useTenantProfile, type Tenant } from "@/hooks/useTenants";
+import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
 import { createTenantColumns, TIER_LABELS } from "./_components/tenant-columns";
 import { HospitalDetailPanel } from "./_components/HospitalDetailPanel";
+
+// Within this many days of a renewal_date counts as "Expiring Soon" --
+// matches the /admin/subscriptions page's own "renewals need attention"
+// framing, just windowed to the next 30 days instead of "this calendar
+// month" (a renewal_date early next month wouldn't otherwise surface here
+// until the month actually turns).
+const EXPIRING_SOON_WINDOW_DAYS = 30;
 
 const TIER_OPTIONS = Object.entries(TIER_LABELS).map(([value, label]) => ({ value, label }));
 const STATUS_OPTIONS = [
@@ -18,12 +26,12 @@ const STATUS_OPTIONS = [
   { value: "inactive", label: "Inactive" },
 ];
 
-// Stat tiles below with `mock` have no real backing table yet (no
-// subscription/plan/trial/suspension model in this codebase) -- hardcoded
-// to match the target design's card row, tagged with StatTile's `mock`
-// badge rather than left out, same convention as the dashboard page.
 function TenantsList() {
   const { tenants, stalledSignups, error } = useTenants();
+  // Real hospital<->plan assignment (admin/subscriptions_api.py), same data
+  // source the /admin/subscriptions page's own stat tiles use -- backs "On
+  // Trial"/"Expiring Soon" below instead of the old hardcoded mock numbers.
+  const { subscriptions } = useAdminSubscriptions();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
@@ -47,11 +55,26 @@ function TenantsList() {
 
   const activeCount = tenants?.filter((t) => t.is_active).length ?? null;
   const totalCount = tenants?.length ?? null;
+  // Real hospital-account toggle (edit-tenant's own Active/Inactive
+  // switch) -- a tenant an operator has switched off, not a billing state.
+  const suspendedCount = tenants?.filter((t) => !t.is_active).length ?? null;
+  const onTrialCount = subscriptions?.filter((s) => s.status === "trial").length ?? null;
+  const now = new Date();
+  const expiringSoonCount =
+    subscriptions?.filter((s) => {
+      if (!s.renewal_date) return false;
+      const daysUntil =
+        (new Date(s.renewal_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+      return daysUntil >= 0 && daysUntil <= EXPIRING_SOON_WINDOW_DAYS;
+    }).length ?? null;
 
   // Default-first-row-selected master-detail, same convention as
   // Staff/Billing's own detail panels.
   const selectedHospital =
     (tenants ?? []).find((t) => t.id === selectedHospitalId) || filtered[0] || null;
+  const selectedSubscription =
+    subscriptions?.find((s) => s.hospital_id === selectedHospital?.id) ?? null;
+  const selectedProfile = useTenantProfile(selectedHospital?.id ?? null);
 
   function toggleOne(id: number) {
     setSelectedIds((prev) => {
@@ -112,30 +135,35 @@ function TenantsList() {
         />
         <StatTile
           label="On Trial"
-          value={4}
+          value={onTrialCount}
           deltaPct={null}
-          hint="10% of total hospitals"
+          hint={
+            totalCount
+              ? `${Math.round(((onTrialCount ?? 0) / totalCount) * 100)}% of total hospitals`
+              : "Loading…"
+          }
           icon={Hourglass}
           tint="clay"
-          mock
         />
         <StatTile
           label="Suspended"
-          value={2}
+          value={suspendedCount}
           deltaPct={null}
-          hint="5% of total hospitals"
+          hint={
+            totalCount
+              ? `${Math.round(((suspendedCount ?? 0) / totalCount) * 100)}% of total hospitals`
+              : "Loading…"
+          }
           icon={PauseCircle}
           tint="error"
-          mock
         />
         <StatTile
           label="Expiring Soon"
-          value={5}
+          value={expiringSoonCount}
           deltaPct={null}
-          hint="Within next 30 days"
+          hint={`Within next ${EXPIRING_SOON_WINDOW_DAYS} days`}
           icon={Clock}
           tint="clay"
-          mock
         />
       </div>
 
@@ -201,7 +229,11 @@ function TenantsList() {
         </div>
 
         <div>
-          <HospitalDetailPanel hospital={selectedHospital} />
+          <HospitalDetailPanel
+            hospital={selectedHospital}
+            subscription={selectedSubscription}
+            profile={selectedProfile}
+          />
         </div>
       </div>
 

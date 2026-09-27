@@ -10,6 +10,10 @@ type Props = {
   setMaxActiveLinks: (value: string) => void;
   dpdpRequired: boolean;
   setDpdpRequired: (checked: boolean) => void;
+  gstPercent: string;
+  setGstPercent: (value: string) => void;
+  platformFeePercent: string;
+  setPlatformFeePercent: (value: string) => void;
   error: string | null;
 };
 
@@ -18,6 +22,10 @@ export function GeneralTab({
   setMaxActiveLinks,
   dpdpRequired,
   setDpdpRequired,
+  gstPercent,
+  setGstPercent,
+  platformFeePercent,
+  setPlatformFeePercent,
   error,
 }: Props) {
   return (
@@ -38,6 +46,41 @@ export function GeneralTab({
             onChange={(e) => setMaxActiveLinks(e.target.value)}
           />
         </Field>
+      </Card>
+
+      <Card className="p-space-5">
+        <h2 className="mb-space-1 text-ink-900 text-[15px] font-bold">GST &amp; platform fee</h2>
+        <p className="mb-space-3 text-ink-400 text-[12.5px]">
+          Charged on top of every payable appointment fee, across every hospital -- shown as
+          separate line items on the Razorpay payment page. Blank means 0%. Neither is refunded on a
+          cancellation, regardless of the hospital&apos;s own cancellation policy.
+        </p>
+        <div className="gap-x-space-4 grid grid-cols-1 sm:grid-cols-2">
+          <Field label="GST (%)" htmlFor="gst_percent">
+            <Input
+              id="gst_percent"
+              type="number"
+              min={0}
+              max={50}
+              step="0.01"
+              placeholder="0"
+              value={gstPercent}
+              onChange={(e) => setGstPercent(e.target.value)}
+            />
+          </Field>
+          <Field label="Platform fee (%)" htmlFor="platform_fee_percent">
+            <Input
+              id="platform_fee_percent"
+              type="number"
+              min={0}
+              max={50}
+              step="0.01"
+              placeholder="0"
+              value={platformFeePercent}
+              onChange={(e) => setPlatformFeePercent(e.target.value)}
+            />
+          </Field>
+        </div>
       </Card>
 
       <Card className="p-space-5">

@@ -109,6 +109,44 @@ export function PaymentDetailPanel({ payment }: Props) {
         </div>
       </div>
 
+      {(payment.base_amount != null || payment.refund_amount != null) && (
+        <div className="mt-space-4 border-line pt-space-3 border-t">
+          <p className="text-label mb-space-2 text-ink-900 font-bold">Fee Breakdown</p>
+          <div className="space-y-space-2">
+            {payment.base_amount != null && (
+              <DetailRow
+                icon={Receipt}
+                label="Base fee"
+                value={`₹${payment.base_amount.toLocaleString("en-IN")}`}
+              />
+            )}
+            {(payment.gst_amount ?? 0) > 0 && (
+              <DetailRow
+                icon={Receipt}
+                label="GST"
+                value={`₹${payment.gst_amount!.toLocaleString("en-IN")}`}
+              />
+            )}
+            {(payment.platform_fee_amount ?? 0) > 0 && (
+              <DetailRow
+                icon={Receipt}
+                label="Platform fee"
+                value={`₹${payment.platform_fee_amount!.toLocaleString("en-IN")}`}
+              />
+            )}
+            {payment.refund_amount != null && (
+              <DetailRow
+                icon={Receipt}
+                label="Refunded"
+                value={`₹${payment.refund_amount.toLocaleString("en-IN")}${
+                  payment.refunded_at ? ` on ${formatDateTime(payment.refunded_at)}` : ""
+                }`}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {payment.method === "pay_at_hospital" ? (
         <div className="mt-space-4 border-line pt-space-3 border-t">
           <p className="text-label mb-space-2 text-ink-900 font-bold">Collection Details</p>

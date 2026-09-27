@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
+import { cn } from "@/lib/cn";
 import { usePermission } from "@/lib/staffAuth";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { usePayments, type PaymentRow } from "@/hooks/usePayments";
@@ -18,6 +19,9 @@ import {
   PAYMENT_STATUS_LABELS,
 } from "./_components/billing-columns";
 import { PaymentDetailPanel } from "./_components/PaymentDetailPanel";
+import { RefundsQueue } from "./_components/RefundsQueue";
+
+type Tab = "transactions" | "refunds";
 
 const STATUS_OPTIONS = Object.entries(PAYMENT_STATUS_LABELS).map(([value, label]) => ({
   value,
@@ -40,9 +44,11 @@ function isSameDay(iso: string, ref: Date): boolean {
 export default function BillingPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("billing", "view");
+  const canWrite = usePermission("billing", "write");
 
   const { payments, error } = usePayments(canView);
 
+  const [tab, setTab] = useState<Tab>("transactions");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -109,118 +115,151 @@ export default function BillingPage() {
         <>
           {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            <StatTile
-              label="Total Collected"
-              value={payments ? totalCollected : null}
-              deltaPct={null}
-              hint="All paid transactions"
-              icon={IndianRupee}
-              prefix="₹"
-            />
-            <StatTile
-              label="Cash Collected"
-              value={payments ? cashCollected : null}
-              deltaPct={null}
-              hint="Confirmed pay-at-hospital collections"
-              icon={Banknote}
-              prefix="₹"
-              tint="clay"
-            />
-            <StatTile
-              label="Online Collected"
-              value={payments ? onlineCollected : null}
-              deltaPct={null}
-              hint="Razorpay payments"
-              icon={CreditCard}
-              prefix="₹"
-            />
-            <StatTile
-              label="Today's Collection"
-              value={payments ? todaysCollection : null}
-              deltaPct={null}
-              hint="Paid today"
-              icon={CalendarDays}
-              prefix="₹"
-              tint="clay"
-            />
-            <StatTile
-              label="Total Transactions"
-              value={payments ? payments.length : null}
-              deltaPct={null}
-              hint="Live count"
-              icon={Receipt}
-            />
-            <StatTile
-              label="Pending"
-              value={payments ? pendingCount : null}
-              deltaPct={null}
-              hint="Awaiting payment"
-              icon={TrendingUp}
-              tint="clay"
-            />
+          <div className="mb-space-4 gap-space-1 border-line bg-card p-space-1 flex w-fit rounded-lg border">
+            <button
+              type="button"
+              onClick={() => setTab("transactions")}
+              className={cn(
+                "px-space-3 py-space-2 rounded-md text-[13px] font-semibold transition-colors duration-150",
+                tab === "transactions"
+                  ? "bg-brand-50 text-brand-700"
+                  : "text-ink-400 hover:text-ink-700 hover:bg-black/[0.04]",
+              )}
+            >
+              Transactions
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("refunds")}
+              className={cn(
+                "px-space-3 py-space-2 rounded-md text-[13px] font-semibold transition-colors duration-150",
+                tab === "refunds"
+                  ? "bg-brand-50 text-brand-700"
+                  : "text-ink-400 hover:text-ink-700 hover:bg-black/[0.04]",
+              )}
+            >
+              Refunds
+            </button>
           </div>
 
-          <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <Card className="p-space-4">
-                <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
-                  <div>
-                    <h3 className="text-label text-ink-900 font-bold">Transactions</h3>
-                    <p className="text-hint mt-space-1">
-                      Every payment attempt across appointments, newest first.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
-                  <div className="relative min-w-50 flex-1">
-                    <input
-                      type="text"
-                      placeholder="Search by patient, phone or reference…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="border-line bg-card px-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
-                    />
-                  </div>
-                  <FilterSelect
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    allLabel="All Status"
-                    options={STATUS_OPTIONS}
-                  />
-                  <FilterSelect
-                    value={methodFilter}
-                    onChange={setMethodFilter}
-                    allLabel="All Methods"
-                    options={METHOD_OPTIONS}
-                  />
-                </div>
-
-                <DataTable
-                  columns={createBillingColumns({
-                    onSelect: (p) => setSelectedId(p.id),
-                  })}
-                  data={filteredRows}
-                  getRowId={(p) => String(p.id)}
-                  onRowClick={(p) => setSelectedId(p.id)}
-                  rowClassName={(p) => (p.id === selected?.id ? "bg-brand-50" : "")}
-                  pageSize={10}
-                  pageSizeOptions={[10, 25, 50]}
-                  loading={!payments}
-                  emptyMessage={
-                    payments && payments.length > 0
-                      ? "No transactions match your search/filters."
-                      : "No transactions yet."
-                  }
+          {tab === "refunds" ? (
+            <RefundsQueue canWrite={canWrite} />
+          ) : (
+            <>
+              <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                <StatTile
+                  label="Total Collected"
+                  value={payments ? totalCollected : null}
+                  deltaPct={null}
+                  hint="All paid transactions"
+                  icon={IndianRupee}
+                  prefix="₹"
                 />
-              </Card>
-            </div>
+                <StatTile
+                  label="Cash Collected"
+                  value={payments ? cashCollected : null}
+                  deltaPct={null}
+                  hint="Confirmed pay-at-hospital collections"
+                  icon={Banknote}
+                  prefix="₹"
+                  tint="clay"
+                />
+                <StatTile
+                  label="Online Collected"
+                  value={payments ? onlineCollected : null}
+                  deltaPct={null}
+                  hint="Razorpay payments"
+                  icon={CreditCard}
+                  prefix="₹"
+                />
+                <StatTile
+                  label="Today's Collection"
+                  value={payments ? todaysCollection : null}
+                  deltaPct={null}
+                  hint="Paid today"
+                  icon={CalendarDays}
+                  prefix="₹"
+                  tint="clay"
+                />
+                <StatTile
+                  label="Total Transactions"
+                  value={payments ? payments.length : null}
+                  deltaPct={null}
+                  hint="Live count"
+                  icon={Receipt}
+                />
+                <StatTile
+                  label="Pending"
+                  value={payments ? pendingCount : null}
+                  deltaPct={null}
+                  hint="Awaiting payment"
+                  icon={TrendingUp}
+                  tint="clay"
+                />
+              </div>
 
-            <div>
-              <PaymentDetailPanel payment={selected} />
-            </div>
-          </div>
+              <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <Card className="p-space-4">
+                    <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
+                      <div>
+                        <h3 className="text-label text-ink-900 font-bold">Transactions</h3>
+                        <p className="text-hint mt-space-1">
+                          Every payment attempt across appointments, newest first.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mb-space-3 gap-space-3 flex flex-wrap items-center">
+                      <div className="relative min-w-50 flex-1">
+                        <input
+                          type="text"
+                          placeholder="Search by patient, phone or reference…"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="border-line bg-card px-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
+                        />
+                      </div>
+                      <FilterSelect
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        allLabel="All Status"
+                        options={STATUS_OPTIONS}
+                      />
+                      <FilterSelect
+                        value={methodFilter}
+                        onChange={setMethodFilter}
+                        allLabel="All Methods"
+                        options={METHOD_OPTIONS}
+                      />
+                    </div>
+
+                    <DataTable
+                      columns={createBillingColumns({
+                        onSelect: (p) => setSelectedId(p.id),
+                      })}
+                      data={filteredRows}
+                      getRowId={(p) => String(p.id)}
+                      onRowClick={(p) => setSelectedId(p.id)}
+                      rowClassName={(p) => (p.id === selected?.id ? "bg-brand-50" : "")}
+                      pageSize={10}
+                      pageSizeOptions={[10, 25, 50]}
+                      loading={!payments}
+                      emptyMessage={
+                        payments && payments.length > 0
+                          ? "No transactions match your search/filters."
+                          : "No transactions yet."
+                      }
+                    />
+                  </Card>
+                </div>
+
+                <div>
+                  <PaymentDetailPanel payment={selected} />
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </PortalShell>

@@ -10,6 +10,7 @@ import { usePortalSettings } from "@/hooks/usePortalSettings";
 import { validateReminderOffsetsHours } from "@/lib/validation/reminderOffsets";
 import { toast } from "@/lib/toast";
 import { initialGeneralSettings, type NotificationPreferencesMock } from "./general-settings-mock";
+import { ReminderOffsetsField } from "./ReminderOffsetsField";
 import { SectionHeader, ToggleRow } from "./settings-ui";
 
 /** Notifications tab -- one card, "Notification Preferences". Mostly a
@@ -86,27 +87,14 @@ export function NotificationsTab() {
               />
               {settings.reminders_enabled && (
                 <div className="py-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
-                  <Field
-                    label="Reminder offsets (comma-separated hours)"
-                    htmlFor="reminder_offsets_hours"
-                    className="mb-0"
-                    error={offsetsError || undefined}
-                    hint={
-                      offsetsError
-                        ? undefined
-                        : "How many hours before the appointment a WhatsApp reminder goes out. e.g. 24,1 sends one a day before and one an hour before."
-                    }
-                  >
-                    <Input
-                      id="reminder_offsets_hours"
-                      value={settings.reminder_offsets_hours}
-                      invalid={!!offsetsError}
-                      onChange={(e) => {
-                        setOffsetsError(null);
-                        setSettings({ ...settings, reminder_offsets_hours: e.target.value });
-                      }}
-                    />
-                  </Field>
+                  <ReminderOffsetsField
+                    value={settings.reminder_offsets_hours}
+                    error={offsetsError}
+                    onChange={(next) => {
+                      setOffsetsError(null);
+                      setSettings({ ...settings, reminder_offsets_hours: next });
+                    }}
+                  />
                   <Field
                     label="Reminder template name"
                     htmlFor="reminder_template_name"

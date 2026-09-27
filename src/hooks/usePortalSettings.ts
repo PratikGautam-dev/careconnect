@@ -48,6 +48,16 @@ export type Settings = {
   // always has a value (defaults server-side).
   future_booking_days: number;
 
+  // Cancel/refund: an IRCTC-style deduction ladder applied only to a
+  // PATIENT-initiated cancellation (a hospital-initiated one always refunds
+  // the full base fee, server-side, regardless of this list) -- always a
+  // non-empty array, server-side falls back to its own default ladder when
+  // never configured, so there's no "" (unset) state to represent here.
+  cancellation_policy: { hours_before: number; deduction_percent: number }[];
+  // Whether a due refund fires immediately on cancel, or is queued for
+  // staff to approve individually or in bulk (Billing -> Refunds).
+  auto_refund_enabled: boolean;
+
   // default_appointment_duration_minutes/buffer_minutes always have a
   // value (30/0 code defaults). max_appointments_per_day uses the ""
   // (unset) convention like the fees above -- no cap configured is a real,

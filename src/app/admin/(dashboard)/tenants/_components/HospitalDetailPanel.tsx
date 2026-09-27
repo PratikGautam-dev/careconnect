@@ -16,8 +16,10 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { formatDate } from "@/lib/formatDate";
-import type { Tenant } from "@/hooks/useTenants";
+import type { Tenant, TenantProfile } from "@/hooks/useTenants";
+import type { SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
 import { TIER_LABELS } from "./tenant-columns";
+import { STATUS_LABEL, STATUS_TONE } from "../../subscriptions/_components/subscription-columns";
 
 function DetailRow({
   icon: Icon,
@@ -38,29 +40,24 @@ function DetailRow({
   );
 }
 
-// Everything under "Primary Admin"/"Modules Enabled"/the renewal tile has no
-// real backing field on the tenant SUMMARY this panel is built from (owners/
-// enabled_features only exist on the single-tenant detail fetch,
-// useEditTenant.ts's TenantDetail -- not loaded here to keep row selection
-// instant, same master-detail convention Staff/Billing already use).
-// Hardcoded to match the target design's layout, tagged Mock rather than
-// left out.
-const MOCK_PRIMARY_ADMIN = {
-  name: "Dr. Priya Sharma",
-  role: "IT Administrator",
-  email: "admin@hospital.com",
-};
-const MOCK_MODULES = ["Appointments", "Patients", "Doctors", "Billing", "Reports"];
-
 type Props = {
   hospital: Tenant | null;
+  // Real hospital<->plan record (admin/subscriptions_api.py) for this same
+  // hospital, matched by hospital_id on the page -- null while the
+  // subscriptions list is still loading, or (legitimately) for a hospital
+  // that's never been assigned a plan.
+  subscription: SubscriptionRecord | null;
+  // On-demand single-tenant detail fetch (useTenantProfile) -- owners/
+  // enabled_features only exist on that endpoint, not the list summary this
+  // panel is otherwise built from, so it's null until that fetch resolves.
+  profile: TenantProfile | null;
 };
 
 /** Right-rail "selected hospital" detail card -- same layout convention as
  * StaffDetailPanel/PaymentDetailPanel (avatar-less header + a DetailRow
  * stack + a tile grid + an extra section), for the /admin/tenants Hospital
  * Directory's default-first-row-selected master-detail view. */
-export function HospitalDetailPanel({ hospital }: Props) {
+export function HospitalDetailPanel({ hospital, subscription, profile }: Props) {
   if (!hospital) {
     return (
       <Card className="p-space-4">
@@ -104,48 +101,59 @@ export function HospitalDetailPanel({ hospital }: Props) {
           <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
             <Shield size={12} /> Subscription
           </p>
-          <p className="text-ink-900 text-[13px] font-bold">
-            {hospital.is_active ? "Active" : "Inactive"}
-          </p>
+          <Badge tone={subscription ? STATUS_TONE[subscription.status] : "neutral"}>
+            {subscription ? STATUS_LABEL[subscription.status] || subscription.status : "Unassigned"}
+          </Badge>
         </div>
-        <div className="border-line bg-paper p-space-3 relative rounded-md border">
+        <div className="border-line bg-paper p-space-3 rounded-md border">
           <p className="mb-space-1 gap-space-1 text-ink-400 flex items-center text-[11px] font-semibold">
             <Calendar size={12} /> Renewal Date
           </p>
-          <p className="text-ink-900 text-[13px] font-bold">30 Sep 2026</p>
-          <Badge tone="clay" className="absolute -top-2 -right-2">
-            Mock
-          </Badge>
+          <p className="text-ink-900 text-[13px] font-bold">
+            {subscription?.renewal_date ? formatDate(subscription.renewal_date) : "—"}
+          </p>
         </div>
       </div>
 
       <div className="mt-space-4 border-line pt-space-3 border-t">
-        <div className="mb-space-2 flex items-center justify-between">
-          <p className="text-label text-ink-900 font-bold">Primary Admin</p>
-          <Badge tone="clay">Mock</Badge>
-        </div>
-        <div className="space-y-space-2">
-          <DetailRow icon={UserRound} label="Name" value={MOCK_PRIMARY_ADMIN.name} />
-          <DetailRow icon={Shield} label="Role" value={MOCK_PRIMARY_ADMIN.role} />
-          <DetailRow icon={Mail} label="Email" value={MOCK_PRIMARY_ADMIN.email} />
-        </div>
+        <p className="text-label text-ink-900 mb-space-2 font-bold">Primary Admin</p>
+        {!profile ? (
+          <p className="text-ink-400 text-[12.5px]">Loading…</p>
+        ) : profile.owners.length === 0 ? (
+          <p className="text-ink-400 text-[12.5px]">No admin assigned yet.</p>
+        ) : (
+          <div className="space-y-space-2">
+            <DetailRow icon={UserRound} label="Name" value={profile.owners[0].name || "—"} />
+            <DetailRow icon={Mail} label="Email" value={profile.owners[0].email} />
+            {profile.owners.length > 1 && (
+              <DetailRow
+                icon={Shield}
+                label="Other admins"
+                value={`+${profile.owners.length - 1} more`}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-space-4 border-line pt-space-3 border-t">
-        <div className="mb-space-2 flex items-center justify-between">
-          <p className="text-label text-ink-900 font-bold">Modules Enabled</p>
-          <Badge tone="clay">Mock</Badge>
-        </div>
-        <div className="gap-space-2 flex flex-wrap">
-          {MOCK_MODULES.map((m) => (
-            <span
-              key={m}
-              className="bg-brand-50 text-brand-700 px-space-2 rounded-full py-1 text-[11.5px] font-semibold"
-            >
-              {m}
-            </span>
-          ))}
-        </div>
+        <p className="text-label text-ink-900 mb-space-2 font-bold">Modules Enabled</p>
+        {!profile ? (
+          <p className="text-ink-400 text-[12.5px]">Loading…</p>
+        ) : profile.enabled_features.length === 0 ? (
+          <p className="text-ink-400 text-[12.5px]">No modules enabled.</p>
+        ) : (
+          <div className="gap-space-2 flex flex-wrap">
+            {profile.enabled_features.map((key) => (
+              <span
+                key={key}
+                className="bg-brand-50 text-brand-700 px-space-2 rounded-full py-1 text-[11.5px] font-semibold"
+              >
+                {profile.feature_default_labels[key] || key}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <Link

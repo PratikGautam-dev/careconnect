@@ -16,7 +16,10 @@ const PAYMENT_TONE: Record<string, "success" | "clay" | "neutral"> = {
   failed: "clay",
 };
 
-const STATUS_LABEL: Record<string, string> = {
+// Exported -- the Tenants page's Hospital Profile detail panel (HospitalDetailPanel.tsx)
+// reuses these same labels/tones for its own subscription-status badge rather than
+// hardcoding a second copy.
+export const STATUS_LABEL: Record<string, string> = {
   unassigned: "Unassigned",
   trial: "Trial",
   authorization_pending: "Awaiting Payment Setup",
@@ -25,7 +28,7 @@ const STATUS_LABEL: Record<string, string> = {
   expired: "Expired",
   cancelled: "Cancelled",
 };
-const STATUS_TONE: Record<string, "success" | "clay" | "neutral" | "brand"> = {
+export const STATUS_TONE: Record<string, "success" | "clay" | "neutral" | "brand"> = {
   unassigned: "neutral",
   trial: "brand",
   authorization_pending: "clay",

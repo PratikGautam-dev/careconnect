@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import type { Appointment } from "@/hooks/useAppointments";
+import { useSendAppointmentReminder } from "@/hooks/useSendAppointmentReminder";
 
 type AppointmentCellActionProps = {
   appointment: Appointment;
@@ -83,6 +84,7 @@ export function AppointmentCellAction({
   onAdvanceLabStatus,
 }: AppointmentCellActionProps) {
   const router = useRouter();
+  const { sendingReminderId, sendReminder } = useSendAppointmentReminder();
 
   if (a.status === "booked" && (cancelPanelId === a.id || reschedulePanelId === a.id)) return null;
 
@@ -152,8 +154,11 @@ export function AppointmentCellAction({
                 <DropdownMenuItem variant="destructive" onClick={() => onOpenCancel(a.id)}>
                   <XCircle size={14} /> Cancel
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled title="Coming soon — no reminder backend exists yet">
-                  <Send size={14} /> Send reminder
+                <DropdownMenuItem
+                  disabled={sendingReminderId === a.id}
+                  onClick={() => sendReminder(a.id)}
+                >
+                  <Send size={14} /> {sendingReminderId === a.id ? "Sending…" : "Send reminder"}
                 </DropdownMenuItem>
               </>
             ) : (

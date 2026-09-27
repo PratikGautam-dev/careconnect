@@ -60,11 +60,22 @@ export function createBillingColumns({
     {
       id: "amount",
       header: "Amount",
-      cell: ({ row }) => (
-        <span className="text-ink-900 font-semibold">
-          ₹{row.original.amount.toLocaleString("en-IN")}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const p = row.original;
+        const hasBreakdown = (p.gst_amount ?? 0) > 0 || (p.platform_fee_amount ?? 0) > 0;
+        return (
+          <div>
+            <span className="text-ink-900 font-semibold">₹{p.amount.toLocaleString("en-IN")}</span>
+            {hasBreakdown && (
+              <span className="text-ink-400 block text-[11px]">
+                incl. ₹
+                {((p.gst_amount ?? 0) + (p.platform_fee_amount ?? 0)).toLocaleString("en-IN")}{" "}
+                GST/fee
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "method",
@@ -90,6 +101,15 @@ export function createBillingColumns({
           {formatShortDateTime(row.original.paid_at || row.original.created_at)}
         </span>
       ),
+    },
+    {
+      id: "refund",
+      header: "Refund",
+      cell: ({ row }) => {
+        const p = row.original;
+        if (p.refund_amount == null) return <span className="text-ink-400">—</span>;
+        return <Badge tone="clay">₹{p.refund_amount.toLocaleString("en-IN")} refunded</Badge>;
+      },
     },
   ];
 }

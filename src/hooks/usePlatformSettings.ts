@@ -13,6 +13,10 @@ export type PlatformSettings = {
   // How long audit_logs rows are kept before an external cron
   // (POST /internal/purge-audit-logs) deletes them. 30-730 days.
   audit_log_retention_days: number;
+  // Charged on top of every payable appointment fee (flows/booking/book.py)
+  // -- ONE rate for every tenant, no per-hospital override. null means 0%.
+  gst_percent: number | null;
+  platform_fee_percent: number | null;
 };
 
 /** Loads + saves the /admin/platform-settings form -- global values applied
@@ -33,12 +37,21 @@ export function usePlatformSettings() {
   const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({});
   const [dpdpRequired, setDpdpRequiredRaw] = useState(false);
   const [auditLogRetentionDays, setAuditLogRetentionDaysRaw] = useState("180");
+  // "" (unset) means 0% -- same convention usePortalSettings' own fee
+  // fields use, not a numeric default that would misrepresent "never
+  // configured" as an actual chosen rate.
+  const [gstPercent, setGstPercentRaw] = useState("");
+  const [platformFeePercent, setPlatformFeePercentRaw] = useState("");
   if (settings && !seeded) {
     setSeeded(true);
     setMaxActiveLinksRaw(String(settings.max_active_patient_links));
     setFeatureLabels(settings.feature_labels);
     setDpdpRequiredRaw(settings.dpdp_consent_required);
     setAuditLogRetentionDaysRaw(String(settings.audit_log_retention_days));
+    setGstPercentRaw(settings.gst_percent != null ? String(settings.gst_percent) : "");
+    setPlatformFeePercentRaw(
+      settings.platform_fee_percent != null ? String(settings.platform_fee_percent) : "",
+    );
   }
 
   const [saved, setSaved] = useState(false);
@@ -64,12 +77,24 @@ export function usePlatformSettings() {
     setSaved(false);
   }
 
+  function updateGstPercent(value: string) {
+    setGstPercentRaw(value);
+    setSaved(false);
+  }
+
+  function updatePlatformFeePercent(value: string) {
+    setPlatformFeePercentRaw(value);
+    setSaved(false);
+  }
+
   const saveMutation = useMutation({
     mutationFn: async (payload: {
       max_active_patient_links: number;
       feature_labels: Record<string, string>;
       dpdp_consent_required: boolean;
       audit_log_retention_days: number;
+      gst_percent: number | null;
+      platform_fee_percent: number | null;
     }) => {
       const result = await adminFetch("/api/admin/platform-settings", {
         method: "POST",
@@ -90,10 +115,16 @@ export function usePlatformSettings() {
         feature_labels: featureLabels,
         dpdp_consent_required: dpdpRequired,
         audit_log_retention_days: Number(auditLogRetentionDays),
+        gst_percent: gstPercent === "" ? null : Number(gstPercent),
+        platform_fee_percent: platformFeePercent === "" ? null : Number(platformFeePercent),
       });
       setFeatureLabels(data.feature_labels);
       setDpdpRequiredRaw(data.dpdp_consent_required);
       setAuditLogRetentionDaysRaw(String(data.audit_log_retention_days));
+      setGstPercentRaw(data.gst_percent != null ? String(data.gst_percent) : "");
+      setPlatformFeePercentRaw(
+        data.platform_fee_percent != null ? String(data.platform_fee_percent) : "",
+      );
       setSaved(true);
       toast.success("Platform settings saved");
     } catch (err) {
@@ -113,6 +144,10 @@ export function usePlatformSettings() {
     setDpdpRequired: updateDpdpRequired,
     auditLogRetentionDays,
     setAuditLogRetentionDays: updateAuditLogRetentionDays,
+    gstPercent,
+    setGstPercent: updateGstPercent,
+    platformFeePercent,
+    setPlatformFeePercent: updatePlatformFeePercent,
     error: saveError ?? (queryError ? (queryError as Error).message : null),
     saved,
     saving: saveMutation.isPending,

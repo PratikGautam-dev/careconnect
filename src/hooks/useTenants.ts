@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
 import { unwrapAdminResult } from "@/lib/adminMutation";
+import { tenantQueryKey, type TenantDetail } from "@/hooks/useEditTenant";
 
 export type Tenant = {
   id: number;
@@ -57,4 +58,29 @@ export function useTenants() {
     error: tenantsError ? (tenantsError as Error).message : null,
     load: refetch,
   };
+}
+
+export type TenantProfile = Pick<
+  TenantDetail,
+  "owners" | "enabled_features" | "feature_default_labels"
+>;
+
+/** On-demand full-detail fetch for the /admin/tenants Hospital Directory's
+ * right-rail master-detail panel -- the list's own summary rows
+ * (useTenants() above) intentionally carry none of this (owners/
+ * enabled_features only exist on the single-tenant GET, to keep the list
+ * query itself N+1-free). Shares its query key with useEditTenant.ts's own
+ * fetch of the same tenant, so opening the edit page right after just
+ * reads from cache instead of refetching. */
+export function useTenantProfile(tenantId: number | null): TenantProfile | null {
+  const { data } = useQuery({
+    queryKey: tenantQueryKey(tenantId ?? -1),
+    retry: false,
+    enabled: tenantId != null,
+    queryFn: async () => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
+      return unwrapAdminResult<{ tenant: TenantDetail }>(result).tenant;
+    },
+  });
+  return data ?? null;
 }

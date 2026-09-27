@@ -9,9 +9,7 @@ import {
   Clock,
   FileDown,
   Search,
-  Send,
   Trash2,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -19,6 +17,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { CancelPanel } from "@/components/portal/CancelPanel";
 import { FilterActions } from "@/components/portal/FilterActions";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
@@ -124,6 +123,8 @@ export default function PortalAppointmentsPage() {
     cancelPanelId,
     cancelMessage,
     setCancelMessage,
+    refundPreview,
+    refundPreviewLoading,
     openCancelPanel,
     closeCancelPanel,
     handleCancel,
@@ -259,39 +260,16 @@ export default function PortalAppointmentsPage() {
   function renderRowDetail(a: Appointment) {
     if (cancelPanelId === a.id) {
       return (
-        <div className="border-line bg-paper p-space-3 rounded-lg border">
-          <label
-            htmlFor={`cancel-msg-${a.id}`}
-            className="mb-space-2 text-ink-600 block text-[12px] font-semibold"
-          >
-            Message to send {a.phone} on WhatsApp
-          </label>
-          <textarea
-            id={`cancel-msg-${a.id}`}
-            value={cancelMessage}
-            onChange={(e) => setCancelMessage(e.target.value)}
-            rows={2}
-            className="mb-space-2 border-line bg-card px-space-3 py-space-2 text-ink-900 focus:border-brand-400 h-16 w-full resize-none rounded-md border text-[13px] outline-none"
-          />
-          <div className="gap-space-2 flex">
-            <Button
-              size="md"
-              onClick={() => handleCancel(a.id)}
-              disabled={cancellingId === a.id}
-              className="bg-error hover:bg-error/90 active:bg-error/80"
-            >
-              <Send size={13} /> {cancellingId === a.id ? "Cancelling…" : "Send & cancel"}
-            </Button>
-            <Button
-              size="md"
-              variant="secondary"
-              onClick={closeCancelPanel}
-              disabled={cancellingId === a.id}
-            >
-              <X size={13} /> Dismiss
-            </Button>
-          </div>
-        </div>
+        <CancelPanel
+          phone={a.phone}
+          cancelMessage={cancelMessage}
+          onCancelMessageChange={setCancelMessage}
+          cancelling={cancellingId === a.id}
+          refundPreview={refundPreview}
+          refundPreviewLoading={refundPreviewLoading}
+          onConfirm={() => handleCancel(a.id)}
+          onDismiss={closeCancelPanel}
+        />
       );
     }
 

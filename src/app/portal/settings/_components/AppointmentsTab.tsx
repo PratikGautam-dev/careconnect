@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Banknote, CalendarDays, FlaskConical, ListChecks, MapPin } from "lucide-react";
+import { Banknote, CalendarDays, FlaskConical, ListChecks, MapPin, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { AppointmentTypeToggles } from "@/components/portal/AppointmentTypeToggles";
+import { CancellationPolicyEditor } from "@/components/portal/CancellationPolicyEditor";
 import { DiagnosticTestsManager } from "@/components/portal/DiagnosticTestsManager";
 import { LabServiceAreasManager } from "@/components/portal/LabServiceAreasManager";
 import { ProceduresManager } from "@/components/portal/ProceduresManager";
@@ -389,6 +390,38 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
               />
             </Field>
           </div>
+        </Card>
+
+        <Card className="p-space-4">
+          <SectionHeader
+            icon={Undo2}
+            tint="clay"
+            title="Cancellation & Refund Policy"
+            subtitle="How much of the fee is refunded when a PATIENT cancels a paid appointment -- a hospital-initiated cancellation always refunds the full fee, regardless of this ladder. GST and platform fee are never refunded either way."
+          />
+          <div className="mb-space-3">
+            <ToggleRow
+              label="Auto-approve refunds"
+              subtitle="Refund immediately when a cancellation is confirmed. Turn off to review and approve each refund first (Billing -> Refunds)."
+              checked={portalSettings?.auto_refund_enabled ?? true}
+              disabled={!portalSettings}
+              onChange={() =>
+                portalSettings &&
+                setPortalSettings({
+                  ...portalSettings,
+                  auto_refund_enabled: !portalSettings.auto_refund_enabled,
+                })
+              }
+            />
+          </div>
+          {portalSettings && (
+            <CancellationPolicyEditor
+              tiers={portalSettings.cancellation_policy}
+              onChange={(cancellation_policy) =>
+                setPortalSettings({ ...portalSettings, cancellation_policy })
+              }
+            />
+          )}
         </Card>
 
         <div className="gap-space-2 flex flex-wrap items-center justify-end">

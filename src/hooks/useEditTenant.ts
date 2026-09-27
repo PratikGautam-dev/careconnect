@@ -18,6 +18,10 @@ export type TenantDetail = {
   external_api_base_url: string;
   external_api_key: string;
   is_active: boolean;
+  // Which Google account(s) own this hospital's portal -- empty for a
+  // hospital onboarded before Google sign-in existed (admin/tenants_api.py's
+  // _tenant_detail(), db.get_owners_for_hospital()).
+  owners: { id: number; email: string; name: string | null }[];
   enabled_features: string[];
   feature_default_labels: Record<string, string>;
   tenant_type: string;
@@ -68,7 +72,7 @@ function formFromTenant(t: TenantDetail): TenantFormState {
   };
 }
 
-function tenantQueryKey(tenantId: number) {
+export function tenantQueryKey(tenantId: number) {
   return ["admin-tenant", tenantId] as const;
 }
 

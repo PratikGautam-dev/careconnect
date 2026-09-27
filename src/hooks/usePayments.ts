@@ -19,6 +19,17 @@ export type PaymentRow = {
   razorpay_order_id: string | null;
   razorpay_payment_id: string | null;
   bank_reference: string | null;
+  // GST/platform-fee breakdown snapshot, taken at charge time -- null on a
+  // row written before this feature existed. base_amount is the pre-tax
+  // fee; `amount` above stays the total actually charged.
+  base_amount: number | null;
+  gst_amount: number | null;
+  platform_fee_amount: number | null;
+  // Set once a cancellation refund against this row completes -- see
+  // /api/portal/refunds for the full approval-queue workflow.
+  refund_amount: number | null;
+  refund_reason: string | null;
+  refunded_at: string | null;
   created_at: string;
   updated_at: string | null;
   paid_at: string | null;

@@ -59,6 +59,36 @@ export type Appointment = {
   }[];
 };
 
+// GET /api/portal/bookings/{id}/cancel-preview -- read-only, computed
+// against db.CANCELLED_BY_HOSPITAL (a staff-portal cancel always refunds
+// the FULL base fee, no deduction ladder -- that ladder only ever applies
+// to a patient's own WhatsApp cancellation). refundable=false with no other
+// fields means this appointment was never paid online (pay_at_hospital, or
+// free) -- nothing to refund at all.
+export type RefundPreview = {
+  refundable: boolean;
+  base_amount?: number;
+  deduction_percent?: number;
+  deduction_amount?: number;
+  gst_amount?: number;
+  platform_fee_amount?: number;
+  refund_amount?: number;
+};
+
+// The refund_requests row POST /api/portal/bookings/{id}/cancel returns
+// (null when there was nothing to refund) -- db/repositories/refunds.py's
+// _refund_request_to_dict().
+export type RefundRequestSummary = {
+  id: number;
+  status: "pending_approval" | "approved" | "processing" | "completed" | "failed" | "rejected";
+  base_amount: number;
+  deduction_percent: number;
+  deduction_amount: number;
+  gst_amount: number;
+  platform_fee_amount: number;
+  refund_amount: number;
+};
+
 export type Department = { id: string; name: string };
 export type Doctor = { id: string; name: string };
 // category/price (added for the portal's multi-test lab booking basket --
@@ -204,6 +234,8 @@ export function useAppointments(
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [cancelPanelId, setCancelPanelId] = useState<number | null>(null);
   const [cancelMessage, setCancelMessage] = useState(DEFAULT_CANCEL_MESSAGE);
+  const [refundPreview, setRefundPreview] = useState<RefundPreview | null>(null);
+  const [refundPreviewLoading, setRefundPreviewLoading] = useState(false);
 
   const [reschedulePanelId, setReschedulePanelId] = useState<number | null>(null);
   const [reschedulingId, setReschedulingId] = useState<number | null>(null);
@@ -575,10 +607,21 @@ export function useAppointments(
     setReschedulePanelId(null);
     setCancelPanelId(id);
     setCancelMessage(DEFAULT_CANCEL_MESSAGE);
+    setRefundPreview(null);
+    setRefundPreviewLoading(true);
+    // Fire-and-forget: the preview is purely informational (shown alongside
+    // the "Send & cancel" button, doesn't block it) -- a slow/failed preview
+    // just means the panel shows no refund line, never blocks cancelling.
+    portalFetch(`/api/portal/bookings/${id}/cancel-preview`).then((result) => {
+      setRefundPreviewLoading(false);
+      if (result.ok) setRefundPreview(result.data as RefundPreview);
+    });
   }
 
   function closeCancelPanel() {
     setCancelPanelId(null);
+    setRefundPreview(null);
+    setRefundPreviewLoading(false);
   }
 
   async function handleCancel(id: number) {
@@ -590,7 +633,24 @@ export function useAppointments(
     });
     setCancellingId(null);
     setCancelPanelId(null);
-    if (result.ok) load();
+    setRefundPreview(null);
+    if (!result.ok) return;
+    const refund = (result.data as { refund: RefundRequestSummary | null }).refund;
+    if (refund) {
+      toast.success(
+        refund.status === "pending_approval"
+          ? "Cancelled -- refund pending approval"
+          : "Cancelled -- refund initiated",
+        `₹${refund.refund_amount.toLocaleString("en-IN")} ${
+          refund.status === "pending_approval"
+            ? "will be reviewed in Billing -> Refunds."
+            : "is being refunded via Razorpay."
+        }`,
+      );
+    } else {
+      toast.success("Appointment cancelled");
+    }
+    load();
   }
 
   async function openReschedulePanel(id: number) {
@@ -689,6 +749,8 @@ export function useAppointments(
     cancelPanelId,
     cancelMessage,
     setCancelMessage,
+    refundPreview,
+    refundPreviewLoading,
     openCancelPanel,
     closeCancelPanel,
     handleCancel,
