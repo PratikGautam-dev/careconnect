@@ -149,11 +149,26 @@ export function useAppointmentBillingPayments(
 ) {
   const { dateFrom, dateTo, hospitalId, method, status } = filters;
   const { data, error } = useQuery({
-    queryKey: ["admin-appointment-billing-payments", dateFrom, dateTo, hospitalId, method, status, page, limit],
+    queryKey: [
+      "admin-appointment-billing-payments",
+      dateFrom,
+      dateTo,
+      hospitalId,
+      method,
+      status,
+      page,
+      limit,
+    ],
     retry: false,
     queryFn: async () => {
       const qs = buildQuery({
-        date_from: dateFrom, date_to: dateTo, hospital_id: hospitalId, method, status, page, limit,
+        date_from: dateFrom,
+        date_to: dateTo,
+        hospital_id: hospitalId,
+        method,
+        status,
+        page,
+        limit,
       });
       const result = await adminFetch(`/api/admin/appointment-billing/payments${qs}`);
       return unwrapAdminResult<{ total: number; rows: AppointmentBillingPaymentRow[] }>(result);
@@ -187,11 +202,24 @@ export function useAppointmentBillingRefundQueue(
 ) {
   const { dateFrom, dateTo, hospitalId, status } = filters;
   const { data, error } = useQuery({
-    queryKey: ["admin-appointment-billing-refund-queue", dateFrom, dateTo, hospitalId, status, page, limit],
+    queryKey: [
+      "admin-appointment-billing-refund-queue",
+      dateFrom,
+      dateTo,
+      hospitalId,
+      status,
+      page,
+      limit,
+    ],
     retry: false,
     queryFn: async () => {
       const qs = buildQuery({
-        date_from: dateFrom, date_to: dateTo, hospital_id: hospitalId, status, page, limit,
+        date_from: dateFrom,
+        date_to: dateTo,
+        hospital_id: hospitalId,
+        status,
+        page,
+        limit,
       });
       const result = await adminFetch(`/api/admin/appointment-billing/refund-queue${qs}`);
       return unwrapAdminResult<{ total: number; rows: AppointmentBillingRefundRow[] }>(result);

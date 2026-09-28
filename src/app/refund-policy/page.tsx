@@ -82,10 +82,10 @@ export default function RefundPolicyPage() {
               <p>
                 This policy explains how cancellations and refunds work for appointments booked
                 through DAAP CareConnect (&ldquo;CareConnect,&rdquo; &ldquo;the Platform&rdquo;),
-                operated by DaaPrime Tech. It applies only to bookings your hospital has charged
-                for online through the Platform. A booking made on a pay-at-hospital basis, or an
-                appointment type your hospital doesn&apos;t charge for, has no online payment and
-                so nothing to refund here — see your hospital directly for anything related to
+                operated by DaaPrime Tech. It applies only to bookings your hospital has charged for
+                online through the Platform. A booking made on a pay-at-hospital basis, or an
+                appointment type your hospital doesn&apos;t charge for, has no online payment and so
+                nothing to refund here — see your hospital directly for anything related to
                 in-person billing.
               </p>
             </Section>
@@ -93,9 +93,9 @@ export default function RefundPolicyPage() {
             <Section id="paid-appointments" title="2. Which appointments involve payment">
               <p>
                 Whether a given appointment type is paid for online, and how much it costs, is set
-                by your hospital, not by CareConnect. Where a hospital has configured an online
-                fee — for example a consultation, tele-consultation, second opinion, diagnostic or
-                lab test, or a daycare procedure — you&apos;ll always see the amount and be asked to
+                by your hospital, not by CareConnect. Where a hospital has configured an online fee
+                — for example a consultation, tele-consultation, second opinion, diagnostic or lab
+                test, or a daycare procedure — you&apos;ll always see the amount and be asked to
                 confirm before paying. Payment is collected securely through Razorpay.
               </p>
             </Section>
@@ -103,8 +103,8 @@ export default function RefundPolicyPage() {
             <Section id="patient-cancellation" title="3. Cancelling an appointment yourself">
               <p>
                 If you cancel a paid appointment yourself, part of the fee may be deducted before
-                the remainder is refunded. Each hospital sets its own cancellation schedule, but
-                the underlying idea is the same everywhere: the more advance notice you give, the
+                the remainder is refunded. Each hospital sets its own cancellation schedule, but the
+                underlying idea is the same everywhere: the more advance notice you give, the
                 smaller the deduction — a cancellation made well ahead of your appointment keeps
                 more of your payment refundable, while cancelling very close to (or after) your
                 scheduled time keeps less. The exact deduction that applies to your booking is
@@ -120,8 +120,8 @@ export default function RefundPolicyPage() {
               title="4. When your hospital cancels or can't accommodate you"
             >
               <p>
-                If your hospital cancels your appointment, or is otherwise unable to accommodate
-                it, you&apos;re entitled to a full refund of the base fee you paid — no deduction
+                If your hospital cancels your appointment, or is otherwise unable to accommodate it,
+                you&apos;re entitled to a full refund of the base fee you paid — no deduction
                 applies, regardless of how close to the appointment time this happens.
               </p>
             </Section>
@@ -138,12 +138,12 @@ export default function RefundPolicyPage() {
               <p>
                 Refunds are issued through Razorpay, back to whichever method you originally paid
                 with. Depending on your hospital&apos;s own settings, a refund is either issued
-                immediately once your cancellation is confirmed, or first reviewed by hospital
-                staff before being released — either way, you&apos;ll be told which applies to your
-                refund at the time you cancel. Once released, how long it takes to actually reflect
-                in your account depends on your bank or UPI provider, not on CareConnect, so we
-                don&apos;t quote a fixed number of days here — treat it as a normal bank-processed
-                refund timeline.
+                immediately once your cancellation is confirmed, or first reviewed by hospital staff
+                before being released — either way, you&apos;ll be told which applies to your refund
+                at the time you cancel. Once released, how long it takes to actually reflect in your
+                account depends on your bank or UPI provider, not on CareConnect, so we don&apos;t
+                quote a fixed number of days here — treat it as a normal bank-processed refund
+                timeline.
               </p>
             </Section>
 
@@ -160,10 +160,10 @@ export default function RefundPolicyPage() {
             <Section id="changes" title="8. Changes to this policy">
               <p>
                 We may update this policy from time to time. We will update the &ldquo;Last
-                updated&rdquo; date above when we do. This policy describes how the Platform
-                handles refunds generally — the specific cancellation schedule and fee amounts for
-                your booking always come from your own hospital and are shown to you directly at
-                the time of booking and cancellation.
+                updated&rdquo; date above when we do. This policy describes how the Platform handles
+                refunds generally — the specific cancellation schedule and fee amounts for your
+                booking always come from your own hospital and are shown to you directly at the time
+                of booking and cancellation.
               </p>
             </Section>
           </Card>

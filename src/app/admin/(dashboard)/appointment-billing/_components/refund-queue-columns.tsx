@@ -11,7 +11,11 @@ function money(value: number): string {
 function formatDateTime(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("en-IN", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -42,13 +46,17 @@ export const REFUND_STATUS_TONE: Record<
  * read-only visibility only (confirmed with the user); approve/reject
  * stays in the hospital's own portal. showHospital=false on the per-tenant
  * detail page (redundant there). */
-export function createRefundQueueColumns(showHospital: boolean): ColumnDef<AppointmentBillingRefundRow>[] {
+export function createRefundQueueColumns(
+  showHospital: boolean,
+): ColumnDef<AppointmentBillingRefundRow>[] {
   const columns: ColumnDef<AppointmentBillingRefundRow>[] = [];
   if (showHospital) {
     columns.push({
       id: "hospital",
       header: "Hospital",
-      cell: ({ row }) => <span className="text-ink-900 font-semibold">{row.original.hospital_name}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900 font-semibold">{row.original.hospital_name}</span>
+      ),
     });
   }
   columns.push(
@@ -66,26 +74,34 @@ export function createRefundQueueColumns(showHospital: boolean): ColumnDef<Appoi
       id: "appointment",
       header: "Appointment",
       cell: ({ row }) => (
-        <span className="text-ink-600">{row.original.reference_id || `#${row.original.appointment_id}`}</span>
+        <span className="text-ink-600">
+          {row.original.reference_id || `#${row.original.appointment_id}`}
+        </span>
       ),
     },
     {
       id: "amount",
       header: "Refund Amount",
-      cell: ({ row }) => <span className="text-ink-900 font-semibold">{money(row.original.refund_amount)}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900 font-semibold">{money(row.original.refund_amount)}</span>
+      ),
     },
     {
       id: "status",
       header: "Status",
       cell: ({ row }) => (
-        <Badge tone={REFUND_STATUS_TONE[row.original.status]}>{REFUND_STATUS_LABEL[row.original.status]}</Badge>
+        <Badge tone={REFUND_STATUS_TONE[row.original.status]}>
+          {REFUND_STATUS_LABEL[row.original.status]}
+        </Badge>
       ),
     },
     {
       id: "requestedAt",
       header: "Requested",
       cell: ({ row }) => (
-        <span className="text-ink-600 whitespace-nowrap">{formatDateTime(row.original.created_at)}</span>
+        <span className="text-ink-600 whitespace-nowrap">
+          {formatDateTime(row.original.created_at)}
+        </span>
       ),
     },
   );

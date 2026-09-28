@@ -135,7 +135,9 @@ export function HospitalDetailPanel({ hospital, subscription, profile, paymentSe
           </p>
           <div className="gap-space-2 flex items-center">
             <Badge tone={subscription ? STATUS_TONE[subscription.status] : "neutral"}>
-              {subscription ? STATUS_LABEL[subscription.status] || subscription.status : "Unassigned"}
+              {subscription
+                ? STATUS_LABEL[subscription.status] || subscription.status
+                : "Unassigned"}
             </Badge>
             {subscription?.plan_name && (
               <span className="text-ink-900 text-[13px] font-bold">{subscription.plan_name}</span>

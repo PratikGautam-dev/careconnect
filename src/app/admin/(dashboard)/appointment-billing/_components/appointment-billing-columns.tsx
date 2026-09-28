@@ -4,7 +4,10 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Eye } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
-import type { AppointmentBillingHospitalRow, AppointmentBillingPaymentRow } from "@/hooks/useAppointmentBilling";
+import type {
+  AppointmentBillingHospitalRow,
+  AppointmentBillingPaymentRow,
+} from "@/hooks/useAppointmentBilling";
 
 function money(value: number): string {
   return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -13,7 +16,11 @@ function money(value: number): string {
 function formatDateTime(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("en-IN", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -24,7 +31,10 @@ const PAYMENT_STATUS_LABEL: Record<AppointmentBillingPaymentRow["status"], strin
   expired: "Expired",
   pay_at_hospital: "Pay at Hospital",
 };
-const PAYMENT_STATUS_TONE: Record<AppointmentBillingPaymentRow["status"], "success" | "clay" | "neutral"> = {
+const PAYMENT_STATUS_TONE: Record<
+  AppointmentBillingPaymentRow["status"],
+  "success" | "clay" | "neutral"
+> = {
   paid: "success",
   pending: "clay",
   failed: "clay",
@@ -51,7 +61,9 @@ export function createHospitalBillingColumns(): ColumnDef<AppointmentBillingHosp
     {
       id: "online",
       header: "Online",
-      cell: ({ row }) => <span className="text-ink-600">{money(row.original.online_collected)}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{money(row.original.online_collected)}</span>
+      ),
     },
     {
       id: "cash",
@@ -70,7 +82,8 @@ export function createHospitalBillingColumns(): ColumnDef<AppointmentBillingHosp
       header: "Platform / Hospital Gateway",
       cell: ({ row }) => (
         <span className="text-ink-600 whitespace-nowrap">
-          {money(row.original.platform_gateway_collected)} / {money(row.original.hospital_gateway_collected)}
+          {money(row.original.platform_gateway_collected)} /{" "}
+          {money(row.original.hospital_gateway_collected)}
         </span>
       ),
     },
@@ -84,7 +97,9 @@ export function createHospitalBillingColumns(): ColumnDef<AppointmentBillingHosp
       header: "Payable to Hospital",
       cell: ({ row }) =>
         row.original.payable_to_hospital > 0 ? (
-          <span className="text-clay-700 font-semibold">{money(row.original.payable_to_hospital)}</span>
+          <span className="text-clay-700 font-semibold">
+            {money(row.original.payable_to_hospital)}
+          </span>
         ) : (
           <span className="text-ink-400">—</span>
         ),
@@ -94,7 +109,9 @@ export function createHospitalBillingColumns(): ColumnDef<AppointmentBillingHosp
       header: "Payable to Platform",
       cell: ({ row }) =>
         row.original.payable_to_platform > 0 ? (
-          <span className="text-brand-700 font-semibold">{money(row.original.payable_to_platform)}</span>
+          <span className="text-brand-700 font-semibold">
+            {money(row.original.payable_to_platform)}
+          </span>
         ) : (
           <span className="text-ink-400">—</span>
         ),
@@ -131,13 +148,17 @@ export function createHospitalBillingColumns(): ColumnDef<AppointmentBillingHosp
  * (useAppointmentBillingPayments) -- also reusable platform-wide (a
  * "recent payments" strip) since hospital_id is nullable on the underlying
  * type; only shown when present. */
-export function createAppointmentPaymentColumns(showHospital: boolean): ColumnDef<AppointmentBillingPaymentRow>[] {
+export function createAppointmentPaymentColumns(
+  showHospital: boolean,
+): ColumnDef<AppointmentBillingPaymentRow>[] {
   const columns: ColumnDef<AppointmentBillingPaymentRow>[] = [];
   if (showHospital) {
     columns.push({
       id: "hospital",
       header: "Hospital",
-      cell: ({ row }) => <span className="text-ink-900 font-semibold">{row.original.hospital_name}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900 font-semibold">{row.original.hospital_name}</span>
+      ),
     });
   }
   columns.push(
@@ -147,14 +168,18 @@ export function createAppointmentPaymentColumns(showHospital: boolean): ColumnDe
       cell: ({ row }) => (
         <div>
           <p className="text-ink-900 font-medium">{row.original.patient_name || "—"}</p>
-          <p className="text-ink-400 text-[11.5px]">{row.original.reference_id || `#${row.original.id}`}</p>
+          <p className="text-ink-400 text-[11.5px]">
+            {row.original.reference_id || `#${row.original.id}`}
+          </p>
         </div>
       ),
     },
     {
       id: "amount",
       header: "Amount",
-      cell: ({ row }) => <span className="text-ink-900 font-semibold">{money(row.original.amount)}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900 font-semibold">{money(row.original.amount)}</span>
+      ),
     },
     {
       id: "method",
@@ -178,7 +203,9 @@ export function createAppointmentPaymentColumns(showHospital: boolean): ColumnDe
       id: "status",
       header: "Status",
       cell: ({ row }) => (
-        <Badge tone={PAYMENT_STATUS_TONE[row.original.status]}>{PAYMENT_STATUS_LABEL[row.original.status]}</Badge>
+        <Badge tone={PAYMENT_STATUS_TONE[row.original.status]}>
+          {PAYMENT_STATUS_LABEL[row.original.status]}
+        </Badge>
       ),
     },
     {
@@ -195,7 +222,9 @@ export function createAppointmentPaymentColumns(showHospital: boolean): ColumnDe
       id: "createdAt",
       header: "Date",
       cell: ({ row }) => (
-        <span className="text-ink-600 whitespace-nowrap">{formatDateTime(row.original.created_at)}</span>
+        <span className="text-ink-600 whitespace-nowrap">
+          {formatDateTime(row.original.created_at)}
+        </span>
       ),
     },
   );

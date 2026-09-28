@@ -20,7 +20,12 @@ const STATUS_TINT: Record<DemoRequestStatus, string> = {
 
 export function StatusBadge({ status }: { status: DemoRequestStatus }) {
   return (
-    <span className={cn("px-space-2 rounded-full py-0.5 text-[11px] font-semibold", STATUS_TINT[status])}>
+    <span
+      className={cn(
+        "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+        STATUS_TINT[status],
+      )}
+    >
       {STATUS_LABELS[status]}
     </span>
   );
@@ -73,7 +78,9 @@ export function createDemoRequestColumns({
     {
       id: "created_at",
       header: "Submitted",
-      cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.created_at)}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{formatDate(row.original.created_at)}</span>
+      ),
     },
     {
       id: "status",

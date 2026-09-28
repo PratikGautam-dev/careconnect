@@ -342,16 +342,18 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               <p className="text-eyebrow mb-space-1">Payment gateway</p>
               <h2 className="text-display mb-space-2 text-[18px]">GST &amp; platform fee</h2>
               <p className="text-body mb-space-4">
-                By default this hospital is charged the platform-wide rate, set in Platform
-                Settings → General. A hospital running its own Razorpay account can pick its own
-                rate here instead.
+                By default this hospital is charged the platform-wide rate, set in Platform Settings
+                → General. A hospital running its own Razorpay account can pick its own rate here
+                instead.
               </p>
 
               <form onSubmit={handleFeeSettingsSubmit}>
                 <div className="mb-space-4 gap-space-3 flex items-center">
                   <Switch
                     checked={feeForm.override_fees}
-                    onChange={() => setFeeForm({ ...feeForm, override_fees: !feeForm.override_fees })}
+                    onChange={() =>
+                      setFeeForm({ ...feeForm, override_fees: !feeForm.override_fees })
+                    }
                     aria-label="Use this tenant's own GST/platform fee rate"
                   />
                   <span className="text-[14px] font-medium">
@@ -367,7 +369,9 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                       <div className="mb-space-2 gap-space-2 flex items-center">
                         <Switch
                           checked={feeForm.gst_enabled}
-                          onChange={() => setFeeForm({ ...feeForm, gst_enabled: !feeForm.gst_enabled })}
+                          onChange={() =>
+                            setFeeForm({ ...feeForm, gst_enabled: !feeForm.gst_enabled })
+                          }
                           aria-label="Charge GST for this tenant"
                         />
                         <span className="text-[13px] font-medium">Charge GST</span>
@@ -391,7 +395,10 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                         <Switch
                           checked={feeForm.platform_fee_enabled}
                           onChange={() =>
-                            setFeeForm({ ...feeForm, platform_fee_enabled: !feeForm.platform_fee_enabled })
+                            setFeeForm({
+                              ...feeForm,
+                              platform_fee_enabled: !feeForm.platform_fee_enabled,
+                            })
                           }
                           aria-label="Charge platform fee for this tenant"
                         />

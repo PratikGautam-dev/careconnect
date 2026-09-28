@@ -83,7 +83,9 @@ export function RevenueTrendChart({ data, className }: Props) {
         </span>
       </div>
       {!data ? (
-        <div className="text-ink-400 flex h-60 items-center justify-center text-[13px]">Loading…</div>
+        <div className="text-ink-400 flex h-60 items-center justify-center text-[13px]">
+          Loading…
+        </div>
       ) : (
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={points} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
@@ -104,16 +106,31 @@ export function RevenueTrendChart({ data, className }: Props) {
             />
             <Tooltip content={<TrendTooltip />} />
             <Line
-              type="monotone" dataKey="gross_collected" name="Gross Collected"
-              stroke={GROSS_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4 }}
+              type="monotone"
+              dataKey="gross_collected"
+              name="Gross Collected"
+              stroke={GROSS_COLOR}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4 }}
             />
             <Line
-              type="monotone" dataKey="net_actual" name="Net Actual"
-              stroke={NET_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4 }}
+              type="monotone"
+              dataKey="net_actual"
+              name="Net Actual"
+              stroke={NET_COLOR}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4 }}
             />
             <Line
-              type="monotone" dataKey="refunded" name="Refunded"
-              stroke={REFUNDED_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 4 }}
+              type="monotone"
+              dataKey="refunded"
+              name="Refunded"
+              stroke={REFUNDED_COLOR}
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 4 }}
             />
           </LineChart>
         </ResponsiveContainer>

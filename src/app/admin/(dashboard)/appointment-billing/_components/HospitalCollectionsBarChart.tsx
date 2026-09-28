@@ -1,6 +1,15 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import type { AppointmentBillingHospitalRow } from "@/hooks/useAppointmentBilling";
@@ -26,15 +35,19 @@ type Props = { rows: AppointmentBillingHospitalRow[] | null; className?: string 
  * this chart is "free" (zero added latency), matching the "instant, no
  * extra chunk" requirement the rest of this page follows. */
 export function HospitalCollectionsBarChart({ rows, className }: Props) {
-  const data = (rows ?? [])
-    .slice(0, MAX_HOSPITALS)
-    .map((r) => ({ name: truncate(r.hospital_name), online: r.online_collected, cash: r.cash_collected }));
+  const data = (rows ?? []).slice(0, MAX_HOSPITALS).map((r) => ({
+    name: truncate(r.hospital_name),
+    online: r.online_collected,
+    cash: r.cash_collected,
+  }));
 
   return (
     <Card className={cn("p-space-4", className)}>
       <h3 className="text-label mb-space-4 text-ink-900 font-bold">Collections by Hospital</h3>
       {!rows ? (
-        <div className="text-ink-400 flex h-60 items-center justify-center text-[13px]">Loading…</div>
+        <div className="text-ink-400 flex h-60 items-center justify-center text-[13px]">
+          Loading…
+        </div>
       ) : data.length === 0 ? (
         <div className="text-ink-400 flex h-60 items-center justify-center text-[13px]">
           No collections in this range.
@@ -59,8 +72,22 @@ export function HospitalCollectionsBarChart({ rows, className }: Props) {
             />
             <Tooltip formatter={(v: number) => formatCompactInr(v)} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="online" name="Online" stackId="collected" fill={ONLINE_COLOR} radius={[0, 0, 0, 0]} maxBarSize={40} />
-            <Bar dataKey="cash" name="Cash" stackId="collected" fill={CASH_COLOR} radius={[4, 4, 0, 0]} maxBarSize={40} />
+            <Bar
+              dataKey="online"
+              name="Online"
+              stackId="collected"
+              fill={ONLINE_COLOR}
+              radius={[0, 0, 0, 0]}
+              maxBarSize={40}
+            />
+            <Bar
+              dataKey="cash"
+              name="Cash"
+              stackId="collected"
+              fill={CASH_COLOR}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={40}
+            />
           </BarChart>
         </ResponsiveContainer>
       )}

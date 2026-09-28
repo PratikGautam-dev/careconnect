@@ -19,7 +19,10 @@ import { HospitalCollectionsBarChart } from "./_components/HospitalCollectionsBa
 import { RevenueTrendChart } from "./_components/RevenueTrendChart";
 import { StatSplitDonuts } from "./_components/StatSplitDonuts";
 
-const REFUND_STATUS_OPTIONS = Object.entries(REFUND_STATUS_LABEL).map(([value, label]) => ({ value, label }));
+const REFUND_STATUS_OPTIONS = Object.entries(REFUND_STATUS_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);

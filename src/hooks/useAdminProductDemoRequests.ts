@@ -40,9 +40,10 @@ export function useAdminProductDemoRequests() {
     retry: false,
     queryFn: async () => {
       const result = await adminFetch("/api/admin/product-demo-requests");
-      return unwrapAdminResult<{ requests: ProductDemoRequestRow[]; summary: ProductDemoRequestSummary }>(
-        result,
-      );
+      return unwrapAdminResult<{
+        requests: ProductDemoRequestRow[];
+        summary: ProductDemoRequestSummary;
+      }>(result);
     },
   });
 
@@ -63,7 +64,8 @@ export function useAdminProductDemoRequests() {
       queryClient.setQueryData(
         REQUESTS_QUERY_KEY,
         (
-          prev: { requests: ProductDemoRequestRow[]; summary: ProductDemoRequestSummary } | undefined,
+          prev:
+            { requests: ProductDemoRequestRow[]; summary: ProductDemoRequestSummary } | undefined,
         ) =>
           prev
             ? { ...prev, requests: prev.requests.map((r) => (r.id === requestId ? request : r)) }

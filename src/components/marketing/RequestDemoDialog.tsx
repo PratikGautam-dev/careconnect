@@ -89,87 +89,88 @@ export function RequestDemoDialog() {
         }}
       >
         <DialogContent>
-        {submittedNumber ? (
-          <>
-            <DialogTitle>Thanks — request received</DialogTitle>
-            <DialogDescription>
-              Your reference number is <strong>{submittedNumber}</strong>. Our team will reach out
-              shortly to schedule your demo.
-            </DialogDescription>
-            <Button type="button" onClick={() => setOpen(false)}>
-              Close
-            </Button>
-          </>
-        ) : (
-          <>
-            <DialogTitle>Request a product demo</DialogTitle>
-            <DialogDescription>
-              Tell us a bit about your hospital and we&apos;ll get in touch to schedule a walkthrough.
-            </DialogDescription>
-            <form onSubmit={handleSubmit} className="gap-space-3 grid grid-cols-1">
-              <Field label="Name" htmlFor="demo_name" required>
-                <Input
-                  id="demo_name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your full name"
-                />
-              </Field>
-
-              <div className="gap-x-space-4 grid grid-cols-1 sm:grid-cols-2">
-                <Field label="Email" htmlFor="demo_email" required>
+          {submittedNumber ? (
+            <>
+              <DialogTitle>Thanks — request received</DialogTitle>
+              <DialogDescription>
+                Your reference number is <strong>{submittedNumber}</strong>. Our team will reach out
+                shortly to schedule your demo.
+              </DialogDescription>
+              <Button type="button" onClick={() => setOpen(false)}>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <DialogTitle>Request a product demo</DialogTitle>
+              <DialogDescription>
+                Tell us a bit about your hospital and we&apos;ll get in touch to schedule a
+                walkthrough.
+              </DialogDescription>
+              <form onSubmit={handleSubmit} className="gap-space-3 grid grid-cols-1">
+                <Field label="Name" htmlFor="demo_name" required>
                   <Input
-                    id="demo_email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@hospital.com"
+                    id="demo_name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your full name"
                   />
                 </Field>
-                <Field label="Phone" htmlFor="demo_phone" required>
+
+                <div className="gap-x-space-4 grid grid-cols-1 sm:grid-cols-2">
+                  <Field label="Email" htmlFor="demo_email" required>
+                    <Input
+                      id="demo_email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@hospital.com"
+                    />
+                  </Field>
+                  <Field label="Phone" htmlFor="demo_phone" required>
+                    <Input
+                      id="demo_phone"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91…"
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Hospital / Clinic name" htmlFor="demo_hospital" hint="Optional">
                   <Input
-                    id="demo_phone"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+91…"
+                    id="demo_hospital"
+                    value={hospitalName}
+                    onChange={(e) => setHospitalName(e.target.value)}
+                    placeholder="e.g. Rao Clinic"
                   />
                 </Field>
-              </div>
 
-              <Field label="Hospital / Clinic name" htmlFor="demo_hospital" hint="Optional">
-                <Input
-                  id="demo_hospital"
-                  value={hospitalName}
-                  onChange={(e) => setHospitalName(e.target.value)}
-                  placeholder="e.g. Rao Clinic"
-                />
-              </Field>
+                <Field
+                  label="Message"
+                  htmlFor="demo_message"
+                  hint={`Optional — ${message.length}/${MESSAGE_MAX}`}
+                >
+                  <Textarea
+                    id="demo_message"
+                    rows={3}
+                    maxLength={MESSAGE_MAX}
+                    placeholder="Anything specific you'd like us to cover?"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                  />
+                </Field>
 
-              <Field
-                label="Message"
-                htmlFor="demo_message"
-                hint={`Optional — ${message.length}/${MESSAGE_MAX}`}
-              >
-                <Textarea
-                  id="demo_message"
-                  rows={3}
-                  maxLength={MESSAGE_MAX}
-                  placeholder="Anything specific you'd like us to cover?"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                />
-              </Field>
+                {formError && <p className="text-error text-[12.5px] font-medium">{formError}</p>}
 
-              {formError && <p className="text-error text-[12.5px] font-medium">{formError}</p>}
-
-              <div>
-                <Button type="submit" disabled={submitting}>
-                  <Send size={14} /> {submitting ? "Submitting…" : "Request demo"}
-                </Button>
-              </div>
-            </form>
-          </>
-        )}
+                <div>
+                  <Button type="submit" disabled={submitting}>
+                    <Send size={14} /> {submitting ? "Submitting…" : "Request demo"}
+                  </Button>
+                </div>
+              </form>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>

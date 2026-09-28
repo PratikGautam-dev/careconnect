@@ -20,7 +20,7 @@ export default function LandingPage() {
         <BrandMark />
         <div className="gap-space-2 flex items-center">
           <Button href="/portal/login" variant="secondary" size="md">
-           Sign In
+            Sign In
           </Button>
         </div>
       </header>
@@ -133,10 +133,7 @@ export default function LandingPage() {
                     </a>
                   </li>
                   <li>
-                    <a
-                      href="/plans"
-                      className="hover:text-brand-600 hover:underline"
-                    >
+                    <a href="/plans" className="hover:text-brand-600 hover:underline">
                       Plans & pricing
                     </a>
                   </li>

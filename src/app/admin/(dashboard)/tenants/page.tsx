@@ -8,7 +8,12 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
 import { formatDate } from "@/lib/formatDate";
-import { useTenants, useTenantProfile, useTenantPaymentSettings, type Tenant } from "@/hooks/useTenants";
+import {
+  useTenants,
+  useTenantProfile,
+  useTenantPaymentSettings,
+  type Tenant,
+} from "@/hooks/useTenants";
 import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
 import { STATUS_LABEL } from "../subscriptions/_components/subscription-columns";
 import { createTenantColumns, TENANT_TYPE_LABELS } from "./_components/tenant-columns";
@@ -74,7 +79,10 @@ function TenantsList() {
         }
       }
       if (typeFilter !== "all" && t.tenant_type !== typeFilter) return false;
-      if (subscriptionStatusFilter !== "all" && (sub?.status ?? "unassigned") !== subscriptionStatusFilter) {
+      if (
+        subscriptionStatusFilter !== "all" &&
+        (sub?.status ?? "unassigned") !== subscriptionStatusFilter
+      ) {
         return false;
       }
       if (statusFilter !== "all" && (statusFilter === "active") !== t.is_active) return false;

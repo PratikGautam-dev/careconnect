@@ -18,7 +18,10 @@ import { createAppointmentPaymentColumns } from "../_components/appointment-bill
 import { createRefundQueueColumns, REFUND_STATUS_LABEL } from "../_components/refund-queue-columns";
 import { RevenueTrendChart } from "../_components/RevenueTrendChart";
 
-const REFUND_STATUS_OPTIONS = Object.entries(REFUND_STATUS_LABEL).map(([value, label]) => ({ value, label }));
+const REFUND_STATUS_OPTIONS = Object.entries(REFUND_STATUS_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}));
 const PAYMENT_STATUS_OPTIONS = [
   { value: "paid", label: "Paid" },
   { value: "failed", label: "Failed" },
@@ -251,7 +254,11 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
   );
 }
 
-export default function AppointmentBillingTenantPage({ params }: { params: Promise<{ tenantId: string }> }) {
+export default function AppointmentBillingTenantPage({
+  params,
+}: {
+  params: Promise<{ tenantId: string }>;
+}) {
   const { tenantId } = use(params);
   return <AppointmentBillingTenantDetail tenantId={Number(tenantId)} />;
 }
