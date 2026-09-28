@@ -7,17 +7,17 @@ import { Badge } from "@/components/ui/Badge";
 import type { Tenant } from "@/hooks/useTenants";
 import { formatDate } from "@/lib/formatDate";
 
-export const TIER_LABELS: Record<string, string> = {
-  tier1: "Tier 1",
-  tier2: "Tier 2",
-  tier3: "Tier 3",
+export const TENANT_TYPE_LABELS: Record<string, string> = {
+  hospital: "Hospital",
+  clinic: "Clinic",
 };
 
 type CreateTenantColumnsOptions = {
-  selectedIds: Set<number>;
-  onToggle: (id: number) => void;
-  onToggleAll: (checked: boolean) => void;
-  allSelected: boolean;
+  // hospital_id -> its subscription's real plan name (admin/subscriptions_api.py,
+  // e.g. "Starter"/"Professional") -- null/missing means never assigned a
+  // plan, not the hospital's data_tier (Tier 1/2/3, a data-connection detail
+  // shown nowhere on this table).
+  planNameByHospitalId: Map<number, string | null>;
 };
 
 /** Column defs for the /admin/tenants Hospital Directory table -- every
@@ -27,40 +27,12 @@ type CreateTenantColumnsOptions = {
  * design are left off rather than fabricated -- see the page's own
  * docstring for the aggregate-level cards that DO carry mock data). */
 export function createTenantColumns({
-  selectedIds,
-  onToggle,
-  onToggleAll,
-  allSelected,
+  planNameByHospitalId,
 }: CreateTenantColumnsOptions): ColumnDef<Tenant>[] {
   return [
     {
-      id: "select",
-      header: () => (
-        <input
-          type="checkbox"
-          checked={allSelected}
-          onChange={(e) => onToggleAll(e.target.checked)}
-          aria-label="Select all"
-          className="accent-brand-600 h-4 w-4"
-        />
-      ),
-      cell: ({ row }) => (
-        <input
-          type="checkbox"
-          checked={selectedIds.has(row.original.id)}
-          onChange={(e) => {
-            e.stopPropagation();
-            onToggle(row.original.id);
-          }}
-          onClick={(e) => e.stopPropagation()}
-          aria-label={`Select ${row.original.name}`}
-          className="accent-brand-600 h-4 w-4"
-        />
-      ),
-    },
-    {
       id: "name",
-      header: "Hospital Name",
+      header: "Tenant Name",
       cell: ({ row }) => (
         <div>
           <p className="text-ink-900 font-semibold">{row.original.name}</p>
@@ -80,13 +52,13 @@ export function createTenantColumns({
       header: "Plan",
       cell: ({ row }) => (
         <span className="text-ink-600">
-          {TIER_LABELS[row.original.data_tier] || row.original.data_tier}
+          {planNameByHospitalId.get(row.original.id) || "Unassigned"}
         </span>
       ),
     },
     {
       id: "status",
-      header: "Subscription Status",
+      header: "Tenant Status",
       cell: ({ row }) => (
         <Badge tone={row.original.is_active ? "success" : "neutral"}>
           {row.original.is_active ? "Active" : "Inactive"}
@@ -94,12 +66,12 @@ export function createTenantColumns({
       ),
     },
     {
-      id: "whatsapp",
-      header: "WhatsApp",
+      id: "tenant_type",
+      header: "Tenant Type",
       cell: ({ row }) => (
-        <Badge tone={row.original.whatsapp_phone_number_id ? "success" : "neutral"}>
-          {row.original.whatsapp_phone_number_id ? "Enabled" : "Disabled"}
-        </Badge>
+        <span className="text-ink-600">
+          {TENANT_TYPE_LABELS[row.original.tenant_type] || row.original.tenant_type}
+        </span>
       ),
     },
     {

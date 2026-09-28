@@ -8,9 +8,10 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
 import { formatDate } from "@/lib/formatDate";
-import { useTenants, useTenantProfile, type Tenant } from "@/hooks/useTenants";
+import { useTenants, useTenantProfile, useTenantPaymentSettings, type Tenant } from "@/hooks/useTenants";
 import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
-import { createTenantColumns, TIER_LABELS } from "./_components/tenant-columns";
+import { STATUS_LABEL } from "../subscriptions/_components/subscription-columns";
+import { createTenantColumns, TENANT_TYPE_LABELS } from "./_components/tenant-columns";
 import { HospitalDetailPanel } from "./_components/HospitalDetailPanel";
 
 // Within this many days of a renewal_date counts as "Expiring Soon" --
@@ -20,8 +21,16 @@ import { HospitalDetailPanel } from "./_components/HospitalDetailPanel";
 // until the month actually turns).
 const EXPIRING_SOON_WINDOW_DAYS = 30;
 
-const TIER_OPTIONS = Object.entries(TIER_LABELS).map(([value, label]) => ({ value, label }));
-const STATUS_OPTIONS = [
+const TYPE_OPTIONS = Object.entries(TENANT_TYPE_LABELS).map(([value, label]) => ({ value, label }));
+// unassigned isn't a real per-hospital plan_id -- its own filter value, not
+// backed by the plans catalog below.
+const SUBSCRIPTION_STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}));
+// Tenant Status -- the hospital account's own is_active toggle (edit-tenant
+// page's new Active/Inactive switch), NOT a billing/subscription state.
+const TENANT_STATUS_OPTIONS = [
   { value: "active", label: "Active" },
   { value: "inactive", label: "Inactive" },
 ];
@@ -31,18 +40,43 @@ function TenantsList() {
   // Real hospital<->plan assignment (admin/subscriptions_api.py), same data
   // source the /admin/subscriptions page's own stat tiles use -- backs "On
   // Trial"/"Expiring Soon" below instead of the old hardcoded mock numbers.
-  const { subscriptions } = useAdminSubscriptions();
+  const { subscriptions, plans } = useAdminSubscriptions();
 
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tierFilter, setTierFilter] = useState("all");
+  const [planFilter, setPlanFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [subscriptionStatusFilter, setSubscriptionStatusFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const subscriptionByHospitalId = useMemo(
+    () => new Map((subscriptions ?? []).map((s) => [s.hospital_id, s])),
+    [subscriptions],
+  );
+
+  const PLAN_OPTIONS = useMemo(
+    () => [
+      { value: "unassigned", label: "Unassigned" },
+      ...plans.map((p) => ({ value: String(p.id), label: p.name })),
+    ],
+    [plans],
+  );
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return (tenants ?? []).filter((t) => {
-      if (tierFilter !== "all" && t.data_tier !== tierFilter) return false;
+      const sub = subscriptionByHospitalId.get(t.id);
+      if (planFilter !== "all") {
+        if (planFilter === "unassigned") {
+          if (sub?.plan_id != null) return false;
+        } else if (String(sub?.plan_id ?? "") !== planFilter) {
+          return false;
+        }
+      }
+      if (typeFilter !== "all" && t.tenant_type !== typeFilter) return false;
+      if (subscriptionStatusFilter !== "all" && (sub?.status ?? "unassigned") !== subscriptionStatusFilter) {
+        return false;
+      }
       if (statusFilter !== "all" && (statusFilter === "active") !== t.is_active) return false;
       if (!q) return true;
       return (
@@ -51,7 +85,15 @@ function TenantsList() {
         (t.whatsapp_phone_number_id || "").toLowerCase().includes(q)
       );
     });
-  }, [tenants, searchQuery, tierFilter, statusFilter]);
+  }, [
+    tenants,
+    searchQuery,
+    planFilter,
+    typeFilter,
+    subscriptionStatusFilter,
+    statusFilter,
+    subscriptionByHospitalId,
+  ]);
 
   const activeCount = tenants?.filter((t) => t.is_active).length ?? null;
   const totalCount = tenants?.length ?? null;
@@ -75,26 +117,14 @@ function TenantsList() {
   const selectedSubscription =
     subscriptions?.find((s) => s.hospital_id === selectedHospital?.id) ?? null;
   const selectedProfile = useTenantProfile(selectedHospital?.id ?? null);
+  const selectedPaymentSettings = useTenantPaymentSettings(selectedHospital?.id ?? null);
 
-  function toggleOne(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const planNameByHospitalId = useMemo(
+    () => new Map((subscriptions ?? []).map((s) => [s.hospital_id, s.plan_name])),
+    [subscriptions],
+  );
 
-  function toggleAll(checked: boolean) {
-    setSelectedIds(checked ? new Set(filtered.map((t) => t.id)) : new Set());
-  }
-
-  const columns = createTenantColumns({
-    selectedIds,
-    onToggle: toggleOne,
-    onToggleAll: toggleAll,
-    allSelected: filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id)),
-  });
+  const columns = createTenantColumns({ planNameByHospitalId });
 
   return (
     <div>
@@ -191,24 +221,30 @@ function TenantsList() {
                 />
               </div>
               <FilterSelect
-                value={tierFilter}
-                onChange={setTierFilter}
+                value={planFilter}
+                onChange={setPlanFilter}
                 allLabel="All Plans"
-                options={TIER_OPTIONS}
+                options={PLAN_OPTIONS}
+              />
+              <FilterSelect
+                value={typeFilter}
+                onChange={setTypeFilter}
+                allLabel="All Tenant Types"
+                options={TYPE_OPTIONS}
+              />
+              <FilterSelect
+                value={subscriptionStatusFilter}
+                onChange={setSubscriptionStatusFilter}
+                allLabel="All Subscription Statuses"
+                options={SUBSCRIPTION_STATUS_OPTIONS}
               />
               <FilterSelect
                 value={statusFilter}
                 onChange={setStatusFilter}
-                allLabel="All Statuses"
-                options={STATUS_OPTIONS}
+                allLabel="All Tenant Statuses"
+                options={TENANT_STATUS_OPTIONS}
               />
             </div>
-
-            {selectedIds.size > 0 && (
-              <p className="text-brand-700 bg-brand-50 px-space-3 py-space-2 mb-space-3 rounded-md text-[12.5px] font-semibold">
-                {selectedIds.size} selected
-              </p>
-            )}
 
             <DataTable<Tenant>
               columns={columns}
@@ -233,6 +269,7 @@ function TenantsList() {
             hospital={selectedHospital}
             subscription={selectedSubscription}
             profile={selectedProfile}
+            paymentSettings={selectedPaymentSettings}
           />
         </div>
       </div>

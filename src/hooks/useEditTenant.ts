@@ -5,6 +5,12 @@ import { unwrapAdminResult } from "@/lib/adminMutation";
 import { validateReminderOffsetsHours } from "@/lib/validation/reminderOffsets";
 import { toast } from "@/lib/toast";
 
+// Flat, primitives-only form objects (payment/fee settings below) -- enough
+// to tell "nothing to save" from a real edit without a deep-equal library.
+function shallowEqual<T extends Record<string, unknown>>(a: T, b: T): boolean {
+  return Object.keys(a).every((k) => a[k] === b[k]);
+}
+
 export type TenantDetail = {
   id: number;
   name: string;
@@ -81,7 +87,37 @@ export type PaymentSettingsDetail = {
   razorpay_key_id: string | null;
   key_secret_configured: boolean;
   webhook_secret_configured: boolean;
+  // This hospital's own GST/platform-fee override -- only applied when
+  // override_fees is true; otherwise the default_* fields below (the
+  // platform-wide rate) are what's actually charged.
+  override_fees: boolean;
+  gst_enabled: boolean;
+  gst_percent: number | null;
+  platform_fee_enabled: boolean;
+  platform_fee_percent: number | null;
+  default_gst_enabled: boolean;
+  default_gst_percent: number | null;
+  default_platform_fee_enabled: boolean;
+  default_platform_fee_percent: number | null;
 };
+
+export type FeeSettingsFormState = {
+  override_fees: boolean;
+  gst_enabled: boolean;
+  gst_percent: string;
+  platform_fee_enabled: boolean;
+  platform_fee_percent: string;
+};
+
+function feeFormFromSettings(s: PaymentSettingsDetail): FeeSettingsFormState {
+  return {
+    override_fees: s.override_fees,
+    gst_enabled: s.gst_enabled,
+    gst_percent: s.gst_percent === null ? "" : String(s.gst_percent),
+    platform_fee_enabled: s.platform_fee_enabled,
+    platform_fee_percent: s.platform_fee_percent === null ? "" : String(s.platform_fee_percent),
+  };
+}
 
 export type PaymentSettingsFormState = {
   payment_mode: "platform" | "hospital_own";
@@ -99,7 +135,7 @@ function paymentFormFromSettings(s: PaymentSettingsDetail): PaymentSettingsFormS
   };
 }
 
-function paymentSettingsQueryKey(tenantId: number) {
+export function paymentSettingsQueryKey(tenantId: number) {
   return ["admin-tenant-payment-settings", tenantId] as const;
 }
 
@@ -161,9 +197,97 @@ export function useEditTenant(tenantId: number) {
     setSeededPaymentSettingsTenantId(tenantId);
     setPaymentForm(paymentFormFromSettings(paymentSettings));
   }
+  // Nothing to send if the form still matches what's actually saved --
+  // guards the Save button so toggling something back to its original value
+  // (or never touching the form at all) can't fire a no-op PATCH.
+  const paymentFormDirty = !!(
+    paymentForm &&
+    paymentSettings &&
+    !shallowEqual(paymentForm, paymentFormFromSettings(paymentSettings))
+  );
 
   const [paymentSettingsErrors, setPaymentSettingsErrors] = useState<string[]>([]);
   const [paymentSettingsSaved, setPaymentSettingsSaved] = useState(false);
+
+  // This hospital's own GST/platform-fee override -- same query as payment
+  // settings above (one GET already returns both), its own independent
+  // save (own PATCH endpoint, own form state) since it's a logically
+  // separate section on the page.
+  const [seededFeeSettingsTenantId, setSeededFeeSettingsTenantId] = useState<number | null>(null);
+  const [feeForm, setFeeForm] = useState<FeeSettingsFormState | null>(null);
+  if (paymentSettings && tenantId !== seededFeeSettingsTenantId) {
+    setSeededFeeSettingsTenantId(tenantId);
+    setFeeForm(feeFormFromSettings(paymentSettings));
+  }
+  // Same "nothing to save" guard as paymentFormDirty above -- most relevant
+  // here since toggling "Use this tenant's own rate" off is itself a no-op
+  // for a tenant that already inherits the platform default.
+  const feeFormDirty = !!(
+    feeForm &&
+    paymentSettings &&
+    !shallowEqual(feeForm, feeFormFromSettings(paymentSettings))
+  );
+
+  const [feeSettingsErrors, setFeeSettingsErrors] = useState<string[]>([]);
+  const [feeSettingsSaved, setFeeSettingsSaved] = useState(false);
+
+  const saveFeeSettingsMutation = useMutation({
+    mutationFn: async (payload: {
+      override_fees: boolean;
+      gst_enabled: boolean;
+      gst_percent: number | null;
+      platform_fee_enabled: boolean;
+      platform_fee_percent: number | null;
+    }) => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}/fee-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return unwrapAdminResult<{ status?: string; errors?: string[] }>(result);
+    },
+  });
+
+  async function handleFeeSettingsSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!feeForm || !feeFormDirty) return;
+    setFeeSettingsSaved(false);
+    setFeeSettingsErrors([]);
+    const gstPercent = feeForm.gst_percent.trim() === "" ? null : Number(feeForm.gst_percent);
+    const platformFeePercent =
+      feeForm.platform_fee_percent.trim() === "" ? null : Number(feeForm.platform_fee_percent);
+    if (gstPercent !== null && !Number.isFinite(gstPercent)) {
+      setFeeSettingsErrors(["GST % must be a number."]);
+      return;
+    }
+    if (platformFeePercent !== null && !Number.isFinite(platformFeePercent)) {
+      setFeeSettingsErrors(["Platform fee % must be a number."]);
+      return;
+    }
+    try {
+      const data = await saveFeeSettingsMutation.mutateAsync({
+        override_fees: feeForm.override_fees,
+        gst_enabled: feeForm.gst_enabled,
+        gst_percent: gstPercent,
+        platform_fee_enabled: feeForm.platform_fee_enabled,
+        platform_fee_percent: platformFeePercent,
+      });
+      if (data.errors?.length) {
+        setFeeSettingsErrors(data.errors);
+        toast.error("Couldn't save fee settings", data.errors[0]);
+        return;
+      }
+      toast.success("Fee settings saved");
+      setFeeSettingsSaved(true);
+      setSeededPaymentSettingsTenantId(null);
+      setSeededFeeSettingsTenantId(null);
+      refetchPaymentSettings();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setFeeSettingsErrors([message]);
+      toast.error("Couldn't save fee settings", message);
+    }
+  }
 
   const savePaymentSettingsMutation = useMutation({
     mutationFn: async (payload: PaymentSettingsFormState) => {
@@ -178,7 +302,7 @@ export function useEditTenant(tenantId: number) {
 
   async function handlePaymentSettingsSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!paymentForm) return;
+    if (!paymentForm || !paymentFormDirty) return;
     setPaymentSettingsSaved(false);
     setPaymentSettingsErrors([]);
     try {
@@ -211,6 +335,33 @@ export function useEditTenant(tenantId: number) {
       return unwrapAdminResult<{ tenant?: TenantDetail; errors?: string[] }>(result);
     },
   });
+
+  // Hospital account Active/Inactive kill switch (admin/tenants_api.py's
+  // own status endpoint, separate from the main tenant PATCH) -- applies
+  // immediately on confirm, no separate "Save" step, since the page's own
+  // ConfirmDialog IS the confirmation step.
+  const updateStatusMutation = useMutation({
+    mutationFn: async (isActive: boolean) => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      return unwrapAdminResult<{ tenant: TenantDetail }>(result).tenant;
+    },
+  });
+
+  async function updateTenantStatus(isActive: boolean) {
+    try {
+      const updated = await updateStatusMutation.mutateAsync(isActive);
+      queryClient.setQueryData(tenantQueryKey(tenantId), updated);
+      toast.success(isActive ? "Tenant activated" : "Tenant deactivated");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      toast.error("Couldn't update tenant status", message);
+      throw err;
+    }
+  }
 
   const toggleAppointmentTypeMutation = useMutation({
     mutationFn: async ({
@@ -331,6 +482,8 @@ export function useEditTenant(tenantId: number) {
     toggleCapability,
     toggleAppointmentTypeAllowed,
     handleSubmit,
+    updateTenantStatus,
+    updatingTenantStatus: updateStatusMutation.isPending,
     paymentSettings: paymentSettings ?? null,
     paymentForm,
     setPaymentForm,
@@ -340,6 +493,14 @@ export function useEditTenant(tenantId: number) {
     paymentSettingsErrors,
     savingPaymentSettings: savePaymentSettingsMutation.isPending,
     paymentSettingsSaved,
+    paymentFormDirty,
     handlePaymentSettingsSubmit,
+    feeForm,
+    setFeeForm,
+    feeSettingsErrors,
+    savingFeeSettings: saveFeeSettingsMutation.isPending,
+    feeSettingsSaved,
+    feeFormDirty,
+    handleFeeSettingsSubmit,
   };
 }

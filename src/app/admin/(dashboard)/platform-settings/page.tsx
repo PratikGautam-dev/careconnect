@@ -42,8 +42,12 @@ function PlatformSettingsForm() {
     setDpdpRequired,
     auditLogRetentionDays,
     setAuditLogRetentionDays,
+    gstEnabled,
+    setGstEnabled,
     gstPercent,
     setGstPercent,
+    platformFeeEnabled,
+    setPlatformFeeEnabled,
     platformFeePercent,
     setPlatformFeePercent,
     error,
@@ -77,8 +81,12 @@ function PlatformSettingsForm() {
               setMaxActiveLinks={setMaxActiveLinks}
               dpdpRequired={dpdpRequired}
               setDpdpRequired={setDpdpRequired}
+              gstEnabled={gstEnabled}
+              setGstEnabled={setGstEnabled}
               gstPercent={gstPercent}
               setGstPercent={setGstPercent}
+              platformFeeEnabled={platformFeeEnabled}
+              setPlatformFeeEnabled={setPlatformFeeEnabled}
               platformFeePercent={platformFeePercent}
               setPlatformFeePercent={setPlatformFeePercent}
               error={error}

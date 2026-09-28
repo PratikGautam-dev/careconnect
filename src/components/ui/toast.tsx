@@ -6,7 +6,11 @@ import { cn } from "@/lib/cn";
 import { toastManager } from "@/lib/toast";
 
 const TYPE_ICON = { success: CheckCircle2, error: XCircle } as const;
-const TYPE_ICON_CLASS: Record<string, string> = { success: "text-success", error: "text-error" };
+// Solid, on-brand backgrounds (not the neutral card) -- success uses the
+// app's own brand color, error uses the same red as every other error
+// state (STATUS_STYLES, Badge, etc.), both always white text/icon/close
+// regardless of light/dark mode.
+const TYPE_BG_CLASS: Record<string, string> = { success: "bg-brand-600", error: "bg-error" };
 
 function ToastItem({ toast }: { toast: ToastPrimitive.Root.ToastObject }) {
   const Icon = TYPE_ICON[toast.type as keyof typeof TYPE_ICON] ?? CheckCircle2;
@@ -14,27 +18,23 @@ function ToastItem({ toast }: { toast: ToastPrimitive.Root.ToastObject }) {
     <ToastPrimitive.Root
       toast={toast}
       className={cn(
-        "gap-space-2 border-line bg-card p-space-3 pointer-events-auto flex w-full max-w-sm items-start rounded-lg border shadow-[var(--shadow-lg)]",
+        "gap-space-2 p-space-3 pointer-events-auto flex w-full max-w-sm items-start rounded-lg text-white shadow-[var(--shadow-lg)]",
+        TYPE_BG_CLASS[toast.type ?? ""] ?? "bg-brand-600",
         "transition-all duration-200 ease-out",
         "data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0",
         "data-[ending-style]:translate-y-2 data-[ending-style]:opacity-0",
       )}
     >
-      <Icon
-        size={18}
-        className={cn("mt-0.5 shrink-0", TYPE_ICON_CLASS[toast.type ?? ""] ?? "text-ink-600")}
-      />
+      <Icon size={18} className="mt-0.5 shrink-0 text-white" />
       <ToastPrimitive.Content className="min-w-0 flex-1">
-        {toast.title && (
-          <ToastPrimitive.Title className="text-ink-900 text-[13.5px] font-semibold" />
-        )}
+        {toast.title && <ToastPrimitive.Title className="text-[13.5px] font-semibold text-white" />}
         {toast.description && (
-          <ToastPrimitive.Description className="text-ink-600 mt-0.5 text-[12.5px]" />
+          <ToastPrimitive.Description className="mt-0.5 text-[12.5px] text-white/85" />
         )}
       </ToastPrimitive.Content>
       <ToastPrimitive.Close
         aria-label="Dismiss"
-        className="text-ink-400 hover:text-ink-700 shrink-0 rounded-md p-0.5 hover:bg-black/[0.04]"
+        className="shrink-0 rounded-md p-0.5 text-white/80 hover:bg-white/15 hover:text-white"
       >
         <X size={14} />
       </ToastPrimitive.Close>
@@ -46,7 +46,7 @@ function ToastViewportContent() {
   const { toasts } = ToastPrimitive.useToastManager();
   return (
     <ToastPrimitive.Portal>
-      <ToastPrimitive.Viewport className="gap-space-2 p-space-4 pointer-events-none fixed inset-x-0 bottom-0 z-100 flex flex-col items-center sm:inset-x-auto sm:right-0 sm:items-end">
+      <ToastPrimitive.Viewport className="gap-space-2 p-space-4 pointer-events-none fixed inset-x-0 top-0 z-100 flex flex-col items-center sm:inset-x-auto sm:right-0 sm:items-end">
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} />
         ))}

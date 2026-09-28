@@ -9,11 +9,13 @@ const ACTIVE_BY_SEGMENT: Record<string, string> = {
   tenants: "tenants",
   subscriptions: "subscriptions",
   "plans-billing": "plans-billing",
+  "appointment-billing": "appointment-billing",
   users: "users",
   "access-control": "access-control",
   "feature-toggles": "feature-toggles",
   "platform-settings": "platform-settings",
   "support-tickets": "support-tickets",
+  "product-demo-requests": "product-demo-requests",
 };
 
 /** Shared layout for the sidebar-shell pages (dashboard, tenants, users,

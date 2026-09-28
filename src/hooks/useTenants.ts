@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminAuth";
 import { unwrapAdminResult } from "@/lib/adminMutation";
-import { tenantQueryKey, type TenantDetail } from "@/hooks/useEditTenant";
+import {
+  paymentSettingsQueryKey,
+  tenantQueryKey,
+  type PaymentSettingsDetail,
+  type TenantDetail,
+} from "@/hooks/useEditTenant";
 
 export type Tenant = {
   id: number;
@@ -80,6 +85,26 @@ export function useTenantProfile(tenantId: number | null): TenantProfile | null 
     queryFn: async () => {
       const result = await adminFetch(`/api/admin/tenants/${tenantId}`);
       return unwrapAdminResult<{ tenant: TenantDetail }>(result).tenant;
+    },
+  });
+  return data ?? null;
+}
+
+/** On-demand payment-routing fetch for the same Hospital Directory
+ * right-rail panel -- own/platform Razorpay and the GST/platform-fee
+ * override live on a separate endpoint from the tenant detail above
+ * (admin/payment_settings_api.py), same reasoning useTenantProfile's own
+ * docstring gives for keeping it off the list summary. Shares its query key
+ * with useEditTenant.ts's own fetch, so opening the edit page right after
+ * reads from cache instead of refetching. */
+export function useTenantPaymentSettings(tenantId: number | null): PaymentSettingsDetail | null {
+  const { data } = useQuery({
+    queryKey: paymentSettingsQueryKey(tenantId ?? -1),
+    retry: false,
+    enabled: tenantId != null,
+    queryFn: async () => {
+      const result = await adminFetch(`/api/admin/tenants/${tenantId}/payment-settings`);
+      return unwrapAdminResult<PaymentSettingsDetail>(result);
     },
   });
   return data ?? null;

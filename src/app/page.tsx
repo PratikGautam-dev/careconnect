@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/marketing/BrandMark";
 import { ClinicSetupButton } from "@/components/marketing/ClinicSetupButton";
 import { PhoneMockup } from "@/components/marketing/PhoneMockup";
+import { RequestDemoDialog } from "@/components/marketing/RequestDemoDialog";
 
 const FEATURES = [
   { title: "No app for patients", desc: "Works directly on WhatsApp", Icon: CircleCheck },
@@ -19,7 +20,7 @@ export default function LandingPage() {
         <BrandMark />
         <div className="gap-space-2 flex items-center">
           <Button href="/portal/login" variant="secondary" size="md">
-            Hospital login
+           Sign In
           </Button>
         </div>
       </header>
@@ -87,13 +88,7 @@ export default function LandingPage() {
                   Set up your hospital
                 </Button>
                 <ClinicSetupButton />
-                <Button
-                  href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
-                  variant="secondary"
-                  size="lg"
-                >
-                  Request a product demo
-                </Button>
+                <RequestDemoDialog />
               </div>
             </div>
 
@@ -134,7 +129,15 @@ export default function LandingPage() {
                       href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
                       className="hover:text-brand-600 hover:underline"
                     >
-                      Request a demo
+                      Request demo
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="/plans"
+                      className="hover:text-brand-600 hover:underline"
+                    >
+                      Plans & pricing
                     </a>
                   </li>
                 </ul>
@@ -165,6 +168,11 @@ export default function LandingPage() {
                   <li>
                     <a href="/terms" className="hover:text-brand-600 hover:underline">
                       Terms of Service
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/refund-policy" className="hover:text-brand-600 hover:underline">
+                      Cancellation &amp; Refund Policy
                     </a>
                   </li>
                 </ul>

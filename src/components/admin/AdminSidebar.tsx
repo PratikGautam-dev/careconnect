@@ -5,7 +5,9 @@ import {
   ChevronsRight,
   CreditCard,
   HeadphonesIcon,
+  Landmark,
   Lock,
+  MonitorPlay,
   LayoutDashboard,
   LogOut,
   Receipt,
@@ -28,12 +30,24 @@ const NAV_ITEMS = [
   // the target design's navigation is complete; wire to a real API later.
   { key: "subscriptions", label: "Subscriptions", icon: CreditCard, href: "/admin/subscriptions" },
   { key: "plans-billing", label: "Plans & Billing", icon: Receipt, href: "/admin/plans-billing" },
+  {
+    key: "appointment-billing",
+    label: "Appointment Billing",
+    icon: Landmark,
+    href: "/admin/appointment-billing",
+  },
   { key: "users", label: "Users", icon: Users, href: "/admin/users" },
   {
     key: "support-tickets",
     label: "Support Tickets",
     icon: HeadphonesIcon,
     href: "/admin/support-tickets",
+  },
+  {
+    key: "product-demo-requests",
+    label: "Demo Requests",
+    icon: MonitorPlay,
+    href: "/admin/product-demo-requests",
   },
   // Access Control = admin_capabilities (staff-portal management screens);
   // Feature Toggles = enabled_features (WhatsApp bot menu) -- deliberately

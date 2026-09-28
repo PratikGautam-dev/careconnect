@@ -14,8 +14,13 @@ export type PlatformSettings = {
   // (POST /internal/purge-audit-logs) deletes them. 30-730 days.
   audit_log_retention_days: number;
   // Charged on top of every payable appointment fee (flows/booking/book.py)
-  // -- ONE rate for every tenant, no per-hospital override. null means 0%.
+  // -- the default rate for every tenant (a hospital with its own Razorpay
+  // account can override it, admin/tenants/[id] page). *_enabled is the
+  // real on/off switch; percent is kept even while disabled so re-enabling
+  // doesn't lose the last-configured rate.
+  gst_enabled: boolean;
   gst_percent: number | null;
+  platform_fee_enabled: boolean;
   platform_fee_percent: number | null;
 };
 
@@ -40,7 +45,9 @@ export function usePlatformSettings() {
   // "" (unset) means 0% -- same convention usePortalSettings' own fee
   // fields use, not a numeric default that would misrepresent "never
   // configured" as an actual chosen rate.
+  const [gstEnabled, setGstEnabledRaw] = useState(false);
   const [gstPercent, setGstPercentRaw] = useState("");
+  const [platformFeeEnabled, setPlatformFeeEnabledRaw] = useState(false);
   const [platformFeePercent, setPlatformFeePercentRaw] = useState("");
   if (settings && !seeded) {
     setSeeded(true);
@@ -48,7 +55,9 @@ export function usePlatformSettings() {
     setFeatureLabels(settings.feature_labels);
     setDpdpRequiredRaw(settings.dpdp_consent_required);
     setAuditLogRetentionDaysRaw(String(settings.audit_log_retention_days));
+    setGstEnabledRaw(settings.gst_enabled);
     setGstPercentRaw(settings.gst_percent != null ? String(settings.gst_percent) : "");
+    setPlatformFeeEnabledRaw(settings.platform_fee_enabled);
     setPlatformFeePercentRaw(
       settings.platform_fee_percent != null ? String(settings.platform_fee_percent) : "",
     );
@@ -77,8 +86,18 @@ export function usePlatformSettings() {
     setSaved(false);
   }
 
+  function updateGstEnabled(checked: boolean) {
+    setGstEnabledRaw(checked);
+    setSaved(false);
+  }
+
   function updateGstPercent(value: string) {
     setGstPercentRaw(value);
+    setSaved(false);
+  }
+
+  function updatePlatformFeeEnabled(checked: boolean) {
+    setPlatformFeeEnabledRaw(checked);
     setSaved(false);
   }
 
@@ -93,7 +112,9 @@ export function usePlatformSettings() {
       feature_labels: Record<string, string>;
       dpdp_consent_required: boolean;
       audit_log_retention_days: number;
+      gst_enabled: boolean;
       gst_percent: number | null;
+      platform_fee_enabled: boolean;
       platform_fee_percent: number | null;
     }) => {
       const result = await adminFetch("/api/admin/platform-settings", {
@@ -115,13 +136,17 @@ export function usePlatformSettings() {
         feature_labels: featureLabels,
         dpdp_consent_required: dpdpRequired,
         audit_log_retention_days: Number(auditLogRetentionDays),
+        gst_enabled: gstEnabled,
         gst_percent: gstPercent === "" ? null : Number(gstPercent),
+        platform_fee_enabled: platformFeeEnabled,
         platform_fee_percent: platformFeePercent === "" ? null : Number(platformFeePercent),
       });
       setFeatureLabels(data.feature_labels);
       setDpdpRequiredRaw(data.dpdp_consent_required);
       setAuditLogRetentionDaysRaw(String(data.audit_log_retention_days));
+      setGstEnabledRaw(data.gst_enabled);
       setGstPercentRaw(data.gst_percent != null ? String(data.gst_percent) : "");
+      setPlatformFeeEnabledRaw(data.platform_fee_enabled);
       setPlatformFeePercentRaw(
         data.platform_fee_percent != null ? String(data.platform_fee_percent) : "",
       );
@@ -144,8 +169,12 @@ export function usePlatformSettings() {
     setDpdpRequired: updateDpdpRequired,
     auditLogRetentionDays,
     setAuditLogRetentionDays: updateAuditLogRetentionDays,
+    gstEnabled,
+    setGstEnabled: updateGstEnabled,
     gstPercent,
     setGstPercent: updateGstPercent,
+    platformFeeEnabled,
+    setPlatformFeeEnabled: updatePlatformFeeEnabled,
     platformFeePercent,
     setPlatformFeePercent: updatePlatformFeePercent,
     error: saveError ?? (queryError ? (queryError as Error).message : null),

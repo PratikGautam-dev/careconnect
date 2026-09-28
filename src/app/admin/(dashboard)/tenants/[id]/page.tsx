@@ -1,9 +1,11 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
@@ -32,11 +34,37 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
     paymentSettingsErrors,
     savingPaymentSettings,
     paymentSettingsSaved,
+    paymentFormDirty,
     handlePaymentSettingsSubmit,
+    feeForm,
+    setFeeForm,
+    feeSettingsErrors,
+    savingFeeSettings,
+    feeSettingsSaved,
+    feeFormDirty,
+    handleFeeSettingsSubmit,
+    updateTenantStatus,
+    updatingTenantStatus,
   } = useEditTenant(tenantId);
 
   const { subscriptions } = useAdminSubscriptions();
   const { records: billingRecords } = useAdminBillingRecords();
+
+  // Confirmation step for the Active/Inactive kill switch below -- holds
+  // the value the operator is about to switch TO, null when no confirm
+  // dialog is open.
+  const [pendingStatus, setPendingStatus] = useState<boolean | null>(null);
+
+  async function confirmStatusChange() {
+    if (pendingStatus === null) return;
+    try {
+      await updateTenantStatus(pendingStatus);
+      setPendingStatus(null);
+    } catch {
+      // updateTenantStatus already toasts the error -- leave the dialog
+      // open so the operator can retry instead of silently losing the intent.
+    }
+  }
 
   // Both real lists are global (every hospital), scoped down to just this
   // tenant here -- list_subscriptions() always has exactly one row per
@@ -63,8 +91,23 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
       ) : (
         <>
           <Card className="p-space-5">
-            <p className="text-eyebrow mb-space-1">Editing tenant #{tenant.id}</p>
-            <h1 className="text-display mb-space-4">{tenant.name}</h1>
+            <div className="mb-space-4 gap-space-3 flex flex-wrap items-start justify-between">
+              <div>
+                <p className="text-eyebrow mb-space-1">Editing tenant #{tenant.id}</p>
+                <h1 className="text-display">{tenant.name}</h1>
+              </div>
+              <div className="gap-space-3 flex items-center">
+                <Badge tone={tenant.is_active ? "success" : "neutral"}>
+                  {tenant.is_active ? "Active" : "Inactive"}
+                </Badge>
+                <Switch
+                  checked={tenant.is_active}
+                  onChange={() => setPendingStatus(!tenant.is_active)}
+                  disabled={updatingTenantStatus}
+                  aria-label="Tenant account active"
+                />
+              </div>
+            </div>
             <p className="text-body mb-space-5">
               Only fields you change are updated — leave the token/secret fields blank to keep their
               current values.
@@ -287,8 +330,125 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                   <p className="mb-space-3 text-success text-[12.5px] font-medium">Saved.</p>
                 )}
 
-                <Button type="submit" disabled={savingPaymentSettings}>
+                <Button type="submit" disabled={savingPaymentSettings || !paymentFormDirty}>
                   {savingPaymentSettings ? "Saving…" : "Save payment settings"}
+                </Button>
+              </form>
+            </Card>
+          )}
+
+          {feeForm && (
+            <Card className="p-space-5 mt-space-4">
+              <p className="text-eyebrow mb-space-1">Payment gateway</p>
+              <h2 className="text-display mb-space-2 text-[18px]">GST &amp; platform fee</h2>
+              <p className="text-body mb-space-4">
+                By default this hospital is charged the platform-wide rate, set in Platform
+                Settings → General. A hospital running its own Razorpay account can pick its own
+                rate here instead.
+              </p>
+
+              <form onSubmit={handleFeeSettingsSubmit}>
+                <div className="mb-space-4 gap-space-3 flex items-center">
+                  <Switch
+                    checked={feeForm.override_fees}
+                    onChange={() => setFeeForm({ ...feeForm, override_fees: !feeForm.override_fees })}
+                    aria-label="Use this tenant's own GST/platform fee rate"
+                  />
+                  <span className="text-[14px] font-medium">
+                    {feeForm.override_fees
+                      ? "Using this tenant's own rate"
+                      : "Using the platform's rate (default)"}
+                  </span>
+                </div>
+
+                {feeForm.override_fees ? (
+                  <div className="gap-x-space-4 gap-y-space-3 grid grid-cols-1 md:grid-cols-2">
+                    <div>
+                      <div className="mb-space-2 gap-space-2 flex items-center">
+                        <Switch
+                          checked={feeForm.gst_enabled}
+                          onChange={() => setFeeForm({ ...feeForm, gst_enabled: !feeForm.gst_enabled })}
+                          aria-label="Charge GST for this tenant"
+                        />
+                        <span className="text-[13px] font-medium">Charge GST</span>
+                      </div>
+                      <Field label="GST (%)" htmlFor="tenant_gst_percent">
+                        <Input
+                          id="tenant_gst_percent"
+                          type="number"
+                          min={0}
+                          max={50}
+                          step="0.01"
+                          placeholder="0"
+                          disabled={!feeForm.gst_enabled}
+                          value={feeForm.gst_percent}
+                          onChange={(e) => setFeeForm({ ...feeForm, gst_percent: e.target.value })}
+                        />
+                      </Field>
+                    </div>
+                    <div>
+                      <div className="mb-space-2 gap-space-2 flex items-center">
+                        <Switch
+                          checked={feeForm.platform_fee_enabled}
+                          onChange={() =>
+                            setFeeForm({ ...feeForm, platform_fee_enabled: !feeForm.platform_fee_enabled })
+                          }
+                          aria-label="Charge platform fee for this tenant"
+                        />
+                        <span className="text-[13px] font-medium">Charge platform fee</span>
+                      </div>
+                      <Field label="Platform fee (%)" htmlFor="tenant_platform_fee_percent">
+                        <Input
+                          id="tenant_platform_fee_percent"
+                          type="number"
+                          min={0}
+                          max={50}
+                          step="0.01"
+                          placeholder="0"
+                          disabled={!feeForm.platform_fee_enabled}
+                          value={feeForm.platform_fee_percent}
+                          onChange={(e) =>
+                            setFeeForm({ ...feeForm, platform_fee_percent: e.target.value })
+                          }
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mb-space-4 bg-canvas p-space-3 text-ink-600 rounded-md text-[13px]">
+                    Currently inherits the platform default:{" "}
+                    <span className="font-bold">
+                      GST{" "}
+                      {paymentSettings?.default_gst_enabled
+                        ? `${paymentSettings.default_gst_percent ?? 0}%`
+                        : "off"}
+                    </span>
+                    {", "}
+                    <span className="font-bold">
+                      platform fee{" "}
+                      {paymentSettings?.default_platform_fee_enabled
+                        ? `${paymentSettings.default_platform_fee_percent ?? 0}%`
+                        : "off"}
+                    </span>
+                    .
+                  </p>
+                )}
+
+                {feeSettingsErrors.length > 0 && (
+                  <div className="mb-space-3 border-error bg-error-tint p-space-3 text-error rounded-md border text-[12.5px]">
+                    <ul className="pl-space-4 list-disc">
+                      {feeSettingsErrors.map((e, i) => (
+                        <li key={i}>{e}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {feeSettingsSaved && (
+                  <p className="mb-space-3 text-success text-[12.5px] font-medium">Saved.</p>
+                )}
+
+                <Button type="submit" disabled={savingFeeSettings || !feeFormDirty}>
+                  {savingFeeSettings ? "Saving…" : "Save fee settings"}
                 </Button>
               </form>
             </Card>
@@ -332,6 +492,21 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
               pageSize={10}
             />
           </Card>
+
+          <ConfirmDialog
+            open={pendingStatus !== null}
+            title={pendingStatus ? "Activate tenant" : "Deactivate tenant"}
+            message={
+              pendingStatus
+                ? `Activating will allow ${tenant.name} to use all the plan features associated with the hospital again, including taking bookings through WhatsApp.`
+                : `Switching off will restrict all of the services of ${tenant.name}. No booking can be made here anymore -- its WhatsApp will reply that the ${tenant.tenant_type === "clinic" ? "clinic's" : "hospital's"} service is currently inactive.`
+            }
+            confirmLabel={pendingStatus ? "Activate" : "Deactivate"}
+            destructive={!pendingStatus}
+            busy={updatingTenantStatus}
+            onConfirm={confirmStatusChange}
+            onCancel={() => setPendingStatus(null)}
+          />
         </>
       )}
     </div>
