@@ -53,10 +53,10 @@ const NAV_ITEMS = [
   // Feature Toggles = enabled_features (WhatsApp bot menu) -- deliberately
   // separate real per-hospital gates, portal/capabilities.py's own module
   // docstring is the source of truth for why the two must never be conflated.
-  { key: "access-control", label: "Access Control", icon: Lock, href: "/admin/access-control" },
+  { key: "access-control", label: "Access Management", icon: Lock, href: "/admin/access-control" },
   {
     key: "feature-toggles",
-    label: "Feature Toggles",
+    label: "Feature Management",
     icon: Settings2,
     href: "/admin/feature-toggles",
   },

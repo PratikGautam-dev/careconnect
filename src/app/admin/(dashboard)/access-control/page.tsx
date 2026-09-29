@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
@@ -93,6 +94,7 @@ function AccessControlContent({
     saving,
     saved,
     errors,
+    formDirty,
   } = useEditTenant(selectedId);
 
   const { entries: auditEntries } = useTenantAuditLog(selectedId);
@@ -100,6 +102,23 @@ function AccessControlContent({
   const { plans } = useAdminPlans();
 
   const customCount = tenants.filter((t) => t.has_custom_capabilities).length;
+
+  // Toggling a capability only updates local form state -- nothing reaches
+  // the DB until "Save Changes" is clicked (handleSubmit). Switching the
+  // "Select Hospital" dropdown re-seeds `form` from the newly selected
+  // tenant, silently discarding any unsaved toggle -- easy to mistake for
+  // "I already turned this on" when the toggle never actually got saved.
+  // This confirms before that discard happens instead of losing it quietly.
+  const [pendingSwitchId, setPendingSwitchId] = useState<number | null>(null);
+
+  function requestSelect(id: number) {
+    if (id === selectedId) return;
+    if (formDirty) {
+      setPendingSwitchId(id);
+      return;
+    }
+    onSelect(id);
+  }
 
   if (!tenant || !form) {
     return <p className="text-ink-400 text-[13px]">Loading…</p>;
@@ -181,7 +200,7 @@ function AccessControlContent({
               <label className="text-hint mb-space-1 block">Select Hospital</label>
               <select
                 value={selectedId}
-                onChange={(e) => onSelect(Number(e.target.value))}
+                onChange={(e) => requestSelect(Number(e.target.value))}
                 className="border-line bg-card px-space-3 text-ink-900 h-10 min-w-60 rounded-md border text-[13px]"
               >
                 {tenants.map((t) => (
@@ -219,7 +238,11 @@ function AccessControlContent({
             <Save size={15} /> {saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
-        {saved && <p className="text-success mt-space-2 text-[12.5px]">Saved.</p>}
+        {saved && (
+          <p className="bg-success-tint text-success px-space-3 py-space-2 mt-space-2 rounded-md text-[12.5px] font-semibold">
+            Saved for {tenant.name} — the change is live immediately, no re-login needed.
+          </p>
+        )}
         {errors.length > 0 && <p className="text-error mt-space-2 text-[12.5px]">{errors[0]}</p>}
       </Card>
 
@@ -450,6 +473,21 @@ function AccessControlContent({
           </Card>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingSwitchId !== null}
+        title="Discard unsaved changes?"
+        message={`You have unsaved capability/feature changes for ${tenant.name} that haven't been saved yet. Switching to ${
+          tenants.find((t) => t.id === pendingSwitchId)?.name ?? "another hospital"
+        } will discard them.`}
+        confirmLabel="Discard and switch"
+        destructive
+        onConfirm={() => {
+          if (pendingSwitchId !== null) onSelect(pendingSwitchId);
+          setPendingSwitchId(null);
+        }}
+        onCancel={() => setPendingSwitchId(null)}
+      />
     </div>
   );
 }

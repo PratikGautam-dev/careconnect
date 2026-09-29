@@ -82,6 +82,37 @@ export function tenantQueryKey(tenantId: number) {
   return ["admin-tenant", tenantId] as const;
 }
 
+// Same "is there actually anything to save" question shallowEqual answers
+// for the fee/payment forms below, but TenantFormState carries two
+// multi-select array fields (enabled_features/admin_capabilities) that
+// reference-compare unequal even with identical contents (a fresh array is
+// built on every toggle) -- order-independent membership compare for those
+// two, plain equality for everything else.
+function sameMembers(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
+}
+
+function tenantFormEqual(a: TenantFormState, b: TenantFormState): boolean {
+  return (
+    a.name === b.name &&
+    a.whatsapp_phone_number_id === b.whatsapp_phone_number_id &&
+    a.access_token === b.access_token &&
+    a.app_secret === b.app_secret &&
+    a.welcome_message_text === b.welcome_message_text &&
+    a.reminder_offsets_hours === b.reminder_offsets_hours &&
+    a.reminder_template_name === b.reminder_template_name &&
+    a.data_tier === b.data_tier &&
+    a.api_base_url === b.api_base_url &&
+    a.api_key === b.api_key &&
+    a.tenant_type === b.tenant_type &&
+    sameMembers(a.enabled_features, b.enabled_features) &&
+    sameMembers(a.admin_capabilities, b.admin_capabilities)
+  );
+}
+
 export type PaymentSettingsDetail = {
   payment_mode: "platform" | "hospital_own";
   razorpay_key_id: string | null;
@@ -170,6 +201,13 @@ export function useEditTenant(tenantId: number) {
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [appointmentTypeError, setAppointmentTypeError] = useState<string | null>(null);
+
+  // Unlike paymentFormDirty/feeFormDirty below, this isn't (yet) used to
+  // guard handleSubmit itself -- only to warn a caller (the Access Control
+  // page's "Select Hospital" switcher) before it discards in-progress,
+  // unsaved capability/feature toggles by re-seeding `form` from a
+  // different tenant.
+  const formDirty = !!(form && tenant && !tenantFormEqual(form, formFromTenant(tenant)));
 
   // Payment gateway routing (super-admin only, admin/payment_settings_api.py)
   // -- a genuinely separate resource/endpoint from the tenant fields above,
@@ -476,6 +514,7 @@ export function useEditTenant(tenantId: number) {
     errors,
     saving: saveMutation.isPending,
     saved,
+    formDirty,
     appointmentTypeError,
     toggleFeature,
     resetCapabilitiesToDefaults,

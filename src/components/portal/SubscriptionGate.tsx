@@ -70,7 +70,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
     hasPermission(session, "settings", "write") && hasCapability(session, "settings");
 
   return (
-    <div className="bg-paper flex min-h-screen items-center justify-center p-4">
+    <div className="bg-paper flex min-h-screen items-center justify-center">
       <div className="bg-card p-space-8 w-full max-w-3xl rounded-lg text-center shadow-2xl">
         <div className="bg-error-tint text-error mb-space-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full">
           <AlertTriangle size={26} />

@@ -86,16 +86,7 @@ function HospitalDashboard() {
   return (
     <PortalShell hospital={hospital} active="dashboard">
       <PageHeader
-        title={
-          <>
-            Admin Dashboard
-            {/* {data && (
-              <span className="ml-space-2 text-ink-400 text-[15px] font-medium">
-                ({TIER_LABELS[data.hospital.data_tier] || data.hospital.data_tier})
-              </span>
-            )} */}
-          </>
-        }
+        title={<>Dashboard</>}
         description={formatHeaderDate(today)}
         actions={<PortalTopBarActions />}
       />
@@ -104,7 +95,7 @@ function HospitalDashboard() {
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-space-4 gap-space-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Total appointments"
               value={totalAppointments}

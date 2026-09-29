@@ -16,7 +16,7 @@ export default function LandingPage() {
   return (
     <>
       {/* Top nav: brand mark left, hospital login as a button top-right. */}
-      <header className="gap-space-3 px-space-4 py-space-4 md:px-space-7 lg:px-space-9 flex flex-wrap items-center justify-between">
+      <header className="gap-space-3 py-space-4 md:px-space-7 lg:px-space-9 flex flex-wrap items-center justify-between">
         <BrandMark />
         <div className="gap-space-2 flex items-center">
           <Button href="/portal/login" variant="secondary" size="md">

@@ -87,6 +87,28 @@ type FetchResult =
  * request/result instead of each starting their own. */
 let _refreshInFlight: Promise<string | null> | null = null;
 
+/** Set by StaffSessionProvider on mount to its own `reload()` -- lets
+ * staffFetch below trigger a fresh /me round trip the instant ANY request
+ * comes back 403, without staffFetch (a plain module function, not a hook)
+ * needing access to StaffSessionContext itself. Every real 403 this app
+ * returns (portal/deps.py's require_capability/require_permission) means
+ * the caller's in-memory session.hospital.admin_capabilities or
+ * session.permissions has fallen behind a real backend change (an admin's
+ * Access Control edit, a role-permission edit) -- refetching /me self-heals
+ * the UI's own gating (nav items, buttons) to match, without the user
+ * needing to know anything changed or to log out/in. The backend's 403
+ * itself was already the real enforcement either way; this only fixes what
+ * the UI *shows*. Harmless to also fire on the one unrelated 403 in this
+ * app (documents.py's expired download-link token) -- just one extra,
+ * cheap /me call, and react-query dedupes concurrent refetches of the same
+ * query on its own, so a burst of 403s in one page load still only
+ * produces one in-flight /me request. */
+let _onForbidden: (() => void) | null = null;
+
+export function registerForbiddenHandler(handler: (() => void) | null) {
+  _onForbidden = handler;
+}
+
 /** Attempts one silent refresh via /api/portal/staff/refresh, storing the
  * new access token in memory on success. The refresh token itself is never
  * touched here -- it's an httpOnly cookie the browser attaches
@@ -173,6 +195,7 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
       return { ok: false, unauthorized: false, error: "Network error — check your connection." };
     }
     if (err.response.status !== 401) {
+      if (err.response.status === 403) _onForbidden?.();
       return {
         ok: false,
         unauthorized: false,
@@ -195,6 +218,7 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
         setStaffAccessToken(null);
         return { ok: false, unauthorized: true };
       }
+      if (retryErr.response.status === 403) _onForbidden?.();
       return {
         ok: false,
         unauthorized: false,

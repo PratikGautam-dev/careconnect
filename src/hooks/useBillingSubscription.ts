@@ -38,6 +38,25 @@ export type BillingPlan = {
 
 export type AvailablePlan = { id: number; name: string; price_monthly: number };
 
+export type SubscriptionPayment = {
+  id: number;
+  amount: number;
+  currency: string;
+  status: "pending" | "paid" | "failed" | "expired" | "pay_at_hospital";
+  // Best-effort -- both null for a non-card charge (UPI/netbanking) or a
+  // charge recorded before this capture existed (db.record_subscription_
+  // payment()'s own docstring).
+  card_last4: string | null;
+  card_network: string | null;
+  // Razorpay's own hosted invoice page for this charge -- null whenever
+  // Razorpay's Invoices feature isn't enabled for the account, which is
+  // the common case (db.list_subscription_payments()'s own docstring).
+  // "View" only ever shows for a row where this is set.
+  invoice_short_url: string | null;
+  created_at: string;
+  paid_at: string | null;
+};
+
 export type BillingData = {
   subscription: BillingSubscription | null;
   plan: BillingPlan | null;
@@ -48,6 +67,7 @@ export type BillingData = {
 };
 
 const BILLING_QUERY_KEY = ["portal-billing-subscription"] as const;
+const BILLING_HISTORY_QUERY_KEY = ["portal-billing-history"] as const;
 
 /** The hospital's own CareConnect subscription -- Settings -> Billing. A
  * DIFFERENT concept from /portal/billing's patient-payments ledger: this is
@@ -108,6 +128,22 @@ export function useBillingSubscription() {
     },
   });
 
+  const { data: historyData } = useQuery({
+    queryKey: BILLING_HISTORY_QUERY_KEY,
+    retry: false,
+    queryFn: async () => {
+      const result = await portalFetch("/api/portal/settings/billing/history");
+      return unwrapPortalResult<{ payments: SubscriptionPayment[] }>(router, result);
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const result = await portalFetch("/api/portal/settings/billing/cancel", { method: "POST" });
+      return unwrapPortalResult<{ status?: string; error?: string }>(router, result);
+    },
+  });
+
   async function startBilling(
     planId: number,
     billingCycle: "monthly" | "annual",
@@ -134,12 +170,35 @@ export function useBillingSubscription() {
     }
   }
 
+  // The most recent PAID charge's own card details -- Settings -> Billing's
+  // "Payment method" card. Not necessarily historyData[0] (that's newest
+  // by created_at regardless of status, and a failed/pending attempt
+  // carries no card at all yet).
+  const lastPaidCard =
+    historyData?.payments.find((p) => p.status === "paid" && p.card_last4) ?? null;
+
+  async function cancelBilling(): Promise<boolean> {
+    try {
+      await cancelMutation.mutateAsync();
+      toast.success("Cancellation requested", "This can take a moment to reflect here.");
+      queryClient.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+      return true;
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't cancel plan", err.message);
+      return false;
+    }
+  }
+
   return {
     data: data ?? null,
     error: error && isPortalMutationError(error) ? error.message : null,
     startBilling,
     changePlan,
+    cancelBilling,
     starting: startMutation.isPending,
     changingPlan: changePlanMutation.isPending,
+    cancelling: cancelMutation.isPending,
+    history: historyData?.payments ?? null,
+    lastPaidCard,
   };
 }

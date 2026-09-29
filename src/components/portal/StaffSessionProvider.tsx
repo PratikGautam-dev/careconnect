@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   StaffSessionContext,
+  registerForbiddenHandler,
   staffFetch,
   type StaffSession,
   type StaffSessionStatus,
@@ -106,6 +107,14 @@ export function StaffSessionProvider({ children }: { children: React.ReactNode }
   const reload = useCallback(() => {
     queryClient.refetchQueries({ queryKey: STAFF_SESSION_QUERY_KEY });
   }, [queryClient]);
+
+  // Self-heals a stale session the instant staffFetch sees a 403 (see
+  // registerForbiddenHandler's own docstring) -- registered/torn down with
+  // this provider's own mount lifecycle, same as any other subscription.
+  useEffect(() => {
+    registerForbiddenHandler(reload);
+    return () => registerForbiddenHandler(null);
+  }, [reload]);
 
   const setSessionDirectly = useCallback(
     (next: StaffSession) => {

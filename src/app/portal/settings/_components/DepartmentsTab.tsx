@@ -55,8 +55,12 @@ export function DepartmentsTab() {
 
   const [staffOptions, setStaffOptions] = useState<StaffPickOption[]>([]);
   useEffect(() => {
-    staffFetch("/api/portal/staff").then((result) => {
-      if (result.ok) setStaffOptions((result.data as StaffPickOption[]) || []);
+    // limit=200 -- MAX_STAFF_PAGE_SIZE (portal/routes/staff.py), so this
+    // picker sees every support-staff member, not just the first page's
+    // worth (the endpoint defaults to 25 since it's normally paginated for
+    // the Staff page proper).
+    staffFetch("/api/portal/staff?limit=200").then((result) => {
+      if (result.ok) setStaffOptions(((result.data as { staff?: StaffPickOption[] })?.staff) || []);
     });
   }, []);
 
@@ -211,8 +215,8 @@ export function DepartmentsTab() {
     }
     toast.success("Staff member assigned", manageStaffDepartment.name);
     setManageStaffDepartment(null);
-    const refreshed = await staffFetch("/api/portal/staff");
-    if (refreshed.ok) setStaffOptions((refreshed.data as StaffPickOption[]) || []);
+    const refreshed = await staffFetch("/api/portal/staff?limit=200");
+    if (refreshed.ok) setStaffOptions(((refreshed.data as { staff?: StaffPickOption[] })?.staff) || []);
     await reload();
   }
 
