@@ -23,6 +23,7 @@ import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
 import { StaffDashboardView } from "@/components/portal/StaffDashboardView";
 import { TodaysAppointmentsTable } from "@/components/portal/TodaysAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { usePortalDashboard } from "@/hooks/usePortalDashboard";
 import { formatHeaderDate } from "@/lib/formatDate";
@@ -95,66 +96,36 @@ function HospitalDashboard() {
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-            <StatTile
-              label="Total appointments"
-              value={totalAppointments}
-              deltaPct={null}
-              hint="Last 30 days (± window)"
-              icon={CalendarRange}
-            />
+          <StatTileGrid cols={4} className="mb-space-4">
+            <StatTile label="Total appointments" value={totalAppointments} icon={CalendarRange} />
             <StatTile
               label="Today's appointments"
               value={data.stats.today_appointments}
-              deltaPct={data.stats.today_appointments_delta_pct}
               icon={CalendarClock}
             />
             <StatTile
               label="Active doctors"
               value={data.staffing.active_doctors}
-              deltaPct={null}
               hint={`of ${data.staffing.total_doctors} total`}
               icon={Stethoscope}
             />
             <StatTile
-              label="Staff on duty"
+              label="Active staff"
               value={data.staffing.active_staff}
-              deltaPct={null}
-              hint={`of ${data.staffing.total_staff} total · active accounts, not attendance`}
+              hint={`of ${data.staffing.total_staff} total`}
               icon={Users}
               tint="clay"
             />
-            <StatTile
-              label="New patients"
-              value={data.stats.new_patients_today}
-              deltaPct={data.stats.new_patients_today_delta_pct}
-              icon={UserPlus}
-            />
-            <StatTile
-              label="No-shows"
-              value={data.stats.no_shows_today}
-              deltaPct={data.stats.no_shows_today_delta_pct}
-              upIsGood={false}
-              icon={Ban}
-              tint="error"
-            />
+            <StatTile label="New patients" value={data.stats.new_patients_today} icon={UserPlus} />
+            <StatTile label="No-shows" value={data.stats.no_shows_today} icon={Ban} tint="error" />
             <StatTile
               label="Pending leave requests"
               value={null}
-              deltaPct={null}
-              hint="No approval workflow yet"
               icon={ClipboardList}
               tint="clay"
             />
-            <StatTile
-              label="Flagged patients"
-              value={null}
-              deltaPct={null}
-              hint="No flagging workflow yet"
-              icon={Flag}
-              tint="error"
-            />
-          </div>
+            <StatTile label="Flagged patients" value={null} icon={Flag} tint="error" />
+          </StatTileGrid>
 
           {/* Direct grid children (no space-y wrapper divs) so components
                 flow horizontally, row by row, via CSS Grid's own

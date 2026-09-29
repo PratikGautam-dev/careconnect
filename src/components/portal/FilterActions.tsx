@@ -8,6 +8,8 @@ type Props = {
    * -- callers compute this from their own filter fields, since the set of
    * fields (search/status/type/...) differs per page. */
   showReset: boolean;
+  /** Whether the Apply button should be disabled (no staged changes). */
+  disabled?: boolean;
   applyLabel?: string;
 };
 
@@ -15,10 +17,16 @@ type Props = {
  * useAppointments.ts's staged draft/Apply/Reset pattern) -- Apply is what
  * actually sends the search/status/type/... draft state to the backend;
  * Reset only shows once there's something to clear. */
-export function FilterActions({ onApply, onReset, showReset, applyLabel = "Apply Filter" }: Props) {
+export function FilterActions({
+  onApply,
+  onReset,
+  showReset,
+  disabled = false,
+  applyLabel = "Apply Filter",
+}: Props) {
   return (
     <>
-      <Button type="button" size="md" onClick={onApply}>
+      <Button type="button" size="md" onClick={onApply} disabled={disabled}>
         <SlidersHorizontal size={14} /> {applyLabel}
       </Button>
       {showReset && (

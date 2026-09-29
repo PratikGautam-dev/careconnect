@@ -9,6 +9,7 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
@@ -114,38 +115,32 @@ export default function ReportReviewPage() {
 
       {!ready ? null : (
         <>
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTileGrid cols={4} className="mb-space-4">
             <StatTile
               label="Pending Reviews"
               value={stats.pendingReviews.value}
-              deltaPct={stats.pendingReviews.deltaPct}
               icon={ClipboardPlus}
               tint="clay"
             />
             <StatTile
               label="Approved Reports"
               value={stats.approvedReports.value}
-              deltaPct={stats.approvedReports.deltaPct}
               icon={CheckCircle2}
               tint="success"
             />
             <StatTile
               label="Rejected Reports"
               value={stats.rejectedReports.value}
-              deltaPct={stats.rejectedReports.deltaPct}
               icon={XCircle}
               tint="error"
-              upIsGood={false}
             />
             <StatTile
               label="Urgent Reports"
               value={stats.urgentReports.value}
-              deltaPct={stats.urgentReports.deltaPct}
               icon={AlertTriangle}
               tint="error"
-              upIsGood={false}
             />
-          </div>
+          </StatTileGrid>
 
           <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">

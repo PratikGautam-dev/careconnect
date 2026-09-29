@@ -20,6 +20,7 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { cn } from "@/lib/cn";
 import { toast } from "@/lib/toast";
 import {
@@ -249,18 +250,16 @@ export default function SubscriptionsPage() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+      <StatTileGrid cols={5} className="mb-space-4">
         <StatTile
           label="Active Subscriptions"
           value={stats.active}
-          deltaPct={null}
           hint={`of ${stats.total} total hospitals`}
           icon={Users}
         />
         <StatTile
           label="Trials"
           value={stats.trials}
-          deltaPct={null}
           hint="Hospitals in trial period"
           icon={FlaskConical}
           tint="brand"
@@ -268,7 +267,6 @@ export default function SubscriptionsPage() {
         <StatTile
           label="Renewals This Month"
           value={stats.renewalsThisMonth}
-          deltaPct={null}
           hint="Require attention"
           icon={Clock}
           tint="clay"
@@ -276,8 +274,6 @@ export default function SubscriptionsPage() {
         <StatTile
           label="Churned Accounts"
           value={stats.churned}
-          deltaPct={null}
-          upIsGood={false}
           hint="Cancelled"
           icon={Pause}
           tint="error"
@@ -286,11 +282,10 @@ export default function SubscriptionsPage() {
           label="Avg. Subscription Value"
           value={Math.round(stats.avgValue)}
           prefix="₹"
-          deltaPct={null}
           hint="Per hospital (monthly)"
           icon={BarChart3}
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">

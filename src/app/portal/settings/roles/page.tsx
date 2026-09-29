@@ -23,6 +23,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { cn } from "@/lib/cn";
 import { toast } from "@/lib/toast";
 import { usePermission, useStaffSession } from "@/lib/staffAuth";
@@ -256,25 +257,17 @@ export default function RolesPermissionsPage() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total Roles"
           value={roles.length}
-          deltaPct={null}
           hint="Roles at this hospital"
           icon={Users}
         />
-        <StatTile
-          label="Total Users"
-          value={totalUsers}
-          deltaPct={null}
-          hint="Across all roles"
-          icon={UserRound}
-        />
+        <StatTile label="Total Users" value={totalUsers} hint="Across all roles" icon={UserRound} />
         <StatTile
           label="Active Roles"
           value={activeRoleCount}
-          deltaPct={null}
           hint={`of ${roles.length} have an active user`}
           icon={ShieldCheck}
           tint="success"
@@ -282,11 +275,10 @@ export default function RolesPermissionsPage() {
         <StatTile
           label="Total Permissions"
           value={totalPermissionCells}
-          deltaPct={null}
           hint="Role x module combinations"
           icon={KeyRound}
         />
-      </div>
+      </StatTileGrid>
 
       {!matrix ? (
         <p className="text-ink-400 text-[13px]">Loading…</p>

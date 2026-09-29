@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
 import { formatHeaderDate } from "@/lib/formatDate";
@@ -126,18 +127,16 @@ export default function LeaveRequestsPage() {
         <>
           {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+          <StatTileGrid cols={5} className="mb-space-4">
             <StatTile
               label="Total Requests"
               value={summary ? summary.total : null}
-              deltaPct={null}
               hint="Live count"
               icon={ListChecks}
             />
             <StatTile
               label="Pending Approval"
               value={summary ? summary.pending : null}
-              deltaPct={null}
               hint="Needs review"
               icon={Clock}
               tint="clay"
@@ -145,25 +144,22 @@ export default function LeaveRequestsPage() {
             <StatTile
               label="Approved"
               value={summary ? summary.approved : null}
-              deltaPct={null}
               hint="Live count"
               icon={CalendarCheck}
             />
             <StatTile
               label="Rejected"
               value={summary ? summary.rejected : null}
-              deltaPct={null}
               hint="Live count"
               icon={CalendarX}
             />
             <StatTile
               label="On Leave Today"
               value={summary ? summary.on_leave_today : null}
-              deltaPct={null}
               hint="Approved, today"
               icon={UserRound}
             />
-          </div>
+          </StatTileGrid>
 
           <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">

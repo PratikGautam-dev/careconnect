@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { formatDate } from "@/lib/formatDate";
 import {
   useTenants,
@@ -151,18 +152,16 @@ function TenantsList() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+      <StatTileGrid cols={5} className="mb-space-4">
         <StatTile
           label="Total Hospitals"
           value={totalCount}
-          deltaPct={null}
           hint="Across all subscriptions"
           icon={Building2}
         />
         <StatTile
           label="Active Hospitals"
           value={activeCount}
-          deltaPct={null}
           hint={
             totalCount
               ? `${Math.round(((activeCount ?? 0) / totalCount) * 100)}% of total hospitals`
@@ -174,7 +173,6 @@ function TenantsList() {
         <StatTile
           label="On Trial"
           value={onTrialCount}
-          deltaPct={null}
           hint={
             totalCount
               ? `${Math.round(((onTrialCount ?? 0) / totalCount) * 100)}% of total hospitals`
@@ -186,7 +184,6 @@ function TenantsList() {
         <StatTile
           label="Suspended"
           value={suspendedCount}
-          deltaPct={null}
           hint={
             totalCount
               ? `${Math.round(((suspendedCount ?? 0) / totalCount) * 100)}% of total hospitals`
@@ -198,12 +195,11 @@ function TenantsList() {
         <StatTile
           label="Expiring Soon"
           value={expiringSoonCount}
-          deltaPct={null}
           hint={`Within next ${EXPIRING_SOON_WINDOW_DAYS} days`}
           icon={Clock}
           tint="clay"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">

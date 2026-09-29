@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { cn } from "@/lib/cn";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
 import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
@@ -103,11 +104,10 @@ export default function PlansBillingPage() {
         </div>
       </div>
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total Revenue"
           value={billingStats?.total_revenue ?? 0}
-          deltaPct={null}
           prefix="₹"
           hint="This month"
           icon={Banknote}
@@ -115,15 +115,12 @@ export default function PlansBillingPage() {
         <StatTile
           label="Invoices Issued"
           value={billingStats?.invoices_issued ?? 0}
-          deltaPct={null}
           hint="This month"
           icon={FileText}
         />
         <StatTile
           label="Failed Payments"
           value={billingStats?.failed_payments_count ?? 0}
-          deltaPct={null}
-          upIsGood={false}
           hint="This month"
           icon={AlertCircle}
           tint="error"
@@ -131,12 +128,11 @@ export default function PlansBillingPage() {
         <StatTile
           label="Collections"
           value={billingStats?.collections ?? 0}
-          deltaPct={null}
           prefix="₹"
           hint="Received this month"
           icon={Receipt}
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">

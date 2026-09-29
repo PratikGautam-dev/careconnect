@@ -1,5 +1,7 @@
+import { CONTACT, CONTACT_LINKS } from "@/lib/contact";
+import Link from "next/link";
 import Image from "next/image";
-import { CircleCheck, ListChecks, Tag } from "lucide-react";
+import { ArrowRight, CircleCheck, ListChecks, Tag } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/marketing/BrandMark";
 import { ClinicSetupButton } from "@/components/marketing/ClinicSetupButton";
@@ -16,7 +18,7 @@ export default function LandingPage() {
   return (
     <>
       {/* Top nav: brand mark left, hospital login as a button top-right. */}
-      <header className="gap-space-3 py-space-4 md:px-space-7 lg:px-space-9 flex flex-wrap items-center justify-between">
+      <header className="gap-space-3 px-space-1 py-space-4 md:px-space-7 lg:px-space-9 flex flex-wrap items-center justify-between">
         <BrandMark />
         <div className="gap-space-2 flex items-center">
           <Button href="/portal/login" variant="secondary" size="md">
@@ -90,6 +92,14 @@ export default function LandingPage() {
                 <ClinicSetupButton />
                 <RequestDemoDialog />
               </div>
+              <div className="mt-space-4 font-bold">
+                <Link
+                  href="/plans"
+                  className="gap-space-1 text-brand-600 flex items-center underline hover:underline-offset-2"
+                >
+                  Explore our plans <ArrowRight className="size-4" size={14} />
+                </Link>
+              </div>
             </div>
 
             <div className="flex items-center justify-center">
@@ -98,90 +108,95 @@ export default function LandingPage() {
           </div>
         </div>
       </main>
+      <Footer />
+    </>
+  );
+}
 
-      <footer className="border-line bg-paper border-t">
-        <div className="px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
-          <div className="gap-space-6 flex flex-col md:flex-row md:justify-between">
-            <div className="max-w-[320px]">
-              <BrandMark />
-              <p className="mt-space-3 text-ink-600 text-[13px]">
-                WhatsApp appointment booking &amp; reminders for hospitals — no app for patients,
-                managed from one dashboard.
-              </p>
-            </div>
-
-            <div className="gap-space-6 md:gap-space-9 grid grid-cols-2 md:flex">
-              <div>
-                <p className="text-eyebrow mb-space-2">Product</p>
-                <ul className="space-y-space-2 text-ink-600 text-[13.5px]">
-                  <li>
-                    <a href="/auth" className="hover:text-brand-600 hover:underline">
-                      Set up your hospital
-                    </a>
-                  </li>
-                  <li>
-                    <a href="/portal/login" className="hover:text-brand-600 hover:underline">
-                      Hospital login
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
-                      className="hover:text-brand-600 hover:underline"
-                    >
-                      Request demo
-                    </a>
-                  </li>
-                  <li>
-                    <a href="/plans" className="hover:text-brand-600 hover:underline">
-                      Plans & pricing
-                    </a>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <p className="text-eyebrow mb-space-2">Contact</p>
-                <ul className="space-y-space-2 text-ink-600 text-[13.5px]">
-                  <li>
-                    <a
-                      href="mailto:info@daaprimeprojects.com"
-                      className="hover:text-brand-600 hover:underline"
-                    >
-                      info@daaprimeprojects.com
-                    </a>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <p className="text-eyebrow mb-space-2">Legal</p>
-                <ul className="space-y-space-2 text-ink-600 text-[13.5px]">
-                  <li>
-                    <a href="/privacy" className="hover:text-brand-600 hover:underline">
-                      Privacy Policy
-                    </a>
-                  </li>
-                  <li>
-                    <a href="/terms" className="hover:text-brand-600 hover:underline">
-                      Terms of Service
-                    </a>
-                  </li>
-                  <li>
-                    <a href="/refund-policy" className="hover:text-brand-600 hover:underline">
-                      Cancellation &amp; Refund Policy
-                    </a>
-                  </li>
-                </ul>
-              </div>
-            </div>
+function Footer() {
+  return (
+    <footer className="border-line bg-paper border-t">
+      <div className="px-space-4 py-space-7 md:px-space-7 lg:px-space-9">
+        <div className="gap-space-6 md:gap-space-9 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+          <div className="max-w-[320px] lg:col-span-1">
+            <BrandMark />
+            <p className="mt-space-3 text-ink-600 text-[13px]">
+              WhatsApp appointment booking & reminders for hospitals — no app for patients, managed
+              from one dashboard.
+            </p>
           </div>
 
-          <div className="mt-space-6 border-line pt-space-4 text-ink-400 border-t text-[12.5px]">
-            © {new Date().getFullYear()} DAAP CareConnect. All rights reserved.
+          <div>
+            <p className="text-eyebrow mb-space-2">Product</p>
+            <ul className="space-y-space-2 text-ink-600 text-[13.5px]">
+              <li>
+                <a href="/auth" className="hover:text-brand-600 hover:underline">
+                  Set up your hospital
+                </a>
+              </li>
+              <li>
+                <a href="/portal/login" className="hover:text-brand-600 hover:underline">
+                  Hospital login
+                </a>
+              </li>
+              <li>
+                <a
+                  href="mailto:info@daaprimeprojects.com?subject=Product%20Demo%20Request"
+                  className="hover:text-brand-600 hover:underline"
+                >
+                  Request demo
+                </a>
+              </li>
+              <li>
+                <a href="/plans" className="hover:text-brand-600 hover:underline">
+                  Plans & pricing
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-eyebrow mb-space-2">Contact</p>
+            <ul className="space-y-space-2 text-ink-600 text-[13.5px]">
+              <li>
+                <a href={CONTACT_LINKS.email} className="hover:text-brand-600 hover:underline">
+                  {CONTACT.email}
+                </a>
+              </li>
+              <li>
+                <a href={CONTACT_LINKS.phone} className="hover:text-brand-600 hover:underline">
+                  {CONTACT.phoneFormatted}
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-eyebrow mb-space-2">Legal</p>
+            <ul className="space-y-space-2 text-ink-600 text-[13.5px]">
+              <li>
+                <a href="/privacy" className="hover:text-brand-600 hover:underline">
+                  Privacy Policy
+                </a>
+              </li>
+              <li>
+                <a href="/terms" className="hover:text-brand-600 hover:underline">
+                  Terms of Service
+                </a>
+              </li>
+              <li>
+                <a href="/refund-policy" className="hover:text-brand-600 hover:underline">
+                  Cancellation & Refund Policy
+                </a>
+              </li>
+            </ul>
           </div>
         </div>
-      </footer>
-    </>
+
+        <div className="mt-space-6 border-line pt-space-4 text-ink-400 border-t text-[12.5px] lg:col-span-4">
+          © {new Date().getFullYear()} DAAP CareConnect. All rights reserved.
+        </div>
+      </div>
+    </footer>
   );
 }

@@ -26,6 +26,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { TodayScheduleTimeline } from "@/components/portal/TodayScheduleTimeline";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { AppointmentCalendar } from "@/components/doctor/AppointmentCalendar";
@@ -167,12 +168,10 @@ function DashboardBody({ data }: { data: DashboardData }) {
 
   return (
     <>
-      <div className="mb-space-5 gap-space-4 xs:grid-cols-2 grid grid-cols-1 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Today's appointments"
           value={data.stats.today_appointments}
-          deltaPct={null}
-          hint=""
           icon={CalendarCheck}
           tint="brand"
           href="/portal/appointments"
@@ -180,8 +179,6 @@ function DashboardBody({ data }: { data: DashboardData }) {
         <StatTile
           label="Completed"
           value={data.stats.attended_today}
-          deltaPct={null}
-          hint=""
           icon={CheckCircle2}
           tint="success"
           href="/portal/appointments"
@@ -189,8 +186,6 @@ function DashboardBody({ data }: { data: DashboardData }) {
         <StatTile
           label="Pending consultations"
           value={data.stats.confirmed_today}
-          deltaPct={null}
-          hint=""
           icon={Clock}
           tint="clay"
           href="/portal/appointments"
@@ -198,13 +193,11 @@ function DashboardBody({ data }: { data: DashboardData }) {
         <StatTile
           label="Teleconsultations"
           value={teleconsultationsToday}
-          deltaPct={null}
-          hint=""
           icon={Video}
           tint="brand"
           href="/portal/appointments"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="mb-space-5 gap-space-4 grid grid-cols-1 lg:grid-cols-3">
         <Card className="p-space-4 lg:col-span-2">

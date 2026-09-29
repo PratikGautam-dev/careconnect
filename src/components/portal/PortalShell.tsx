@@ -52,14 +52,10 @@ export function PortalShell({ hospital, active, children }: Props) {
           >
             <Menu size={20} strokeWidth={2} />
           </button>
-          <span className="text-ink-900 truncate text-[14px] font-bold">
-            {hospital?.name}
-          </span>
+          <span className="text-ink-900 truncate text-[14px] font-bold">{hospital?.name}</span>
         </header>
 
-        <main className="p-space-2 sm:p-space-3 flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <main className="p-space-2 sm:p-space-3 flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

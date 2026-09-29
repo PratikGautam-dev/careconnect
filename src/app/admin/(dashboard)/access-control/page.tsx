@@ -23,6 +23,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { cn } from "@/lib/cn";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
@@ -156,18 +157,16 @@ function AccessControlContent({
 
   return (
     <div>
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total Hospitals"
           value={tenants.length}
-          deltaPct={null}
           hint="Across all subscriptions"
           icon={Building2}
         />
         <StatTile
           label="Active Subscriptions"
           value={activeSubscriptionsCount}
-          deltaPct={null}
           hint={
             activeSubscriptionsCount !== null
               ? `${Math.round((activeSubscriptionsCount / Math.max(tenants.length, 1)) * 100)}% of total hospitals`
@@ -178,7 +177,6 @@ function AccessControlContent({
         <StatTile
           label="Custom Access Profiles"
           value={customCount}
-          deltaPct={null}
           hint="Role-based configurations"
           icon={Users}
           tint="success"
@@ -186,12 +184,11 @@ function AccessControlContent({
         <StatTile
           label="Expiring This Month"
           value={expiringThisMonthCount}
-          deltaPct={null}
           hint="Require renewal action"
           icon={Clock}
           tint="clay"
         />
-      </div>
+      </StatTileGrid>
 
       <Card className="p-space-4 mb-space-4">
         <div className="gap-space-4 flex flex-wrap items-end justify-between">

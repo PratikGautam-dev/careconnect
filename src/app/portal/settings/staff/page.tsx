@@ -18,6 +18,7 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
 import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { CursorPaginationControls } from "@/components/portal/CursorPaginationControls";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
@@ -166,25 +167,22 @@ export default function StaffManagementPage() {
         <>
           {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTileGrid cols={4} className="mb-space-4">
             <StatTile
               label="Total Staff"
               value={staff ? totalCount : null}
-              deltaPct={null}
               hint="Live count"
               icon={Users}
             />
             <StatTile
               label="Active Staff"
               value={staff ? activeCount : null}
-              deltaPct={null}
               hint={staff ? `of ${totalCount} total` : ""}
               icon={UserCheck}
             />
             <StatTile
               label="Absent Today"
               value={canViewAttendance ? absentTodayCount : null}
-              deltaPct={null}
               hint={canViewAttendance ? "No check-in yet" : "No access"}
               icon={CalendarX}
               tint="clay"
@@ -192,11 +190,10 @@ export default function StaffManagementPage() {
             <StatTile
               label="Departments"
               value={staff ? departmentsCoveredCount : null}
-              deltaPct={null}
               hint="Live count"
               icon={Building2}
             />
-          </div>
+          </StatTileGrid>
 
           <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <div className="lg:col-span-2">

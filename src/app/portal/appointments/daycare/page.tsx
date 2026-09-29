@@ -13,6 +13,7 @@ import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate } from "@/lib/formatDate";
@@ -230,18 +231,16 @@ export default function PortalDaycareAppointmentsPage() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total daycare bookings"
           value={stats?.total ?? null}
-          deltaPct={null}
           hint="Live count"
           icon={BedDouble}
         />
         <StatTile
           label="Pending approval"
           value={stats?.pending ?? null}
-          deltaPct={null}
           hint="Requests awaiting a decision"
           icon={Hourglass}
           tint="clay"
@@ -249,19 +248,17 @@ export default function PortalDaycareAppointmentsPage() {
         <StatTile
           label="Confirmed"
           value={stats?.confirmed ?? null}
-          deltaPct={null}
           hint="Slot picked, resources reserved"
           icon={IndianRupee}
         />
         <StatTile
           label="Completed"
           value={stats?.completed ?? null}
-          deltaPct={null}
           hint="Visit finished"
           icon={CheckCircle2}
           tint="brand"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="space-y-space-4 lg:col-span-2">

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import {
   useAttendanceOverview,
@@ -127,18 +128,16 @@ export default function AttendanceOverviewPage() {
         <>
           {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTileGrid cols={4} className="mb-space-4">
             <StatTile
               label="Present"
               value={records ? counts.present : null}
-              deltaPct={null}
               hint={dateLabel(date)}
               icon={CalendarCheck}
             />
             <StatTile
               label="Late"
               value={records ? counts.late : null}
-              deltaPct={null}
               hint={dateLabel(date)}
               icon={Clock}
               tint="clay"
@@ -146,18 +145,16 @@ export default function AttendanceOverviewPage() {
             <StatTile
               label="Absent"
               value={records ? counts.absent : null}
-              deltaPct={null}
               hint={dateLabel(date)}
               icon={UserX}
             />
             <StatTile
               label="On leave"
               value={records ? counts.leave : null}
-              deltaPct={null}
               hint={dateLabel(date)}
               icon={UserRound}
             />
-          </div>
+          </StatTileGrid>
 
           <Card className="p-space-4">
             <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">

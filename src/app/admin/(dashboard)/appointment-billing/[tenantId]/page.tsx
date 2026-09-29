@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { useTenants } from "@/hooks/useTenants";
 import {
   useAppointmentBillingPayments,
@@ -164,11 +165,10 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         </div>
       </div>
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+      <StatTileGrid cols={5} className="mb-space-4">
         <StatTile
           label="Gross Collected"
           value={stats?.gross_collected ?? null}
-          deltaPct={null}
           hint="In selected range"
           icon={IndianRupee}
           prefix="₹"
@@ -176,7 +176,6 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Refunded"
           value={stats?.total_refunded ?? null}
-          deltaPct={null}
           hint="Completed refunds only"
           icon={RefreshCcw}
           prefix="₹"
@@ -185,7 +184,6 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Net Actual"
           value={stats?.net_actual ?? null}
-          deltaPct={null}
           hint="Gross − refunded"
           icon={Banknote}
           prefix="₹"
@@ -194,7 +192,6 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Online"
           value={stats?.online_collected ?? null}
-          deltaPct={null}
           hint="In selected range"
           icon={Wallet2}
           prefix="₹"
@@ -202,13 +199,12 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Cash"
           value={stats?.cash_collected ?? null}
-          deltaPct={null}
           hint="Pay at hospital"
           icon={Wallet2}
           prefix="₹"
           tint="clay"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="mb-space-4">
         <RevenueTrendChart data={trend} />

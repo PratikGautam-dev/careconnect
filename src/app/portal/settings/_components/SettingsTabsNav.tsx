@@ -10,7 +10,7 @@ export type SettingsTabKey =
   | "procedures"
   | "notifications"
   | "attendance"
-  | "billing";
+  | "plan";
 
 export type SettingsTabDef = { key: SettingsTabKey; label: string; icon: LucideIcon };
 

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePortalReportAnalytics } from "@/hooks/usePortalReportAnalytics";
@@ -116,38 +117,26 @@ export default function ReportAnalyticsPage() {
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTileGrid cols={4} className="mb-space-4">
             <StatTile
               label="Total Appointments"
               value={data.stats.total_appointments.value}
-              deltaPct={data.stats.total_appointments.delta_pct}
-              hint="vs previous period"
               icon={CalendarRange}
             />
-            <StatTile
-              label="Total Patients"
-              value={data.stats.total_patients.value}
-              deltaPct={data.stats.total_patients.delta_pct}
-              hint="vs previous period"
-              icon={Users}
-            />
+            <StatTile label="Total Patients" value={data.stats.total_patients.value} icon={Users} />
             <StatTile
               label="Total Revenue"
               value={data.stats.total_revenue.value}
-              deltaPct={data.stats.total_revenue.delta_pct}
-              hint="vs previous period"
               icon={IndianRupee}
               tint="success"
             />
             <StatTile
               label="Occupancy / Utilization Rate"
               value={data.stats.occupancy_rate.value}
-              deltaPct={data.stats.occupancy_rate.delta_pct}
-              hint="vs previous period"
               icon={PieChart}
               tint="clay"
             />
-          </div>
+          </StatTileGrid>
 
           <div className="mb-space-4 gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
             <AppointmentTrendsChart data={trendPoints} className="lg:col-span-1" />

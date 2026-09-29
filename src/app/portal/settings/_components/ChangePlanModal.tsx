@@ -23,7 +23,13 @@ type Props = {
  * billing_subscription.py's own change_plan() docstring. Same
  * PlanPickerGrid/usePublicPlans as PlanUpgradeModal -- only what
  * onSelectPlan actually calls differs between the two. */
-export function ChangePlanModal({ open, onOpenChange, currentPlanId, onSelectPlan, changing }: Props) {
+export function ChangePlanModal({
+  open,
+  onOpenChange,
+  currentPlanId,
+  onSelectPlan,
+  changing,
+}: Props) {
   const { plans, error } = usePublicPlans();
   const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");
   const [selectingPlanId, setSelectingPlanId] = useState<number | null>(null);

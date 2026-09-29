@@ -76,7 +76,7 @@ export default function PortalLoginPage() {
             alt="DAAP CareConnect"
             width={1448}
             height={410}
-            className="w-auto"
+            className="h-auto max-w-full"
             priority
           />
         </div>

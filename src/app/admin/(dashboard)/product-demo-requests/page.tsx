@@ -5,6 +5,7 @@ import { CalendarClock, CheckCircle2, ListChecks, MailPlus, PhoneCall } from "lu
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { useAdminProductDemoRequests } from "@/hooks/useAdminProductDemoRequests";
 import type { DemoRequestStatus, ProductDemoRequestRow } from "@/hooks/useAdminProductDemoRequests";
 import { createDemoRequestColumns } from "./_components/demo-request-columns";
@@ -62,18 +63,16 @@ function ProductDemoRequestsList() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+      <StatTileGrid cols={5} className="mb-space-4">
         <StatTile
           label="Total Requests"
           value={summary ? summary.total : null}
-          deltaPct={null}
           hint="All time"
           icon={ListChecks}
         />
         <StatTile
           label="New"
           value={summary ? summary.new : null}
-          deltaPct={null}
           hint="Not yet reached out"
           icon={MailPlus}
           tint="clay"
@@ -81,14 +80,12 @@ function ProductDemoRequestsList() {
         <StatTile
           label="Contacted"
           value={summary ? summary.contacted : null}
-          deltaPct={null}
           hint="Reached out"
           icon={PhoneCall}
         />
         <StatTile
           label="Scheduled"
           value={summary ? summary.scheduled : null}
-          deltaPct={null}
           hint="Demo booked"
           icon={CalendarClock}
           tint="success"
@@ -96,11 +93,10 @@ function ProductDemoRequestsList() {
         <StatTile
           label="Closed"
           value={summary ? summary.closed : null}
-          deltaPct={null}
           hint="Done"
           icon={CheckCircle2}
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">

@@ -25,6 +25,7 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
@@ -323,25 +324,22 @@ export default function PortalAppointmentsPage() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total doctor appointments"
           value={stats?.total ?? null}
-          deltaPct={null}
           hint="Live count"
           icon={CalendarRange}
         />
         <StatTile
           label="Today's appointments"
           value={stats?.today ?? null}
-          deltaPct={stats?.todayDeltaPct ?? null}
           hint="vs yesterday"
           icon={CalendarClock}
         />
         <StatTile
           label="Pending confirmations"
           value={null}
-          deltaPct={null}
           hint="No such status exists yet — every booked row already reads Confirmed"
           icon={Clock}
           tint="clay"
@@ -349,12 +347,11 @@ export default function PortalAppointmentsPage() {
         <StatTile
           label="Completed consultations"
           value={stats?.completed ?? null}
-          deltaPct={null}
           hint="Attended, all-time in this list"
           icon={CheckCircle2}
           tint="success"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="space-y-space-4 lg:col-span-2">
@@ -429,6 +426,7 @@ export default function PortalAppointmentsPage() {
               showReset={
                 filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all"
               }
+              disabled={!filtersDirty}
             />
           </div>
 

@@ -77,7 +77,7 @@ export function RefundsQueue({ canWrite }: { canWrite: boolean }) {
             Approves and processes every pending refund whose cancelled appointment falls in this
             range -- useful for clearing a backlog in one go.
           </p>
-          <div className="gap-space-3 flex flex-wrap items-end">
+          <div className="gap-space-3 flex flex-wrap items-center">
             <Field label="From" className="mb-0" error={rangeError || undefined}>
               <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             </Field>

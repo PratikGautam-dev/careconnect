@@ -19,6 +19,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import {
   DoctorScheduleForm,
@@ -292,25 +293,17 @@ export default function PortalDoctorsPage() {
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <>
-          <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile
-              label="Total doctors"
-              value={totalCount}
-              deltaPct={null}
-              hint="Live count"
-              icon={UserRound}
-            />
+          <StatTileGrid cols={4} className="mb-space-4">
+            <StatTile label="Total doctors" value={totalCount} hint="Live count" icon={UserRound} />
             <StatTile
               label="Active doctors"
               value={activeCount}
-              deltaPct={null}
               hint={`of ${totalCount} total`}
               icon={UserRoundCheck}
             />
             <StatTile
               label="On leave"
               value={onLeaveTodayCount}
-              deltaPct={null}
               hint="Today"
               icon={CalendarX}
               tint="clay"
@@ -318,11 +311,10 @@ export default function PortalDoctorsPage() {
             <StatTile
               label="Departments covered"
               value={departments.length}
-              deltaPct={null}
               hint="Live count"
               icon={Building2}
             />
-          </div>
+          </StatTileGrid>
 
           {departments.length === 0 && (
             <Card className="mb-space-4 p-space-4">

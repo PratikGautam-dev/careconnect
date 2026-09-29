@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { useAdminSubscriptions, type SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
@@ -191,18 +192,16 @@ function DashboardContent() {
       {combinedError && <p className="mb-space-4 text-error text-[13px]">{combinedError}</p>}
 
       {/* Top stat row -- every tile now reads real data. */}
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <StatTileGrid cols={6} className="mb-space-4">
         <StatTile
           label="Total Hospitals"
           value={hospitals ? hospitals.total : null}
-          deltaPct={null}
           hint={hospitals ? `+${hospitals.new_this_month} this month` : "Loading…"}
           icon={Building2}
         />
         <StatTile
           label="Active Subscriptions"
           value={subscriptionStats ? subscriptionStats.activeCount : null}
-          deltaPct={null}
           hint={
             hospitals && subscriptionStats
               ? `${Math.round((subscriptionStats.activeCount / Math.max(hospitals.total, 1)) * 100)}% of total hospitals`
@@ -213,7 +212,6 @@ function DashboardContent() {
         <StatTile
           label="Monthly Recurring Revenue"
           value={subscriptionStats ? Math.round(subscriptionStats.mrr) : null}
-          deltaPct={null}
           hint="from active subscriptions"
           icon={CreditCard}
           prefix="₹"
@@ -222,7 +220,6 @@ function DashboardContent() {
         <StatTile
           label="Expiring Renewals"
           value={subscriptionStats ? subscriptionStats.expiringCount : null}
-          deltaPct={null}
           hint={`in next ${EXPIRING_WINDOW_DAYS} days`}
           icon={Clock}
           tint="clay"
@@ -230,21 +227,18 @@ function DashboardContent() {
         <StatTile
           label="Total Bookings"
           value={dashboard ? dashboard.total_bookings : null}
-          deltaPct={null}
           hint="all-time, across hospitals"
           icon={Calendar}
         />
         <StatTile
           label="Support Tickets Open"
           value={ticketSummary ? ticketSummary.open : null}
-          deltaPct={null}
           hint={ticketSummary ? `${ticketSummary.total} total` : "Loading…"}
           icon={HeadphonesIcon}
           tint="clay"
-          upIsGood={false}
           href="/admin/support-tickets"
         />
-      </div>
+      </StatTileGrid>
 
       {/* Row 2: growth trend chart (wide) + subscription status donut + quick actions */}
       <div className="gap-space-4 mb-space-4 grid grid-cols-1 lg:grid-cols-4">

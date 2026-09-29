@@ -24,6 +24,7 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { NewTestBookingDialog } from "@/components/portal/NewTestBookingDialog";
 import { QuickActions, type QuickAction } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate } from "@/lib/formatDate";
@@ -333,37 +334,33 @@ export default function PortalDiagnosticAppointmentsPage() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total test bookings"
           value={stats?.total ?? null}
-          deltaPct={null}
           hint="Live count"
           icon={Beaker}
         />
         <StatTile
           label="Diagnostics today"
           value={stats?.diagnosticsToday ?? null}
-          deltaPct={stats?.diagnosticsDeltaPct ?? null}
           hint="vs yesterday"
           icon={FileText}
         />
         <StatTile
           label="Lab tests today"
           value={stats?.labToday ?? null}
-          deltaPct={stats?.labDeltaPct ?? null}
           hint="vs yesterday"
           icon={ClipboardList}
         />
         <StatTile
           label="Pending report uploads"
           value={stats?.pendingReports ?? null}
-          deltaPct={null}
           hint="Lab tests and Diagnostics — anything still booked without a report"
           icon={FileClock}
           tint="clay"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="space-y-space-4 lg:col-span-2">
@@ -448,6 +445,7 @@ export default function PortalDiagnosticAppointmentsPage() {
                 typeFilter !== "all" ||
                 labStatusFilter !== "all"
               }
+              disabled={!filtersDirty}
             />
           </div>
 

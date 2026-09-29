@@ -33,7 +33,7 @@ const TABS: SettingsTabDef[] = [
   // { key: "procedures", label: "Procedures", icon: Stethoscope },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "attendance", label: "Attendance", icon: Clock },
-  { key: "billing", label: "Billing", icon: CreditCard },
+  { key: "plan", label: "Plan", icon: CreditCard },
 ];
 
 const BUILT_TABS: SettingsTabKey[] = [
@@ -43,7 +43,7 @@ const BUILT_TABS: SettingsTabKey[] = [
   // "procedures",
   "notifications",
   "attendance",
-  "billing",
+  "plan",
 ];
 
 /** /portal/settings. "General" now covers Hospital Information, Contact
@@ -67,7 +67,7 @@ export default function PortalSettingsPage() {
 
 function PortalSettingsPageInner() {
   const { hospital, ready } = usePortalGuard();
-  // SubscriptionGate's "Go to Billing" CTA links here with ?tab=billing so
+  // SubscriptionGate's "Go to plan" CTA links here with ?tab=plan so
   // a blocked hospital lands directly on the tab that can unblock it,
   // instead of General -- any other/missing value falls back to General.
   // useSearchParams() requires the Suspense boundary above (Next.js bails
@@ -95,7 +95,7 @@ function PortalSettingsPageInner() {
           {/* {tab === "procedures" && <ProceduresManager canManage={!!canManageProcedures} />} */}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "attendance" && <AttendanceSettingsTab />}
-          {tab === "billing" && <BillingTab />}
+          {tab === "plan" && <BillingTab />}
           {!BUILT_TABS.includes(tab) && (
             <Card className="p-space-6">
               <p className="text-ink-400 text-center text-[13px]">

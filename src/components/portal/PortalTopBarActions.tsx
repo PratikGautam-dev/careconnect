@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 // Shared PageHeader actions cluster for portal pages (dashboard, appointments,
 // ...). Search/notifications are disabled -- no cross-entity search endpoint
@@ -21,14 +21,12 @@ export function PortalTopBarActions() {
           className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
         />
         <input
-          disabled
-          title="Coming soon"
           placeholder="Search patients, appointments, staff…"
-          className="border-line bg-card pl-space-7 pr-space-3 text-ink-600 placeholder:text-ink-400 h-9 w-56 cursor-not-allowed rounded-md border text-[13px] lg:w-72"
+          className="border-line bg-card pl-space-7 pr-space-3 text-ink-600 placeholder:text-ink-400 h-9 w-56 rounded-md border text-[13px] lg:w-72"
         />
       </div>
 
-      <button
+      {/* <button
         type="button"
         disabled
         title="Coming soon"
@@ -36,7 +34,7 @@ export function PortalTopBarActions() {
         className="border-line bg-card text-ink-400 flex h-9 w-9 shrink-0 cursor-not-allowed items-center justify-center rounded-md border"
       >
         <Bell size={16} strokeWidth={2} />
-      </button>
+      </button> */}
       {/* 
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-space-2 rounded-md border border-line bg-card py-space-1 pl-space-1 pr-space-2 hover:bg-paper">

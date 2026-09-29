@@ -32,6 +32,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
@@ -143,25 +144,22 @@ function FeatureTogglesContent({
 
   return (
     <div>
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total Hospitals"
           value={tenants.length}
-          deltaPct={null}
           hint="Across all subscriptions"
           icon={Building2}
         />
         <StatTile
           label="Total Features"
           value={allFeatureKeys.length}
-          deltaPct={null}
           hint="Configurable WhatsApp menu rows"
           icon={Settings2}
         />
         <StatTile
           label="Custom Overrides"
           value={8}
-          deltaPct={null}
           hint="Hospitals with overrides"
           icon={Users}
           mock
@@ -169,12 +167,11 @@ function FeatureTogglesContent({
         <StatTile
           label="Pending Changes"
           value={pendingChanges}
-          deltaPct={null}
           hint={hasUnsaved ? "Unsaved — click Save Changes" : "All changes applied"}
           icon={Clock}
           tint={hasUnsaved ? "clay" : "success"}
         />
-      </div>
+      </StatTileGrid>
 
       <Card className="p-space-4 mb-space-4">
         <div className="gap-space-4 flex flex-wrap items-end justify-between">

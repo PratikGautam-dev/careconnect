@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import {
   useDepartmentsAdmin,
   type DepartmentDetail,
@@ -60,7 +61,7 @@ export function DepartmentsTab() {
     // worth (the endpoint defaults to 25 since it's normally paginated for
     // the Staff page proper).
     staffFetch("/api/portal/staff?limit=200").then((result) => {
-      if (result.ok) setStaffOptions(((result.data as { staff?: StaffPickOption[] })?.staff) || []);
+      if (result.ok) setStaffOptions((result.data as { staff?: StaffPickOption[] })?.staff || []);
     });
   }, []);
 
@@ -216,7 +217,8 @@ export function DepartmentsTab() {
     toast.success("Staff member assigned", manageStaffDepartment.name);
     setManageStaffDepartment(null);
     const refreshed = await staffFetch("/api/portal/staff?limit=200");
-    if (refreshed.ok) setStaffOptions(((refreshed.data as { staff?: StaffPickOption[] })?.staff) || []);
+    if (refreshed.ok)
+      setStaffOptions((refreshed.data as { staff?: StaffPickOption[] })?.staff || []);
     await reload();
   }
 
@@ -244,11 +246,10 @@ export function DepartmentsTab() {
 
   return (
     <div className="gap-space-4 flex flex-col">
-      <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total Departments"
           value={totalDepartments}
-          deltaPct={null}
           hint="Live count"
           icon={Building2}
           tint="brand"
@@ -256,7 +257,6 @@ export function DepartmentsTab() {
         <StatTile
           label="Active Departments"
           value={activeDepartments}
-          deltaPct={null}
           hint={
             totalDepartments
               ? `${Math.round((activeDepartments / totalDepartments) * 100)}% of total`
@@ -268,7 +268,6 @@ export function DepartmentsTab() {
         <StatTile
           label="Doctors Assigned"
           value={doctorsAssigned}
-          deltaPct={null}
           hint="Live count"
           icon={Users}
           tint="brand"
@@ -276,12 +275,11 @@ export function DepartmentsTab() {
         <StatTile
           label="Support Staff Assigned"
           value={supportStaffAssigned}
-          deltaPct={null}
           hint="Live count"
           icon={UserCog}
           tint="clay"
         />
-      </div>
+      </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">

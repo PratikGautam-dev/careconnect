@@ -8,6 +8,7 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { usePermission } from "@/lib/staffAuth";
@@ -146,11 +147,10 @@ export default function BillingPage() {
             <RefundsQueue canWrite={canWrite} />
           ) : (
             <>
-              <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              <StatTileGrid cols={6} className="mb-space-4">
                 <StatTile
                   label="Total Collected"
                   value={payments ? totalCollected : null}
-                  deltaPct={null}
                   hint="All paid transactions"
                   icon={IndianRupee}
                   prefix="₹"
@@ -158,8 +158,7 @@ export default function BillingPage() {
                 <StatTile
                   label="Cash Collected"
                   value={payments ? cashCollected : null}
-                  deltaPct={null}
-                  hint="Confirmed pay-at-hospital collections"
+                  hint="Confirmed cash payments"
                   icon={Banknote}
                   prefix="₹"
                   tint="clay"
@@ -167,7 +166,6 @@ export default function BillingPage() {
                 <StatTile
                   label="Online Collected"
                   value={payments ? onlineCollected : null}
-                  deltaPct={null}
                   hint="Razorpay payments"
                   icon={CreditCard}
                   prefix="₹"
@@ -175,7 +173,6 @@ export default function BillingPage() {
                 <StatTile
                   label="Today's Collection"
                   value={payments ? todaysCollection : null}
-                  deltaPct={null}
                   hint="Paid today"
                   icon={CalendarDays}
                   prefix="₹"
@@ -184,19 +181,17 @@ export default function BillingPage() {
                 <StatTile
                   label="Total Transactions"
                   value={payments ? payments.length : null}
-                  deltaPct={null}
                   hint="Live count"
                   icon={Receipt}
                 />
                 <StatTile
                   label="Pending"
                   value={payments ? pendingCount : null}
-                  deltaPct={null}
                   hint="Awaiting payment"
                   icon={TrendingUp}
                   tint="clay"
                 />
-              </div>
+              </StatTileGrid>
 
               <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
                 <div className="lg:col-span-2">

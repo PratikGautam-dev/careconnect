@@ -88,7 +88,10 @@ function PaymentHistoryRow({ payment }: { payment: SubscriptionPayment }) {
           // charge (Invoices isn't enabled for this account, or the charge
           // predates that capture) -- greyed out rather than hidden, so
           // it's clear the column exists, just nothing to open here.
-          <span className="text-ink-300 cursor-not-allowed text-[12.5px] font-semibold" title="No invoice available for this charge">
+          <span
+            className="text-ink-300 cursor-not-allowed text-[12.5px] font-semibold"
+            title="No invoice available for this charge"
+          >
             View
           </span>
         )}
@@ -196,7 +199,9 @@ export function BillingTab() {
 
   const status = subscription.status;
   const cycleLabel = subscription.billing_cycle === "annual" ? "Annual" : "Monthly";
-  const isLiveBilled = !!(subscription.razorpay_subscription_id && LIVE_BILLING_STATUSES.has(status));
+  const isLiveBilled = !!(
+    subscription.razorpay_subscription_id && LIVE_BILLING_STATUSES.has(status)
+  );
 
   async function handleStart() {
     if (!plan || !subscription) return;

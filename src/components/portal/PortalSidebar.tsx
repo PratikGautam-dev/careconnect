@@ -170,16 +170,6 @@ const NAV_ITEMS = [
     href: "/portal/settings",
     pageKey: "settings",
   },
-  // Both pages themselves are still frontend-only mock data (explicit
-  // instruction) -- only the Leave slice of Attendance's own "Attendance
-  // status" donut comes from anything real eventually (Leave requests),
-  // Check-in/Check-out wiring is a deliberate later follow-up. The
-  // page_keys ("attendance"/"check_in_out") ARE real now though (migration
-  // 20260914130000, portal/permissions.py) -- gated by hasPermission below
-  // like every other real nav item, not a NO_PERMISSION_GATE_KEYS bypass.
-  // Default permissions: view+write for every role except the seeded Admin
-  // role (confirmed with the user -- an admin doesn't check themselves in/
-  // out day to day), same as that migration's own backfill.
   {
     key: "attendance",
     label: "Attendance",
@@ -204,10 +194,6 @@ const NAV_ITEMS = [
     href: "/portal/holiday-application",
     pageKey: "holiday_application",
   },
-  // Self-service support-ticket submission, open to any role -- same
-  // "view+write for every role" weight as Holiday Application above.
-  // Reviewing a submitted ticket is the platform super admin's own surface
-  // (admin/support_tickets_api.py), not a portal page at all.
   {
     key: "raise-ticket",
     label: "Raise a Ticket",
@@ -270,7 +256,7 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
           <div className="font-display flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 text-[14px] font-extrabold">
             H
           </div>
-          <span className="text-[14px] font-bold">{hospital?.name || "Hospital"}</span>
+          <span className="text-[14px] font-bold">{hospital?.name}</span>
           <button
             type="button"
             onClick={onClose}
@@ -283,22 +269,6 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.filter(
-            // Per-page-key permission check (hasPermission is a plain
-            // function here, not the usePermission hook, since it's called
-            // once per item inside this loop). Fails CLOSED while the
-            // session is still loading (hasPermission's own docstring) --
-            // this is only a UI convenience, the backend's 403 is the real
-            // enforcement, but failing open here used to render the full,
-            // unfiltered nav for every role for a moment on first paint
-            // before narrowing down to the real per-role set.
-            // Hrefless rows are visual placeholders, not real gated
-            // capabilities, so they skip the permission map entirely --
-            // otherwise an unrecognized pageKey would hide them outright.
-            // hasCapability is the separate, tenant-level Access Control
-            // gate (super-admin, portal/capabilities.py) -- a role can have
-            // full permission on a page the hospital's plan/tenant doesn't
-            // have at all (e.g. manage_doctors off for a clinic tenant), so
-            // both checks must pass.
             (item) =>
               !item.href ||
               ((NO_PERMISSION_GATE_KEYS.has(item.key) ||
@@ -341,7 +311,7 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
               {(session?.name || "?").charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold">{session?.name || "Account"}</div>
+              <div className="truncate text-[13px] font-semibold">{session?.name}</div>
               {session && (
                 <div className="truncate text-[11.5px] text-white/60">{session.role_name}</div>
               )}

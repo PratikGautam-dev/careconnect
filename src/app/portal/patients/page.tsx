@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
+import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { CursorPaginationControls } from "@/components/portal/CursorPaginationControls";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
@@ -84,37 +85,28 @@ export default function PortalPatientsPage() {
       <PageHeader title="Patients" description={formatHeaderDate(today)} />
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="mb-space-4 gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="Total Patients"
-          value={stats.total}
-          deltaPct={null}
-          hint="Live count"
-          icon={Users}
-        />
+      <StatTileGrid cols={4} className="mb-space-4">
+        <StatTile label="Total Patients" value={stats.total} hint="Live count" icon={Users} />
         <StatTile
           label="New Registrations"
           value={stats.newRegistrations}
-          deltaPct={null}
           hint="Last 7 days"
           icon={UserPlus}
         />
         <StatTile
           label="Active Patients"
           value={stats.active}
-          deltaPct={null}
           hint={`of ${stats.total} total`}
           icon={UserRoundCheck}
         />
         <StatTile
           label="Follow-up Due"
           value={null}
-          deltaPct={null}
           hint="No due-date/recall concept exists yet"
           icon={UserRound}
           tint="clay"
         />
-      </div>
+      </StatTileGrid>
 
       <Card className="p-space-4">
         <div className="mb-space-3 gap-space-3 flex flex-wrap items-center justify-between">
