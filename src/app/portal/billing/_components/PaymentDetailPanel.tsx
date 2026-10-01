@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { formatDateTime } from "@/lib/formatDate";
+import { formatINR } from "@/lib/formatCurrency";
 import type { PaymentRow } from "@/hooks/usePayments";
 import {
   PAYMENT_METHOD_LABELS,
@@ -66,7 +67,7 @@ export function PaymentDetailPanel({ payment }: Props) {
             {payment.patient_name || "Unknown patient"}
           </p>
           <p className="text-ink-600 truncate text-[12.5px]">
-            ₹{payment.amount.toLocaleString("en-IN")} · Attempt #{payment.attempt_no}
+            {formatINR(payment.amount)} · Attempt #{payment.attempt_no}
           </p>
         </div>
         <Badge tone={PAYMENT_STATUS_TONES[payment.status]}>
@@ -114,31 +115,23 @@ export function PaymentDetailPanel({ payment }: Props) {
           <p className="text-label mb-space-2 text-ink-900 font-bold">Fee Breakdown</p>
           <div className="space-y-space-2">
             {payment.base_amount != null && (
-              <DetailRow
-                icon={Receipt}
-                label="Base fee"
-                value={`₹${payment.base_amount.toLocaleString("en-IN")}`}
-              />
+              <DetailRow icon={Receipt} label="Base fee" value={formatINR(payment.base_amount)} />
             )}
             {(payment.gst_amount ?? 0) > 0 && (
-              <DetailRow
-                icon={Receipt}
-                label="GST"
-                value={`₹${payment.gst_amount!.toLocaleString("en-IN")}`}
-              />
+              <DetailRow icon={Receipt} label="GST" value={formatINR(payment.gst_amount)} />
             )}
             {(payment.platform_fee_amount ?? 0) > 0 && (
               <DetailRow
                 icon={Receipt}
                 label="Platform fee"
-                value={`₹${payment.platform_fee_amount!.toLocaleString("en-IN")}`}
+                value={formatINR(payment.platform_fee_amount)}
               />
             )}
             {payment.refund_amount != null && (
               <DetailRow
                 icon={Receipt}
                 label="Refunded"
-                value={`₹${payment.refund_amount.toLocaleString("en-IN")}${
+                value={`${formatINR(payment.refund_amount)}${
                   payment.refunded_at ? ` on ${formatDateTime(payment.refunded_at)}` : ""
                 }`}
               />

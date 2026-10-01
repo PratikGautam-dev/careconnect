@@ -151,14 +151,12 @@ export default function BillingPage() {
                 <StatTile
                   label="Total Collected"
                   value={payments ? totalCollected : null}
-                  hint="All paid transactions"
                   icon={IndianRupee}
                   prefix="₹"
                 />
                 <StatTile
                   label="Cash Collected"
                   value={payments ? cashCollected : null}
-                  hint="Confirmed cash payments"
                   icon={Banknote}
                   prefix="₹"
                   tint="clay"
@@ -166,14 +164,12 @@ export default function BillingPage() {
                 <StatTile
                   label="Online Collected"
                   value={payments ? onlineCollected : null}
-                  hint="Razorpay payments"
                   icon={CreditCard}
                   prefix="₹"
                 />
                 <StatTile
                   label="Today's Collection"
                   value={payments ? todaysCollection : null}
-                  hint="Paid today"
                   icon={CalendarDays}
                   prefix="₹"
                   tint="clay"
@@ -181,13 +177,11 @@ export default function BillingPage() {
                 <StatTile
                   label="Total Transactions"
                   value={payments ? payments.length : null}
-                  hint="Live count"
                   icon={Receipt}
                 />
                 <StatTile
                   label="Pending"
                   value={payments ? pendingCount : null}
-                  hint="Awaiting payment"
                   icon={TrendingUp}
                   tint="clay"
                 />

@@ -250,32 +250,19 @@ export function DepartmentsTab() {
         <StatTile
           label="Total Departments"
           value={totalDepartments}
-          hint="Live count"
           icon={Building2}
           tint="brand"
         />
         <StatTile
           label="Active Departments"
           value={activeDepartments}
-          hint={
-            totalDepartments
-              ? `${Math.round((activeDepartments / totalDepartments) * 100)}% of total`
-              : "—"
-          }
           icon={CheckCircle2}
           tint="success"
         />
-        <StatTile
-          label="Doctors Assigned"
-          value={doctorsAssigned}
-          hint="Live count"
-          icon={Users}
-          tint="brand"
-        />
+        <StatTile label="Doctors Assigned" value={doctorsAssigned} icon={Users} tint="brand" />
         <StatTile
           label="Support Staff Assigned"
           value={supportStaffAssigned}
-          hint="Live count"
           icon={UserCog}
           tint="clay"
         />

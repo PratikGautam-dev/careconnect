@@ -4,10 +4,13 @@ import { useState } from "react";
 import { Banknote, Download, IndianRupee, RefreshCcw, Wallet2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
+import { ExportDialog } from "@/components/export/ExportDialog";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
-import { toast } from "@/lib/toast";
+import { adminFetch, adminFetchBlob } from "@/lib/adminAuth";
+import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import {
   useAppointmentBillingByHospital,
   useAppointmentBillingRefundQueue,
@@ -59,6 +62,20 @@ function AppointmentBillingOverview() {
   const [refundStatusFilter, setRefundStatusFilter] = useState("all");
   const [hospitalPage, setHospitalPage] = useState(1);
   const [refundPage, setRefundPage] = useState(1);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportHistoryPage, setExportHistoryPage] = useState(1);
+
+  const exportMutation = useCsvExport(
+    adminFetchBlob,
+    "/api/admin/appointment-billing/payments/export",
+    "appointment-billing-payments.csv",
+  );
+  const exportHistory = useExportHistory(
+    adminFetch,
+    "/api/admin/exports/history",
+    "APPOINTMENT_BILLING_PAYMENTS",
+    exportHistoryPage,
+  );
 
   const range = { dateFrom, dateTo };
   const { stats } = useAppointmentBillingStats(range);
@@ -77,19 +94,9 @@ function AppointmentBillingOverview() {
     setRefundPage(1);
   }
 
-  function updateDateFrom(value: string) {
-    setDateFrom(value);
-    resetPages();
-  }
-
-  function updateDateTo(value: string) {
-    setDateTo(value);
-    resetPages();
-  }
-
-  function resetToToday() {
-    setDateFrom(today());
-    setDateTo(today());
+  function updateRange(from: string, to: string) {
+    setDateFrom(from);
+    setDateTo(to);
     resetPages();
   }
 
@@ -105,38 +112,7 @@ function AppointmentBillingOverview() {
         </div>
 
         <div className="gap-space-2 flex flex-wrap items-center lg:justify-end">
-          <div className="gap-space-2 flex items-center">
-            <label className="text-ink-600 text-[12.5px] font-medium" htmlFor="ab-date-from">
-              From
-            </label>
-            <input
-              id="ab-date-from"
-              type="date"
-              value={dateFrom}
-              max={dateTo}
-              onChange={(e) => updateDateFrom(e.target.value)}
-              className="border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]"
-            />
-            <label className="text-ink-600 text-[12.5px] font-medium" htmlFor="ab-date-to">
-              To
-            </label>
-            <input
-              id="ab-date-to"
-              type="date"
-              value={dateTo}
-              min={dateFrom}
-              max={today()}
-              onChange={(e) => updateDateTo(e.target.value)}
-              className="border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={resetToToday}
-            className="text-brand-600 text-[12.5px] font-semibold hover:underline"
-          >
-            Today
-          </button>
+          <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={updateRange} />
           <FilterSelect
             value={methodFilter}
             onChange={(v) => {
@@ -151,7 +127,7 @@ function AppointmentBillingOverview() {
           />
           <button
             type="button"
-            onClick={() => toast.success("Export coming soon")}
+            onClick={() => setExportOpen(true)}
             className="border-line text-ink-600 hover:bg-canvas gap-space-1 px-space-3 flex h-9 items-center rounded-md border text-[12.5px] font-semibold"
           >
             <Download size={14} /> Export
@@ -159,18 +135,28 @@ function AppointmentBillingOverview() {
         </div>
       </div>
 
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        title="Appointment Billing Payments"
+        exportMutation={exportMutation}
+        history={exportHistory}
+        historyPage={exportHistoryPage}
+        onHistoryPageChange={setExportHistoryPage}
+        exportCap={10_000}
+        extraParams={{ method: methodFilter === "all" ? undefined : methodFilter }}
+      />
+
       <StatTileGrid cols={5} className="mb-space-4">
         <StatTile
           label="Gross Collected"
           value={stats?.gross_collected ?? null}
-          hint="In selected range"
           icon={IndianRupee}
           prefix="₹"
         />
         <StatTile
           label="Refunded"
           value={stats?.total_refunded ?? null}
-          hint="Completed refunds only"
           icon={RefreshCcw}
           prefix="₹"
           tint="error"
@@ -178,7 +164,6 @@ function AppointmentBillingOverview() {
         <StatTile
           label="Net Actual"
           value={stats?.net_actual ?? null}
-          hint="Gross − refunded"
           icon={Banknote}
           prefix="₹"
           tint="success"
@@ -186,14 +171,12 @@ function AppointmentBillingOverview() {
         <StatTile
           label="Online"
           value={stats?.online_collected ?? null}
-          hint="In selected range"
           icon={Wallet2}
           prefix="₹"
         />
         <StatTile
           label="Cash"
           value={stats?.cash_collected ?? null}
-          hint="Pay at hospital"
           icon={Wallet2}
           prefix="₹"
           tint="clay"

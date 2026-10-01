@@ -64,38 +64,16 @@ function ProductDemoRequestsList() {
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={5} className="mb-space-4">
-        <StatTile
-          label="Total Requests"
-          value={summary ? summary.total : null}
-          hint="All time"
-          icon={ListChecks}
-        />
-        <StatTile
-          label="New"
-          value={summary ? summary.new : null}
-          hint="Not yet reached out"
-          icon={MailPlus}
-          tint="clay"
-        />
-        <StatTile
-          label="Contacted"
-          value={summary ? summary.contacted : null}
-          hint="Reached out"
-          icon={PhoneCall}
-        />
+        <StatTile label="Total Requests" value={summary ? summary.total : null} icon={ListChecks} />
+        <StatTile label="New" value={summary ? summary.new : null} icon={MailPlus} tint="clay" />
+        <StatTile label="Contacted" value={summary ? summary.contacted : null} icon={PhoneCall} />
         <StatTile
           label="Scheduled"
           value={summary ? summary.scheduled : null}
-          hint="Demo booked"
           icon={CalendarClock}
           tint="success"
         />
-        <StatTile
-          label="Closed"
-          value={summary ? summary.closed : null}
-          hint="Done"
-          icon={CheckCircle2}
-        />
+        <StatTile label="Closed" value={summary ? summary.closed : null} icon={CheckCircle2} />
       </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">

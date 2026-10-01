@@ -106,13 +106,11 @@ function HospitalDashboard() {
             <StatTile
               label="Active doctors"
               value={data.staffing.active_doctors}
-              hint={`of ${data.staffing.total_doctors} total`}
               icon={Stethoscope}
             />
             <StatTile
               label="Active staff"
               value={data.staffing.active_staff}
-              hint={`of ${data.staffing.total_staff} total`}
               icon={Users}
               tint="clay"
             />

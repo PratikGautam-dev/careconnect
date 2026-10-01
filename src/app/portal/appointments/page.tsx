@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
+import { ExportDialog } from "@/components/export/ExportDialog";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { CancelPanel } from "@/components/portal/CancelPanel";
@@ -29,7 +30,9 @@ import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
+import { portalFetch, portalFetchBlob } from "@/lib/portalAuth";
 import { usePermission } from "@/lib/staffAuth";
+import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
 import { createAppointmentColumns, STATUS_LABELS } from "./_components/appointments-columns";
 import { RescheduleDialog } from "./_components/RescheduleDialog";
@@ -100,6 +103,20 @@ export default function PortalAppointmentsPage() {
   const canView = usePermission("appointments", "view");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportHistoryPage, setExportHistoryPage] = useState(1);
+
+  const exportMutation = useCsvExport(
+    portalFetchBlob,
+    "/api/portal/bookings/export",
+    "appointments.csv",
+  );
+  const exportHistory = useExportHistory(
+    portalFetch,
+    "/api/portal/exports/history",
+    "PORTAL_APPOINTMENTS",
+    exportHistoryPage,
+  );
   const {
     appointments,
     allAppointments,
@@ -290,8 +307,7 @@ export default function PortalAppointmentsPage() {
     {
       label: "Export appointments",
       icon: FileDown,
-      disabled: true,
-      title: "Coming soon",
+      onClick: () => setExportOpen(true),
     },
   ];
 
@@ -328,26 +344,13 @@ export default function PortalAppointmentsPage() {
         <StatTile
           label="Total doctor appointments"
           value={stats?.total ?? null}
-          hint="Live count"
           icon={CalendarRange}
         />
-        <StatTile
-          label="Today's appointments"
-          value={stats?.today ?? null}
-          hint="vs yesterday"
-          icon={CalendarClock}
-        />
-        <StatTile
-          label="Pending confirmations"
-          value={null}
-          hint="No such status exists yet — every booked row already reads Confirmed"
-          icon={Clock}
-          tint="clay"
-        />
+        <StatTile label="Today's appointments" value={stats?.today ?? null} icon={CalendarClock} />
+        <StatTile label="Pending confirmations" value={null} icon={Clock} tint="clay" />
         <StatTile
           label="Completed consultations"
           value={stats?.completed ?? null}
-          hint="Attended, all-time in this list"
           icon={CheckCircle2}
           tint="success"
         />
@@ -489,6 +492,22 @@ export default function PortalAppointmentsPage() {
           <PortalMiniCalendar category="doctor" />
         </div>
       </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        title="Appointments"
+        exportMutation={exportMutation}
+        history={exportHistory}
+        historyPage={exportHistoryPage}
+        onHistoryPageChange={setExportHistoryPage}
+        exportCap={10_000}
+        extraParams={{
+          category: "doctor",
+          status: statusFilter === "all" ? undefined : statusFilter,
+          type: typeFilter === "all" ? undefined : typeFilter,
+        }}
+      />
 
       <ConfirmDialog
         open={pendingDelete !== null}

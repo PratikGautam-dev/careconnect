@@ -13,7 +13,7 @@ import {
   useAuditLogPage,
   type AuditLogPageResponse,
 } from "@/hooks/useAuditLogPage";
-import { portalFetch } from "@/lib/portalAuth";
+import { portalFetch, portalFetchBlob } from "@/lib/portalAuth";
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -53,6 +53,13 @@ export default function PortalActivityLogPage() {
             onFiltersChange={setFilters}
             pageSize={pageSize}
             onPageSizeChange={setPageSize}
+            exportConfig={{
+              fetchBlob: portalFetchBlob,
+              fetchJson: portalFetch,
+              exportUrl: "/api/portal/audit-log/export",
+              historyUrl: "/api/portal/exports/history",
+              module: "AUDIT_LOG",
+            }}
           />
         </Card>
       )}

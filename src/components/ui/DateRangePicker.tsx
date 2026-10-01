@@ -23,12 +23,15 @@ const MONTHS_SHORT = [
 
 /** "1 Sep 2026" for a plain YYYY-MM-DD string, parsed at local midnight --
  * same manual-format reasoning as lib/formatDate.ts's own formatters (avoids
- * a server/client locale hydration mismatch), kept local to this component
- * since no other page needs this exact "D Mon YYYY" shape yet. */
+ * a server/client locale hydration mismatch). */
 function formatRangeDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   if (!y || !m || !d) return dateStr;
   return `${d} ${MONTHS_SHORT[m - 1]} ${y}`;
+}
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 type Props = {
@@ -38,16 +41,15 @@ type Props = {
   className?: string;
 };
 
-/** No reusable date-range picker existed anywhere in the codebase (checked
- * for DateRange/react-day-picker/Popover -- every other page's date control
- * is either a single native `<input type="date">` (Attendance Overview) or
- * a from-scratch month calendar grid, PortalMiniCalendar). Built new, kept
- * deliberately small: a button showing the formatted range (matches the
- * reference screenshot's "1 Sep 2026 - 30 Sep 2026" button) that opens a
- * dropdown with two native date inputs + Apply, closed on outside click --
+/** Shared date-range control -- a button showing the formatted range that
+ * opens a dropdown with two native date inputs, a one-click "Today" preset,
+ * and Apply, closed on outside click. Originally built just for the Report
+ * Analytics page (as ReportDateRangePicker); promoted here once the admin
+ * Appointment Billing page needed the exact same control instead of its own
+ * hand-rolled pair of `<input type="date">` + a separate "Today" link --
  * same "native input, app-styled wrapper" approach Input.tsx/FilterSelect.tsx
  * already use everywhere else rather than a bespoke calendar-grid widget. */
-export function ReportDateRangePicker({ dateFrom, dateTo, onChange, className }: Props) {
+export function DateRangePicker({ dateFrom, dateTo, onChange, className }: Props) {
   const [open, setOpen] = useState(false);
   const [draftFrom, setDraftFrom] = useState(dateFrom);
   const [draftTo, setDraftTo] = useState(dateTo);
@@ -87,6 +89,12 @@ export function ReportDateRangePicker({ dateFrom, dateTo, onChange, className }:
     }
   }
 
+  function handleToday() {
+    const today = todayStr();
+    onChange(today, today);
+    setOpen(false);
+  }
+
   return (
     <div ref={containerRef} className={cn("relative", className)}>
       <button
@@ -100,6 +108,13 @@ export function ReportDateRangePicker({ dateFrom, dateTo, onChange, className }:
 
       {open && (
         <div className="border-line bg-card p-space-4 gap-space-3 mt-space-1 absolute top-full right-0 z-20 flex w-72 flex-col rounded-md border shadow-[var(--shadow-md)]">
+          <button
+            type="button"
+            onClick={handleToday}
+            className="text-brand-600 self-start text-[12.5px] font-semibold hover:underline"
+          >
+            Today
+          </button>
           <div>
             <label className="text-hint mb-space-1 block">From</label>
             <Input

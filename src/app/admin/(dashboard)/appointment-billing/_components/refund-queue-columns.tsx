@@ -3,9 +3,10 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/Badge";
 import type { AppointmentBillingRefundRow } from "@/hooks/useAppointmentBilling";
+import { formatINR } from "@/lib/formatCurrency";
 
 function money(value: number): string {
-  return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  return formatINR(value);
 }
 
 function formatDateTime(value: string | null): string {

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
+import { formatINR } from "@/lib/formatCurrency";
 import { toast } from "@/lib/toast";
 
 const PAGE_SIZE = 10;
@@ -641,7 +642,7 @@ export function useAppointments(
         refund.status === "pending_approval"
           ? "Cancelled -- refund pending approval"
           : "Cancelled -- refund initiated",
-        `₹${refund.refund_amount.toLocaleString("en-IN")} ${
+        `${formatINR(refund.refund_amount)} ${
           refund.status === "pending_approval"
             ? "will be reviewed in Billing -> Refunds."
             : "is being refunded via Razorpay."

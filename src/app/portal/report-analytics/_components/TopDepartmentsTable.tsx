@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/Card";
+import { formatINR } from "@/lib/formatCurrency";
 import {
   Table,
   TableBody,
@@ -41,7 +42,7 @@ export function TopDepartmentsTable({ data, className }: Props) {
                   {row.department_name}
                 </TableCell>
                 <TableCell>{row.appointment_count.toLocaleString()}</TableCell>
-                <TableCell>₹{row.revenue.toLocaleString("en-IN")}</TableCell>
+                <TableCell>{formatINR(row.revenue)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

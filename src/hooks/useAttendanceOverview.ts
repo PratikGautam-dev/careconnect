@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
-import { unwrapPortalResult } from "@/lib/portalMutation";
+import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
+import { toast } from "@/lib/toast";
+
+// Only these two are admin-settable from the roster's override control --
+// Late/On leave stay derived (check-in time / leave approval), matching
+// db/repositories/attendance.py's own MANUAL_OVERRIDE_STATUSES.
+export type ManualAttendanceStatus = "on_time" | "absent";
 
 export type AttendanceOverviewStatus = "on_time" | "late" | "absent" | "leave" | "half_day";
 
@@ -75,11 +81,44 @@ export function useAttendanceOverview(canView: boolean) {
     },
   });
 
+  const overrideMutation = useMutation({
+    mutationFn: async ({
+      staffId,
+      status,
+    }: {
+      staffId: number;
+      status: ManualAttendanceStatus;
+    }) => {
+      const result = await staffFetch("/api/portal/attendance/hospital/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staff_id: staffId, date, status }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+
+  const [overridingId, setOverridingId] = useState<number | null>(null);
+  async function setStatus(row: AttendanceOverviewRow, status: ManualAttendanceStatus) {
+    setOverridingId(row.staff_id);
+    try {
+      await overrideMutation.mutateAsync({ staffId: row.staff_id, status });
+      toast.success(`${row.staff_name} marked ${status === "on_time" ? "Present" : "Absent"}`);
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't update attendance", err.message);
+    } finally {
+      setOverridingId(null);
+    }
+  }
+
   return {
     date,
     setDate,
     records: records ?? null,
     error: queryError ? "Couldn't load attendance — try again." : null,
     load: refetch,
+    setStatus,
+    overridingId,
   };
 }

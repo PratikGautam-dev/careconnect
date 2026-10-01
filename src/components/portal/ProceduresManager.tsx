@@ -8,6 +8,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { useProcedures, type ScheduleFormState } from "@/hooks/useProcedures";
 import { ProcedureLeaveManager } from "@/components/portal/ProcedureLeaveManager";
 import { ProcedureSlotManager } from "@/components/portal/ProcedureSlotManager";
@@ -242,7 +243,7 @@ export function ProceduresManager({ canManage }: { canManage: boolean }) {
                     <div>
                       <p className="text-ink-900 text-[13.5px] font-semibold">{procedure.name}</p>
                       <p className="text-ink-600 text-[12px]">
-                        {procedure.price != null ? `₹${procedure.price}` : "No price set"}
+                        {procedure.price != null ? formatINR(procedure.price) : "No price set"}
                       </p>
                     </div>
                     <div className="gap-space-3 flex items-center">

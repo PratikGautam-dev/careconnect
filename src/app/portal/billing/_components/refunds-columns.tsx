@@ -5,6 +5,7 @@ import { RotateCw } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { formatShortDateTime } from "@/lib/formatDate";
+import { formatINR } from "@/lib/formatCurrency";
 import type { RefundRequest, RefundStatus } from "@/hooks/useRefunds";
 
 export const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
@@ -133,12 +134,10 @@ export function createRefundColumns({
         const r = row.original;
         return (
           <div>
-            <span className="text-ink-900 font-semibold">
-              ₹{r.refund_amount.toLocaleString("en-IN")}
-            </span>
+            <span className="text-ink-900 font-semibold">{formatINR(r.refund_amount)}</span>
             {r.deduction_amount > 0 && (
               <span className="text-ink-400 block text-[11px]">
-                ₹{r.deduction_amount.toLocaleString("en-IN")} deducted ({r.deduction_percent}%)
+                {formatINR(r.deduction_amount)} deducted ({r.deduction_percent}%)
               </span>
             )}
           </div>

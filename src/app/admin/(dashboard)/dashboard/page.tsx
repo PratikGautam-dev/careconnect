@@ -9,7 +9,6 @@ import {
   CreditCard,
   FileText,
   HeadphonesIcon,
-  Megaphone,
   Plus,
   Receipt,
 } from "lucide-react";
@@ -176,7 +175,6 @@ function DashboardContent() {
     { label: "Add Hospital", icon: Plus, href: "/admin/onboard-hospital" },
     { label: "Manage Subscriptions", icon: FileText, href: "/admin/subscriptions" },
     { label: "Manage Plans", icon: Receipt, href: "/admin/plans-billing" },
-    { label: "Send Reminder", icon: Megaphone, disabled: true, title: "Coming soon" },
     { label: "View Tickets", icon: HeadphonesIcon, href: "/admin/support-tickets" },
   ];
 
@@ -196,23 +194,16 @@ function DashboardContent() {
         <StatTile
           label="Total Hospitals"
           value={hospitals ? hospitals.total : null}
-          hint={hospitals ? `+${hospitals.new_this_month} this month` : "Loading…"}
           icon={Building2}
         />
         <StatTile
           label="Active Subscriptions"
           value={subscriptionStats ? subscriptionStats.activeCount : null}
-          hint={
-            hospitals && subscriptionStats
-              ? `${Math.round((subscriptionStats.activeCount / Math.max(hospitals.total, 1)) * 100)}% of total hospitals`
-              : "Loading…"
-          }
           icon={FileText}
         />
         <StatTile
           label="Monthly Recurring Revenue"
           value={subscriptionStats ? Math.round(subscriptionStats.mrr) : null}
-          hint="from active subscriptions"
           icon={CreditCard}
           prefix="₹"
           tint="success"
@@ -220,20 +211,17 @@ function DashboardContent() {
         <StatTile
           label="Expiring Renewals"
           value={subscriptionStats ? subscriptionStats.expiringCount : null}
-          hint={`in next ${EXPIRING_WINDOW_DAYS} days`}
           icon={Clock}
           tint="clay"
         />
         <StatTile
           label="Total Bookings"
           value={dashboard ? dashboard.total_bookings : null}
-          hint="all-time, across hospitals"
           icon={Calendar}
         />
         <StatTile
           label="Support Tickets Open"
           value={ticketSummary ? ticketSummary.open : null}
-          hint={ticketSummary ? `${ticketSummary.total} total` : "Loading…"}
           icon={HeadphonesIcon}
           tint="clay"
           href="/admin/support-tickets"

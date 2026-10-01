@@ -169,14 +169,12 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Gross Collected"
           value={stats?.gross_collected ?? null}
-          hint="In selected range"
           icon={IndianRupee}
           prefix="₹"
         />
         <StatTile
           label="Refunded"
           value={stats?.total_refunded ?? null}
-          hint="Completed refunds only"
           icon={RefreshCcw}
           prefix="₹"
           tint="error"
@@ -184,7 +182,6 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Net Actual"
           value={stats?.net_actual ?? null}
-          hint="Gross − refunded"
           icon={Banknote}
           prefix="₹"
           tint="success"
@@ -192,14 +189,12 @@ function AppointmentBillingTenantDetail({ tenantId }: { tenantId: number }) {
         <StatTile
           label="Online"
           value={stats?.online_collected ?? null}
-          hint="In selected range"
           icon={Wallet2}
           prefix="₹"
         />
         <StatTile
           label="Cash"
           value={stats?.cash_collected ?? null}
-          hint="Pay at hospital"
           icon={Wallet2}
           prefix="₹"
           tint="clay"

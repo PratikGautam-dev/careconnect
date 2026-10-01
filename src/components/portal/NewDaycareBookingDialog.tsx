@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { useNewDaycareBooking } from "@/hooks/useNewDaycareBooking";
 import { GENDER_VALUES } from "@/lib/validation/patientInfo";
 import { SectionHeader } from "./SectionHeader";
@@ -166,9 +167,7 @@ export function NewDaycareBookingDialog({
                     )}
                   >
                     {p.name}
-                    {p.estimated_price_min != null
-                      ? ` — ₹${p.estimated_price_min.toLocaleString("en-IN")}+`
-                      : ""}
+                    {p.estimated_price_min != null ? ` — ${formatINR(p.estimated_price_min)}+` : ""}
                   </button>
                 ))}
                 {procedures.length === 0 && (

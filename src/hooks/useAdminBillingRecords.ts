@@ -22,6 +22,7 @@ export type BillingStats = {
   failed_payments_count: number;
   collections: number;
   total_invoiced: number;
+  collections_this_month: number;
   pending_payments: number;
   failed_payments_amount: number;
 };

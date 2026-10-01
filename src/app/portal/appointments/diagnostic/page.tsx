@@ -335,28 +335,16 @@ export default function PortalDiagnosticAppointmentsPage() {
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={4} className="mb-space-4">
-        <StatTile
-          label="Total test bookings"
-          value={stats?.total ?? null}
-          hint="Live count"
-          icon={Beaker}
-        />
+        <StatTile label="Total test bookings" value={stats?.total ?? null} icon={Beaker} />
         <StatTile
           label="Diagnostics today"
           value={stats?.diagnosticsToday ?? null}
-          hint="vs yesterday"
           icon={FileText}
         />
-        <StatTile
-          label="Lab tests today"
-          value={stats?.labToday ?? null}
-          hint="vs yesterday"
-          icon={ClipboardList}
-        />
+        <StatTile label="Lab tests today" value={stats?.labToday ?? null} icon={ClipboardList} />
         <StatTile
           label="Pending report uploads"
           value={stats?.pendingReports ?? null}
-          hint="Lab tests and Diagnostics — anything still booked without a report"
           icon={FileClock}
           tint="clay"
         />

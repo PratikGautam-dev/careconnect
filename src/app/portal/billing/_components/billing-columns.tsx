@@ -4,6 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/Badge";
 import type { PaymentRow } from "@/hooks/usePayments";
 import { formatShortDateTime } from "@/lib/formatDate";
+import { formatINR } from "@/lib/formatCurrency";
 
 export const PAYMENT_STATUS_LABELS: Record<PaymentRow["status"], string> = {
   paid: "Paid",
@@ -65,12 +66,10 @@ export function createBillingColumns({
         const hasBreakdown = (p.gst_amount ?? 0) > 0 || (p.platform_fee_amount ?? 0) > 0;
         return (
           <div>
-            <span className="text-ink-900 font-semibold">₹{p.amount.toLocaleString("en-IN")}</span>
+            <span className="text-ink-900 font-semibold">{formatINR(p.amount)}</span>
             {hasBreakdown && (
               <span className="text-ink-400 block text-[11px]">
-                incl. ₹
-                {((p.gst_amount ?? 0) + (p.platform_fee_amount ?? 0)).toLocaleString("en-IN")}{" "}
-                GST/fee
+                incl. {formatINR((p.gst_amount ?? 0) + (p.platform_fee_amount ?? 0))} GST/fee
               </span>
             )}
           </div>
@@ -108,7 +107,7 @@ export function createBillingColumns({
       cell: ({ row }) => {
         const p = row.original;
         if (p.refund_amount == null) return <span className="text-ink-400">—</span>;
-        return <Badge tone="clay">₹{p.refund_amount.toLocaleString("en-IN")} refunded</Badge>;
+        return <Badge tone="clay">{formatINR(p.refund_amount)} refunded</Badge>;
       },
     },
   ];

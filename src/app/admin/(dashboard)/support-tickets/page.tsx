@@ -66,36 +66,18 @@ function SupportTicketsList() {
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={5} className="mb-space-4">
-        <StatTile
-          label="Total Tickets"
-          value={summary ? summary.total : null}
-          hint="Across all hospitals"
-          icon={ListChecks}
-        />
-        <StatTile
-          label="Open"
-          value={summary ? summary.open : null}
-          hint="Not started yet"
-          icon={Clock}
-          tint="clay"
-        />
-        <StatTile
-          label="In Process"
-          value={summary ? summary.in_process : null}
-          hint="Being worked on"
-          icon={Timer}
-        />
+        <StatTile label="Total Tickets" value={summary ? summary.total : null} icon={ListChecks} />
+        <StatTile label="Open" value={summary ? summary.open : null} icon={Clock} tint="clay" />
+        <StatTile label="In Process" value={summary ? summary.in_process : null} icon={Timer} />
         <StatTile
           label="On Hold"
           value={summary ? summary.on_hold : null}
-          hint="Waiting on something"
           icon={PauseCircle}
           tint="error"
         />
         <StatTile
           label="Completed"
           value={summary ? summary.completed : null}
-          hint="Resolved"
           icon={CheckCircle2}
           tint="success"
         />

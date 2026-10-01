@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { useNewTestBooking } from "@/hooks/useNewTestBooking";
 import { GENDER_VALUES } from "@/lib/validation/patientInfo";
 import { SectionHeader } from "./SectionHeader";
@@ -169,7 +170,7 @@ export function NewTestBookingDialog({
                     )}
                   >
                     {t.name}
-                    {t.price != null ? ` — ₹${t.price}` : ""}
+                    {t.price != null ? ` — ${formatINR(t.price)}` : ""}
                   </button>
                 ))}
                 {diagnosticTests.length === 0 && (
@@ -194,7 +195,7 @@ export function NewTestBookingDialog({
                     )}
                   >
                     {t.name}
-                    {t.price != null ? ` — ₹${t.price}` : ""}
+                    {t.price != null ? ` — ${formatINR(t.price)}` : ""}
                   </button>
                 ))}
                 {labTests.length === 0 && (
@@ -224,7 +225,9 @@ export function NewTestBookingDialog({
                   ))}
                 </div>
                 {priceTotal > 0 && (
-                  <p className="mt-space-2 text-ink-700 font-semibold">Total: ₹{priceTotal}</p>
+                  <p className="mt-space-2 text-ink-700 font-semibold">
+                    Total: {formatINR(priceTotal)}
+                  </p>
                 )}
               </div>
             )}

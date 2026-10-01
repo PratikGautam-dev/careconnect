@@ -3,6 +3,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
+import { formatINR } from "@/lib/formatCurrency";
 import type { BillingRecord } from "@/hooks/useAdminBillingRecords";
 import type { RecentActivity } from "@/hooks/useSuperAdminDashboard";
 import type { SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
@@ -108,9 +109,7 @@ export const billingRecordColumns: ColumnDef<BillingRecord, unknown>[] = [
     id: "amount",
     header: "Amount",
     cell: ({ row }) => (
-      <span className="text-ink-900 font-semibold">
-        ₹{row.original.amount.toLocaleString("en-IN")}
-      </span>
+      <span className="text-ink-900 font-semibold">{formatINR(row.original.amount)}</span>
     ),
   },
   {

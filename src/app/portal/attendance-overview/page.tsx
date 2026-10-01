@@ -84,7 +84,10 @@ function dateLabel(dateKey: string): string {
 export default function AttendanceOverviewPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("attendance_overview", "view");
-  const { date, setDate, records, error } = useAttendanceOverview(ready && canView);
+  const canOverride = usePermission("attendance_overview", "write");
+  const { date, setDate, records, error, setStatus, overridingId } = useAttendanceOverview(
+    ready && canView,
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -132,28 +135,11 @@ export default function AttendanceOverviewPage() {
             <StatTile
               label="Present"
               value={records ? counts.present : null}
-              hint={dateLabel(date)}
               icon={CalendarCheck}
             />
-            <StatTile
-              label="Late"
-              value={records ? counts.late : null}
-              hint={dateLabel(date)}
-              icon={Clock}
-              tint="clay"
-            />
-            <StatTile
-              label="Absent"
-              value={records ? counts.absent : null}
-              hint={dateLabel(date)}
-              icon={UserX}
-            />
-            <StatTile
-              label="On leave"
-              value={records ? counts.leave : null}
-              hint={dateLabel(date)}
-              icon={UserRound}
-            />
+            <StatTile label="Late" value={records ? counts.late : null} icon={Clock} tint="clay" />
+            <StatTile label="Absent" value={records ? counts.absent : null} icon={UserX} />
+            <StatTile label="On leave" value={records ? counts.leave : null} icon={UserRound} />
           </StatTileGrid>
 
           <Card className="p-space-4">
@@ -215,6 +201,9 @@ export default function AttendanceOverviewPage() {
                       <th className="py-space-2 pr-space-3 font-medium">Check-out</th>
                       <th className="py-space-2 pr-space-3 font-medium">Working hours</th>
                       <th className="py-space-2 font-medium">Status</th>
+                      {canOverride && (
+                        <th className="py-space-2 pl-space-3 font-medium">Actions</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -251,6 +240,28 @@ export default function AttendanceOverviewPage() {
                             {STATUS_LABELS[r.status]}
                           </span>
                         </td>
+                        {canOverride && (
+                          <td className="py-space-3 pl-space-3 whitespace-nowrap">
+                            <div className="gap-space-2 flex items-center">
+                              <button
+                                type="button"
+                                disabled={overridingId === r.staff_id || r.status === "on_time"}
+                                onClick={() => setStatus(r, "on_time")}
+                                className="border-line text-ink-600 hover:bg-success-tint hover:text-success px-space-2 h-7 rounded-md border text-[11.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Mark Present
+                              </button>
+                              <button
+                                type="button"
+                                disabled={overridingId === r.staff_id || r.status === "absent"}
+                                onClick={() => setStatus(r, "absent")}
+                                className="border-line text-ink-600 hover:bg-error-tint hover:text-error px-space-2 h-7 rounded-md border text-[11.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Mark Absent
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

@@ -7,7 +7,6 @@ import {
   Clock,
   Copy,
   FileText,
-  History,
   Power,
   RotateCcw,
   Save,
@@ -24,8 +23,9 @@ import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { AuditActivityTable } from "@/components/audit/AuditActivityTable";
 import { cn } from "@/lib/cn";
-import { formatDate, formatShortDateTime } from "@/lib/formatDate";
+import { formatDate } from "@/lib/formatDate";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
 import { useEditTenant } from "@/hooks/useEditTenant";
@@ -98,7 +98,6 @@ function AccessControlContent({
     formDirty,
   } = useEditTenant(selectedId);
 
-  const { entries: auditEntries } = useTenantAuditLog(selectedId);
   const { subscriptions } = useAdminSubscriptions();
   const { plans } = useAdminPlans();
 
@@ -158,33 +157,12 @@ function AccessControlContent({
   return (
     <div>
       <StatTileGrid cols={4} className="mb-space-4">
-        <StatTile
-          label="Total Hospitals"
-          value={tenants.length}
-          hint="Across all subscriptions"
-          icon={Building2}
-        />
-        <StatTile
-          label="Active Subscriptions"
-          value={activeSubscriptionsCount}
-          hint={
-            activeSubscriptionsCount !== null
-              ? `${Math.round((activeSubscriptionsCount / Math.max(tenants.length, 1)) * 100)}% of total hospitals`
-              : "Loading…"
-          }
-          icon={FileText}
-        />
-        <StatTile
-          label="Custom Access Profiles"
-          value={customCount}
-          hint="Role-based configurations"
-          icon={Users}
-          tint="success"
-        />
+        <StatTile label="Total Hospitals" value={tenants.length} icon={Building2} />
+        <StatTile label="Active Subscriptions" value={activeSubscriptionsCount} icon={FileText} />
+        <StatTile label="Custom Access Profiles" value={customCount} icon={Users} tint="success" />
         <StatTile
           label="Expiring This Month"
           value={expiringThisMonthCount}
-          hint="Require renewal action"
           icon={Clock}
           tint="clay"
         />
@@ -440,34 +418,6 @@ function AccessControlContent({
               </div>
             </QuickActionList>
           </Card>
-
-          <Card className="p-space-4">
-            <PanelHeader title="Recent Access Changes" />
-            {!auditEntries ? (
-              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">Loading…</p>
-            ) : auditEntries.length === 0 ? (
-              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">No changes yet.</p>
-            ) : (
-              <ul className="divide-line divide-y">
-                {auditEntries.slice(0, 5).map((entry) => (
-                  <li key={entry.id} className="py-space-2 gap-space-0.5 flex flex-col text-[12px]">
-                    <div className="flex items-center justify-between">
-                      <span className="gap-space-1 text-ink-900 flex items-center font-semibold">
-                        <History size={12} /> {entry.action}
-                      </span>
-                      <span className="text-ink-400">{formatShortDateTime(entry.created_at)}</span>
-                    </div>
-                    <span className="text-ink-600">
-                      {entry.after_value
-                        ? Object.keys(entry.after_value).join(", ")
-                        : entry.entity_type || "—"}{" "}
-                      · {entry.actor_label}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
         </div>
       </div>
 
@@ -489,11 +439,38 @@ function AccessControlContent({
   );
 }
 
+// ===== Audit Activity Table (moved outside grid for full width) =====
+function AccessAuditActivityTable({
+  auditEntries,
+  tenant,
+}: {
+  auditEntries: import("@/hooks/useTenantAuditLog").TenantAuditEntry[];
+  tenant: import("@/hooks/useTenants").Tenant | null;
+}) {
+  const entries = (auditEntries ?? []).map((e) => ({
+    ...e,
+    hospital_name: tenant?.name ?? null,
+    hospital_id: tenant?.id ?? null,
+  }));
+  return (
+    <AuditActivityTable
+      entries={entries}
+      isLoading={!auditEntries}
+      title="Recent Access Changes"
+      subtitle="Recent changes to access control and capabilities for the selected hospital."
+      emptyMessage="No access changes yet."
+      showActorLevelFilter={false}
+      showHospitalColumn={false}
+    />
+  );
+}
+
 export default function AccessControlPage() {
   const { tenants, error } = useTenants();
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const activeId = selectedId ?? tenants?.[0]?.id ?? null;
+  const { entries: auditEntries } = useTenantAuditLog(activeId);
 
   return (
     <div>
@@ -512,11 +489,17 @@ export default function AccessControlPage() {
       ) : tenants.length === 0 ? (
         <p className="text-ink-400 text-[13px]">No hospitals onboarded yet.</p>
       ) : (
-        <AccessControlContent
-          tenants={tenants}
-          selectedId={activeId as number}
-          onSelect={setSelectedId}
-        />
+        <>
+          <AccessControlContent
+            tenants={tenants}
+            selectedId={activeId as number}
+            onSelect={setSelectedId}
+          />
+          <AccessAuditActivityTable
+            auditEntries={auditEntries ?? []}
+            tenant={tenants?.find((t) => t.id === activeId) ?? null}
+          />
+        </>
       )}
     </div>
   );

@@ -176,7 +176,7 @@ export function HospitalDetailPanel({ hospital, subscription, profile, paymentSe
       </div>
 
       <div className="mt-space-4 border-line pt-space-3 border-t">
-        <p className="text-label text-ink-900 mb-space-2 font-bold">Modules Enabled</p>
+        <p className="text-label text-ink-900 mb-space-2 font-bold">Features Enabled</p>
         {!profile ? (
           <p className="text-ink-400 text-[12.5px]">Loading…</p>
         ) : profile.enabled_features.length === 0 ? (

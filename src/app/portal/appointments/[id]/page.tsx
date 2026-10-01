@@ -12,6 +12,7 @@ import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { formatDateTime } from "@/lib/formatDate";
 import { isPortalMutationError } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
@@ -227,7 +228,7 @@ export default function AppointmentDetailPage() {
                     >
                       {PAYMENT_STATUS_LABELS[appointment.payment_status]}
                       {appointment.payment_amount != null &&
-                        ` · ₹${appointment.payment_amount.toLocaleString("en-IN")}`}
+                        ` · ${formatINR(appointment.payment_amount)}`}
                     </span>
                   }
                 />

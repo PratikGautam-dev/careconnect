@@ -37,7 +37,7 @@ export function clearAdminToken() {
 }
 
 import axios, { isAxiosError } from "axios";
-import { requestInitToAxiosConfig } from "@/lib/apiClient";
+import { blobErrorToMessage, requestInitToAxiosConfig } from "@/lib/apiClient";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -71,6 +71,41 @@ export async function adminFetch(
         unauthorized: false,
         error: data?.error || (data?.errors || []).join(" ") || "Something went wrong.",
       };
+    }
+    return { ok: false, unauthorized: false, error: "Network error — check your connection." };
+  }
+}
+
+/** Blob-returning sibling of adminFetch, for the CSV export routes
+ * (GET .../export) -- those return a file body with Content-Disposition/
+ * x-truncated headers, not JSON, so they need the raw axios response
+ * rather than adminFetch's unwrapped `{ok, data}`. Used only by
+ * useExport.ts's useCsvExport hook. */
+export async function adminFetchBlob(
+  path: string,
+): Promise<
+  | { ok: true; blob: Blob; headers: Record<string, string> }
+  | { ok: false; unauthorized: true }
+  | { ok: false; unauthorized: false; error: string }
+> {
+  const token = getAdminToken();
+  if (!token) return { ok: false, unauthorized: true };
+
+  try {
+    const res = await axios.request({
+      method: "GET",
+      url: `${API_BASE_URL}${path}`,
+      headers: { Authorization: `Bearer ${token}` },
+      responseType: "blob",
+    });
+    return { ok: true, blob: res.data, headers: res.headers as unknown as Record<string, string> };
+  } catch (err) {
+    if (isAxiosError(err) && err.response) {
+      if (err.response.status === 401) {
+        clearAdminToken();
+        return { ok: false, unauthorized: true };
+      }
+      return { ok: false, unauthorized: false, error: await blobErrorToMessage(err.response.data) };
     }
     return { ok: false, unauthorized: false, error: "Network error — check your connection." };
   }

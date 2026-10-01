@@ -131,32 +131,23 @@ export default function LeaveRequestsPage() {
             <StatTile
               label="Total Requests"
               value={summary ? summary.total : null}
-              hint="Live count"
               icon={ListChecks}
             />
             <StatTile
               label="Pending Approval"
               value={summary ? summary.pending : null}
-              hint="Needs review"
               icon={Clock}
               tint="clay"
             />
             <StatTile
               label="Approved"
               value={summary ? summary.approved : null}
-              hint="Live count"
               icon={CalendarCheck}
             />
-            <StatTile
-              label="Rejected"
-              value={summary ? summary.rejected : null}
-              hint="Live count"
-              icon={CalendarX}
-            />
+            <StatTile label="Rejected" value={summary ? summary.rejected : null} icon={CalendarX} />
             <StatTile
               label="On Leave Today"
               value={summary ? summary.on_leave_today : null}
-              hint="Approved, today"
               icon={UserRound}
             />
           </StatTileGrid>

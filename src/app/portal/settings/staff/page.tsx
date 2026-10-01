@@ -168,29 +168,17 @@ export default function StaffManagementPage() {
           {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
           <StatTileGrid cols={4} className="mb-space-4">
-            <StatTile
-              label="Total Staff"
-              value={staff ? totalCount : null}
-              hint="Live count"
-              icon={Users}
-            />
-            <StatTile
-              label="Active Staff"
-              value={staff ? activeCount : null}
-              hint={staff ? `of ${totalCount} total` : ""}
-              icon={UserCheck}
-            />
+            <StatTile label="Total Staff" value={staff ? totalCount : null} icon={Users} />
+            <StatTile label="Active Staff" value={staff ? activeCount : null} icon={UserCheck} />
             <StatTile
               label="Absent Today"
               value={canViewAttendance ? absentTodayCount : null}
-              hint={canViewAttendance ? "No check-in yet" : "No access"}
               icon={CalendarX}
               tint="clay"
             />
             <StatTile
               label="Departments"
               value={staff ? departmentsCoveredCount : null}
-              hint="Live count"
               icon={Building2}
             />
           </StatTileGrid>
@@ -348,12 +336,7 @@ export default function StaffManagementPage() {
             Reset password{resetPasswordTarget ? ` for ${resetPasswordTarget.name}` : ""}
           </DialogTitle>
           <form onSubmit={handleResetPassword} className="gap-space-3 flex flex-col">
-            <Field
-              label="New password"
-              htmlFor="reset_new_password"
-              required
-              hint="At least 8 characters."
-            >
+            <Field label="New password" htmlFor="reset_new_password" required>
               <PasswordInput
                 id="reset_new_password"
                 value={newPassword}

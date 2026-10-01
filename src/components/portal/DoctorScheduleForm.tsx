@@ -52,6 +52,8 @@ type Department = { id: string; name: string };
 
 type Props = {
   departments: Department[];
+  // Clinics have no departments -- the backend files the doctor under a default one.
+  hideDepartment?: boolean;
   value: DoctorScheduleFormState;
   onChange: (next: DoctorScheduleFormState) => void;
   onSave: () => void;
@@ -62,6 +64,7 @@ type Props = {
 
 export function DoctorScheduleForm({
   departments,
+  hideDepartment = false,
   value,
   onChange,
   onSave,
@@ -106,22 +109,24 @@ export function DoctorScheduleForm({
       </div>
 
       <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-3">
-        <Field label="Department" htmlFor="doctor_department" required>
-          <select
-            id="doctor_department"
-            required
-            value={value.department_id}
-            onChange={(e) => set("department_id", e.target.value)}
-            className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
-          >
-            <option value="">Choose…</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {!hideDepartment && (
+          <Field label="Department" htmlFor="doctor_department" required>
+            <select
+              id="doctor_department"
+              required
+              value={value.department_id}
+              onChange={(e) => set("department_id", e.target.value)}
+              className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
+            >
+              <option value="">Choose…</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Qualification" htmlFor="doctor_qualification" required>
           <Input
             required

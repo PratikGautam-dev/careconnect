@@ -3,14 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Building2,
   CalendarX,
   Plus,
   Search,
   SlidersHorizontal,
+  Stethoscope,
   Upload,
-  UserRound,
+  UserCheck,
   UserRoundCheck,
+  UserRoundX,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -58,6 +59,7 @@ export default function PortalDoctorsPage() {
     departments,
     doctors,
     onLeaveTodayCount,
+    presentTodayCount,
     totalCount,
     activeCount,
     error,
@@ -293,30 +295,15 @@ export default function PortalDoctorsPage() {
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
         <>
-          <StatTileGrid cols={4} className="mb-space-4">
-            <StatTile label="Total doctors" value={totalCount} hint="Live count" icon={UserRound} />
-            <StatTile
-              label="Active doctors"
-              value={activeCount}
-              hint={`of ${totalCount} total`}
-              icon={UserRoundCheck}
-            />
-            <StatTile
-              label="On leave"
-              value={onLeaveTodayCount}
-              hint="Today"
-              icon={CalendarX}
-              tint="clay"
-            />
-            <StatTile
-              label="Departments covered"
-              value={departments.length}
-              hint="Live count"
-              icon={Building2}
-            />
+          <StatTileGrid cols={5} className="mb-space-4">
+            <StatTile label="Total doctors" value={totalCount} icon={Stethoscope} />
+            <StatTile label="Active" value={activeCount} icon={UserRoundCheck} />
+            <StatTile label="Inactive" value={totalCount - activeCount} icon={UserRoundX} />
+            <StatTile label="On leave" value={onLeaveTodayCount} icon={CalendarX} tint="clay" />
+            <StatTile label="Present today" value={presentTodayCount} icon={UserCheck} />
           </StatTileGrid>
 
-          {departments.length === 0 && (
+          {departments.length === 0 && hospital?.tenant_type !== "clinic" && (
             <Card className="mb-space-4 p-space-4">
               <p className="text-ink-400 text-[12.5px]">
                 No departments yet -- add one from{" "}
@@ -435,6 +422,7 @@ export default function PortalDoctorsPage() {
           {departments && (
             <DoctorScheduleForm
               departments={departments}
+              hideDepartment={hospital?.tenant_type === "clinic"}
               value={doctorForm}
               onChange={setDoctorForm}
               onSave={handleSaveDoctor}

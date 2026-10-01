@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { CalendarRange, Download, IndianRupee, PieChart, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
+import { ExportDialog } from "@/components/export/ExportDialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
@@ -10,15 +12,15 @@ import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { DepartmentDonut } from "@/components/portal/DepartmentDonut";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePortalReportAnalytics } from "@/hooks/usePortalReportAnalytics";
+import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import { formatHeaderDate } from "@/lib/formatDate";
+import { portalFetch, portalFetchBlob } from "@/lib/portalAuth";
 import { usePermission } from "@/lib/staffAuth";
 import { AppointmentTrendsChart } from "./_components/AppointmentTrendsChart";
 import { VisitTypeDonut } from "./_components/VisitTypeDonut";
 import { RevenueBarChart } from "./_components/RevenueBarChart";
 import { KeyInsightsList } from "./_components/KeyInsightsList";
 import { TopDepartmentsTable } from "./_components/TopDepartmentsTable";
-import { ReportDateRangePicker } from "./_components/ReportDateRangePicker";
-import { downloadReportCsv } from "./_components/exportReportCsv";
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -52,6 +54,20 @@ export default function ReportAnalyticsPage() {
   const [range, setRange] = useState(currentMonthRange);
   const { data, error } = usePortalReportAnalytics(range.from, range.to);
   const today = new Date();
+
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportHistoryPage, setExportHistoryPage] = useState(1);
+  const exportMutation = useCsvExport(
+    portalFetchBlob,
+    "/api/portal/report-analytics/export",
+    "report-analytics.csv",
+  );
+  const exportHistory = useExportHistory(
+    portalFetch,
+    "/api/portal/exports/history",
+    "PORTAL_REPORT_ANALYTICS",
+    exportHistoryPage,
+  );
 
   const visitTypeSlices = useMemo(
     () => data?.visit_type_breakdown.map((v) => ({ label: v.visit_type, count: v.count })) ?? [],
@@ -89,26 +105,32 @@ export default function ReportAnalyticsPage() {
         actions={
           !ready ? null : (
             <>
-              <ReportDateRangePicker
+              <DateRangePicker
                 dateFrom={range.from}
                 dateTo={range.to}
                 onChange={(from, to) => setRange({ from, to })}
               />
-              {/* Client-side CSV of the currently-loaded report -- no backend
-                  export endpoint exists yet (report-analytics is read-only
-                  GET today), see exportReportCsv.ts. Disabled until data has
-                  actually loaded rather than silently no-op-ing on click. */}
-              <Button
-                variant="secondary"
-                onClick={() => data && downloadReportCsv(data)}
-                disabled={!data}
-              >
+              {/* Its own independent date range, picked inside the dialog --
+                  deliberately NOT tied to the DateRangePicker above,
+                  same "export has its own From/To" convention every other
+                  export in the app follows. */}
+              <Button variant="secondary" onClick={() => setExportOpen(true)}>
                 <Download size={15} />
                 Export Report
               </Button>
             </>
           )
         }
+      />
+
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        title="Report Analytics"
+        exportMutation={exportMutation}
+        history={exportHistory}
+        historyPage={exportHistoryPage}
+        onHistoryPageChange={setExportHistoryPage}
       />
 
       {!ready ? null : error ? (

@@ -2,6 +2,7 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { formatShortDateTime } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AVATAR_TINTS, initials } from "./appointments-columns";
@@ -38,9 +39,8 @@ const AWAITING_SLOT_STATUSES = new Set(["REQUESTED", "UNDER_REVIEW", "APPROVED"]
 
 function formatPriceRange(min: number | null, max: number | null): string {
   if (min == null && max == null) return "—";
-  if (min != null && max != null && min !== max)
-    return `₹${min.toLocaleString("en-IN")} – ₹${max.toLocaleString("en-IN")}`;
-  return `₹${(min ?? max)!.toLocaleString("en-IN")}`;
+  if (min != null && max != null && min !== max) return `${formatINR(min)} – ${formatINR(max)}`;
+  return formatINR(min ?? max);
 }
 
 type CreateDaycareColumnsOptions = {

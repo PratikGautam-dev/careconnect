@@ -17,6 +17,12 @@ import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { createTenantSubscriptionColumns } from "./_components/tenant-subscription-columns";
 import { createBillingColumns } from "../../plans-billing/_components/billing-columns";
 
+const TIER_LABEL: Record<string, string> = {
+  tier1: "Tier 1 — this platform",
+  tier2: "Tier 2 — external API",
+  tier3: "Tier 3 — direct database",
+};
+
 function EditTenantForm({ tenantId }: { tenantId: number }) {
   const {
     tenant,
@@ -108,6 +114,29 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 />
               </div>
             </div>
+            <div className="mb-space-5">
+              <p className="text-hint mb-space-1">
+                Portal owners — Google accounts that can log into this tenant&apos;s portal
+              </p>
+              {tenant.owners.length === 0 ? (
+                <p className="text-ink-400 text-[13px]">
+                  None — onboarded before Google sign-in existed, or no owner linked yet.
+                </p>
+              ) : (
+                <div className="gap-space-2 flex flex-wrap">
+                  {tenant.owners.map((owner) => (
+                    <span
+                      key={owner.id}
+                      className="border-line bg-paper px-space-3 py-space-1 text-ink-700 rounded-full border text-[12.5px]"
+                    >
+                      {owner.name || owner.email}
+                      {owner.name && <span className="text-ink-400"> · {owner.email}</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <p className="text-body mb-space-5">
               Only fields you change are updated — leave the token/secret fields blank to keep their
               current values.
@@ -167,32 +196,11 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
                 </select>
               </Field>
 
-              <Field label="Data connection tier" htmlFor="data_tier">
-                <select
-                  id="data_tier"
-                  value={form.data_tier}
-                  onChange={(e) => setForm({ ...form, data_tier: e.target.value })}
-                  className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
-                >
-                  <option value="tier1">Tier 1 — this platform</option>
-                  <option value="tier2">Tier 2 — external API</option>
-                  <option value="tier3">Tier 3 — direct database</option>
-                </select>
+              <Field label="Data connection tier" hint="Set during onboarding — not editable here.">
+                <p className="border-line bg-paper px-space-3 text-ink-700 flex h-11 w-full items-center rounded-md border text-[14px]">
+                  {TIER_LABEL[form.data_tier] ?? form.data_tier}
+                </p>
               </Field>
-
-              <p className="text-hint mb-space-4">
-                Staff-portal module access moved to{" "}
-                <Link href="/admin/access-control" className="text-brand-600 hover:underline">
-                  Access Control
-                </Link>
-                . WhatsApp menu features and appointment types moved to{" "}
-                <Link href="/admin/feature-toggles" className="text-brand-600 hover:underline">
-                  Feature Toggles
-                </Link>
-                . Appointment reminder offsets and template name, and the WhatsApp welcome message,
-                are managed by the hospital itself, under its own Settings → Notifications / General
-                tabs.
-              </p>
 
               {form.data_tier === "tier2" && (
                 <div className="gap-x-space-4 grid grid-cols-1 md:grid-cols-2">

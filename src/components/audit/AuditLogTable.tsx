@@ -1,8 +1,10 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { useState } from "react";
+import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { ExportDialog } from "@/components/export/ExportDialog";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import {
   Table,
@@ -15,6 +17,12 @@ import {
 import { cn } from "@/lib/cn";
 import { AuditChangeDiff } from "@/components/audit/AuditChangeDiff";
 import { AuditLogFilters, EMPTY_AUDIT_LOG_FILTERS, useAuditLogPage } from "@/hooks/useAuditLogPage";
+import {
+  type FetchBlobFn,
+  type FetchJsonFn,
+  useCsvExport,
+  useExportHistory,
+} from "@/hooks/useExport";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
@@ -41,6 +49,20 @@ type AuditLogTableProps = {
    * regardless of what the frontend sends, so a filter here would be
    * decorative at best. */
   showActorLevelFilter?: boolean;
+  /** Export wiring -- differs between the admin and portal callers (admin
+   * uses adminFetch/adminFetchBlob + the /api/admin/* routes, portal uses
+   * portalFetch/portalFetchBlob + /api/portal/* with hospital_id
+   * implicit server-side), so each supplies its own, same pattern as
+   * showHospitalColumn/hospitalOptions above. Omitted entirely hides the
+   * Export button -- no caller is currently expected to omit it, but a
+   * future caller could choose to. */
+  exportConfig?: {
+    fetchBlob: FetchBlobFn;
+    fetchJson: FetchJsonFn;
+    exportUrl: string;
+    historyUrl: string;
+    module: string;
+  };
 };
 
 /** Shared table + filter bar + cursor pager for both audit-log pages
@@ -57,8 +79,39 @@ export function AuditLogTable({
   showHospitalColumn,
   hospitalOptions,
   showActorLevelFilter,
+  exportConfig,
 }: AuditLogTableProps) {
   const { entries, isLoading, error, hasNext, hasPrev, pageNumber, goNext, goPrev } = page;
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportHistoryPage, setExportHistoryPage] = useState(1);
+
+  // Hooks are always called (rules of hooks) -- when exportConfig is
+  // absent, the no-op fetchers below never actually run because the
+  // Export button itself isn't rendered, and the history query is
+  // disabled outright.
+  const noopFetchBlob = async () => ({
+    ok: false as const,
+    unauthorized: false as const,
+    error: "",
+  });
+  const noopFetchJson = async () => ({
+    ok: false as const,
+    unauthorized: false as const,
+    error: "",
+  });
+  const exportMutation = useCsvExport(
+    exportConfig?.fetchBlob ?? noopFetchBlob,
+    exportConfig?.exportUrl ?? "",
+    "audit-log.csv",
+  );
+  const exportHistory = useExportHistory(
+    exportConfig?.fetchJson ?? noopFetchJson,
+    exportConfig?.historyUrl ?? "",
+    exportConfig?.module ?? "",
+    exportHistoryPage,
+    10,
+    !!exportConfig,
+  );
 
   function set<K extends keyof AuditLogFilters>(key: K, value: AuditLogFilters[K]) {
     onFiltersChange({ ...filters, [key]: value });
@@ -131,6 +184,15 @@ export function AuditLogTable({
             onClick={() => onFiltersChange(EMPTY_AUDIT_LOG_FILTERS)}
           >
             Clear filters
+          </Button>
+        )}
+        {exportConfig && (
+          <Button
+            variant="secondary"
+            className="h-9 text-[12.5px]"
+            onClick={() => setExportOpen(true)}
+          >
+            <Download size={14} /> Export
           </Button>
         )}
       </div>
@@ -248,6 +310,24 @@ export function AuditLogTable({
           </Button>
         </div>
       </div>
+
+      {exportConfig && (
+        <ExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          title="Audit Log"
+          exportMutation={exportMutation}
+          history={exportHistory}
+          historyPage={exportHistoryPage}
+          onHistoryPageChange={setExportHistoryPage}
+          exportCap={10_000}
+          extraParams={{
+            action: filters.action || undefined,
+            entity_type: filters.entity_type || undefined,
+            search: filters.search || undefined,
+          }}
+        />
+      )}
     </div>
   );
 }

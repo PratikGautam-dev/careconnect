@@ -1,16 +1,21 @@
 "use client";
 
 import { Toast as ToastPrimitive } from "@base-ui/react/toast";
-import { CheckCircle2, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { toastManager } from "@/lib/toast";
 
-const TYPE_ICON = { success: CheckCircle2, error: XCircle } as const;
+const TYPE_ICON = { success: CheckCircle2, error: XCircle, warning: AlertTriangle } as const;
 // Solid, on-brand backgrounds (not the neutral card) -- success uses the
 // app's own brand color, error uses the same red as every other error
 // state (STATUS_STYLES, Badge, etc.), both always white text/icon/close
-// regardless of light/dark mode.
-const TYPE_BG_CLASS: Record<string, string> = { success: "bg-brand-600", error: "bg-error" };
+// regardless of light/dark mode. No dedicated warning token exists
+// elsewhere in this codebase yet, so warning uses a literal amber.
+const TYPE_BG_CLASS: Record<string, string> = {
+  success: "bg-brand-600",
+  error: "bg-error",
+  warning: "bg-amber-500",
+};
 
 function ToastItem({ toast }: { toast: ToastPrimitive.Root.ToastObject }) {
   const Icon = TYPE_ICON[toast.type as keyof typeof TYPE_ICON] ?? CheckCircle2;

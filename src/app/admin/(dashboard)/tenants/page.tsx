@@ -5,6 +5,7 @@ import { Building2, Clock, Hourglass, PauseCircle, Plus, Users } from "lucide-re
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { FilterActions } from "@/components/portal/FilterActions";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
@@ -49,11 +50,20 @@ function TenantsList() {
   const { subscriptions, plans } = useAdminSubscriptions();
 
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
+  // Draft -- bound directly to the filter inputs below, doesn't affect
+  // `filtered` until applyFilters() runs (the Filter button). Same
+  // staged-then-Apply pattern as the portal's own useAppointments.ts.
   const [searchQuery, setSearchQuery] = useState("");
   const [planFilter, setPlanFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [subscriptionStatusFilter, setSubscriptionStatusFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Applied -- what `filtered` actually uses.
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
+  const [appliedPlanFilter, setAppliedPlanFilter] = useState("all");
+  const [appliedTypeFilter, setAppliedTypeFilter] = useState("all");
+  const [appliedSubscriptionStatusFilter, setAppliedSubscriptionStatusFilter] = useState("all");
+  const [appliedStatusFilter, setAppliedStatusFilter] = useState("all");
 
   const subscriptionByHospitalId = useMemo(
     () => new Map((subscriptions ?? []).map((s) => [s.hospital_id, s])),
@@ -69,24 +79,26 @@ function TenantsList() {
   );
 
   const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = appliedSearchQuery.trim().toLowerCase();
     return (tenants ?? []).filter((t) => {
       const sub = subscriptionByHospitalId.get(t.id);
-      if (planFilter !== "all") {
-        if (planFilter === "unassigned") {
+      if (appliedPlanFilter !== "all") {
+        if (appliedPlanFilter === "unassigned") {
           if (sub?.plan_id != null) return false;
-        } else if (String(sub?.plan_id ?? "") !== planFilter) {
+        } else if (String(sub?.plan_id ?? "") !== appliedPlanFilter) {
           return false;
         }
       }
-      if (typeFilter !== "all" && t.tenant_type !== typeFilter) return false;
+      if (appliedTypeFilter !== "all" && t.tenant_type !== appliedTypeFilter) return false;
       if (
-        subscriptionStatusFilter !== "all" &&
-        (sub?.status ?? "unassigned") !== subscriptionStatusFilter
+        appliedSubscriptionStatusFilter !== "all" &&
+        (sub?.status ?? "unassigned") !== appliedSubscriptionStatusFilter
       ) {
         return false;
       }
-      if (statusFilter !== "all" && (statusFilter === "active") !== t.is_active) return false;
+      if (appliedStatusFilter !== "all" && (appliedStatusFilter === "active") !== t.is_active) {
+        return false;
+      }
       if (!q) return true;
       return (
         t.name.toLowerCase().includes(q) ||
@@ -96,13 +108,41 @@ function TenantsList() {
     });
   }, [
     tenants,
-    searchQuery,
-    planFilter,
-    typeFilter,
-    subscriptionStatusFilter,
-    statusFilter,
+    appliedSearchQuery,
+    appliedPlanFilter,
+    appliedTypeFilter,
+    appliedSubscriptionStatusFilter,
+    appliedStatusFilter,
     subscriptionByHospitalId,
   ]);
+
+  function applyFilters() {
+    setAppliedSearchQuery(searchQuery.trim());
+    setAppliedPlanFilter(planFilter);
+    setAppliedTypeFilter(typeFilter);
+    setAppliedSubscriptionStatusFilter(subscriptionStatusFilter);
+    setAppliedStatusFilter(statusFilter);
+  }
+
+  function resetFilters() {
+    setSearchQuery("");
+    setPlanFilter("all");
+    setTypeFilter("all");
+    setSubscriptionStatusFilter("all");
+    setStatusFilter("all");
+    setAppliedSearchQuery("");
+    setAppliedPlanFilter("all");
+    setAppliedTypeFilter("all");
+    setAppliedSubscriptionStatusFilter("all");
+    setAppliedStatusFilter("all");
+  }
+
+  const filtersDirty =
+    searchQuery.trim() !== appliedSearchQuery ||
+    planFilter !== appliedPlanFilter ||
+    typeFilter !== appliedTypeFilter ||
+    subscriptionStatusFilter !== appliedSubscriptionStatusFilter ||
+    statusFilter !== appliedStatusFilter;
 
   const activeCount = tenants?.filter((t) => t.is_active).length ?? null;
   const totalCount = tenants?.length ?? null;
@@ -153,52 +193,11 @@ function TenantsList() {
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={5} className="mb-space-4">
-        <StatTile
-          label="Total Hospitals"
-          value={totalCount}
-          hint="Across all subscriptions"
-          icon={Building2}
-        />
-        <StatTile
-          label="Active Hospitals"
-          value={activeCount}
-          hint={
-            totalCount
-              ? `${Math.round(((activeCount ?? 0) / totalCount) * 100)}% of total hospitals`
-              : "Loading…"
-          }
-          icon={Users}
-          tint="success"
-        />
-        <StatTile
-          label="On Trial"
-          value={onTrialCount}
-          hint={
-            totalCount
-              ? `${Math.round(((onTrialCount ?? 0) / totalCount) * 100)}% of total hospitals`
-              : "Loading…"
-          }
-          icon={Hourglass}
-          tint="clay"
-        />
-        <StatTile
-          label="Suspended"
-          value={suspendedCount}
-          hint={
-            totalCount
-              ? `${Math.round(((suspendedCount ?? 0) / totalCount) * 100)}% of total hospitals`
-              : "Loading…"
-          }
-          icon={PauseCircle}
-          tint="error"
-        />
-        <StatTile
-          label="Expiring Soon"
-          value={expiringSoonCount}
-          hint={`Within next ${EXPIRING_SOON_WINDOW_DAYS} days`}
-          icon={Clock}
-          tint="clay"
-        />
+        <StatTile label="Total Hospitals" value={totalCount} icon={Building2} />
+        <StatTile label="Active Hospitals" value={activeCount} icon={Users} tint="success" />
+        <StatTile label="On Trial" value={onTrialCount} icon={Hourglass} tint="clay" />
+        <StatTile label="Suspended" value={suspendedCount} icon={PauseCircle} tint="error" />
+        <StatTile label="Expiring Soon" value={expiringSoonCount} icon={Clock} tint="clay" />
       </StatTileGrid>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
@@ -247,6 +246,19 @@ function TenantsList() {
                 onChange={setStatusFilter}
                 allLabel="All Tenant Statuses"
                 options={TENANT_STATUS_OPTIONS}
+              />
+              <FilterActions
+                onApply={applyFilters}
+                onReset={resetFilters}
+                showReset={
+                  filtersDirty ||
+                  !!appliedSearchQuery ||
+                  appliedPlanFilter !== "all" ||
+                  appliedTypeFilter !== "all" ||
+                  appliedSubscriptionStatusFilter !== "all" ||
+                  appliedStatusFilter !== "all"
+                }
+                disabled={!filtersDirty}
               />
             </div>
 

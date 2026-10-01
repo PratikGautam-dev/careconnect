@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import axios, { isAxiosError } from "axios";
-import { requestInitToAxiosConfig } from "@/lib/apiClient";
+import { blobErrorToMessage, requestInitToAxiosConfig } from "@/lib/apiClient";
 import { PAGE_CAPABILITY } from "@/lib/hospitalCapabilities";
 import type { PortalHospital } from "@/lib/portalAuth";
 
@@ -228,6 +228,73 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
   }
 
   return { ok: true, data: res.data };
+}
+
+type FetchBlobResult =
+  | { ok: true; blob: Blob; headers: Record<string, string> }
+  | { ok: false; unauthorized: true }
+  | { ok: false; unauthorized: false; error: string };
+
+/** Blob-returning sibling of staffFetch, for the CSV export routes
+ * (GET .../export) -- same silent-refresh-then-retry-once shape as
+ * staffFetch above, but returns the raw axios response (blob + headers)
+ * instead of unwrapped JSON, since useExport.ts's useCsvExport hook needs
+ * Content-Disposition/x-truncated. Error bodies arrive as a Blob too even
+ * though they're really JSON -- blobErrorToMessage reads the real
+ * `{error}` out of them. */
+export async function staffFetchBlob(path: string): Promise<FetchBlobResult> {
+  let token = getStaffAccessToken();
+  if (!token) {
+    token = await tryRefresh();
+    if (!token) return { ok: false, unauthorized: true };
+  }
+
+  const request = (authToken: string) =>
+    axios.request({
+      method: "GET",
+      url: `${API_BASE_URL}${path}`,
+      headers: { Authorization: `Bearer ${authToken}` },
+      responseType: "blob",
+      withCredentials: true,
+    });
+
+  let res;
+  try {
+    res = await request(token);
+  } catch (err) {
+    if (!isAxiosError(err) || !err.response) {
+      return { ok: false, unauthorized: false, error: "Network error — check your connection." };
+    }
+    if (err.response.status !== 401) {
+      if (err.response.status === 403) _onForbidden?.();
+      return { ok: false, unauthorized: false, error: await blobErrorToMessage(err.response.data) };
+    }
+
+    token = await tryRefresh();
+    if (!token) {
+      setStaffAccessToken(null);
+      return { ok: false, unauthorized: true };
+    }
+    try {
+      res = await request(token);
+    } catch (retryErr) {
+      if (!isAxiosError(retryErr) || !retryErr.response) {
+        return { ok: false, unauthorized: false, error: "Network error — check your connection." };
+      }
+      if (retryErr.response.status === 401) {
+        setStaffAccessToken(null);
+        return { ok: false, unauthorized: true };
+      }
+      if (retryErr.response.status === 403) _onForbidden?.();
+      return {
+        ok: false,
+        unauthorized: false,
+        error: await blobErrorToMessage(retryErr.response.data),
+      };
+    }
+  }
+
+  return { ok: true, blob: res.data, headers: res.headers as unknown as Record<string, string> };
 }
 
 /** Revokes the refresh cookie server-side and clears it, then drops the

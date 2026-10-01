@@ -8,6 +8,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { useDiagnosticTests, type ScheduleFormState } from "@/hooks/useDiagnosticTests";
 import { TestLeaveManager } from "@/components/portal/TestLeaveManager";
 import { TestSlotManager } from "@/components/portal/TestSlotManager";
@@ -261,7 +262,7 @@ export function DiagnosticTestsManager({ canManage }: { canManage: boolean }) {
                     <div>
                       <p className="text-ink-900 text-[13.5px] font-semibold">{test.name}</p>
                       <p className="text-ink-600 text-[12px]">
-                        {test.price != null ? `₹${test.price}` : "No price set"}
+                        {test.price != null ? formatINR(test.price) : "No price set"}
                       </p>
                     </div>
                     <div className="gap-space-3 flex items-center">

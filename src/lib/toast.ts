@@ -12,4 +12,6 @@ export const toast = {
     toastManager.add({ type: "success", title, description }),
   error: (title: string, description?: string) =>
     toastManager.add({ type: "error", title, description }),
+  warning: (title: string, description?: string) =>
+    toastManager.add({ type: "warning", title, description }),
 };

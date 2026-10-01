@@ -4,6 +4,7 @@ import { Building2, Check, Sprout } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
+import { formatINR } from "@/lib/formatCurrency";
 import type { PublicPlan } from "@/hooks/usePublicPlans";
 
 type Props = {
@@ -82,13 +83,13 @@ export function PlanPickerGrid({
               <p className="text-hint mb-space-4">{plan.description}</p>
               <div className="mb-space-1">
                 <span className="text-ink-900 text-[32px] font-bold">
-                  ₹{Math.round(displayPrice).toLocaleString("en-IN")}
+                  {formatINR(Math.round(displayPrice))}
                 </span>
                 <span className="text-ink-400 text-[13px]"> / month</span>
               </div>
               {cycle === "annual" && plan.annual_discount_pct > 0 ? (
                 <p className="text-hint mb-space-4">
-                  billed ₹{Math.round(annualPrice).toLocaleString("en-IN")} / year
+                  billed {formatINR(Math.round(annualPrice))} / year
                 </p>
               ) : (
                 <div className="mb-space-4" />

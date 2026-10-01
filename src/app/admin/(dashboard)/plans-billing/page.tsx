@@ -7,12 +7,10 @@ import {
   Building2,
   Check,
   FileDown,
-  FilePlus,
   FileText,
   PenLine,
   Plus,
   Receipt,
-  RefreshCcw,
   Search,
   Sprout,
   Trash2,
@@ -20,32 +18,27 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { ExportDialog } from "@/components/export/ExportDialog";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { adminFetch, adminFetchBlob } from "@/lib/adminAuth";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
+import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { useAdminPlans, type Plan } from "@/hooks/useAdminPlans";
 import { createBillingColumns } from "./_components/billing-columns";
 import { PlanFormDialog } from "./_components/PlanFormDialog";
 
-function PanelHeader({
-  title,
-  subtitle,
-  mock,
-}: {
-  title: string;
-  subtitle?: string;
-  mock?: boolean;
-}) {
+function PanelHeader({ title, subtitle }: { title: string; subtitle?: string; mock?: boolean }) {
   return (
     <div className="mb-space-3 gap-space-3 flex items-start justify-between">
       <div>
         <h3 className="text-label text-ink-900 font-bold">{title}</h3>
         {subtitle && <p className="text-hint mt-space-0.5">{subtitle}</p>}
       </div>
-      {mock && <Badge tone="clay">Mock</Badge>}
     </div>
   );
 }
@@ -70,6 +63,20 @@ export default function PlansBillingPage() {
   } = useAdminBillingRecords();
   const [formOpen, setFormOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportHistoryPage, setExportHistoryPage] = useState(1);
+
+  const exportMutation = useCsvExport(
+    adminFetchBlob,
+    "/api/admin/billing-records/export",
+    "subscription-billing-records.csv",
+  );
+  const exportHistory = useExportHistory(
+    adminFetch,
+    "/api/admin/exports/history",
+    "SUBSCRIPTION_BILLING_RECORDS",
+    exportHistoryPage,
+  );
 
   const filteredRecords = (billingRecords ?? []).filter(
     (r) =>
@@ -107,29 +114,23 @@ export default function PlansBillingPage() {
       <StatTileGrid cols={4} className="mb-space-4">
         <StatTile
           label="Total Revenue"
-          value={billingStats?.total_revenue ?? 0}
-          prefix="₹"
-          hint="This month"
+          value={formatINR(billingStats?.total_revenue ?? 0)}
           icon={Banknote}
         />
         <StatTile
           label="Invoices Issued"
           value={billingStats?.invoices_issued ?? 0}
-          hint="This month"
           icon={FileText}
         />
         <StatTile
           label="Failed Payments"
           value={billingStats?.failed_payments_count ?? 0}
-          hint="This month"
           icon={AlertCircle}
           tint="error"
         />
         <StatTile
           label="Collections"
-          value={billingStats?.collections ?? 0}
-          prefix="₹"
-          hint="Received this month"
+          value={formatINR(billingStats?.collections ?? 0)}
           icon={Receipt}
         />
       </StatTileGrid>
@@ -202,14 +203,13 @@ export default function PlansBillingPage() {
                       <p className="text-hint mb-space-3">{plan.description}</p>
                       <div className="mb-space-1">
                         <span className="text-ink-900 text-[26px] font-bold">
-                          ₹{plan.price_monthly.toLocaleString("en-IN")}
+                          {formatINR(plan.price_monthly)}
                         </span>
                         <span className="text-ink-400 text-[12.5px]"> / month</span>
                       </div>
                       <div className="mb-space-4 gap-space-2 flex items-center">
                         <span className="text-ink-400 text-[12px]">
-                          or ₹{annualPrice.toLocaleString("en-IN", { maximumFractionDigits: 0 })} /
-                          year
+                          or {formatINR(annualPrice)} / year
                         </span>
                         {plan.annual_discount_pct > 0 && (
                           <Badge tone="success">Save {plan.annual_discount_pct}%</Badge>
@@ -337,13 +337,25 @@ export default function PlansBillingPage() {
               columns={1}
               actions={[
                 { label: "Create Plan", icon: Plus, onClick: openCreate },
-                { label: "Edit Pricing", icon: PenLine, onClick: () => {} },
-                { label: "Generate Invoice", icon: FilePlus, onClick: () => {} },
-                { label: "Refund Payment", icon: RefreshCcw, onClick: () => {} },
-                { label: "Export Billing Report", icon: FileDown, onClick: () => {} },
+                {
+                  label: "Export Billing Report",
+                  icon: FileDown,
+                  onClick: () => setExportOpen(true),
+                },
               ]}
             />
           </Card>
+
+          <ExportDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            title="Subscription Billing Records"
+            exportMutation={exportMutation}
+            history={exportHistory}
+            historyPage={exportHistoryPage}
+            onHistoryPageChange={setExportHistoryPage}
+            exportCap={10_000}
+          />
 
           <Card className="p-space-4">
             <div className="mb-space-3 gap-space-3 flex items-start justify-between">
@@ -353,14 +365,14 @@ export default function PlansBillingPage() {
             <div className="space-y-space-2 text-[12.5px]">
               {[
                 ["Total Invoiced", billingStats?.total_invoiced ?? 0, "text-ink-900"],
-                ["Payments Received", billingStats?.collections ?? 0, "text-success"],
+                ["Payments Received", billingStats?.collections_this_month ?? 0, "text-success"],
                 ["Pending Payments", billingStats?.pending_payments ?? 0, "text-ink-900"],
                 ["Failed Payments", billingStats?.failed_payments_amount ?? 0, "text-error"],
               ].map(([label, value, tone]) => (
                 <div key={label as string} className="flex items-center justify-between">
                   <span className="text-ink-400">{label}</span>
                   <span className={cn("font-semibold", tone as string)}>
-                    ₹{(value as number).toLocaleString("en-IN")}
+                    {formatINR(value as number)}
                   </span>
                 </div>
               ))}

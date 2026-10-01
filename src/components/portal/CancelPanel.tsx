@@ -2,6 +2,7 @@
 
 import { Send, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { formatINR } from "@/lib/formatCurrency";
 import type { RefundPreview } from "@/hooks/useAppointments";
 
 /** The inline "cancel this appointment" row-detail panel, shared by the
@@ -51,12 +52,10 @@ export function CancelPanel({
       )}
       {!refundPreviewLoading && refundPreview?.refundable && (
         <p className="mb-space-2 text-success bg-success-tint px-space-3 py-space-2 rounded-md text-[12.5px] font-medium">
-          A refund of ₹{refundPreview.refund_amount?.toLocaleString("en-IN")} will be issued (full
-          fee -- GST/platform fee of ₹
-          {(
-            (refundPreview.gst_amount ?? 0) + (refundPreview.platform_fee_amount ?? 0)
-          ).toLocaleString("en-IN")}{" "}
-          is not refundable).
+          A refund of {formatINR(refundPreview.refund_amount)} will be issued (full fee --
+          GST/platform fee of{" "}
+          {formatINR((refundPreview.gst_amount ?? 0) + (refundPreview.platform_fee_amount ?? 0))} is
+          not refundable).
         </p>
       )}
       {!refundPreviewLoading &&

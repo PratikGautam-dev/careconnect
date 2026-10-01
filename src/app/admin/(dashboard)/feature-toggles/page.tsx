@@ -6,17 +6,13 @@ import {
   CalendarCheck,
   CalendarClock,
   Clock,
-  Copy,
   FileText,
   FlaskConical,
   Globe,
   Headphones,
   HelpCircle,
-  History,
   LayoutGrid,
   ListChecks,
-  Power,
-  PowerOff,
   RotateCcw,
   Save,
   Settings2,
@@ -29,13 +25,13 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
-import { QuickActionButton } from "@/components/portal/QuickActionButton";
-import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { AuditActivityTable } from "@/components/audit/AuditActivityTable";
 import { cn } from "@/lib/cn";
-import { formatShortDateTime } from "@/lib/formatDate";
+import { formatDate } from "@/lib/formatDate";
 import { useTenants, type Tenant } from "@/hooks/useTenants";
+import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
 import { useEditTenant } from "@/hooks/useEditTenant";
 import { useTenantAuditLog } from "@/hooks/useTenantAuditLog";
 import {
@@ -44,21 +40,6 @@ import {
 } from "./_components/feature-toggles-columns";
 import { createAppointmentTypeColumns } from "./_components/appointment-type-columns";
 
-// Module/Feature rows (the "Menu & Modules" tab) = the real per-hospital
-// hospitals.enabled_features set (flows/patient_identity/menu.py's
-// REAL_FEATURES) -- the WhatsApp bot's main-menu rows shown to a PATIENT, a
-// deliberately separate concept from admin_capabilities (staff-portal
-// screens, managed on the Access Control page instead). Unlike
-// admin_capabilities, there's no tenant_type default for these -- they're
-// only ever set explicitly, once at onboarding, and changed here after --
-// so "Included in Plan"/"Custom Override" genuinely don't apply and are
-// shown as "—" rather than fabricated.
-//
-// The "Appointment Types" tab is a separate real per-hospital allow-list
-// (db/repositories/appointment_types.py's `appointment_types` table, not
-// enabled_features) -- moved here from Access Control, which only ever
-// managed admin_capabilities, a different concept from either tab on this
-// page.
 const FEATURE_ICONS: Record<string, LucideIcon> = {
   book_doctor_appointment: CalendarCheck,
   tests_diagnostics: FlaskConical,
@@ -76,7 +57,6 @@ const FEATURE_ICONS: Record<string, LucideIcon> = {
 };
 
 const TENANT_TYPE_LABELS: Record<string, string> = { hospital: "Hospital", clinic: "Clinic" };
-const OPTIONAL_EXTRAS = ["faq", "consent_privacy", "manage_language", "hospital_info"];
 
 function PanelHeader({
   title,
@@ -120,13 +100,15 @@ function FeatureTogglesContent({
     errors,
   } = useEditTenant(selectedId);
 
-  const { entries: auditEntries } = useTenantAuditLog(selectedId);
+  const { subscriptions } = useAdminSubscriptions();
 
   const [tab, setTab] = useState<"menu" | "appointment_types">("menu");
 
   if (!tenant || !form) {
     return <p className="text-ink-400 text-[13px]">Loading…</p>;
   }
+
+  const subscription = subscriptions?.find((s) => s.hospital_id === tenant.id) ?? null;
 
   const allFeatureKeys = Object.keys(tenant.feature_default_labels);
   // Unsaved local edits: feature keys where the form's checked state
@@ -144,30 +126,12 @@ function FeatureTogglesContent({
 
   return (
     <div>
-      <StatTileGrid cols={4} className="mb-space-4">
-        <StatTile
-          label="Total Hospitals"
-          value={tenants.length}
-          hint="Across all subscriptions"
-          icon={Building2}
-        />
-        <StatTile
-          label="Total Features"
-          value={allFeatureKeys.length}
-          hint="Configurable WhatsApp menu rows"
-          icon={Settings2}
-        />
-        <StatTile
-          label="Custom Overrides"
-          value={8}
-          hint="Hospitals with overrides"
-          icon={Users}
-          mock
-        />
+      <StatTileGrid cols={3} className="mb-space-4">
+        <StatTile label="Total Hospitals" value={tenants.length} icon={Building2} />
+        <StatTile label="Total Features" value={allFeatureKeys.length} icon={Settings2} />
         <StatTile
           label="Pending Changes"
           value={pendingChanges}
-          hint={hasUnsaved ? "Unsaved — click Save Changes" : "All changes applied"}
           icon={Clock}
           tint={hasUnsaved ? "clay" : "success"}
         />
@@ -265,11 +229,6 @@ function FeatureTogglesContent({
                     <RotateCcw size={13} /> Discard Unsaved Changes
                   </button>
                 </div>
-                <p className="text-hint mb-space-3">
-                  &quot;Included in Plan&quot; / &quot;Custom Override&quot; don&apos;t apply to
-                  WhatsApp features (no plan-based defaults exist for these) — shown as
-                  &quot;—&quot; for layout parity.
-                </p>
 
                 <DataTable<FeatureRow>
                   columns={createFeatureTogglesColumns({ onToggle: toggleFeature })}
@@ -324,16 +283,16 @@ function FeatureTogglesContent({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Renewal Date</span>
-                <span className="gap-space-1 flex items-center">
-                  <span className="text-ink-900 font-semibold">30 Sep 2026</span>
-                  <Badge tone="clay">Mock</Badge>
+                <span className="text-ink-900 font-semibold">
+                  {subscription ? formatDate(subscription.renewal_date) : "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-400">Users Allowed</span>
-                <span className="gap-space-1 flex items-center">
-                  <span className="text-ink-900 font-semibold">120</span>
-                  <Badge tone="clay">Mock</Badge>
+                <span className="text-ink-900 font-semibold">
+                  {subscription
+                    ? `${subscription.seats_used} / ${subscription.max_users ?? "Unlimited"}`
+                    : "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -348,95 +307,37 @@ function FeatureTogglesContent({
                   {hasUnsaved ? "Unsaved" : "Applied"}
                 </Badge>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-400">Support Level</span>
-                <span className="gap-space-1 flex items-center">
-                  <span className="text-ink-900 font-semibold">Priority</span>
-                  <Badge tone="clay">Mock</Badge>
-                </span>
-              </div>
             </div>
-          </Card>
-
-          <Card className="p-space-4">
-            <PanelHeader
-              title="Quick Actions"
-              subtitle="Common feature control actions for the selected hospital."
-            />
-            <QuickActionList
-              size="sm"
-              columns={2}
-              actions={[
-                {
-                  label: "Enable All Features",
-                  icon: Power,
-                  onClick: () => setForm({ ...form, enabled_features: allFeatureKeys }),
-                },
-                {
-                  label: "Disable Optional Extras",
-                  icon: PowerOff,
-                  onClick: () =>
-                    setForm({
-                      ...form,
-                      enabled_features: form.enabled_features.filter(
-                        (k) => !OPTIONAL_EXTRAS.includes(k),
-                      ),
-                    }),
-                },
-                {
-                  label: "Reset to Saved",
-                  icon: RotateCcw,
-                  onClick: () => setForm({ ...form, enabled_features: tenant.enabled_features }),
-                },
-              ]}
-            >
-              {/* No real "feature profile" concept to clone from yet -- kept
-              full-color (not disabled/greyed) with a no-op onClick and a
-              "Mock" badge instead. */}
-              <div className="relative">
-                <QuickActionButton
-                  label="Clone Feature Profile"
-                  icon={Copy}
-                  size="sm"
-                  onClick={() => {}}
-                />
-                <Badge tone="clay" className="absolute -top-2 -right-2">
-                  Mock
-                </Badge>
-              </div>
-            </QuickActionList>
-          </Card>
-
-          <Card className="p-space-4">
-            <PanelHeader title="Recent Feature Changes" />
-            {!auditEntries ? (
-              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">Loading…</p>
-            ) : auditEntries.length === 0 ? (
-              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">No changes yet.</p>
-            ) : (
-              <ul className="divide-line divide-y">
-                {auditEntries.slice(0, 5).map((entry) => (
-                  <li key={entry.id} className="py-space-2 gap-space-0.5 flex flex-col text-[12px]">
-                    <div className="flex items-center justify-between">
-                      <span className="gap-space-1 text-ink-900 flex items-center font-semibold">
-                        <History size={12} /> {entry.action}
-                      </span>
-                      <span className="text-ink-400">{formatShortDateTime(entry.created_at)}</span>
-                    </div>
-                    <span className="text-ink-600">
-                      {entry.after_value
-                        ? Object.keys(entry.after_value).join(", ")
-                        : entry.entity_type || "—"}{" "}
-                      · {entry.actor_label}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
           </Card>
         </div>
       </div>
     </div>
+  );
+}
+
+// ===== Audit Activity Table (moved outside grid for full width) =====
+function FeatureAuditActivityTable({
+  auditEntries,
+  tenant,
+}: {
+  auditEntries: import("@/hooks/useTenantAuditLog").TenantAuditEntry[];
+  tenant: import("@/hooks/useTenants").Tenant | null;
+}) {
+  const entries = (auditEntries ?? []).map((e) => ({
+    ...e,
+    hospital_name: tenant?.name ?? null,
+    hospital_id: tenant?.id ?? null,
+  }));
+  return (
+    <AuditActivityTable
+      entries={entries}
+      isLoading={!auditEntries}
+      title="Recent Feature Changes"
+      subtitle="Recent changes to feature toggles for the selected hospital."
+      emptyMessage="No feature changes yet."
+      showActorLevelFilter={false}
+      showHospitalColumn={false}
+    />
   );
 }
 
@@ -445,6 +346,8 @@ export default function FeatureTogglesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const activeId = selectedId ?? tenants?.[0]?.id ?? null;
+  const { entries: auditEntries } = useTenantAuditLog(activeId);
+  // auditEntries is passed to FeatureAuditActivityTable below
 
   return (
     <div>
@@ -462,11 +365,17 @@ export default function FeatureTogglesPage() {
       ) : tenants.length === 0 ? (
         <p className="text-ink-400 text-[13px]">No hospitals onboarded yet.</p>
       ) : (
-        <FeatureTogglesContent
-          tenants={tenants}
-          selectedId={activeId as number}
-          onSelect={setSelectedId}
-        />
+        <>
+          <FeatureTogglesContent
+            tenants={tenants}
+            selectedId={activeId as number}
+            onSelect={setSelectedId}
+          />
+          <FeatureAuditActivityTable
+            auditEntries={auditEntries ?? []}
+            tenant={tenants?.find((t) => t.id === activeId) ?? null}
+          />
+        </>
       )}
     </div>
   );

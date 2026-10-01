@@ -13,13 +13,14 @@ import {
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import type { AppointmentBillingHospitalRow } from "@/hooks/useAppointmentBilling";
+import { formatINR } from "@/lib/formatCurrency";
 
 const ONLINE_COLOR = "#00949E";
 const CASH_COLOR = "#eda100";
 const MAX_HOSPITALS = 8;
 
 function formatCompactInr(value: number): string {
-  return `₹${value.toLocaleString("en-IN")}`;
+  return formatINR(value);
 }
 
 function truncate(name: string, max = 14): string {

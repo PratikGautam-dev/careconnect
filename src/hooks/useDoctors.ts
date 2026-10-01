@@ -48,6 +48,7 @@ type DoctorsResponse = CursorPageResult<Doctor> & {
   departments: Department[];
   doctors: Doctor[];
   on_leave_today_count: number;
+  present_today_count: number;
   total_count: number;
   active_count: number;
 };
@@ -108,6 +109,7 @@ export function useDoctors(
     departments: page.data?.departments ?? null,
     doctors: page.data?.doctors ?? [],
     onLeaveTodayCount: page.data?.on_leave_today_count ?? 0,
+    presentTodayCount: page.data?.present_today_count ?? 0,
     totalCount: page.data?.total_count ?? 0,
     activeCount: page.data?.active_count ?? 0,
     error: page.error ? "Couldn't load doctors — try again." : null,

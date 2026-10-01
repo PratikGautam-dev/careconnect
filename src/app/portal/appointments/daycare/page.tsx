@@ -1,13 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bed, BedDouble, CalendarPlus, CheckCircle2, Hourglass, IndianRupee } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { BedDouble, CalendarPlus, CheckCircle2, Hourglass, IndianRupee } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { ManageBedsDialog } from "@/components/portal/ManageBedsDialog";
 import { NewDaycareBookingDialog } from "@/components/portal/NewDaycareBookingDialog";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
@@ -109,7 +107,6 @@ export default function PortalDaycareAppointmentsPage() {
     handleRejectProcedureReschedule,
   } = useAppointments(ready, "daycare");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
-  const [manageBedsOpen, setManageBedsOpen] = useState(false);
 
   const today = new Date();
 
@@ -214,47 +211,22 @@ export default function PortalDaycareAppointmentsPage() {
 
   return (
     <PortalShell hospital={hospital} active="daycare">
-      <PageHeader
-        title="Daycare appointments"
-        description={formatHeaderDate(today)}
-        actions={
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={() => setManageBedsOpen(true)}
-          >
-            <Bed size={14} /> Manage Beds
-          </Button>
-        }
-      />
+      <PageHeader title="Daycare appointments" description={formatHeaderDate(today)} />
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={4} className="mb-space-4">
-        <StatTile
-          label="Total daycare bookings"
-          value={stats?.total ?? null}
-          hint="Live count"
-          icon={BedDouble}
-        />
+        <StatTile label="Total daycare bookings" value={stats?.total ?? null} icon={BedDouble} />
         <StatTile
           label="Pending approval"
           value={stats?.pending ?? null}
-          hint="Requests awaiting a decision"
           icon={Hourglass}
           tint="clay"
         />
-        <StatTile
-          label="Confirmed"
-          value={stats?.confirmed ?? null}
-          hint="Slot picked, resources reserved"
-          icon={IndianRupee}
-        />
+        <StatTile label="Confirmed" value={stats?.confirmed ?? null} icon={IndianRupee} />
         <StatTile
           label="Completed"
           value={stats?.completed ?? null}
-          hint="Visit finished"
           icon={CheckCircle2}
           tint="brand"
         />
@@ -371,7 +343,6 @@ export default function PortalDaycareAppointmentsPage() {
         onOpenChange={setNewBookingOpen}
         onBooked={load}
       />
-      <ManageBedsDialog open={manageBedsOpen} onOpenChange={setManageBedsOpen} />
     </PortalShell>
   );
 }

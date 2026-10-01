@@ -12,6 +12,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import type { AppointmentBillingTrendPoint } from "@/hooks/useAppointmentBilling";
+import { formatINR } from "@/lib/formatCurrency";
 
 // Same brand-teal-primary convention as the portal's AppointmentTrendsChart/
 // the admin dashboard's own Hospital Growth Trend area -- this page lives
@@ -22,7 +23,7 @@ const NET_COLOR = "#1baf7a";
 const REFUNDED_COLOR = "#e34948";
 
 function formatCompactInr(value: number): string {
-  return `₹${value.toLocaleString("en-IN")}`;
+  return formatINR(value);
 }
 
 function formatDayLabel(dateStr: string): string {

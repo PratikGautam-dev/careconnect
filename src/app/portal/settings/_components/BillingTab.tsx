@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useBillingSubscription, type SubscriptionPayment } from "@/hooks/useBillingSubscription";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 import { SectionHeader } from "./settings-ui";
 import { ChangePlanModal } from "./ChangePlanModal";
 
@@ -66,7 +67,7 @@ function PaymentHistoryRow({ payment }: { payment: SubscriptionPayment }) {
         {formatDate(payment.paid_at ?? payment.created_at)}
       </td>
       <td className="py-space-3 text-ink-900 text-[13px] font-semibold">
-        ₹{payment.amount.toLocaleString("en-IN")}
+        {formatINR(payment.amount)}
       </td>
       <td className="py-space-3">
         <Badge tone={PAYMENT_STATUS_TONE[payment.status] ?? "neutral"}>
@@ -171,7 +172,7 @@ export function BillingTab() {
               <option value="">Select a plan…</option>
               {availablePlans.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} (₹{p.price_monthly.toLocaleString("en-IN")}/mo)
+                  {p.name} ({formatINR(p.price_monthly)}/mo)
                 </option>
               ))}
             </select>
@@ -248,8 +249,7 @@ export function BillingTab() {
             <p className="text-ink-900 text-[15px] font-bold">{plan?.name ?? "—"}</p>
             {plan && (
               <p className="text-hint mt-0.5">
-                ₹{plan.price_monthly.toLocaleString("en-IN")} / month, billed{" "}
-                {cycleLabel.toLowerCase()}
+                {formatINR(plan.price_monthly)} / month, billed {cycleLabel.toLowerCase()}
               </p>
             )}
           </div>

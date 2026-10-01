@@ -1,33 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  BarChart3,
-  Clock,
-  Download,
-  FileDown,
-  FlaskConical,
-  Pause,
-  RefreshCw,
-  Send,
-  TrendingUp,
-  Users,
-} from "lucide-react";
+import { BarChart3, Clock, Download, FlaskConical, Pause, Users } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
+import { ExportDialog } from "@/components/export/ExportDialog";
+import { FilterActions } from "@/components/portal/FilterActions";
 import { FilterSelect } from "@/components/ui/FilterSelect";
-import { QuickActionButton } from "@/components/portal/QuickActionButton";
-import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
-import { cn } from "@/lib/cn";
+import { AuditActivityTable } from "@/components/audit/AuditActivityTable";
+import { adminFetch, adminFetchBlob } from "@/lib/adminAuth";
+import { formatINR } from "@/lib/formatCurrency";
 import { toast } from "@/lib/toast";
-import {
-  useAdminSubscriptions,
-  type SubscriptionRecord,
-  type SubscriptionStatus,
-} from "@/hooks/useAdminSubscriptions";
+import { useCsvExport, useExportHistory } from "@/hooks/useExport";
+import { useAdminSubscriptions, type SubscriptionRecord } from "@/hooks/useAdminSubscriptions";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { createSubscriptionColumns } from "./_components/subscription-columns";
 import { AssignSubscriptionDialog } from "./_components/AssignSubscriptionDialog";
@@ -44,16 +32,6 @@ const STATUS_OPTIONS = [
 const CYCLE_OPTIONS = [
   { value: "monthly", label: "Monthly" },
   { value: "annual", label: "Annual" },
-];
-
-const PILL_STATUSES: { key: "all" | SubscriptionStatus; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "active", label: "Active" },
-  { key: "trial", label: "Trial" },
-  { key: "renewal_due", label: "Renewal Due" },
-  { key: "expired", label: "Expired" },
-  { key: "cancelled", label: "Cancelled" },
-  { key: "unassigned", label: "Unassigned" },
 ];
 
 function PanelHeader({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -97,26 +75,73 @@ export default function SubscriptionsPage() {
   } = useAdminSubscriptions();
   const { entries: auditEntries } = useAuditLog(null, "platform_admin");
 
+  // Draft -- bound directly to the filter inputs below, doesn't affect
+  // `filtered` until applyFilters() runs (the Filter button). Same
+  // staged-then-Apply pattern as the portal's own useAppointments.ts, so
+  // picking a status/plan/cycle doesn't silently re-filter the table out
+  // from under you mid-read -- you choose when it takes effect.
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState("all");
   const [status, setStatus] = useState("all");
   const [cycle, setCycle] = useState("all");
-  const [pill, setPill] = useState<"all" | SubscriptionStatus>("all");
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Applied -- what `filtered` actually uses.
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [appliedPlanFilter, setAppliedPlanFilter] = useState("all");
+  const [appliedStatus, setAppliedStatus] = useState("all");
+  const [appliedCycle, setAppliedCycle] = useState("all");
   const [editing, setEditing] = useState<SubscriptionRecord | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportHistoryPage, setExportHistoryPage] = useState(1);
+
+  const exportMutation = useCsvExport(
+    adminFetchBlob,
+    "/api/admin/subscriptions/export",
+    "hospital-subscriptions.csv",
+  );
+  const exportHistory = useExportHistory(
+    adminFetch,
+    "/api/admin/exports/history",
+    "HOSPITAL_SUBSCRIPTIONS",
+    exportHistoryPage,
+  );
 
   const filtered = useMemo(() => {
     if (!subscriptions) return [];
     return subscriptions.filter((row) => {
-      if (search && !row.hospital_name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (planFilter !== "all" && String(row.plan_id) !== planFilter) return false;
-      if (status !== "all" && row.status !== status) return false;
-      if (cycle !== "all" && row.billing_cycle !== cycle) return false;
-      if (pill !== "all" && row.status !== pill) return false;
+      if (appliedSearch && !row.hospital_name.toLowerCase().includes(appliedSearch.toLowerCase())) {
+        return false;
+      }
+      if (appliedPlanFilter !== "all" && String(row.plan_id) !== appliedPlanFilter) return false;
+      if (appliedStatus !== "all" && row.status !== appliedStatus) return false;
+      if (appliedCycle !== "all" && row.billing_cycle !== appliedCycle) return false;
       return true;
     });
-  }, [subscriptions, search, planFilter, status, cycle, pill]);
+  }, [subscriptions, appliedSearch, appliedPlanFilter, appliedStatus, appliedCycle]);
+
+  function applyFilters() {
+    setAppliedSearch(search.trim());
+    setAppliedPlanFilter(planFilter);
+    setAppliedStatus(status);
+    setAppliedCycle(cycle);
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setPlanFilter("all");
+    setStatus("all");
+    setCycle("all");
+    setAppliedSearch("");
+    setAppliedPlanFilter("all");
+    setAppliedStatus("all");
+    setAppliedCycle("all");
+  }
+
+  const filtersDirty =
+    search.trim() !== appliedSearch ||
+    planFilter !== appliedPlanFilter ||
+    status !== appliedStatus ||
+    cycle !== appliedCycle;
 
   const counts = useMemo(() => {
     const byStatus: Record<string, number> = {};
@@ -143,18 +168,6 @@ export default function SubscriptionsPage() {
     [auditEntries],
   );
 
-  function toggle(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-  function toggleAll(checked: boolean) {
-    setSelectedIds(checked ? new Set(filtered.map((r) => r.hospital_id)) : new Set());
-  }
-
   function handleUnassign(row: SubscriptionRecord) {
     setConfirmAction({ type: "unassign", row });
   }
@@ -163,51 +176,28 @@ export default function SubscriptionsPage() {
     setConfirmAction({ type: "cancel-billing", row });
   }
 
-  function selectedRecords(): SubscriptionRecord[] {
-    return (subscriptions ?? []).filter((r) => selectedIds.has(r.hospital_id));
+  /** Row-level Extend Trial (SubscriptionCellAction) -- only ever called
+   * for a row already known to be status==='trial' (the dropdown item is
+   * conditional on that), so this applies unconditionally rather than
+   * re-filtering a list of one. */
+  async function handleExtendTrial(row: SubscriptionRecord) {
+    const base = row.renewal_date ? new Date(row.renewal_date) : new Date();
+    base.setDate(base.getDate() + 14);
+    await assign(row.hospital_id, {
+      plan_id: row.plan_id as number,
+      billing_cycle: row.billing_cycle ?? "monthly",
+      status: "trial",
+      payment_status: row.payment_status ?? "pending",
+      renewal_date: base.toISOString().slice(0, 10),
+    });
+    toast.success(`Trial extended for ${row.hospital_name}`);
   }
 
-  async function handleUpgradePlan() {
-    const rows = selectedRecords();
-    if (rows.length !== 1) {
-      toast.error(
-        "Select exactly one hospital",
-        "Upgrade Plan edits one hospital's subscription at a time.",
-      );
-      return;
-    }
-    setEditing(rows[0]);
-  }
-
-  async function handleExtendTrial() {
-    const rows = selectedRecords().filter((r) => r.status === "trial");
-    if (rows.length === 0) {
-      toast.error("No trials selected", "Select one or more hospitals currently in trial.");
-      return;
-    }
-    for (const row of rows) {
-      const base = row.renewal_date ? new Date(row.renewal_date) : new Date();
-      base.setDate(base.getDate() + 14);
-      await assign(row.hospital_id, {
-        plan_id: row.plan_id as number,
-        billing_cycle: row.billing_cycle ?? "monthly",
-        status: "trial",
-        payment_status: row.payment_status ?? "pending",
-        renewal_date: base.toISOString().slice(0, 10),
-      });
-    }
-    toast.success(`Trial extended for ${rows.length} hospital(s)`);
-  }
-
-  function handleCancelSubscriptions() {
-    const rows = selectedRecords().filter(
-      (r) => r.status !== "unassigned" && r.status !== "cancelled",
-    );
-    if (rows.length === 0) {
-      toast.error("Nothing to cancel", "Select one or more active subscriptions first.");
-      return;
-    }
-    setConfirmAction({ type: "bulk-cancel", rows });
+  /** Row-level Cancel Subscription -- reuses the same confirm-dialog flow
+   * (and runConfirmedAction's billed-vs-manual split below) the old bulk
+   * "Cancel Subscription" Quick Action used, just with a single-row list. */
+  function handleCancelSubscription(row: SubscriptionRecord) {
+    setConfirmAction({ type: "bulk-cancel", rows: [row] });
   }
 
   /** Live Razorpay-billed rows (razorpay_subscription_id set) MUST go
@@ -241,48 +231,38 @@ export default function SubscriptionsPage() {
 
   return (
     <div>
-      <div className="mb-space-5">
-        <h1 className="text-display">Subscriptions</h1>
-        <p className="text-ink-600 text-[13px]">
-          Manage hospital subscription records, renewals, and billing across CareConnect.
-        </p>
+      <div className="mb-space-5 gap-space-3 flex flex-col items-start justify-between lg:flex-row lg:items-center">
+        <div>
+          <h1 className="text-display">Subscriptions</h1>
+          <p className="text-ink-600 text-[13px]">
+            Manage hospital subscription records, renewals, and billing across CareConnect.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setExportOpen(true)}
+          className="border-line text-ink-700 gap-space-2 px-space-3 hover:bg-paper flex h-9 items-center rounded-md border text-[12.5px] font-semibold"
+        >
+          <Download size={14} /> Export
+        </button>
       </div>
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={5} className="mb-space-4">
-        <StatTile
-          label="Active Subscriptions"
-          value={stats.active}
-          hint={`of ${stats.total} total hospitals`}
-          icon={Users}
-        />
-        <StatTile
-          label="Trials"
-          value={stats.trials}
-          hint="Hospitals in trial period"
-          icon={FlaskConical}
-          tint="brand"
-        />
+        <StatTile label="Active Subscriptions" value={stats.active} icon={Users} />
+        <StatTile label="Trials" value={stats.trials} icon={FlaskConical} tint="brand" />
         <StatTile
           label="Renewals This Month"
           value={stats.renewalsThisMonth}
-          hint="Require attention"
           icon={Clock}
           tint="clay"
         />
-        <StatTile
-          label="Churned Accounts"
-          value={stats.churned}
-          hint="Cancelled"
-          icon={Pause}
-          tint="error"
-        />
+        <StatTile label="Churned Accounts" value={stats.churned} icon={Pause} tint="error" />
         <StatTile
           label="Avg. Subscription Value"
           value={Math.round(stats.avgValue)}
           prefix="₹"
-          hint="Per hospital (monthly)"
           icon={BarChart3}
         />
       </StatTileGrid>
@@ -290,9 +270,8 @@ export default function SubscriptionsPage() {
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="p-space-4 mb-space-4">
-            <div className="gap-space-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <label className="text-hint mb-space-1 block">Search Hospitals</label>
+            <div className="gap-space-3 flex flex-wrap items-center">
+              <div className="relative min-w-50 flex-1">
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -300,67 +279,49 @@ export default function SubscriptionsPage() {
                   className="border-line bg-card px-space-3 text-ink-900 h-10 w-full rounded-md border text-[13px]"
                 />
               </div>
-              <div>
-                <label className="text-hint mb-space-1 block">Plan</label>
-                <FilterSelect
-                  value={planFilter}
-                  onChange={setPlanFilter}
-                  options={plans.map((p) => ({ value: String(p.id), label: p.name }))}
-                  allLabel="All Plans"
-                  className="h-10 w-full"
-                />
-              </div>
-              <div>
-                <label className="text-hint mb-space-1 block">Status</label>
-                <FilterSelect
-                  value={status}
-                  onChange={setStatus}
-                  options={STATUS_OPTIONS}
-                  allLabel="All Statuses"
-                  className="h-10 w-full"
-                />
-              </div>
-              <div>
-                <label className="text-hint mb-space-1 block">Billing Cycle</label>
-                <FilterSelect
-                  value={cycle}
-                  onChange={setCycle}
-                  options={CYCLE_OPTIONS}
-                  allLabel="All Cycles"
-                  className="h-10 w-full"
-                />
-              </div>
+              <FilterSelect
+                value={planFilter}
+                onChange={setPlanFilter}
+                options={plans.map((p) => ({ value: String(p.id), label: p.name }))}
+                allLabel="All Plans"
+              />
+              <FilterSelect
+                value={status}
+                onChange={setStatus}
+                options={STATUS_OPTIONS}
+                allLabel="All Statuses"
+              />
+              <FilterSelect
+                value={cycle}
+                onChange={setCycle}
+                options={CYCLE_OPTIONS}
+                allLabel="All Cycles"
+              />
+              <FilterActions
+                onApply={applyFilters}
+                onReset={resetFilters}
+                showReset={
+                  filtersDirty ||
+                  !!appliedSearch ||
+                  appliedPlanFilter !== "all" ||
+                  appliedStatus !== "all" ||
+                  appliedCycle !== "all"
+                }
+                disabled={!filtersDirty}
+              />
             </div>
           </Card>
 
-          <div className="mb-space-4 gap-space-2 flex flex-wrap items-center justify-between">
-            <div className="gap-space-2 flex flex-wrap items-center">
-              {PILL_STATUSES.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setPill(key)}
-                  className={cn(
-                    "px-space-3 gap-space-1 flex items-center rounded-full py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
-                    pill === key
-                      ? "bg-brand-600 text-white"
-                      : "text-ink-600 bg-black/4 hover:bg-black/7",
-                  )}
-                >
-                  {label} ({key === "all" ? (subscriptions?.length ?? 0) : counts[key] || 0})
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                toast.error("Not available yet", "Export needs a real report pipeline.")
-              }
-              className="border-line text-ink-700 gap-space-2 px-space-3 hover:bg-paper flex h-9 items-center rounded-md border text-[12.5px] font-semibold"
-            >
-              <Download size={14} /> Export
-            </button>
-          </div>
+          <ExportDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            title="Hospital Subscriptions"
+            exportMutation={exportMutation}
+            history={exportHistory}
+            historyPage={exportHistoryPage}
+            onHistoryPageChange={setExportHistoryPage}
+            showDateRange={false}
+          />
 
           <Card className="p-space-4">
             <PanelHeader
@@ -372,12 +333,9 @@ export default function SubscriptionsPage() {
             ) : (
               <DataTable<SubscriptionRecord>
                 columns={createSubscriptionColumns({
-                  selectedIds,
-                  onToggle: toggle,
-                  onToggleAll: toggleAll,
-                  allSelected:
-                    filtered.length > 0 && filtered.every((r) => selectedIds.has(r.hospital_id)),
                   onEdit: setEditing,
+                  onExtendTrial: handleExtendTrial,
+                  onCancelSubscription: handleCancelSubscription,
                   onUnassign: handleUnassign,
                   onCancelBilling: handleCancelBilling,
                 })}
@@ -429,14 +387,8 @@ export default function SubscriptionsPage() {
                   "Cancelled Accounts",
                   `${counts.cancelled || 0} (${stats.total ? Math.round(((counts.cancelled || 0) / stats.total) * 100) : 0}%)`,
                 ],
-                [
-                  "Total Annual Contract Value (ACV)",
-                  `₹${Math.round(stats.totalACV).toLocaleString("en-IN")}`,
-                ],
-                [
-                  "Average Subscription Value",
-                  `₹${Math.round(stats.avgValue).toLocaleString("en-IN")}`,
-                ],
+                ["Total Annual Contract Value (ACV)", formatINR(Math.round(stats.totalACV))],
+                ["Average Subscription Value", formatINR(Math.round(stats.avgValue))],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-ink-400">{label}</span>
@@ -445,62 +397,18 @@ export default function SubscriptionsPage() {
               ))}
             </div>
           </Card>
-
-          <Card className="p-space-4">
-            <PanelHeader title="Quick Actions" subtitle="Common subscription management actions." />
-            <QuickActionList
-              size="sm"
-              columns={2}
-              actions={[
-                { label: "Upgrade Plan", icon: TrendingUp, onClick: handleUpgradePlan },
-                { label: "Extend Trial", icon: FlaskConical, onClick: handleExtendTrial },
-                { label: "Cancel Subscription", icon: Pause, onClick: handleCancelSubscriptions },
-                {
-                  label: "Send Renewal Reminder",
-                  icon: Send,
-                  onClick: () =>
-                    toast.error("Not available yet", "No notification system exists yet."),
-                },
-              ]}
-            >
-              <QuickActionButton
-                label="Download Invoice"
-                icon={FileDown}
-                size="sm"
-                onClick={() => toast.error("Not available yet", "No invoice model exists yet.")}
-                className="col-span-2"
-              />
-            </QuickActionList>
-          </Card>
-
-          <Card className="p-space-4">
-            <PanelHeader title="Recent Subscription Activities" />
-            {!auditEntries ? (
-              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">Loading…</p>
-            ) : subscriptionActivity.length === 0 ? (
-              <p className="text-ink-400 py-space-3 text-center text-[12.5px]">No changes yet.</p>
-            ) : (
-              <ul className="divide-line divide-y">
-                {subscriptionActivity.map((entry) => (
-                  <li key={entry.id} className="py-space-2 gap-space-0.5 flex flex-col text-[12px]">
-                    <div className="flex items-center justify-between">
-                      <span className="gap-space-1 text-ink-900 flex items-center font-semibold">
-                        <RefreshCw size={12} /> {entry.action}
-                      </span>
-                      <span className="text-ink-400">
-                        {new Date(entry.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                    <span className="text-ink-600">
-                      {entry.hospital_name ?? "—"} · {entry.actor_label}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
         </div>
       </div>
+
+      <AuditActivityTable
+        entries={subscriptionActivity}
+        isLoading={!auditEntries}
+        title="Recent Subscription Activities"
+        subtitle="Recent changes to hospital subscriptions across all tenants."
+        emptyMessage="No subscription changes yet."
+        showActorLevelFilter={true}
+        showHospitalColumn={true}
+      />
 
       <ConfirmDialog
         open={!!confirmAction}
@@ -517,7 +425,9 @@ export default function SubscriptionsPage() {
             : confirmAction?.type === "cancel-billing"
               ? `Cancel ${confirmAction.row.hospital_name}'s live Razorpay subscription? This stops their billing.`
               : confirmAction?.type === "bulk-cancel"
-                ? `Cancel ${confirmAction.rows.length} subscription(s)? Hospitals on live Razorpay billing will have their real subscription cancelled; others are marked cancelled directly.`
+                ? confirmAction.rows.length === 1
+                  ? `Cancel ${confirmAction.rows[0].hospital_name}'s subscription?`
+                  : `Cancel ${confirmAction.rows.length} subscriptions? Hospitals on live Razorpay billing will have their real subscription cancelled; others are marked cancelled directly.`
                 : ""
         }
         confirmLabel={confirmAction?.type === "unassign" ? "Unassign" : "Cancel"}

@@ -2,6 +2,7 @@ import { ChevronRight, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 
 type Tint = "brand" | "success" | "error" | "clay";
 
@@ -14,13 +15,12 @@ const TINT_CLASSES: Record<Tint, string> = {
 
 type Props = {
   label: string;
-  value: number | null;
+  value: number | string | null;
   icon?: LucideIcon;
   tint?: Tint;
   href?: string;
   prefix?: string;
   mock?: boolean;
-  hint?: string;
 };
 
 export function StatTile({
@@ -31,7 +31,6 @@ export function StatTile({
   href,
   prefix,
   mock = false,
-  hint,
 }: Props) {
   const body = (
     <div className="gap-space-3 relative flex items-center">
@@ -53,9 +52,14 @@ export function StatTile({
       <div className="min-w-0 flex-1">
         <p className="text-label mb-space-1 text-ink-600 truncate font-medium">{label}</p>
         <span className="text-ink-900 text-[26px] leading-none font-semibold">
-          {value === null ? "—" : `${prefix ?? ""}${value.toLocaleString()}`}
+          {value === null
+            ? "—"
+            : typeof value === "string"
+              ? value
+              : prefix === "₹"
+                ? formatINR(value)
+                : `${prefix ?? ""}${value.toLocaleString()}`}
         </span>
-        {hint && <p className="text-hint mt-space-0.5 truncate">{hint}</p>}
       </div>
       {href && <ChevronRight size={18} className="text-ink-300 shrink-0" />}
     </div>

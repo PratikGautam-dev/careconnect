@@ -24,6 +24,8 @@ import { clearAdminToken, getSuperAdmin } from "@/lib/adminAuth";
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/admin/dashboard" },
   { key: "tenants", label: "Tenants", icon: ShieldCheck, href: "/admin/tenants" },
+  { key: "users", label: "Users", icon: Users, href: "/admin/users" },
+
   // Subscriptions/Plans & Billing are both fully mock pages today -- there's
   // no plan/pricing/invoice model in the backend yet (only hospitals.data_tier
   // exists), see each page's own top comment. Kept in the sidebar anyway so
@@ -36,7 +38,6 @@ const NAV_ITEMS = [
     icon: Landmark,
     href: "/admin/appointment-billing",
   },
-  { key: "users", label: "Users", icon: Users, href: "/admin/users" },
   {
     key: "support-tickets",
     label: "Support Tickets",

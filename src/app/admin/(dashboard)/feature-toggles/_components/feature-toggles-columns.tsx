@@ -19,8 +19,7 @@ type CreateFeatureTogglesColumnsOptions = {
  * every row is a real hospitals.enabled_features key
  * (flows/patient_identity/menu.py's REAL_FEATURES), same DataTable
  * component the portal's own list pages use rather than a hand-rolled
- * <table>. "Included in Plan"/"Custom Override" are always "—" here (see
- * the page's own top comment for why that's honest, not a gap). */
+ * <table>. */
 export function createFeatureTogglesColumns({
   onToggle,
 }: CreateFeatureTogglesColumnsOptions): ColumnDef<FeatureRow>[] {
@@ -39,15 +38,6 @@ export function createFeatureTogglesColumns({
       },
     },
     {
-      id: "menuVisible",
-      header: () => <span className="block text-center">Menu Visible</span>,
-      cell: ({ row }) => (
-        <div className="text-center">
-          <span className={row.original.enabled ? "text-success" : "text-ink-300"}>●</span>
-        </div>
-      ),
-    },
-    {
       id: "featureEnabled",
       header: () => <span className="block text-center">Feature Enabled</span>,
       cell: ({ row }) => (
@@ -60,16 +50,6 @@ export function createFeatureTogglesColumns({
           />
         </div>
       ),
-    },
-    {
-      id: "includedInPlan",
-      header: () => <span className="block text-center">Included in Plan</span>,
-      cell: () => <div className="text-ink-300 text-center">—</div>,
-    },
-    {
-      id: "customOverride",
-      header: () => <span className="block text-center">Custom Override</span>,
-      cell: () => <div className="text-ink-300 text-center">—</div>,
     },
   ];
 }

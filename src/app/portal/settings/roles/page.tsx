@@ -2,16 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  KeyRound,
-  Minus,
-  Plus,
-  ScrollText,
-  ShieldCheck,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { Check, KeyRound, Minus, Plus, ScrollText, ShieldCheck, Users } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -58,6 +49,7 @@ const PAGE_KEYS = [
   "holiday_application",
   "attendance",
   "check_in_out",
+  "attendance_overview",
   "report-review",
   "report-analytics",
 ];
@@ -78,6 +70,7 @@ const PAGE_LABEL: Record<string, string> = {
   holiday_application: "Holiday Application",
   attendance: "Attendance",
   check_in_out: "Check-in / Check-out",
+  attendance_overview: "Attendance Overview",
   "report-review": "Report Review",
   "report-analytics": "Report Analytics",
 };
@@ -162,7 +155,6 @@ export default function RolesPermissionsPage() {
   }
 
   const totalPermissionCells = roles.length * PAGE_KEYS.length;
-  const totalUsers = roles.reduce((sum, r) => sum + r.staff_count, 0);
   const activeRoleCount = roles.filter((r) => r.active_staff_count > 0).length;
   const editingRole = roles.find((r) => r.id === editingRoleId) || null;
   const manageUsersRole = roles.find((r) => r.id === manageUsersRoleId) || null;
@@ -257,27 +249,10 @@ export default function RolesPermissionsPage() {
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <StatTileGrid cols={4} className="mb-space-4">
-        <StatTile
-          label="Total Roles"
-          value={roles.length}
-          hint="Roles at this hospital"
-          icon={Users}
-        />
-        <StatTile label="Total Users" value={totalUsers} hint="Across all roles" icon={UserRound} />
-        <StatTile
-          label="Active Roles"
-          value={activeRoleCount}
-          hint={`of ${roles.length} have an active user`}
-          icon={ShieldCheck}
-          tint="success"
-        />
-        <StatTile
-          label="Total Permissions"
-          value={totalPermissionCells}
-          hint="Role x module combinations"
-          icon={KeyRound}
-        />
+      <StatTileGrid cols={3} className="mb-space-4">
+        <StatTile label="Total Roles" value={roles.length} icon={Users} />
+        <StatTile label="Active Roles" value={activeRoleCount} icon={ShieldCheck} tint="success" />
+        <StatTile label="Total Permissions" value={totalPermissionCells} icon={KeyRound} />
       </StatTileGrid>
 
       {!matrix ? (
@@ -526,11 +501,7 @@ export default function RolesPermissionsPage() {
               />
             </Field>
             {!renameTarget && (
-              <Field
-                label="Clone permissions from"
-                htmlFor="role_clone"
-                hint="Optional -- starts with no access if left blank."
-              >
+              <Field label="Clone permissions from" htmlFor="role_clone">
                 <select
                   id="role_clone"
                   value={roleForm.cloneFromRoleId}

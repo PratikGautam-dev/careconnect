@@ -11,11 +11,12 @@ import {
 } from "recharts";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { formatINR } from "@/lib/formatCurrency";
 
 type Bucket = { week_label: string; revenue: number };
 
 function formatCompactInr(value: number): string {
-  return `₹${value.toLocaleString("en-IN")}`;
+  return formatINR(value);
 }
 
 type Props = { data: Bucket[]; className?: string };

@@ -4,6 +4,21 @@
 // object), so this just repackages that into the axios request config
 // shape rather than forcing every call site to be rewritten too.
 
+/** A failed request made with `responseType: "blob"` (adminFetchBlob/
+ * staffFetchBlob) still comes back as a Blob even when the body is really
+ * JSON -- axios doesn't know to parse it differently just because the
+ * status was an error. Reads it as text and parses out the backend's real
+ * `{error}` message instead of surfacing "[object Blob]" to the user. */
+export async function blobErrorToMessage(blob: Blob): Promise<string> {
+  try {
+    const text = await blob.text();
+    const data = JSON.parse(text);
+    return data?.error || "Something went wrong.";
+  } catch {
+    return "Something went wrong.";
+  }
+}
+
 export function requestInitToAxiosConfig(init?: RequestInit): {
   method: string;
   headers: Record<string, string>;

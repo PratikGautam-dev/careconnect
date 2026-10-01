@@ -10,7 +10,7 @@ import {
   type AuditLogPageResponse,
 } from "@/hooks/useAuditLogPage";
 import { useTenants } from "@/hooks/useTenants";
-import { adminFetch } from "@/lib/adminAuth";
+import { adminFetch, adminFetchBlob } from "@/lib/adminAuth";
 import { unwrapAdminResult } from "@/lib/adminMutation";
 
 const RETENTION_OPTIONS = [30, 60, 90, 180, 365, 730];
@@ -73,6 +73,13 @@ export function AuditLogsTab({ auditLogRetentionDays, setAuditLogRetentionDays }
           showHospitalColumn
           hospitalOptions={tenants?.map((t) => ({ id: t.id, name: t.name })) ?? null}
           showActorLevelFilter
+          exportConfig={{
+            fetchBlob: adminFetchBlob,
+            fetchJson: adminFetch,
+            exportUrl: "/api/admin/audit-log/export",
+            historyUrl: "/api/admin/exports/history",
+            module: "AUDIT_LOG",
+          }}
         />
       </Card>
     </div>

@@ -4,9 +4,10 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import type { AppointmentBillingStats } from "@/hooks/useAppointmentBilling";
+import { formatINR } from "@/lib/formatCurrency";
 
 function formatCompactInr(value: number): string {
-  return `₹${value.toLocaleString("en-IN")}`;
+  return formatINR(value);
 }
 
 function MiniDonut({

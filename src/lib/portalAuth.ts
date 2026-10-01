@@ -1,6 +1,11 @@
 // getPortalToken/portalFetch/clearPortalSession delegate to the staff
 // session in staffAuth.ts, so callers don't need their own token handling.
-import { clearStaffSession, getStaffAccessToken, staffFetch } from "@/lib/staffAuth";
+import {
+  clearStaffSession,
+  getStaffAccessToken,
+  staffFetch,
+  staffFetchBlob,
+} from "@/lib/staffAuth";
 
 export type PortalHospital = {
   id: number;
@@ -24,3 +29,4 @@ export function clearPortalSession(): Promise<void> {
 // silent-refresh-on-401 behavior (an improvement over this file's old bare
 // "401 -> logout", not a regression).
 export const portalFetch = staffFetch;
+export const portalFetchBlob = staffFetchBlob;

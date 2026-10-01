@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, Trash2, UserPlus, UserRound, UserRoundCheck, Users } from "lucide-react";
+import { Search, Trash2, UserPlus, UserRound, UserRoundCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -86,26 +86,9 @@ export default function PortalPatientsPage() {
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       <StatTileGrid cols={4} className="mb-space-4">
-        <StatTile label="Total Patients" value={stats.total} hint="Live count" icon={Users} />
-        <StatTile
-          label="New Registrations"
-          value={stats.newRegistrations}
-          hint="Last 7 days"
-          icon={UserPlus}
-        />
-        <StatTile
-          label="Active Patients"
-          value={stats.active}
-          hint={`of ${stats.total} total`}
-          icon={UserRoundCheck}
-        />
-        <StatTile
-          label="Follow-up Due"
-          value={null}
-          hint="No due-date/recall concept exists yet"
-          icon={UserRound}
-          tint="clay"
-        />
+        <StatTile label="New Registrations" value={stats.newRegistrations} icon={UserPlus} />
+        <StatTile label="Active Patients" value={stats.active} icon={UserRoundCheck} />
+        <StatTile label="Follow-up Due" value={null} icon={UserRound} tint="clay" />
       </StatTileGrid>
 
       <Card className="p-space-4">

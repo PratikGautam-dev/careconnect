@@ -33,6 +33,22 @@ export function formatDateTime(iso: string): string {
     : iso;
 }
 
+/** "Mon, Sep 1, 2026, 3:45:30 PM" -- full day/date/time with seconds for audit logs. */
+export function formatAuditDateTime(iso: string): string {
+  const d = parseDate(iso);
+  return d
+    ? d.toLocaleString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+    : iso;
+}
+
 /** "Aug 28, 3:45 PM" -- same as formatDateTime but without the year, for
  * lists scoped to the current/recent period where the year is implied. */
 export function formatShortDateTime(iso: string): string {

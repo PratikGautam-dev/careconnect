@@ -2,6 +2,7 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/Badge";
+import { formatINR } from "@/lib/formatCurrency";
 import type { BillingRecord } from "@/hooks/useAdminBillingRecords";
 
 const STATUS_LABEL: Record<BillingRecord["status"], string> = {
@@ -60,9 +61,7 @@ export function createBillingColumns(): ColumnDef<BillingRecord>[] {
       id: "amount",
       header: "Amount",
       cell: ({ row }) => (
-        <span className="text-ink-900 font-semibold">
-          ₹{row.original.amount.toLocaleString("en-IN")}
-        </span>
+        <span className="text-ink-900 font-semibold">{formatINR(row.original.amount)}</span>
       ),
     },
     {

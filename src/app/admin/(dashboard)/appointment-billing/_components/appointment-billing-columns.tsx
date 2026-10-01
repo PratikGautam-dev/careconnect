@@ -8,9 +8,10 @@ import type {
   AppointmentBillingHospitalRow,
   AppointmentBillingPaymentRow,
 } from "@/hooks/useAppointmentBilling";
+import { formatINR } from "@/lib/formatCurrency";
 
 function money(value: number): string {
-  return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  return formatINR(value);
 }
 
 function formatDateTime(value: string | null): string {
