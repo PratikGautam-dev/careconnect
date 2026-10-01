@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, ClipboardList, ListChecks, Settings as SettingsIcon } from "lucide-react";
+import { ClipboardList, ListChecks, Settings as SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { AuditLogsTab } from "./_components/AuditLogsTab";
 import { GeneralTab } from "./_components/GeneralTab";
 import { MenuLabelsTab } from "./_components/MenuLabelsTab";
-import { NotificationsTab } from "./_components/NotificationsTab";
+// import { NotificationsTab } from "./_components/NotificationsTab";
 import {
   SettingsTabsNav,
   type PlatformSettingsTabDef,
@@ -18,7 +18,7 @@ import {
 const TABS: PlatformSettingsTabDef[] = [
   { key: "general", label: "General", icon: SettingsIcon },
   { key: "menu_labels", label: "Menu Labels", icon: ListChecks },
-  { key: "notifications", label: "Notifications", icon: Bell },
+  // { key: "notifications", label: "Notifications", icon: Bell },
   { key: "audit_logs", label: "Audit Logs", icon: ClipboardList },
 ];
 
@@ -99,7 +99,7 @@ function PlatformSettingsForm() {
               setFeatureLabel={setFeatureLabel}
             />
           )}
-          {tab === "notifications" && <NotificationsTab />}
+          {/* {tab === "notifications" && <NotificationsTab />} */}
           {tab === "audit_logs" && (
             <AuditLogsTab
               auditLogRetentionDays={auditLogRetentionDays}
