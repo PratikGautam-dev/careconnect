@@ -12,9 +12,28 @@ export type AttendanceRecord = {
   working_minutes: number;
   overtime_minutes: number;
   check_in_verified_method: string | null;
+  check_in_accuracy_meters: number | null;
+  /** The hospital uses the WiFi check but this check-in matched by location
+   * only -- an admin may want to look at it. */
+  check_in_needs_review: boolean;
 };
 
-export type PortalAttendanceToday = { today: AttendanceRecord | null; history: AttendanceRecord[] };
+export type CheckInRequestStatus = "pending" | "approved" | "rejected";
+
+/** A staff member's "please approve my check-in" request for today. */
+export type CheckInRequest = {
+  id: number;
+  status: CheckInRequestStatus;
+  reason: string;
+  requested_at: string | null;
+  review_note: string | null;
+};
+
+export type PortalAttendanceToday = {
+  today: AttendanceRecord | null;
+  history: AttendanceRecord[];
+  checkin_request: CheckInRequest | null;
+};
 
 /** Loads GET /api/portal/attendance/today for CheckInOutPage -- same
  * portalFetch/useQuery pattern usePortalDashboard.ts already established.

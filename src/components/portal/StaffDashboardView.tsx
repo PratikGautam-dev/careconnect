@@ -28,10 +28,15 @@ import {
   type LeaveRequestStatus,
   type LeaveType,
 } from "@/hooks/useLeaveRequests";
+import {
+  CheckInPhoneTip,
+  CheckInProblemPanel,
+  CheckInRequestBanner,
+  CheckInRequestDialog,
+} from "@/components/portal/CheckInPanels";
+import { useCheckInActions } from "@/hooks/useCheckInActions";
 import { useStaffDashboard, type AttendanceRecord } from "@/hooks/useStaffDashboard";
 import { formatDate, formatHeaderDateNoYear, formatTimeOnly } from "@/lib/formatDate";
-import { staffFetch } from "@/lib/staffAuth";
-import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 
 // A stable empty-array reference for when there's no attendance history yet
@@ -59,24 +64,6 @@ function formatMinutes(minutes: number): string {
 
 function dateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** Same "resolve to null rather than reject" contract check-in-out/page.tsx
- * already established -- a denied/unavailable geolocation still lets the
- * check-in submit, just with no coordinates for the backend's (optional)
- * geofence check. */
-function getPosition(): Promise<{ latitude: number; longitude: number } | null> {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10_000 },
-    );
-  });
 }
 
 function WeeklyHoursTooltip({
@@ -112,8 +99,6 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * session.is_admin -- confirmed with the user staff should get a self-
  * service dashboard of their own instead). */
 export function StaffDashboardView() {
-  const [busy, setBusy] = useState(false);
-
   // Single combined fetch (attendance + leave) replaces the two independent
   // GETs this view used to make (its own /api/portal/attendance/today, plus
   // useHolidayApplication's own /api/portal/leave-requests/mine) -- each
@@ -142,26 +127,8 @@ export function StaffDashboardView() {
     leaveInitialData,
   );
 
-  async function runAction(path: string) {
-    setBusy(true);
-    const position = path === "/api/portal/attendance/check-in" ? await getPosition() : null;
-    const result = await staffFetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        position ? { latitude: position.latitude, longitude: position.longitude } : {},
-      ),
-    });
-    setBusy(false);
-    if (!result.ok) {
-      toast.error(
-        "That didn't go through",
-        result.unauthorized ? "Please sign in again." : result.error,
-      );
-      return;
-    }
-    await refetchDashboard();
-  }
+  const actions = useCheckInActions({ onChanged: refetchDashboard });
+  const busy = actions.busy;
 
   const isCheckedIn = !!today?.check_in_at && !today?.check_out_at;
   const onBreak = !!today?.break_started_at;
@@ -385,18 +352,28 @@ export function StaffDashboardView() {
               </p>
             </div>
           </div>
+          {!today?.check_in_at && (
+            <div className="mb-space-3 space-y-space-3">
+              <CheckInPhoneTip />
+              <CheckInRequestBanner request={dashboardData?.attendance?.checkin_request ?? null} />
+              {actions.problem && (
+                <CheckInProblemPanel
+                  problem={actions.problem}
+                  disabled={busy}
+                  onRetry={actions.checkIn}
+                  onRequest={actions.openRequest}
+                />
+              )}
+            </div>
+          )}
           <div className="gap-space-2 grid grid-cols-2">
-            <Button
-              size="md"
-              onClick={() => runAction("/api/portal/attendance/check-in")}
-              disabled={busy || !!today?.check_in_at}
-            >
-              <LogIn size={14} /> Check In
+            <Button size="md" onClick={actions.checkIn} disabled={busy || !!today?.check_in_at}>
+              <LogIn size={14} /> {actions.locating ? "Finding location…" : "Check In"}
             </Button>
             <Button
               variant="secondary"
               size="md"
-              onClick={() => runAction("/api/portal/attendance/check-out")}
+              onClick={actions.checkOut}
               disabled={busy || !isCheckedIn}
             >
               <LogOut size={14} /> Check Out
@@ -404,7 +381,7 @@ export function StaffDashboardView() {
             <Button
               variant="secondary"
               size="md"
-              onClick={() => runAction("/api/portal/attendance/break/start")}
+              onClick={() => actions.simpleAction("/api/portal/attendance/break/start")}
               disabled={busy || !isCheckedIn || onBreak}
             >
               <Coffee size={14} /> Start Break
@@ -412,7 +389,7 @@ export function StaffDashboardView() {
             <Button
               variant="secondary"
               size="md"
-              onClick={() => runAction("/api/portal/attendance/break/end")}
+              onClick={() => actions.simpleAction("/api/portal/attendance/break/end")}
               disabled={busy || !onBreak}
             >
               <Play size={14} /> End Break
@@ -535,6 +512,14 @@ export function StaffDashboardView() {
           )}
         </Card>
       </div>
+
+      <CheckInRequestDialog
+        open={actions.requestOpen}
+        onClose={actions.closeRequest}
+        onSend={actions.sendRequest}
+        sending={actions.sendingRequest}
+        error={actions.requestError}
+      />
     </>
   );
 }

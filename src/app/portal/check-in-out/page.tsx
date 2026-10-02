@@ -18,10 +18,16 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatDateTime, formatHeaderDateDayMonth, formatTimeOnly } from "@/lib/formatDate";
-import { portalFetch } from "@/lib/portalAuth";
+import {
+  CheckInPhoneTip,
+  CheckInProblemPanel,
+  CheckInRequestBanner,
+  CheckInRequestDialog,
+} from "@/components/portal/CheckInPanels";
 import { usePermission } from "@/lib/staffAuth";
+import { useCheckInActions } from "@/hooks/useCheckInActions";
 import { usePortalAttendanceToday, type AttendanceRecord } from "@/hooks/usePortalAttendanceToday";
-import { toast } from "@/lib/toast";
+import { checkInMethodLabel, checkInMethodStyle } from "@/lib/attendanceMethod";
 import { cn } from "@/lib/cn";
 import {
   DEFAULT_REFERENCE_DAY_MINUTES,
@@ -56,7 +62,9 @@ function buildTodaysActivity(record: AttendanceRecord | null): ActivityEvent[] {
       time: formatTimeOnly(record.check_in_at),
       kind: "check_in",
       title: "Check in",
-      subtitle: "You checked in to the hospital",
+      subtitle: record.check_in_verified_method
+        ? `Verified by: ${checkInMethodLabel(record.check_in_verified_method)}`
+        : "You checked in to the hospital",
     },
   ];
   if (record.break_started_at) {
@@ -90,29 +98,9 @@ function toHistoryRow(record: AttendanceRecord) {
     checkIn: record.check_in_at ? formatTimeOnly(record.check_in_at) : "-",
     checkOut: record.check_out_at ? formatTimeOnly(record.check_out_at) : null,
     totalHours: formatMinutes(record.working_minutes),
+    method: record.check_in_verified_method,
     status,
   };
-}
-
-/** Gets the browser's current position, resolving to null (rather than
- * rejecting) on denial/unavailability so callers can still submit a
- * check-in/out with no coordinates -- the backend simply skips the
- * geofence check when it receives none, same "each dimension is
- * independently optional" contract db/repositories/attendance.py's
- * check_in() already applies for a hospital that hasn't configured a
- * location at all. */
-function getPosition(): Promise<{ latitude: number; longitude: number } | null> {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10_000 },
-    );
-  });
 }
 
 /** /portal/check-in-out -- today's check-in/check-out activity, a live
@@ -135,32 +123,12 @@ export default function CheckInOutPage() {
   } = usePortalAttendanceToday(ready && canView);
   const today = attendanceData?.today ?? null;
   const history = attendanceData?.history ?? EMPTY_HISTORY;
-  const [busy, setBusy] = useState(false);
   const [checkInModal, setCheckInModal] = useState<AttendanceRecord | null>(null);
-
-  async function runAction(path: string, body?: object) {
-    setBusy(true);
-    const position = path === "/api/portal/attendance/check-in" ? await getPosition() : null;
-    const result = await portalFetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        body ?? (position ? { latitude: position.latitude, longitude: position.longitude } : {}),
-      ),
-    });
-    setBusy(false);
-    if (!result.ok) {
-      toast.error(
-        "That didn't go through",
-        result.unauthorized ? "Please sign in again." : result.error,
-      );
-      return;
-    }
-    await reloadAttendance();
-    if (path === "/api/portal/attendance/check-in") {
-      setCheckInModal((result.data as { record: AttendanceRecord }).record);
-    }
-  }
+  const actions = useCheckInActions({
+    onChanged: reloadAttendance,
+    onCheckedIn: setCheckInModal,
+  });
+  const busy = actions.busy;
 
   if (!ready) return null;
 
@@ -208,6 +176,21 @@ export default function CheckInOutPage() {
   return (
     <PortalShell hospital={hospital} active="check-in-out">
       <PageHeader title="Check-in / Check-out" description={formatHeaderDateDayMonth(new Date())} />
+
+      {canWrite && !today?.check_in_at && (
+        <div className="mb-space-4 space-y-space-3">
+          <CheckInPhoneTip />
+          <CheckInRequestBanner request={attendanceData?.checkin_request ?? null} />
+          {actions.problem && (
+            <CheckInProblemPanel
+              problem={actions.problem}
+              disabled={busy}
+              onRetry={actions.checkIn}
+              onRequest={actions.openRequest}
+            />
+          )}
+        </div>
+      )}
 
       <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="p-space-4">
@@ -395,16 +378,18 @@ export default function CheckInOutPage() {
           <div className="gap-space-3 grid grid-cols-2 sm:grid-cols-4">
             <button
               type="button"
-              onClick={() => runAction("/api/portal/attendance/check-in")}
+              onClick={actions.checkIn}
               disabled={!canWrite || busy || !!today?.check_in_at}
               className="gap-space-2 bg-brand-600 py-space-4 hover:bg-brand-700 flex flex-col items-center rounded-md text-white shadow-[var(--shadow-sm)] transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <LogIn size={20} strokeWidth={2} />
-              <span className="text-[13px] font-semibold">Check In</span>
+              <span className="text-[13px] font-semibold">
+                {actions.locating ? "Finding location…" : "Check In"}
+              </span>
             </button>
             <button
               type="button"
-              onClick={() => runAction("/api/portal/attendance/break/start")}
+              onClick={() => actions.simpleAction("/api/portal/attendance/break/start")}
               disabled={!canWrite || busy || !isCheckedIn || onBreak}
               className="gap-space-2 border-line bg-card py-space-4 text-ink-900 hover:border-brand-300 hover:bg-brand-50 flex flex-col items-center rounded-md border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -413,7 +398,7 @@ export default function CheckInOutPage() {
             </button>
             <button
               type="button"
-              onClick={() => runAction("/api/portal/attendance/break/end")}
+              onClick={() => actions.simpleAction("/api/portal/attendance/break/end")}
               disabled={!canWrite || busy || !onBreak}
               className="gap-space-2 border-line bg-card py-space-4 text-ink-900 hover:border-brand-300 hover:bg-brand-50 flex flex-col items-center rounded-md border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -422,7 +407,7 @@ export default function CheckInOutPage() {
             </button>
             <button
               type="button"
-              onClick={() => runAction("/api/portal/attendance/check-out")}
+              onClick={actions.checkOut}
               disabled={!canWrite || busy || !isCheckedIn}
               className="gap-space-2 border-line bg-card py-space-4 text-ink-900 hover:border-brand-300 hover:bg-brand-50 flex flex-col items-center rounded-md border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -453,13 +438,14 @@ export default function CheckInOutPage() {
                   <th className="py-space-2 pr-space-3 font-medium">Check-in</th>
                   <th className="py-space-2 pr-space-3 font-medium">Check-out</th>
                   <th className="py-space-2 pr-space-3 font-medium">Total hours</th>
+                  <th className="py-space-2 pr-space-3 font-medium">Verified by</th>
                   <th className="py-space-2 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {historyRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-space-4 text-ink-400 text-center">
+                    <td colSpan={6} className="py-space-4 text-ink-400 text-center">
                       No history yet.
                     </td>
                   </tr>
@@ -477,6 +463,20 @@ export default function CheckInOutPage() {
                     </td>
                     <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
                       {r.totalHours}
+                    </td>
+                    <td className="py-space-3 pr-space-3 whitespace-nowrap">
+                      {r.method ? (
+                        <span
+                          className={cn(
+                            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                            checkInMethodStyle(r.method),
+                          )}
+                        >
+                          {checkInMethodLabel(r.method)}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="py-space-3">
                       <span
@@ -526,12 +526,25 @@ export default function CheckInOutPage() {
                 ? `Late by ${checkInModal.late_minutes} min`
                 : "On time"}
             </span>
+            <p className="mt-space-3 text-ink-400 text-[12px]">
+              Verified by:{" "}
+              <span className="text-ink-700 font-semibold">
+                {checkInMethodLabel(checkInModal.check_in_verified_method)}
+              </span>
+            </p>
             <Button className="mt-space-6 w-full" onClick={() => setCheckInModal(null)}>
               OK
             </Button>
           </div>
         </div>
       )}
+      <CheckInRequestDialog
+        open={actions.requestOpen}
+        onClose={actions.closeRequest}
+        onSend={actions.sendRequest}
+        sending={actions.sendingRequest}
+        error={actions.requestError}
+      />
     </PortalShell>
   );
 }

@@ -8,7 +8,12 @@ import { toast } from "@/lib/toast";
 export type AttendanceSettings = {
   attendance_latitude: number | null;
   attendance_longitude: number | null;
-  attendance_allowed_radius_meters: number;
+  // No default -- "" until the hospital enters its own (required once a
+  // location is set).
+  attendance_allowed_radius_meters: number | "";
+  /** The "check staff are on the hospital WiFi" switch. Off => the saved
+   * address list is cleared and the network check is skipped entirely. */
+  attendance_ip_check_enabled: boolean;
   attendance_allowed_ip_cidrs: string;
   attendance_shift_start: string;
   attendance_shift_end: string;
@@ -26,9 +31,15 @@ export type AttendanceSettings = {
   detected_ip: string | null;
 };
 
-function normalizeSettings(
-  data: AttendanceSettings & { attendance_auto_checkout_grace_minutes: number | null },
-): AttendanceSettings {
+type RawAttendanceSettings = Omit<
+  AttendanceSettings,
+  "attendance_auto_checkout_grace_minutes" | "attendance_allowed_radius_meters"
+> & {
+  attendance_auto_checkout_grace_minutes: number | null;
+  attendance_allowed_radius_meters: number | null;
+};
+
+function normalizeSettings(data: RawAttendanceSettings): AttendanceSettings {
   // attendance_auto_checkout_grace_minutes comes back as `null` when unset
   // (no default to fall back to) -- coerced to "" here so the numeric
   // <Input> below never renders "null", same convention usePortalSettings.ts's
@@ -36,6 +47,7 @@ function normalizeSettings(
   return {
     ...data,
     attendance_auto_checkout_grace_minutes: data.attendance_auto_checkout_grace_minutes ?? "",
+    attendance_allowed_radius_meters: data.attendance_allowed_radius_meters ?? "",
   };
 }
 
@@ -59,9 +71,7 @@ export function useAttendanceSettings(ready: boolean) {
     retry: false,
     queryFn: async () => {
       const result = await portalFetch("/api/portal/settings/attendance");
-      const data = unwrapPortalResult<
-        AttendanceSettings & { attendance_auto_checkout_grace_minutes: number | null }
-      >(router, result);
+      const data = unwrapPortalResult<RawAttendanceSettings>(router, result);
       return normalizeSettings(data);
     },
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarCheck, Clock, Search, UserRound, UserX } from "lucide-react";
+import { CalendarCheck, Clock, MapPin, Search, UserRound, UserX } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
@@ -15,6 +15,7 @@ import {
   type AttendanceOverviewRow,
   type AttendanceOverviewStatus,
 } from "@/hooks/useAttendanceOverview";
+import { checkInMethodLabel, checkInMethodStyle } from "@/lib/attendanceMethod";
 import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
 import { cn } from "@/lib/cn";
@@ -22,13 +23,14 @@ import { cn } from "@/lib/cn";
 // Collapses on_time/half_day into one "present" bucket for the filter --
 // same grouping the stat tiles above already use -- so "Present" in the
 // filter matches "Present" on the tile/badge, not the raw on_time status.
-type AttendanceFilterStatus = "present" | "late" | "absent" | "leave";
+type AttendanceFilterStatus = "present" | "late" | "absent" | "leave" | "needs_review";
 
 const FILTER_STATUS_OPTIONS: { value: AttendanceFilterStatus; label: string }[] = [
   { value: "present", label: "Present" },
   { value: "late", label: "Late" },
   { value: "absent", label: "Absent" },
   { value: "leave", label: "On leave" },
+  { value: "needs_review", label: "Needs review" },
 ];
 
 function toFilterStatus(status: AttendanceOverviewStatus): AttendanceFilterStatus {
@@ -85,9 +87,18 @@ export default function AttendanceOverviewPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("attendance_overview", "view");
   const canOverride = usePermission("attendance_overview", "write");
-  const { date, setDate, records, error, setStatus, overridingId } = useAttendanceOverview(
-    ready && canView,
-  );
+  const {
+    date,
+    setDate,
+    records,
+    error,
+    setStatus,
+    overridingId,
+    requests,
+    reviewRequest,
+    reviewingId,
+  } = useAttendanceOverview(ready && canView);
+  const [declineNotes, setDeclineNotes] = useState<Record<number, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -96,7 +107,11 @@ export default function AttendanceOverviewPage() {
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return rows.filter((r) => {
-      if (statusFilter !== "all" && toFilterStatus(r.status) !== statusFilter) return false;
+      if (statusFilter === "needs_review") {
+        if (!r.check_in_needs_review) return false;
+      } else if (statusFilter !== "all" && toFilterStatus(r.status) !== statusFilter) {
+        return false;
+      }
       if (!q) return true;
       return (
         r.staff_name.toLowerCase().includes(q) ||
@@ -141,6 +156,87 @@ export default function AttendanceOverviewPage() {
             <StatTile label="Absent" value={records ? counts.absent : null} icon={UserX} />
             <StatTile label="On leave" value={records ? counts.leave : null} icon={UserRound} />
           </StatTileGrid>
+
+          {requests.length > 0 && (
+            <Card className="p-space-4 mb-space-4 border-clay-300">
+              <h3 className="text-label text-ink-900 font-bold">
+                Check-in requests waiting for you ({requests.length})
+              </h3>
+              <p className="text-hint mt-space-1 mb-space-3">
+                These staff couldn&apos;t check in the normal way and are asking you to approve it.
+                Approving checks them in at the time they asked.
+              </p>
+              <ul className="space-y-space-3">
+                {requests.map((q) => (
+                  <li key={q.id} className="border-line p-space-3 rounded-md border">
+                    <div className="gap-space-3 flex flex-wrap items-start justify-between">
+                      <div className="min-w-0">
+                        <p className="text-ink-900 text-[13px] font-bold">
+                          {q.staff_name ?? "Staff member"}
+                          {q.employee_id ? (
+                            <span className="text-ink-400 font-medium"> · {q.employee_id}</span>
+                          ) : null}
+                        </p>
+                        <p className="text-ink-400 text-[11.5px]">
+                          Asked at {q.requested_at ? formatTimeOnly(q.requested_at) : "-"}
+                        </p>
+                        <p className="mt-space-1 text-ink-700 text-[12.5px]">
+                          <span className="font-semibold">Reason:</span> {q.reason}
+                        </p>
+                        {q.failure_reason && (
+                          <p className="mt-space-1 text-ink-500 text-[11.5px]">
+                            Why the automatic check failed: {q.failure_reason}
+                          </p>
+                        )}
+                        {q.latitude !== null && q.longitude !== null && (
+                          <a
+                            href={`https://www.google.com/maps?q=${q.latitude},${q.longitude}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-space-1 gap-space-1 text-brand-600 inline-flex items-center text-[12px] font-semibold hover:underline"
+                          >
+                            <MapPin size={12} /> See where they were
+                            {q.accuracy_meters !== null
+                              ? ` (location accurate to about ${Math.round(q.accuracy_meters)} m)`
+                              : ""}
+                          </a>
+                        )}
+                      </div>
+                      {canOverride && (
+                        <div className="gap-space-2 flex flex-wrap items-center">
+                          <Input
+                            type="text"
+                            placeholder="Note if declining (optional)"
+                            value={declineNotes[q.id] ?? ""}
+                            onChange={(e) =>
+                              setDeclineNotes((prev) => ({ ...prev, [q.id]: e.target.value }))
+                            }
+                            className="h-8 w-52 text-[12px]"
+                          />
+                          <button
+                            type="button"
+                            disabled={reviewingId === q.id}
+                            onClick={() => reviewRequest(q, "reject", declineNotes[q.id])}
+                            className="border-line text-ink-600 hover:bg-error-tint hover:text-error px-space-3 h-8 rounded-md border text-[12px] font-semibold disabled:opacity-40"
+                          >
+                            Decline
+                          </button>
+                          <button
+                            type="button"
+                            disabled={reviewingId === q.id}
+                            onClick={() => reviewRequest(q, "approve")}
+                            className="bg-brand-600 hover:bg-brand-700 px-space-3 h-8 rounded-md text-[12px] font-semibold text-white disabled:opacity-40"
+                          >
+                            Approve check-in
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <Card className="p-space-4">
             <div className="mb-space-3 gap-space-3 flex flex-wrap items-start justify-between">
@@ -200,6 +296,7 @@ export default function AttendanceOverviewPage() {
                       <th className="py-space-2 pr-space-3 font-medium">Check-in</th>
                       <th className="py-space-2 pr-space-3 font-medium">Check-out</th>
                       <th className="py-space-2 pr-space-3 font-medium">Working hours</th>
+                      <th className="py-space-2 pr-space-3 font-medium">Verified by</th>
                       <th className="py-space-2 font-medium">Status</th>
                       {canOverride && (
                         <th className="py-space-2 pl-space-3 font-medium">Actions</th>
@@ -229,6 +326,30 @@ export default function AttendanceOverviewPage() {
                         </td>
                         <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
                           {formatMinutes(r.working_minutes)}
+                        </td>
+                        <td className="py-space-3 pr-space-3 whitespace-nowrap">
+                          {r.check_in_verified_method ? (
+                            <span className="gap-space-1 inline-flex items-center">
+                              <span
+                                className={cn(
+                                  "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                                  checkInMethodStyle(r.check_in_verified_method),
+                                )}
+                              >
+                                {checkInMethodLabel(r.check_in_verified_method)}
+                              </span>
+                              {r.check_in_needs_review && (
+                                <span
+                                  title="The hospital WiFi check is on, but this person was matched by location only."
+                                  className="bg-clay-100 text-clay-700 px-space-2 rounded-full py-0.5 text-[11px] font-semibold"
+                                >
+                                  Review
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td className="py-space-3">
                           <span

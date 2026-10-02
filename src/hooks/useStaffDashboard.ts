@@ -1,6 +1,7 @@
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { staffFetch } from "@/lib/staffAuth";
+import type { CheckInRequest } from "@/hooks/usePortalAttendanceToday";
 import type { LeaveBalance } from "@/hooks/useHolidayApplication";
 import type { LeaveRequestRow } from "@/hooks/useLeaveRequests";
 
@@ -15,10 +16,18 @@ export type AttendanceRecord = {
   working_minutes: number;
   overtime_minutes: number;
   check_in_verified_method: string | null;
+  check_in_accuracy_meters: number | null;
+  /** The hospital uses the WiFi check but this check-in matched by location
+   * only -- an admin may want to look at it. */
+  check_in_needs_review: boolean;
 };
 
 export type StaffDashboardData = {
-  attendance: { today: AttendanceRecord | null; history: AttendanceRecord[] } | null;
+  attendance: {
+    today: AttendanceRecord | null;
+    history: AttendanceRecord[];
+    checkin_request: CheckInRequest | null;
+  } | null;
   leave: { requests: LeaveRequestRow[]; balance: LeaveBalance; leave_types: string[] } | null;
 };
 

@@ -2,6 +2,7 @@
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useStaffAttendanceHistory } from "@/hooks/useStaffAttendanceHistory";
+import { checkInMethodLabel, checkInMethodStyle } from "@/lib/attendanceMethod";
 import { formatTimeOnly } from "@/lib/formatDate";
 import { cn } from "@/lib/cn";
 import {
@@ -63,6 +64,7 @@ export function StaffAttendanceHistoryDialog({ staffId, onOpenChange }: Props) {
                   <th className="py-space-2 pr-space-3 font-medium">Check-in</th>
                   <th className="py-space-2 pr-space-3 font-medium">Check-out</th>
                   <th className="py-space-2 pr-space-3 font-medium">Working hours</th>
+                  <th className="py-space-2 pr-space-3 font-medium">Verified by</th>
                   <th className="py-space-2 font-medium">Status</th>
                 </tr>
               </thead>
@@ -80,6 +82,20 @@ export function StaffAttendanceHistoryDialog({ staffId, onOpenChange }: Props) {
                     </td>
                     <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap">
                       {formatMinutes(r.working_minutes)}
+                    </td>
+                    <td className="py-space-3 pr-space-3 whitespace-nowrap">
+                      {r.check_in_verified_method ? (
+                        <span
+                          className={cn(
+                            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+                            checkInMethodStyle(r.check_in_verified_method),
+                          )}
+                        >
+                          {checkInMethodLabel(r.check_in_verified_method)}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="py-space-3">
                       <span

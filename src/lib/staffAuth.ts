@@ -71,7 +71,9 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://loca
 type FetchResult =
   | { ok: true; data: unknown }
   | { ok: false; unauthorized: true }
-  | { ok: false; unauthorized: false; error: string };
+  // `body` is the server's whole error payload, for callers that need more
+  // than the message (e.g. check-in's `code`/`can_request_manual`).
+  | { ok: false; unauthorized: false; error: string; body?: Record<string, unknown> };
 
 /** Coalesces concurrent tryRefresh() callers onto ONE in-flight request --
  * see tryRefresh()'s own docstring for why this exists: without it, every
@@ -200,6 +202,7 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
         ok: false,
         unauthorized: false,
         error: err.response.data?.error || "Something went wrong.",
+        body: err.response.data,
       };
     }
 
@@ -223,6 +226,7 @@ export async function staffFetch(path: string, init?: RequestInit): Promise<Fetc
         ok: false,
         unauthorized: false,
         error: retryErr.response.data?.error || "Something went wrong.",
+        body: retryErr.response.data,
       };
     }
   }

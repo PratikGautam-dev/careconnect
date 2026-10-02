@@ -47,6 +47,26 @@ export type AttendanceOverviewRow = {
   late_minutes: number;
   working_minutes: number;
   overtime_minutes: number;
+  /** "ip" | "gps" | "both" | "manual" | "none" -- see lib/attendanceMethod.ts. */
+  check_in_verified_method: string | null;
+  /** The hospital uses the WiFi check but this person was matched by
+   * location only -- worth a look. */
+  check_in_needs_review: boolean;
+};
+
+export type CheckInRequestRow = {
+  id: number;
+  staff_id: number;
+  staff_name: string | null;
+  employee_id: string | null;
+  date: string;
+  reason: string;
+  failure_reason: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy_meters: number | null;
+  status: "pending" | "approved" | "rejected";
+  requested_at: string | null;
 };
 
 function todayKey(): string {
@@ -112,7 +132,47 @@ export function useAttendanceOverview(canView: boolean) {
     }
   }
 
+  const { data: requests, refetch: refetchRequests } = useQuery({
+    queryKey: ["portal-attendance-checkin-requests"],
+    enabled: canView,
+    retry: false,
+    queryFn: async () => {
+      const result = await staffFetch("/api/portal/attendance/requests?status=pending");
+      return unwrapPortalResult<{ requests: CheckInRequestRow[] }>(router, result).requests;
+    },
+  });
+
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  async function reviewRequest(
+    request: CheckInRequestRow,
+    action: "approve" | "reject",
+    note?: string,
+  ) {
+    setReviewingId(request.id);
+    try {
+      const result = await staffFetch(`/api/portal/attendance/requests/${request.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, note: note ?? "" }),
+      });
+      unwrapPortalResult<unknown>(router, result);
+      toast.success(
+        action === "approve"
+          ? `${request.staff_name ?? "Staff member"} checked in`
+          : "Request declined",
+      );
+      await Promise.all([refetchRequests(), refetch()]);
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't update the request", err.message);
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
   return {
+    requests: requests ?? [],
+    reviewRequest,
+    reviewingId,
     date,
     setDate,
     records: records ?? null,
