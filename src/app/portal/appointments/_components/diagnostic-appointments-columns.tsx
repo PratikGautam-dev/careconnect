@@ -7,6 +7,7 @@ import { formatShortDateTime } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
 import { AVATAR_TINTS, initials, STATUS_LABELS, STATUS_STYLES } from "./appointments-columns";
+import { PaymentCell } from "./PaymentCell";
 
 // Daycare/procedure bookings have their own separate sidebar section
 // (category "diagnostic" excludes them server-side) -- this table only ever
@@ -234,6 +235,11 @@ export function createDiagnosticAppointmentColumns({
       cell: ({ row }) => (
         <span className="text-ink-600">{row.original.department_name || "—"}</span>
       ),
+    },
+    {
+      id: "payment",
+      header: "Payment",
+      cell: ({ row }) => <PaymentCell appointment={row.original} />,
     },
     {
       id: "created_at",

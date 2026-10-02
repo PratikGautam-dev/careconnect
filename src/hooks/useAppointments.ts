@@ -48,6 +48,10 @@ export type Appointment = {
   // only when this is set and not yet 'paid'.
   payment_status: "pending" | "paid" | "failed" | "pay_at_hospital" | null;
   payment_amount: number | null;
+  // Only set on the list endpoints, once paid: "cash" (collected at the
+  // hospital) or "online" (with payment_mode = card/upi/... when known).
+  payment_method?: "cash" | "online" | null;
+  payment_mode?: string | null;
   // Daycare/Procedure rebuild: which concrete bed/chair/equipment/staff this
   // booking is bound to -- empty for every non-procedure appointment (and
   // for one not yet CONFIRMED, since resources are only reserved at that

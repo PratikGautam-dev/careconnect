@@ -7,6 +7,7 @@ import { formatShortDateTime } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AVATAR_TINTS, initials } from "./appointments-columns";
 import { DaycareCellAction } from "./daycare-cellaction";
+import { PaymentCell } from "./PaymentCell";
 
 // Daycare/Procedure rebuild's own lifecycle (procedure_status) -- distinct
 // from the plain booked/attended/cancelled `status` every other appointment
@@ -164,6 +165,11 @@ export function createDaycareAppointmentColumns({
           </span>
         );
       },
+    },
+    {
+      id: "payment",
+      header: "Payment",
+      cell: ({ row }) => <PaymentCell appointment={row.original} />,
     },
     {
       id: "created_at",

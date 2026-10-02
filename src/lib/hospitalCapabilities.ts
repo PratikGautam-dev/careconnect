@@ -1,11 +1,11 @@
 import {
   BarChart3,
+  BedDouble,
   Building2,
   CalendarCheck,
   CalendarClock,
   ClipboardCheck,
   ClipboardList,
-  FileText,
   FlaskConical,
   MessageCircle,
   Receipt,
@@ -29,10 +29,15 @@ import {
  *
  * `pageKeys` is what actually drives nav gating: it's the PortalSidebar
  * NAV_ITEMS `pageKey`(s) this capability controls visibility for. Most
- * capabilities map to exactly one nav item; MANAGE_BOOKINGS covers all
- * three appointment-type nav items at once. A capability with no
- * `pageKeys` (the four MANAGE_* rows inherited from the old sub-tab-level
- * gates: departments/appointment types/diagnostic resources/procedures)
+ * capabilities map to exactly one nav item. manage_doctor_appointments/
+ * manage_daycare_appointments/manage_diagnostic_appointments each gate
+ * their own single appointment-category nav item (no more combined
+ * "Appointments" switch) AND, with no sidebar entry of their own, also
+ * gate that category's resource/catalog management inside the Settings ->
+ * Appointments tab (Diagnostic Tests/Lab Service Areas under the
+ * diagnostic capability, Procedures under the daycare capability) -- see
+ * AppointmentsTab.tsx. A capability with no `pageKeys` (manage_departments/
+ * manage_appointment_types, inherited from the old sub-tab-level gates)
  * has no nav item of its own -- it's still real (enforced by backend
  * routes and gated inside the Settings sub-tabs it belongs to), it's just
  * not a top-level sidebar entry. */
@@ -48,15 +53,25 @@ export const HOSPITAL_CAPABILITIES: HospitalCapability[] = [
   { key: "manage_departments", label: "Manage Departments", icon: Building2 },
   { key: "manage_appointment_types", label: "Manage Appointment Types", icon: CalendarClock },
   {
-    key: "manage_bookings",
-    label: "Appointments",
+    key: "manage_doctor_appointments",
+    label: "Doctor Appointments",
     icon: CalendarCheck,
-    pageKeys: ["appointments", "daycare_appointments", "diagnostic_appointments"],
+    pageKeys: ["appointments"],
+  },
+  {
+    key: "manage_daycare_appointments",
+    label: "Daycare Appointments",
+    icon: BedDouble,
+    pageKeys: ["daycare_appointments"],
+  },
+  {
+    key: "manage_diagnostic_appointments",
+    label: "Lab & Diagnostic Appointments",
+    icon: FlaskConical,
+    pageKeys: ["diagnostic_appointments"],
   },
   { key: "manage_settings", label: "Settings", icon: Settings, pageKeys: ["settings"] },
   { key: "manage_staff", label: "Staff", icon: UserCog, pageKeys: ["staff"] },
-  { key: "manage_diagnostic_resources", label: "Manage Diagnostic Resources", icon: FlaskConical },
-  { key: "manage_procedures", label: "Manage Procedures", icon: FileText },
   {
     key: "report_review",
     label: "Report Review",

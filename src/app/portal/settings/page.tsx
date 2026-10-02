@@ -80,6 +80,14 @@ function PortalSettingsPageInner() {
   // !hospital means "still loading", not "no capabilities".
   // const canManageProcedures =
   //   !hospital || hospital.admin_capabilities?.includes("manage_procedures");
+  // Clinics have no doctor/department management at all (portal/
+  // capabilities.py's MANAGE_DEPARTMENTS, tenant-type-driven) -- same
+  // "platform hasn't configured this module" reasoning AppointmentsTab.tsx
+  // already applies to Diagnostic Tests/Lab Service Areas/Procedures, just
+  // for the whole top-level Departments tab instead of a card within one.
+  const canManageDepartments =
+    !hospital || hospital.admin_capabilities?.includes("manage_departments");
+  const visibleTabs = TABS.filter((t) => t.key !== "departments" || canManageDepartments);
 
   return (
     <PortalShell hospital={hospital} active="settings">
@@ -87,11 +95,20 @@ function PortalSettingsPageInner() {
 
       {!ready ? null : (
         <>
-          <SettingsTabsNav tabs={TABS} active={tab} onChange={setTab} />
+          <SettingsTabsNav tabs={visibleTabs} active={tab} onChange={setTab} />
 
           {tab === "general" && <GeneralSettingsTab hospital={hospital} />}
           {tab === "appointments" && <AppointmentsTab hospital={hospital} />}
-          {tab === "departments" && <DepartmentsTab />}
+          {tab === "departments" &&
+            (canManageDepartments ? (
+              <DepartmentsTab />
+            ) : (
+              <Card className="p-space-6">
+                <p className="text-ink-400 text-center text-[13px]">
+                  Departments aren&apos;t available for your account.
+                </p>
+              </Card>
+            ))}
           {/* {tab === "procedures" && <ProceduresManager canManage={!!canManageProcedures} />} */}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "attendance" && <AttendanceSettingsTab />}

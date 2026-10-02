@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { TYPE_LABELS, type Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
+import { PaymentCell } from "./PaymentCell";
 
 export { AVATAR_TINTS };
 
@@ -263,6 +264,11 @@ export function createAppointmentColumns({
         }
         return <span className="text-ink-600 text-[12.5px]">In-person</span>;
       },
+    },
+    {
+      id: "payment",
+      header: "Payment",
+      cell: ({ row }) => <PaymentCell appointment={row.original} />,
     },
     {
       id: "created_at",

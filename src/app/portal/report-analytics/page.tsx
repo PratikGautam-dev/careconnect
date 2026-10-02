@@ -15,7 +15,7 @@ import { usePortalReportAnalytics } from "@/hooks/usePortalReportAnalytics";
 import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { portalFetch, portalFetchBlob } from "@/lib/portalAuth";
-import { usePermission } from "@/lib/staffAuth";
+import { usePermission, useStaffSession } from "@/lib/staffAuth";
 import { AppointmentTrendsChart } from "./_components/AppointmentTrendsChart";
 import { VisitTypeDonut } from "./_components/VisitTypeDonut";
 import { RevenueBarChart } from "./_components/RevenueBarChart";
@@ -51,6 +51,11 @@ function currentMonthRange(): { from: string; to: string } {
 export default function ReportAnalyticsPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("report-analytics", "view");
+  // Export is an admin-only action in the portal (confirmed with the user)
+  // -- every other staff role sees the same report, just without the
+  // Export Report button/dialog.
+  const session = useStaffSession();
+  const canExport = !!session?.is_admin;
   const [range, setRange] = useState(currentMonthRange);
   const { data, error } = usePortalReportAnalytics(range.from, range.to);
   const today = new Date();
@@ -67,6 +72,8 @@ export default function ReportAnalyticsPage() {
     "/api/portal/exports/history",
     "PORTAL_REPORT_ANALYTICS",
     exportHistoryPage,
+    10,
+    canExport,
   );
 
   const visitTypeSlices = useMemo(
@@ -113,25 +120,29 @@ export default function ReportAnalyticsPage() {
               {/* Its own independent date range, picked inside the dialog --
                   deliberately NOT tied to the DateRangePicker above,
                   same "export has its own From/To" convention every other
-                  export in the app follows. */}
-              <Button variant="secondary" onClick={() => setExportOpen(true)}>
-                <Download size={15} />
-                Export Report
-              </Button>
+                  export in the app follows. Admin-only (canExport). */}
+              {canExport && (
+                <Button variant="secondary" onClick={() => setExportOpen(true)}>
+                  <Download size={15} />
+                  Export Report
+                </Button>
+              )}
             </>
           )
         }
       />
 
-      <ExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        title="Report Analytics"
-        exportMutation={exportMutation}
-        history={exportHistory}
-        historyPage={exportHistoryPage}
-        onHistoryPageChange={setExportHistoryPage}
-      />
+      {canExport && (
+        <ExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          title="Report Analytics"
+          exportMutation={exportMutation}
+          history={exportHistory}
+          historyPage={exportHistoryPage}
+          onHistoryPageChange={setExportHistoryPage}
+        />
+      )}
 
       {!ready ? null : error ? (
         <p className="text-error text-[14px]">{error}</p>

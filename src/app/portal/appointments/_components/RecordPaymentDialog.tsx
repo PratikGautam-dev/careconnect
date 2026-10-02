@@ -17,8 +17,8 @@ type Props = {
 };
 
 /** Front-desk "cash actually collected" confirmation -- opened from the
- * appointment detail page, never the appointments table (this only ever
- * makes sense against ONE specific appointment's own resolved fee). Cash
+ * appointment detail page and from the appointments tables' Payment cell
+ * (always against ONE specific appointment's own resolved fee). Cash
  * only, no method picker -- online payments are already confirmed by
  * Razorpay's own webhook, this dialog exists purely for the gap that leaves
  * open (a patient who chose "Pay at Hospital", or a stalled online attempt
@@ -72,6 +72,12 @@ export function RecordPaymentDialog({ appointment, onOpenChange, onCollected }: 
           Confirms this hospital actually collected the payment in cash -- marks the appointment as
           paid.
         </p>
+        {appointment && (
+          <p className="text-ink-900 mb-space-3 text-[13px] font-semibold">
+            {appointment.reference_id || `#${appointment.id}`} ·{" "}
+            {appointment.patient_name || appointment.phone}
+          </p>
+        )}
 
         <Field label="Amount collected (₹)" required error={error || undefined}>
           <Input

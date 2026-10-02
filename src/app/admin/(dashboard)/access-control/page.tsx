@@ -93,7 +93,6 @@ function AccessControlContent({
     resetCapabilitiesToDefaults,
     handleSubmit,
     saving,
-    saved,
     errors,
     formDirty,
   } = useEditTenant(selectedId);
@@ -150,8 +149,12 @@ function AccessControlContent({
   // get out of sync with what /admin/subscriptions actually has assigned.
   const assignedPlan = plans?.find((p) => p.id === subscription?.plan_id) ?? null;
 
+  const tenantName = tenant.name;
   function submit() {
-    handleSubmit({ preventDefault() {} } as React.FormEvent);
+    handleSubmit(
+      { preventDefault() {} } as React.FormEvent,
+      `Saved for ${tenantName} — the change is live immediately, no re-login needed.`,
+    );
   }
 
   return (
@@ -213,11 +216,6 @@ function AccessControlContent({
             <Save size={15} /> {saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
-        {saved && (
-          <p className="bg-success-tint text-success px-space-3 py-space-2 mt-space-2 rounded-md text-[12.5px] font-semibold">
-            Saved for {tenant.name} — the change is live immediately, no re-login needed.
-          </p>
-        )}
         {errors.length > 0 && <p className="text-error mt-space-2 text-[12.5px]">{errors[0]}</p>}
       </Card>
 
@@ -360,13 +358,6 @@ function AccessControlContent({
                   {tenant.whatsapp_phone_number_id ? "Enabled" : "Disabled"}
                 </Badge>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-400">Support Level</span>
-                <span className="gap-space-1 flex items-center">
-                  <span className="text-ink-900 font-semibold">Priority</span>
-                  <Badge tone="clay">Mock</Badge>
-                </span>
-              </div>
             </div>
           </Card>
 
@@ -390,33 +381,7 @@ function AccessControlContent({
                   onClick: () => toggleCapability("manage_staff", false),
                 },
               ]}
-            >
-              {/* No real backend for either of these yet -- kept full-color
-              (not disabled/greyed, per the app's mock convention) with a
-              no-op onClick and a "Mock" badge instead. */}
-              <div className="relative">
-                <QuickActionButton
-                  label="Disable Check In / Check Out"
-                  icon={Shield}
-                  size="sm"
-                  onClick={() => {}}
-                />
-                <Badge tone="clay" className="absolute -top-2 -right-2">
-                  Mock
-                </Badge>
-              </div>
-              <div className="relative">
-                <QuickActionButton
-                  label="Clone Access Profile"
-                  icon={Copy}
-                  size="sm"
-                  onClick={() => {}}
-                />
-                <Badge tone="clay" className="absolute -top-2 -right-2">
-                  Mock
-                </Badge>
-              </div>
-            </QuickActionList>
+            ></QuickActionList>
           </Card>
         </div>
       </div>

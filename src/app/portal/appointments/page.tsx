@@ -31,7 +31,7 @@ import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
 import { formatHeaderDate, formatTimeOnly } from "@/lib/formatDate";
 import { portalFetch, portalFetchBlob } from "@/lib/portalAuth";
-import { usePermission } from "@/lib/staffAuth";
+import { usePermission, useStaffSession } from "@/lib/staffAuth";
 import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
 import { createAppointmentColumns, STATUS_LABELS } from "./_components/appointments-columns";
@@ -101,6 +101,10 @@ function pctDelta(current: number, previous: number): number | null {
 export default function PortalAppointmentsPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("appointments", "view");
+  // Export is an admin-only action in the portal (confirmed with the user)
+  // -- every other staff role manages appointments just fine without it.
+  const session = useStaffSession();
+  const canExport = !!session?.is_admin;
   const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
   const [exportOpen, setExportOpen] = useState(false);
@@ -116,6 +120,8 @@ export default function PortalAppointmentsPage() {
     "/api/portal/exports/history",
     "PORTAL_APPOINTMENTS",
     exportHistoryPage,
+    10,
+    canExport,
   );
   const {
     appointments,
@@ -304,11 +310,15 @@ export default function PortalAppointmentsPage() {
       icon: CalendarPlus,
       onClick: () => setNewBookingOpen(true),
     },
-    {
-      label: "Export appointments",
-      icon: FileDown,
-      onClick: () => setExportOpen(true),
-    },
+    ...(canExport
+      ? [
+          {
+            label: "Export appointments",
+            icon: FileDown,
+            onClick: () => setExportOpen(true),
+          },
+        ]
+      : []),
   ];
 
   if (!canView) {
@@ -493,21 +503,23 @@ export default function PortalAppointmentsPage() {
         </div>
       </div>
 
-      <ExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        title="Appointments"
-        exportMutation={exportMutation}
-        history={exportHistory}
-        historyPage={exportHistoryPage}
-        onHistoryPageChange={setExportHistoryPage}
-        exportCap={10_000}
-        extraParams={{
-          category: "doctor",
-          status: statusFilter === "all" ? undefined : statusFilter,
-          type: typeFilter === "all" ? undefined : typeFilter,
-        }}
-      />
+      {canExport && (
+        <ExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          title="Appointments"
+          exportMutation={exportMutation}
+          history={exportHistory}
+          historyPage={exportHistoryPage}
+          onHistoryPageChange={setExportHistoryPage}
+          exportCap={10_000}
+          extraParams={{
+            category: "doctor",
+            status: statusFilter === "all" ? undefined : statusFilter,
+            type: typeFilter === "all" ? undefined : typeFilter,
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={pendingDelete !== null}

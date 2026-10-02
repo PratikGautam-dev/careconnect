@@ -474,7 +474,7 @@ export function useEditTenant(tenantId: number) {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent, successMessage = "Tenant saved") {
     e.preventDefault();
     if (!form) return;
     // Same client-side check Settings -> Notifications' own reminder-
@@ -496,7 +496,12 @@ export function useEditTenant(tenantId: number) {
         toast.error("Couldn't save tenant", data.errors[0]);
         return;
       }
-      toast.success("Tenant saved");
+      // successMessage lets a caller (e.g. Access Control's capabilities
+      // save) show a more specific confirmation than the generic default
+      // below (used by /admin/tenants/[id]'s own full-form save) -- same
+      // toast, just a caller-chosen message instead of a second, redundant
+      // one.
+      toast.success(successMessage);
       setSaved(true);
       refetch();
     } catch (err) {

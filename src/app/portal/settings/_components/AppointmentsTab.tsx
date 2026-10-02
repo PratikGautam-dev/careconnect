@@ -34,10 +34,16 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
   // !hospital means "still loading", not "no capabilities".
   const canManageAppointmentTypes =
     !hospital || hospital.admin_capabilities?.includes("manage_appointment_types");
+  // manage_diagnostic_appointments/manage_daycare_appointments gate BOTH
+  // the matching sidebar page (Lab & Diagnostic / Daycare Appointments) AND
+  // this category's resource/catalog management here -- one access
+  // decision per category (portal/capabilities.py's own module comment),
+  // not a separate manage_diagnostic_resources/manage_procedures switch
+  // that had to be kept in sync with it by hand.
   const canManageTests =
-    !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_resources");
+    !hospital || hospital.admin_capabilities?.includes("manage_diagnostic_appointments");
   const canManageProcedures =
-    !hospital || hospital.admin_capabilities?.includes("manage_procedures");
+    !hospital || hospital.admin_capabilities?.includes("manage_daycare_appointments");
 
   // `true` here (not a `ready` prop) is safe: AppointmentsTab only ever
   // mounts once PortalSettingsPage's own usePortalGuard is already ready.
@@ -367,28 +373,32 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
                 disabled={!portalSettings}
               />
             </Field>
-            <Field
-              label="Home Sample Collection Charge (₹)"
-              hint={
-                !portalSettings ? "Loading…" : "Added for home sample collection Lab Test bookings"
-              }
-              className="mb-0"
-            >
-              <Input
-                type="number"
-                min={0}
-                placeholder="No charge"
-                value={portalSettings?.home_collection_charge ?? ""}
-                onChange={(e) =>
-                  portalSettings &&
-                  setPortalSettings({
-                    ...portalSettings,
-                    home_collection_charge: e.target.value === "" ? "" : Number(e.target.value),
-                  })
+            {canManageTests && (
+              <Field
+                label="Home Sample Collection Charge (₹)"
+                hint={
+                  !portalSettings
+                    ? "Loading…"
+                    : "Added for home sample collection Lab Test bookings"
                 }
-                disabled={!portalSettings}
-              />
-            </Field>
+                className="mb-0"
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="No charge"
+                  value={portalSettings?.home_collection_charge ?? ""}
+                  onChange={(e) =>
+                    portalSettings &&
+                    setPortalSettings({
+                      ...portalSettings,
+                      home_collection_charge: e.target.value === "" ? "" : Number(e.target.value),
+                    })
+                  }
+                  disabled={!portalSettings}
+                />
+              </Field>
+            )}
           </div>
         </Card>
 
@@ -458,15 +468,17 @@ export function AppointmentsTab({ hospital }: { hospital: PortalHospital | null 
         </Card>
       )}
 
-      <Card className="p-space-4">
-        <SectionHeader
-          icon={FlaskConical}
-          tint="success"
-          title="Diagnostic Tests"
-          subtitle="Manage the tests patients can book under Diagnostic Test / Lab Test, each with its own weekly schedule"
-        />
-        <DiagnosticTestsManager canManage={!!canManageTests} />
-      </Card>
+      {canManageTests && (
+        <Card className="p-space-4">
+          <SectionHeader
+            icon={FlaskConical}
+            tint="success"
+            title="Diagnostic Tests"
+            subtitle="Manage the tests patients can book under Diagnostic Test / Lab Test, each with its own weekly schedule"
+          />
+          <DiagnosticTestsManager canManage={!!canManageTests} />
+        </Card>
+      )}
 
       {canManageAppointmentTypes && (
         <Card className="p-space-4">
