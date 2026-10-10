@@ -13,7 +13,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Switch } from "@/components/ui/Switch";
 import { useEditTenant } from "@/hooks/useEditTenant";
 import { useAdminSubscriptions } from "@/hooks/useAdminSubscriptions";
-import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
+import { useAdminBillingInvoice, useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { createTenantSubscriptionColumns } from "./_components/tenant-subscription-columns";
 import { createBillingColumns } from "../../plans-billing/_components/billing-columns";
 
@@ -55,6 +55,7 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
 
   const { subscriptions } = useAdminSubscriptions();
   const { records: billingRecords } = useAdminBillingRecords();
+  const billingInvoice = useAdminBillingInvoice();
 
   // Confirmation step for the Active/Inactive kill switch below -- holds
   // the value the operator is about to switch TO, null when no confirm
@@ -499,7 +500,11 @@ function EditTenantForm({ tenantId }: { tenantId: number }) {
             <p className="text-eyebrow mb-space-1">Billing</p>
             <h2 className="text-display mb-space-4 text-[18px]">Billing history</h2>
             <DataTable
-              columns={createBillingColumns()}
+              columns={createBillingColumns({
+                onView: billingInvoice.viewInvoice,
+                onResend: (id) => void billingInvoice.resendInvoice(id),
+                resendingId: billingInvoice.resendingId,
+              })}
               data={billingForTenant}
               getRowId={(row) => String(row.id)}
               loading={!billingRecords}

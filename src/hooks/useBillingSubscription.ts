@@ -1,6 +1,7 @@
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { portalFetch } from "@/lib/portalAuth";
+import { openResolvedInvoice } from "@/lib/openInvoice";
 import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 
@@ -48,11 +49,11 @@ export type SubscriptionPayment = {
   // payment()'s own docstring).
   card_last4: string | null;
   card_network: string | null;
-  // Razorpay's own hosted invoice page for this charge -- null whenever
-  // Razorpay's Invoices feature isn't enabled for the account, which is
-  // the common case (db.list_subscription_payments()'s own docstring).
-  // "View" only ever shows for a row where this is set.
+  // Razorpay's own hosted invoice page for this charge -- null until it's
+  // first resolved (viewHistoryInvoice below fetches it once from Razorpay
+  // via the charge's invoice id, then it's stored server-side).
   invoice_short_url: string | null;
+  razorpay_invoice_id: string | null;
   created_at: string;
   paid_at: string | null;
 };
@@ -62,8 +63,15 @@ export type BillingData = {
   plan: BillingPlan | null;
   available_plans: AvailablePlan[];
   billing_configured: boolean;
+  // Plan users = every doctor + standalone staff login, active or not
+  // (only a permanent delete frees a slot).
   seats_used: number;
+  // Bookings in the current MONTHLY window (resets from the subscription
+  // start date for every hospital, billed or manual).
   bookings_used: number;
+  // ISO date of the next monthly reset; null while a Razorpay-billed
+  // hospital's window is frozen for non-payment.
+  bookings_reset_on: string | null;
 };
 
 const BILLING_QUERY_KEY = ["portal-billing-subscription"] as const;
@@ -189,6 +197,16 @@ export function useBillingSubscription() {
     }
   }
 
+  /** Billing history's "View" for a paid charge with no stored invoice
+   * page yet -- view only (a hospital can't have Razorpay resend its own
+   * subscription invoice; that's a CareConnect admin action). */
+  function viewHistoryInvoice(paymentId: number) {
+    return openResolvedInvoice(async () => {
+      const result = await portalFetch(`/api/portal/settings/billing/history/${paymentId}/invoice`);
+      return unwrapPortalResult<{ invoice_url: string | null }>(router, result).invoice_url;
+    });
+  }
+
   return {
     data: data ?? null,
     error: error && isPortalMutationError(error) ? error.message : null,
@@ -200,5 +218,6 @@ export function useBillingSubscription() {
     cancelling: cancelMutation.isPending,
     history: historyData?.payments ?? null,
     lastPaidCard,
+    viewHistoryInvoice,
   };
 }

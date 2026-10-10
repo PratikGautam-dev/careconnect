@@ -11,10 +11,12 @@ import {
   IdCard,
   KeyRound,
   Mail,
+  MessageCircle,
   MapPin,
   Pencil,
   Phone,
   Power,
+  Trash2,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
@@ -58,6 +60,8 @@ type Props = {
   togglingId: number | null;
   onToggleActive: (staff: StaffRow) => void;
   onResetPassword: (staff: StaffRow) => void;
+  canDelete: boolean;
+  onDelete: (staff: StaffRow) => void;
   onEdit: (staff: StaffRow) => void;
   onViewAttendanceHistory: (staff: StaffRow) => void;
   onViewLeaveHistory: (staff: StaffRow) => void;
@@ -78,6 +82,8 @@ export function StaffDetailPanel({
   canManageLeave,
   todayAttendance,
   togglingId,
+  canDelete,
+  onDelete,
   onToggleActive,
   onResetPassword,
   onEdit,
@@ -101,6 +107,13 @@ export function StaffDetailPanel({
   const scheduleHours = formatWorkingHours(staff.working_hours);
 
   const quickActions: QuickAction[] = [
+    ...(canManage
+      ? [
+          { label: "Edit staff details", icon: Pencil, onClick: () => onEdit(staff) },
+          { label: "Reset Password", icon: KeyRound, onClick: () => onResetPassword(staff) },
+          // Access-cutting / irreversible actions go last, in red.
+        ]
+      : []),
     ...(canManageLeave
       ? [{ label: "Manage leave", icon: CalendarPlus, onClick: () => onManageLeave(staff) }]
       : []),
@@ -118,13 +131,24 @@ export function StaffDetailPanel({
       : []),
     ...(canManage
       ? [
-          { label: "Edit staff details", icon: Pencil, onClick: () => onEdit(staff) },
-          { label: "Reset login access", icon: KeyRound, onClick: () => onResetPassword(staff) },
+          // Access-cutting / irreversible actions go last, in red.
           {
             label: staff.is_active ? "Deactivate" : "Activate",
             icon: Power,
             disabled: togglingId === staff.id,
             onClick: () => onToggleActive(staff),
+            destructive: staff.is_active,
+          },
+        ]
+      : []),
+    ...(canDelete
+      ? [
+          {
+            label: "Delete permanently",
+            icon: Trash2,
+            title: "Permanently removes this person and frees a user slot on your plan",
+            onClick: () => onDelete(staff),
+            destructive: true,
           },
         ]
       : []),
@@ -162,6 +186,11 @@ export function StaffDetailPanel({
         <DetailRow icon={Building2} label="Department" value={staff.department_name || ""} />
         <DetailRow icon={Mail} label="Email" value={staff.email} />
         <DetailRow icon={Phone} label="Phone" value={staff.phone || "—"} />
+        <DetailRow
+          icon={MessageCircle}
+          label="WhatsApp"
+          value={staff.whatsapp_phone || "Not connected"}
+        />
         <DetailRow icon={MapPin} label="Address" value={staff.address || "—"} />
         <DetailRow
           icon={Calendar}

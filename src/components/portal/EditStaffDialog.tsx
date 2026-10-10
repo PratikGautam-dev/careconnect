@@ -28,6 +28,8 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
     staffOptions,
     name,
     setName,
+    email,
+    setEmail,
     phone,
     setPhone,
     address,
@@ -55,7 +57,7 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
             <div className="md:col-span-2">
               <SectionHeader
                 title="Account"
-                description="This staff member's name -- role isn't editable here."
+                description="This staff member's name and the email they sign in with -- role isn't editable here."
               />
             </div>
             <Field label="Name" htmlFor="edit_staff_name" required>
@@ -63,6 +65,20 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
                 id="edit_staff_name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </Field>
+            <Field
+              label="Email"
+              htmlFor="edit_staff_email"
+              required
+              hint="This is the email they log in with. It must not be used by another account."
+            >
+              <Input
+                id="edit_staff_email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
             </Field>
@@ -95,7 +111,7 @@ export function EditStaffDialog({ staff, onOpenChange, onSaved }: Props) {
               <p className="text-error text-[12.5px] font-medium md:col-span-2">{formError}</p>
             )}
             <div className="md:col-span-2">
-              <Button type="submit" disabled={saving || !name} size="md">
+              <Button type="submit" disabled={saving || !name || !email.trim()} size="md">
                 {saving ? "Saving…" : "Save changes"}
               </Button>
             </div>

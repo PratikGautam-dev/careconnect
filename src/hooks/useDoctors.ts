@@ -31,6 +31,9 @@ export type Doctor = {
   login_staff_id: number | null;
   login_email: string | null;
   login_active: boolean | null;
+  // WhatsApp number bound to this doctor's login; null = not connected
+  // (or no login yet). Display only.
+  login_whatsapp_phone: string | null;
   // Leave Requests migration (20260912065049) -- both null for a doctor
   // with no login yet (no identity to attach a leave request to).
   leave_balance_total: number | null;
@@ -165,6 +168,9 @@ export type DoctorPayload = {
   effective_from: string;
   phone: string;
   location: string;
+  // Edit only, and only for a doctor who already has a login: the email
+  // they sign in with. Ignored by the backend otherwise.
+  email?: string;
 };
 
 /** POST /api/portal/doctors -- create. Caller should refetch useDoctors()'
@@ -213,6 +219,22 @@ export function useUpdateDoctor() {
 
 /** POST /api/portal/doctors/{id}/active -- mark available/unavailable.
  * Caller should refetch useDoctors()' list on success. */
+/** DELETE /api/portal/doctors/{id} -- permanent. The login, leave and slots
+ * always go; the doctor record itself is removed unless the doctor has
+ * patient history, in which case it's kept as a name-only record
+ * ("archived") so past appointments still show who saw the patient. Frees a
+ * plan user slot either way. */
+export function useDeleteDoctor() {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: async (doctorId: string) => {
+      const result = await portalFetch(`/api/portal/doctors/${doctorId}`, { method: "DELETE" });
+      return unwrapPortalResult<{ outcome: "deleted" | "archived" }>(router, result);
+    },
+  });
+}
+
 export function useToggleDoctorActive() {
   const router = useRouter();
 

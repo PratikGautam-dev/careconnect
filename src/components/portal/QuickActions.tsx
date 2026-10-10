@@ -11,6 +11,9 @@ export type QuickAction = {
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
+  /** Red styling for an action that cuts off access or can't be undone
+   * (Deactivate, Delete permanently) -- list these last. */
+  destructive?: boolean;
   title?: string;
   /** Grid layouts only -- lets one item span the full row (e.g. a wide
    * "Manage leave" tile below a 2-column grid of shorter actions). */

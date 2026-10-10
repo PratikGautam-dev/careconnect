@@ -21,6 +21,9 @@ export type StaffMember = {
   is_active: boolean;
   created_at: string | null;
   phone: string | null;
+  // The number their WhatsApp bot identification is bound to; null = not
+  // connected yet. Display only.
+  whatsapp_phone: string | null;
   address: string | null;
   // Staff schedule feature -- replaces the old shift enum with the same
   // comma-stored (already split into lists by _staff_row()) working_days/
@@ -125,6 +128,20 @@ export function useToggleStaffActive() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: isActive }),
       });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+}
+
+/** DELETE /api/portal/staff/{id} -- permanent. Removes the login and
+ * everything that belongs to that person, and is the only action that frees
+ * a plan user slot (deactivating doesn't). Caller should refetch the list. */
+export function useDeleteStaff() {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: async (staffId: number) => {
+      const result = await staffFetch(`/api/portal/staff/${staffId}`, { method: "DELETE" });
       return unwrapPortalResult<unknown>(router, result);
     },
   });
@@ -244,6 +261,9 @@ export function useCreateStaffMember() {
 
 export type UpdateStaffPayload = {
   name: string;
+  // The login email -- globally unique across all accounts; the backend
+  // rejects one already in use.
+  email: string;
   phone: string | null;
   address: string | null;
   department_id?: string | null;

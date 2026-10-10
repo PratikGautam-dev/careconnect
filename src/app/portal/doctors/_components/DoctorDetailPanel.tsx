@@ -15,6 +15,7 @@ import {
   Pencil,
   Phone,
   Power,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -58,6 +59,8 @@ type Props = {
   onEdit: (doc: Doctor) => void;
   togglingId: string | null;
   onToggleActive: (doc: Doctor) => void;
+  canDelete: boolean;
+  onDelete: (doc: Doctor) => void;
   onRunningLate: (doc: Doctor) => void;
   onCreateLogin: (doc: Doctor) => void;
   onResetPassword: (doc: Doctor) => void;
@@ -84,6 +87,8 @@ export function DoctorDetailPanel({
   onEdit,
   togglingId,
   onToggleActive,
+  canDelete,
+  onDelete,
   onRunningLate,
   onCreateLogin,
   onResetPassword,
@@ -105,29 +110,16 @@ export function DoctorDetailPanel({
 
   const quickActions: QuickAction[] = [
     ...(canManage ? [{ label: "Edit profile", icon: Pencil, onClick: () => onEdit(doctor) }] : []),
-    { label: "Running late", icon: Clock, onClick: () => onRunningLate(doctor) },
-    ...(canManage
-      ? [
-          {
-            label: doctor.is_active ? "Mark unavailable" : "Mark available",
-            icon: Power,
-            onClick: () => onToggleActive(doctor),
-            disabled: togglingId === doctor.id,
-          },
-        ]
-      : []),
-    {
-      label: "Send message",
-      icon: MessageCircle,
-      disabled: true,
-      title: "Coming soon — no doctor-facing internal messaging exists yet",
-    },
+
     ...(canManage && !doctor.login_staff_id
       ? [{ label: "Create login", icon: KeyRound, onClick: () => onCreateLogin(doctor) }]
       : []),
     ...(canManage && doctor.login_staff_id
-      ? [{ label: "Reset login access", icon: KeyRound, onClick: () => onResetPassword(doctor) }]
+      ? [{ label: "Reset Password", icon: KeyRound, onClick: () => onResetPassword(doctor) }]
       : []),
+
+    { label: "Running late", icon: Clock, onClick: () => onRunningLate(doctor) },
+
     // Manage/attendance/leave history are all tied to this doctor's own
     // staff login/identity (login_staff_id), not their doctors.id -- same
     // field Create/Reset login above already branches on -- so there's
@@ -146,6 +138,36 @@ export function DoctorDetailPanel({
       : []),
     ...(canViewLeaveHistory && doctor.login_staff_id
       ? [{ label: "Leave history", icon: CalendarDays, onClick: () => onViewLeaveHistory(doctor) }]
+      : []),
+
+    {
+      label: "Send message",
+      icon: MessageCircle,
+      disabled: true,
+      title: "Coming soon — no doctor-facing internal messaging exists yet",
+    },
+    // Access-cutting / irreversible actions go last, in red.
+    ...(canManage
+      ? [
+          {
+            label: doctor.is_active ? "Mark unavailable" : "Mark available",
+            icon: Power,
+            onClick: () => onToggleActive(doctor),
+            disabled: togglingId === doctor.id,
+            destructive: doctor.is_active,
+          },
+        ]
+      : []),
+    ...(canDelete
+      ? [
+          {
+            label: "Delete permanently",
+            icon: Trash2,
+            title: "Permanently removes this doctor and frees a user slot on your plan",
+            onClick: () => onDelete(doctor),
+            destructive: true,
+          },
+        ]
       : []),
   ];
 
@@ -189,6 +211,11 @@ export function DoctorDetailPanel({
           value={doctor.years_experience != null ? `${doctor.years_experience} years` : "—"}
         />
         <DetailRow icon={Phone} label="Phone" value={doctor.phone || "—"} />
+        <DetailRow
+          icon={MessageCircle}
+          label="WhatsApp"
+          value={doctor.login_whatsapp_phone || "Not connected"}
+        />
         <DetailRow icon={Mail} label="Login email" value={doctor.login_email || "No login yet"} />
         <DetailRow icon={MapPin} label="Address" value={doctor.location || "—"} />
         {/* <DetailRow

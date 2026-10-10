@@ -24,6 +24,9 @@ export type DoctorScheduleFormState = {
   effective_from: string;
   phone: string;
   location: string;
+  // Login email -- only edited for an existing doctor who has a login
+  // (see the `showLoginEmail` prop); blank otherwise.
+  email: string;
 };
 
 export function emptyDoctorScheduleForm(): DoctorScheduleFormState {
@@ -45,6 +48,7 @@ export function emptyDoctorScheduleForm(): DoctorScheduleFormState {
     effective_from: "",
     phone: "",
     location: "",
+    email: "",
   };
 }
 
@@ -54,6 +58,10 @@ type Props = {
   departments: Department[];
   // Clinics have no departments -- the backend files the doctor under a default one.
   hideDepartment?: boolean;
+  // Edit mode for a doctor who already has a portal login: shows the
+  // editable login-email field. Hidden on create and for a doctor with no
+  // login yet (the "Create login" flow sets the email there).
+  showLoginEmail?: boolean;
   value: DoctorScheduleFormState;
   onChange: (next: DoctorScheduleFormState) => void;
   onSave: () => void;
@@ -65,6 +73,7 @@ type Props = {
 export function DoctorScheduleForm({
   departments,
   hideDepartment = false,
+  showLoginEmail = false,
   value,
   onChange,
   onSave,
@@ -153,6 +162,22 @@ export function DoctorScheduleForm({
             onChange={(e) => set("phone", e.target.value)}
           />
         </Field>
+        {showLoginEmail && (
+          <Field
+            label="Login email"
+            htmlFor="doctor_login_email"
+            required
+            hint="The email this doctor signs in with. It must not be used by another account."
+          >
+            <Input
+              required
+              id="doctor_login_email"
+              type="email"
+              value={value.email}
+              onChange={(e) => set("email", e.target.value)}
+            />
+          </Field>
+        )}
         <Field label="Location" htmlFor="doctor_location" hint="room/cabin, optional">
           <Input
             id="doctor_location"

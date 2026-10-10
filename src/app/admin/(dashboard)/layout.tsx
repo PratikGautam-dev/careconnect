@@ -16,6 +16,7 @@ const ACTIVE_BY_SEGMENT: Record<string, string> = {
   "platform-settings": "platform-settings",
   "support-tickets": "support-tickets",
   "product-demo-requests": "product-demo-requests",
+  profile: "profile",
 };
 
 /** Shared layout for the sidebar-shell pages (dashboard, tenants, users,

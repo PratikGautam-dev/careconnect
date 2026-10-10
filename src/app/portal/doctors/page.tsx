@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
@@ -45,6 +46,7 @@ import {
   useCreateDoctor,
   useDoctor,
   useDoctors,
+  useDeleteDoctor,
   useToggleDoctorActive,
   useUpdateDoctor,
 } from "@/hooks/useDoctors";
@@ -74,6 +76,9 @@ export default function PortalDoctorsPage() {
   const createDoctor = useCreateDoctor();
   const updateDoctor = useUpdateDoctor();
   const toggleDoctorActive = useToggleDoctorActive();
+  const deleteDoctor = useDeleteDoctor();
+  const canDeleteDoctors = usePermission("doctors", "delete");
+  const [deleteTarget, setDeleteTarget] = useState<Doctor | null>(null);
 
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
   const [createLoginFor, setCreateLoginFor] = useState<Doctor | null>(null);
@@ -99,6 +104,9 @@ export default function PortalDoctorsPage() {
   // editingDoctorId non-null is what distinguishes "save" meaning POST
   // /api/portal/doctors (create) vs POST /api/portal/doctors/{id} (update).
   const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
+  // Whether the doctor being edited already has a portal login -- only then
+  // is a login email to edit (the form field + the email sent on save).
+  const [editingDoctorHasLogin, setEditingDoctorHasLogin] = useState(false);
 
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -170,6 +178,7 @@ export default function PortalDoctorsPage() {
       effective_from: doctorForm.effective_from,
       phone: doctorForm.phone,
       location: doctorForm.location,
+      ...(editingDoctorId && editingDoctorHasLogin ? { email: doctorForm.email.trim() } : {}),
     };
 
     try {
@@ -238,7 +247,9 @@ export default function PortalDoctorsPage() {
       effective_from: (full.effective_from as string) || "",
       phone: (full.phone as string) || "",
       location: (full.location as string) || "",
+      email: doc.login_email || "",
     });
+    setEditingDoctorHasLogin(doc.login_staff_id != null);
     setEditingDoctorId(doc.id);
     setDoctorErrors([]);
     setShowCsvImport(false);
@@ -255,6 +266,23 @@ export default function PortalDoctorsPage() {
       if (isPortalMutationError(err)) toast.error("Couldn't update availability", err.message);
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    try {
+      const { outcome } = await deleteDoctor.mutateAsync(deleteTarget.id);
+      toast.success(
+        outcome === "archived"
+          ? `${deleteTarget.name} was deleted. Past appointments still show their name.`
+          : `${deleteTarget.name} was permanently deleted`,
+      );
+      setDeleteTarget(null);
+      load();
+    } catch (err) {
+      setDeleteTarget(null);
+      if (isPortalMutationError(err)) toast.error("Couldn't delete doctor", err.message);
     }
   }
 
@@ -395,6 +423,8 @@ export default function PortalDoctorsPage() {
                 onEdit={handleEditDoctor}
                 togglingId={togglingId}
                 onToggleActive={handleToggleActive}
+                canDelete={canDeleteDoctors}
+                onDelete={setDeleteTarget}
                 onRunningLate={setRunningLateFor}
                 onCreateLogin={setCreateLoginFor}
                 onResetPassword={setResetPasswordFor}
@@ -411,6 +441,17 @@ export default function PortalDoctorsPage() {
         </>
       )}
 
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete doctor permanently?"
+        message={`This permanently deletes ${deleteTarget?.name ?? "this doctor"}'s login, leave and schedule. Past appointments and patient records are kept and will still show their name. It can't be undone. This is the only way to free a user slot on your plan; to just stop bookings, use Mark unavailable instead.`}
+        confirmLabel="Delete permanently"
+        destructive
+        busy={deleteDoctor.isPending}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
       <Dialog
         open={showDoctorForm}
         onOpenChange={(open) => {
@@ -423,6 +464,7 @@ export default function PortalDoctorsPage() {
             <DoctorScheduleForm
               departments={departments}
               hideDepartment={hospital?.tenant_type === "clinic"}
+              showLoginEmail={editingDoctorId !== null && editingDoctorHasLogin}
               value={doctorForm}
               onChange={setDoctorForm}
               onSave={handleSaveDoctor}
@@ -443,6 +485,7 @@ export default function PortalDoctorsPage() {
         <DialogContent className="max-w-3xl">
           <DialogTitle>Bulk import from CSV</DialogTitle>
           <DoctorCsvImport
+            hideDepartment={hospital?.tenant_type === "clinic"}
             onImported={() => {
               load();
               closeCsvImport();

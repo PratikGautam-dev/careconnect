@@ -25,6 +25,7 @@ function fieldsFromStaff(staff: StaffMember) {
   const shifts = (staff.working_hours || []).map(toRange);
   return {
     name: staff.name,
+    email: staff.email || "",
     phone: staff.phone || "",
     address: staff.address || "",
     departmentId: staff.department_id || "",
@@ -66,6 +67,7 @@ export function useEditStaff(
 
   const [seededStaffId, setSeededStaffId] = useState<number | null>(null);
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [departmentId, setDepartmentId] = useState("");
@@ -77,6 +79,7 @@ export function useEditStaff(
     setSeededStaffId(staff.id);
     const fields = fieldsFromStaff(staff);
     setName(fields.name);
+    setEmail(fields.email);
     setPhone(fields.phone);
     setAddress(fields.address);
     setDepartmentId(fields.departmentId);
@@ -99,6 +102,7 @@ export function useEditStaff(
       .map((b) => `${b.start}-${b.end}`);
     const payload: UpdateStaffPayload = {
       name,
+      email: email.trim(),
       phone: phone || null,
       address: address || null,
       ...(!staff.is_doctor_role ? { department_id: departmentId || null } : {}),
@@ -125,6 +129,8 @@ export function useEditStaff(
     staffOptions,
     name,
     setName,
+    email,
+    setEmail,
     phone,
     setPhone,
     address,

@@ -6,14 +6,12 @@ import {
   CalendarCheck,
   CalendarClock,
   CalendarRange,
-  ChevronsUpDown,
   ClipboardCheck,
   ClipboardList,
   FlaskConical,
   HeadphonesIcon,
   LayoutDashboard,
   LogIn,
-  LogOut,
   MessageCircle,
   Plane,
   Receipt,
@@ -22,18 +20,12 @@ import {
   Stethoscope,
   UserCheck,
   UserCog,
-  UserRound,
   Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { SidebarUserMenu } from "@/components/account/SidebarUserMenu";
 import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
 import { hasCapability, hasPermission, useStaffSession } from "@/lib/staffAuth";
@@ -305,33 +297,15 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
           })}
         </nav>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger className="gap-space-3 px-space-3 py-space-2 flex w-full items-center rounded-md text-left text-[13.5px] font-medium text-white/85 transition-colors duration-150 hover:bg-white/10 hover:text-white">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/15 text-[12px] font-bold">
-              {(session?.name || "?").charAt(0).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold">{session?.name}</div>
-              {session && (
-                <div className="truncate text-[11.5px] text-white/60">{session.role_name}</div>
-              )}
-            </div>
-            <ChevronsUpDown size={14} strokeWidth={2} className="shrink-0 text-white/50" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-60">
-            <DropdownMenuItem
-              onClick={() => {
-                router.push("/portal/settings/profile-settings");
-                onClose?.();
-              }}
-            >
-              <UserRound size={14} /> Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={handleLogout}>
-              <LogOut size={14} /> Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <SidebarUserMenu
+          name={session?.name}
+          subtitle={session?.role_name}
+          onProfile={() => {
+            router.push("/portal/settings/profile-settings");
+            onClose?.();
+          }}
+          onLogout={handleLogout}
+        />
       </aside>
     </>
   );

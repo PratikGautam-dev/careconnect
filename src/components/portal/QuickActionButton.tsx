@@ -24,6 +24,8 @@ export type Props = {
   /** Reflects real toggled-open state (e.g. a "view schedule" panel that's
    * currently expanded) -- not a decorative "primary action" look. */
   active?: boolean;
+  /** Red outline/fill instead of brand -- see QuickAction.destructive. */
+  destructive?: boolean;
   size?: Size;
   title?: string;
   className?: string;
@@ -40,6 +42,7 @@ export function QuickActionButton({
   onClick,
   disabled,
   active,
+  destructive,
   size = "md",
   title,
   className,
@@ -50,14 +53,21 @@ export function QuickActionButton({
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2",
     "disabled:pointer-events-none disabled:opacity-50",
     SIZE_CLASSES[size],
-    active
-      ? "border-brand-600 bg-brand-600 text-white"
-      : cn(
-          "border-brand-600 text-brand-600 ",
-          "hover:border-brand-600 hover:bg-brand-600 hover:text-white",
-          "focus-visible:border-brand-600 focus-visible:bg-brand-600 focus-visible:text-white",
-          "active:border-brand-700 active:bg-brand-700",
-        ),
+    destructive
+      ? cn(
+          "border-error text-error",
+          "hover:border-error hover:bg-error hover:text-white",
+          "focus-visible:border-error focus-visible:bg-error focus-visible:text-white focus-visible:ring-error",
+          "active:border-error active:bg-error/90",
+        )
+      : active
+        ? "border-brand-600 bg-brand-600 text-white"
+        : cn(
+            "border-brand-600 text-brand-600 ",
+            "hover:border-brand-600 hover:bg-brand-600 hover:text-white",
+            "focus-visible:border-brand-600 focus-visible:bg-brand-600 focus-visible:text-white",
+            "active:border-brand-700 active:bg-brand-700",
+          ),
     className,
   );
   const content = (

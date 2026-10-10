@@ -27,7 +27,7 @@ import { cn } from "@/lib/cn";
 import { formatINR } from "@/lib/formatCurrency";
 import { CAPABILITY_META } from "@/lib/hospitalCapabilities";
 import { useCsvExport, useExportHistory } from "@/hooks/useExport";
-import { useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
+import { useAdminBillingInvoice, useAdminBillingRecords } from "@/hooks/useAdminBillingRecords";
 import { useAdminPlans, type Plan } from "@/hooks/useAdminPlans";
 import { createBillingColumns } from "./_components/billing-columns";
 import { PlanFormDialog } from "./_components/PlanFormDialog";
@@ -61,6 +61,7 @@ export default function PlansBillingPage() {
     stats: billingStats,
     error: billingError,
   } = useAdminBillingRecords();
+  const billingInvoice = useAdminBillingInvoice();
   const [formOpen, setFormOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -316,7 +317,11 @@ export default function PlansBillingPage() {
               </p>
             ) : (
               <DataTable
-                columns={createBillingColumns()}
+                columns={createBillingColumns({
+                  onView: billingInvoice.viewInvoice,
+                  onResend: (id) => void billingInvoice.resendInvoice(id),
+                  resendingId: billingInvoice.resendingId,
+                })}
                 data={filteredRecords}
                 getRowId={(row) => String(row.id)}
                 pageSize={10}

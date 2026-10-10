@@ -53,8 +53,14 @@ export function StaffContactFields({
 }: Props) {
   return (
     <>
-      <Field label="Phone" htmlFor="staff_phone">
-        <Input id="staff_phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <Field label="Phone" htmlFor="staff_phone" required>
+        <Input
+          id="staff_phone"
+          type="tel"
+          required
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
       </Field>
       <Field label="Address" htmlFor="staff_address">
         <Input id="staff_address" value={address} onChange={(e) => setAddress(e.target.value)} />

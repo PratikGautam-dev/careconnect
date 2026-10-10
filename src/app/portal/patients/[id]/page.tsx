@@ -1,10 +1,15 @@
 "use client";
 
-import { ArrowLeft, FileText, Search, Send, Upload } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, FileText, Search, Send, Trash2, Upload } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { PermissionGate } from "@/components/portal/PermissionGate";
+import { useDeletePatient } from "@/hooks/usePatients";
+import { toast } from "@/lib/toast";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
@@ -48,6 +53,8 @@ export default function PatientDetailPage() {
   const params = useParams<{ id: string }>();
   const patientId = params.id;
   const { hospital, ready } = usePortalGuard();
+  const deletePatient = useDeletePatient();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const {
     data,
@@ -157,7 +164,7 @@ export default function PatientDetailPage() {
                 ))}
               </ul>
             )}
-            <div className="gap-space-2 flex items-end">
+            <div className="gap-space-2 flex flex-col items-stretch sm:flex-row sm:items-end">
               <Textarea
                 placeholder="Add a note for this visit…"
                 value={noteDraft[v.id] || ""}
@@ -306,22 +313,24 @@ export default function PatientDetailPage() {
         <ArrowLeft size={14} /> All patients
       </button>
 
-      <div className="mb-space-5 gap-space-3 flex items-center">
+      <div className="mb-space-5 gap-space-3 flex flex-wrap items-center">
         <div className="bg-brand-100 text-brand-700 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[18px] font-bold">
           {(patient.name || patient.phone).trim().charAt(0).toUpperCase()}
         </div>
-        <div className="min-w-0">
-          <h1 className="text-display !text-[24px]">{patient.name || patient.phone}</h1>
+        <div className="min-w-0 flex-1 basis-48">
+          <h1 className="text-display !text-[20px] break-words sm:!text-[24px]">
+            {patient.name || patient.phone}
+          </h1>
           <div className="gap-space-2 text-ink-600 flex flex-wrap items-center text-[13px]">
             <span>{patient.phone}</span>
             {patient.patient_display_id && (
-              <span className="bg-brand-50 px-space-2 text-brand-700 rounded-full py-0.5 font-mono text-[11.5px] font-semibold">
+              <span className="bg-brand-100 px-space-3 text-brand-800 border-brand-300 rounded-full border py-1 font-mono text-[13px] font-extrabold tracking-wide">
                 {patient.patient_display_id}
               </span>
             )}
             {patient.mrn && (
-              <span className="bg-ink-50 px-space-2 text-ink-600 rounded-full py-0.5 font-mono text-[11.5px] font-semibold">
-                MRN {patient.mrn}
+              <span className="bg-paper px-space-3 text-ink-900 border-line rounded-full border py-1 font-mono text-[13px] font-extrabold tracking-wide">
+                MRN: {patient.mrn}
               </span>
             )}
             {patient.status !== "active" && (
@@ -331,12 +340,44 @@ export default function PatientDetailPage() {
             )}
           </div>
         </div>
+        <PermissionGate page="patients" action="delete">
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            className="border-error text-error hover:bg-error gap-space-2 px-space-3 flex h-9 w-full shrink-0 items-center justify-center rounded-sm border-2 text-[12.5px] font-extrabold transition-colors hover:text-white sm:ml-auto sm:w-auto"
+          >
+            <Trash2 size={14} /> Delete permanently
+          </button>
+        </PermissionGate>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete patient permanently?"
+        message={`This permanently deletes ${patient.name || patient.phone} — they will no longer appear anywhere, can't book or sign in on WhatsApp, and their upcoming appointments are cancelled (with a refund if already paid). Past appointments, billing and medical records are kept for your records. This can't be undone.`}
+        confirmLabel="Delete permanently"
+        destructive
+        busy={deletePatient.isPending}
+        onConfirm={async () => {
+          try {
+            await deletePatient.mutateAsync(patient.id);
+            toast.success("Patient deleted");
+            router.push("/portal/patients");
+          } catch (err) {
+            setConfirmingDelete(false);
+            toast.error(
+              "Couldn't delete patient",
+              err instanceof Error ? err.message : "Something went wrong.",
+            );
+          }
+        }}
+        onCancel={() => setConfirmingDelete(false)}
+      />
 
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
-      <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-space-4">
+      <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-space-4 min-w-0">
           <Card className="p-space-4">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Visit history</h3>
 
@@ -344,18 +385,14 @@ export default function PatientDetailPage() {
               <p className="py-space-4 text-ink-400 text-center text-[13px]">No visits yet.</p>
             ) : (
               <>
-                {/* Top-level category picks which appointment table shows
-                      (Doctor / Lab & Diagnostics / Daycare) -- it also
-                      narrows the sub-type tabs below it, same pattern as
-                      /portal/appointments' Walk-in/Tele mode filter. */}
-                <div className="mb-space-3 gap-space-1 border-line bg-paper flex rounded-md border p-0.5">
+                <div className="mb-space-3 gap-space-1 border-line bg-paper flex w-full overflow-x-auto rounded-md border p-0.5">
                   {VISIT_CATEGORY_ORDER.map((c) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setVisitCategory(c)}
                       className={cn(
-                        "px-space-3 rounded py-1.5 text-[12.5px] font-semibold transition-colors duration-150",
+                        "px-space-3 flex-1 rounded py-1.5 text-center text-[12.5px] font-semibold whitespace-nowrap transition-colors duration-150",
                         visitCategory === c
                           ? "bg-card text-ink-900 shadow-[var(--shadow-sm)]"
                           : "text-ink-400 hover:text-ink-700",
@@ -401,14 +438,14 @@ export default function PatientDetailPage() {
                 </div>
 
                 <div className="mb-space-3 gap-space-2 flex flex-wrap items-center">
-                  <div className="gap-space-1 border-line bg-paper flex rounded-md border p-0.5">
+                  <div className="gap-space-1 border-line bg-paper flex w-full rounded-md border p-0.5 sm:w-auto">
                     {(["all", "upcoming", "past"] as const).map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => setVisitTimeFilter(t)}
                         className={cn(
-                          "px-space-2 rounded py-1 text-[12px] font-semibold capitalize transition-colors duration-150",
+                          "px-space-2 flex-1 rounded py-1 text-[12px] font-semibold capitalize transition-colors duration-150 sm:flex-none",
                           visitTimeFilter === t
                             ? "bg-card text-ink-900 shadow-[var(--shadow-sm)]"
                             : "text-ink-400 hover:text-ink-700",
@@ -418,7 +455,7 @@ export default function PatientDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <div className="relative min-w-[180px] flex-1">
+                  <div className="relative min-w-0 basis-full sm:min-w-[180px] sm:flex-1 sm:basis-auto">
                     <Search
                       size={14}
                       className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2"
@@ -434,7 +471,7 @@ export default function PatientDetailPage() {
                   <select
                     value={visitStatusFilter}
                     onChange={(e) => setVisitStatusFilter(e.target.value)}
-                    className="border-line bg-card px-space-2 text-ink-900 h-9 rounded-md border text-[12.5px]"
+                    className="border-line bg-card px-space-2 text-ink-900 h-9 w-full rounded-md border text-[12.5px] sm:w-auto"
                   >
                     <option value="all">All statuses</option>
                     {Object.entries(STATUS_LABELS).map(([value, label]) => (
@@ -477,7 +514,7 @@ export default function PatientDetailPage() {
                 ))}
               </ul>
             )}
-            <div className="gap-space-2 flex items-end">
+            <div className="gap-space-2 flex flex-col items-stretch sm:flex-row sm:items-end">
               <Textarea
                 placeholder="Add a general note…"
                 value={generalNoteDraft}
@@ -530,9 +567,9 @@ export default function PatientDetailPage() {
           </Card>
 
           <Card className="p-space-4">
-            <div className="mb-space-3 gap-space-2 flex items-center justify-between">
+            <div className="mb-space-3 gap-space-2 flex flex-wrap items-center justify-between">
               <h3 className="text-label text-ink-900 font-bold">Documents</h3>
-              <div className="gap-space-2 flex items-center">
+              <div className="gap-space-2 flex flex-wrap items-center">
                 <select
                   value={documentType}
                   onChange={(e) => setDocumentType(e.target.value)}

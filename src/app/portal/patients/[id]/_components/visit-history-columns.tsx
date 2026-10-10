@@ -1,7 +1,8 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Video } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { cn } from "@/lib/cn";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
@@ -103,14 +104,15 @@ export function createVisitHistoryColumns({
                 : "—"}
             </div>
             {v.appointment_type_id === "tele" && v.video_link && (
-              <a
+              <Button
                 href={v.video_link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-brand-600 text-[11.5px] font-semibold hover:underline"
+                variant="primary"
+                className="px-space-3 mt-1 h-8 text-[12.5px]"
               >
-                🎥 Join
-              </a>
+                <Video size={13} /> Join
+              </Button>
             )}
           </div>
         );

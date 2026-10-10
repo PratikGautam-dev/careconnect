@@ -5,13 +5,11 @@ import {
   Building2,
   ClipboardCheck,
   Clock,
-  Copy,
   FileText,
   Power,
   RotateCcw,
   Save,
   Settings,
-  Shield,
   UserX,
   Users,
 } from "lucide-react";
@@ -19,7 +17,6 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
-import { QuickActionButton } from "@/components/portal/QuickActionButton";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";

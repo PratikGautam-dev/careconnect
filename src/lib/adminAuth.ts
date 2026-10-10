@@ -41,6 +41,50 @@ import { blobErrorToMessage, requestInitToAxiosConfig } from "@/lib/apiClient";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+/** Coalesces concurrent refreshes onto ONE request -- the refresh token is
+ * single-use (rotated), so of N calls racing in at once with the same
+ * cookie only one would succeed and the rest would wrongly conclude the
+ * session is dead. Same reasoning as staffAuth.ts's tryRefresh. */
+let _refreshInFlight: Promise<string | null> | null = null;
+
+/** Silent sign-in from the httpOnly refresh cookie (12-hour lifetime, set at
+ * login and rotated on every use -- admin/super_auth.py). Stores the new
+ * short-lived access token like a normal login and returns it, or null when
+ * there's no valid cookie (never signed in, expired, logged out, password
+ * changed elsewhere). X-Requested-With is the cheap CSRF guard the backend
+ * requires on this endpoint. */
+export function tryAdminRefresh(): Promise<string | null> {
+  if (_refreshInFlight) return _refreshInFlight;
+  _refreshInFlight = (async () => {
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/api/admin/super/refresh`,
+        {},
+        { withCredentials: true, headers: { "X-Requested-With": "XMLHttpRequest" } },
+      );
+      setAdminToken(res.data.access_token, res.data.super_admin);
+      return res.data.access_token as string;
+    } catch {
+      return null;
+    } finally {
+      _refreshInFlight = null;
+    }
+  })();
+  return _refreshInFlight;
+}
+
+/** Signs out: revokes this browser's refresh token on the server (the
+ * httpOnly cookie can only be cleared by the server) and drops the local
+ * session. Best-effort -- a network failure still signs out locally. */
+export async function adminLogout(): Promise<void> {
+  try {
+    await axios.post(`${API_BASE_URL}/api/admin/super/logout`, {}, { withCredentials: true });
+  } catch {
+    // Local sign-out below still happens.
+  }
+  clearAdminToken();
+}
+
 export async function adminFetch(
   path: string,
   init?: RequestInit,
@@ -49,30 +93,44 @@ export async function adminFetch(
   | { ok: false; unauthorized: true }
   | { ok: false; unauthorized: false; error: string }
 > {
-  const token = getAdminToken();
+  // No token in this tab (new tab, token expired and was dropped) -> try the
+  // refresh cookie before treating it as signed out.
+  let token = getAdminToken() ?? (await tryAdminRefresh());
   if (!token) return { ok: false, unauthorized: true };
 
-  try {
-    const res = await axios.request({
-      ...requestInitToAxiosConfig(init),
-      url: `${API_BASE_URL}${path}`,
-      headers: { ...requestInitToAxiosConfig(init).headers, Authorization: `Bearer ${token}` },
-    });
-    return { ok: true, data: res.data };
-  } catch (err) {
-    if (isAxiosError(err) && err.response) {
-      if (err.response.status === 401) {
-        clearAdminToken();
-        return { ok: false, unauthorized: true };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await axios.request({
+        ...requestInitToAxiosConfig(init),
+        // Lets the browser accept the rotated refresh cookie that
+        // POST /api/admin/super/change-password sets (the cookie is path-
+        // scoped to /api/admin/super, so it's never sent to other routes).
+        withCredentials: true,
+        url: `${API_BASE_URL}${path}`,
+        headers: { ...requestInitToAxiosConfig(init).headers, Authorization: `Bearer ${token}` },
+      });
+      return { ok: true, data: res.data };
+    } catch (err) {
+      if (isAxiosError(err) && err.response) {
+        if (err.response.status === 401) {
+          clearAdminToken();
+          // Access token expired mid-session: renew once and retry.
+          const fresh = attempt === 0 ? await tryAdminRefresh() : null;
+          if (fresh) {
+            token = fresh;
+            continue;
+          }
+          return { ok: false, unauthorized: true };
+        }
+        const data = err.response.data;
+        return {
+          ok: false,
+          unauthorized: false,
+          error: data?.error || (data?.errors || []).join(" ") || "Something went wrong.",
+        };
       }
-      const data = err.response.data;
-      return {
-        ok: false,
-        unauthorized: false,
-        error: data?.error || (data?.errors || []).join(" ") || "Something went wrong.",
-      };
+      return { ok: false, unauthorized: false, error: "Network error — check your connection." };
     }
-    return { ok: false, unauthorized: false, error: "Network error — check your connection." };
   }
 }
 
@@ -80,7 +138,8 @@ export async function adminFetch(
  * (GET .../export) -- those return a file body with Content-Disposition/
  * x-truncated headers, not JSON, so they need the raw axios response
  * rather than adminFetch's unwrapped `{ok, data}`. Used only by
- * useExport.ts's useCsvExport hook. */
+ * useExport.ts's useCsvExport hook. Same silent-refresh behavior as
+ * adminFetch. */
 export async function adminFetchBlob(
   path: string,
 ): Promise<
@@ -88,25 +147,40 @@ export async function adminFetchBlob(
   | { ok: false; unauthorized: true }
   | { ok: false; unauthorized: false; error: string }
 > {
-  const token = getAdminToken();
+  let token = getAdminToken() ?? (await tryAdminRefresh());
   if (!token) return { ok: false, unauthorized: true };
 
-  try {
-    const res = await axios.request({
-      method: "GET",
-      url: `${API_BASE_URL}${path}`,
-      headers: { Authorization: `Bearer ${token}` },
-      responseType: "blob",
-    });
-    return { ok: true, blob: res.data, headers: res.headers as unknown as Record<string, string> };
-  } catch (err) {
-    if (isAxiosError(err) && err.response) {
-      if (err.response.status === 401) {
-        clearAdminToken();
-        return { ok: false, unauthorized: true };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await axios.request({
+        method: "GET",
+        url: `${API_BASE_URL}${path}`,
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: "blob",
+      });
+      return {
+        ok: true,
+        blob: res.data,
+        headers: res.headers as unknown as Record<string, string>,
+      };
+    } catch (err) {
+      if (isAxiosError(err) && err.response) {
+        if (err.response.status === 401) {
+          clearAdminToken();
+          const fresh = attempt === 0 ? await tryAdminRefresh() : null;
+          if (fresh) {
+            token = fresh;
+            continue;
+          }
+          return { ok: false, unauthorized: true };
+        }
+        return {
+          ok: false,
+          unauthorized: false,
+          error: await blobErrorToMessage(err.response.data),
+        };
       }
-      return { ok: false, unauthorized: false, error: await blobErrorToMessage(err.response.data) };
+      return { ok: false, unauthorized: false, error: "Network error — check your connection." };
     }
-    return { ok: false, unauthorized: false, error: "Network error — check your connection." };
   }
 }

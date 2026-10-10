@@ -9,7 +9,6 @@ import {
   Lock,
   MonitorPlay,
   LayoutDashboard,
-  LogOut,
   Receipt,
   Settings,
   Settings2,
@@ -18,8 +17,10 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { SidebarUserMenu } from "@/components/account/SidebarUserMenu";
 import { cn } from "@/lib/cn";
-import { clearAdminToken, getSuperAdmin } from "@/lib/adminAuth";
+import { adminLogout, getSuperAdmin } from "@/lib/adminAuth";
 
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/admin/dashboard" },
@@ -90,10 +91,13 @@ export function AdminSidebar({
   collapsed = false,
   onToggleCollapsed,
 }: Props) {
+  const router = useRouter();
   const superAdmin = getSuperAdmin();
 
-  function handleLogout() {
-    clearAdminToken();
+  async function handleLogout() {
+    // Revokes the refresh cookie server-side too -- otherwise the very next
+    // page load would silently sign this admin straight back in.
+    await adminLogout();
     // Hard navigation, not router.push: /admin/tenants stays inside the same
     // AdminSecretGate-gated layout, and that gate only checks for a token
     // once on mount -- a client-side push would leave the page rendered as
@@ -183,18 +187,16 @@ export function AdminSidebar({
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={handleLogout}
-          title={collapsed ? "Log out" : undefined}
-          className={cn(
-            "gap-space-3 px-space-3 py-space-2 flex w-full items-center rounded-md text-left text-[13.5px] font-medium text-white/70 transition-colors duration-150 hover:bg-white/10 hover:text-white",
-            collapsed && "lg:justify-center lg:px-0",
-          )}
-        >
-          <LogOut size={16} strokeWidth={2} className="shrink-0" />
-          {!collapsed && "Log out"}
-        </button>
+        <SidebarUserMenu
+          name={superAdmin?.name}
+          subtitle="Super admin"
+          collapsed={collapsed}
+          onProfile={() => {
+            router.push("/admin/profile");
+            onClose?.();
+          }}
+          onLogout={handleLogout}
+        />
       </aside>
     </>
   );

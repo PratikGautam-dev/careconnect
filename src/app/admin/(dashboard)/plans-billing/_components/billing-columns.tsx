@@ -25,12 +25,21 @@ function formatDateTime(value: string | null): string {
   });
 }
 
+export type BillingInvoiceActions = {
+  onView: (record: BillingRecord) => void;
+  onResend: (paymentId: number) => void;
+  resendingId: number | null;
+};
+
 /** Column defs for the Plans & Billing "Recent Billing Records" table --
  * real hospital->CareConnect subscription charge events (payments table,
  * payment_for='subscription'), one row per webhook-confirmed charge, via
- * useAdminBillingRecords. */
-export function createBillingColumns(): ColumnDef<BillingRecord>[] {
-  return [
+ * useAdminBillingRecords. The Invoice column (View / Resend email) only
+ * renders when `invoiceActions` is passed (useAdminBillingInvoice). */
+export function createBillingColumns(
+  invoiceActions?: BillingInvoiceActions,
+): ColumnDef<BillingRecord>[] {
+  const columns: ColumnDef<BillingRecord>[] = [
     {
       id: "paymentId",
       header: "Payment ID",
@@ -88,6 +97,38 @@ export function createBillingColumns(): ColumnDef<BillingRecord>[] {
       cell: ({ row }) => (
         <Badge tone={STATUS_TONE[row.original.status]}>{STATUS_LABEL[row.original.status]}</Badge>
       ),
+    },
+  ];
+  if (!invoiceActions) return columns;
+  return [
+    ...columns,
+    {
+      id: "invoice",
+      header: "Invoice",
+      cell: ({ row }) => {
+        // Only a paid charge has a Razorpay invoice to open/resend.
+        if (row.original.status !== "paid") return <span className="text-ink-300">—</span>;
+        const resending = invoiceActions.resendingId === row.original.id;
+        return (
+          <div className="gap-space-3 flex items-center whitespace-nowrap">
+            <button
+              type="button"
+              onClick={() => invoiceActions.onView(row.original)}
+              className="text-brand-600 text-[12.5px] font-semibold hover:underline"
+            >
+              View
+            </button>
+            <button
+              type="button"
+              disabled={resending}
+              onClick={() => invoiceActions.onResend(row.original.id)}
+              className="text-brand-600 text-[12.5px] font-semibold hover:underline disabled:opacity-50"
+            >
+              {resending ? "Resending…" : "Resend"}
+            </button>
+          </div>
+        );
+      },
     },
   ];
 }

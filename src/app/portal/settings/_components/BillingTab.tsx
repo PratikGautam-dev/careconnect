@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CreditCard, ExternalLink, ShieldOff } from "lucide-react";
+import { CreditCard, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -60,7 +60,13 @@ function formatDate(value: string | null): string {
   });
 }
 
-function PaymentHistoryRow({ payment }: { payment: SubscriptionPayment }) {
+function PaymentHistoryRow({
+  payment,
+  onViewInvoice,
+}: {
+  payment: SubscriptionPayment;
+  onViewInvoice: (paymentId: number) => void;
+}) {
   return (
     <tr className="border-line border-t">
       <td className="py-space-3 text-ink-900 text-[13px]">
@@ -84,11 +90,20 @@ function PaymentHistoryRow({ payment }: { payment: SubscriptionPayment }) {
           >
             View
           </a>
+        ) : payment.status === "paid" ? (
+          // Paid, but its hosted page isn't stored yet (a charge recorded
+          // before invoice capture, or whose invoice.paid event never
+          // arrived) -- resolved once from Razorpay on click, then saved.
+          <button
+            type="button"
+            onClick={() => onViewInvoice(payment.id)}
+            className="text-brand-600 text-[12.5px] font-semibold hover:underline"
+          >
+            View
+          </button>
         ) : (
-          // No Razorpay-hosted invoice page was ever captured for this
-          // charge (Invoices isn't enabled for this account, or the charge
-          // predates that capture) -- greyed out rather than hidden, so
-          // it's clear the column exists, just nothing to open here.
+          // A failed/pending charge has no invoice to open -- greyed out
+          // rather than hidden, so it's clear the column exists.
           <span
             className="text-ink-300 cursor-not-allowed text-[12.5px] font-semibold"
             title="No invoice available for this charge"
@@ -119,6 +134,7 @@ export function BillingTab() {
     cancelling,
     history,
     lastPaidCard,
+    viewHistoryInvoice,
   } = useBillingSubscription();
   const [pickedPlanId, setPickedPlanId] = useState<string>("");
   const [pickedCycle, setPickedCycle] = useState<"monthly" | "annual">("monthly");
@@ -135,6 +151,7 @@ export function BillingTab() {
     billing_configured: billingConfigured,
     seats_used: seatsUsed,
     bookings_used: bookingsUsed,
+    bookings_reset_on: bookingsResetOn,
   } = data;
 
   async function handleStartFresh() {
@@ -232,14 +249,29 @@ export function BillingTab() {
             title="Current Plan"
             subtitle="Your CareConnect subscription."
           />
-          {isLiveBilled && plan && (
-            <button
-              type="button"
-              onClick={() => setUpgradeOpen(true)}
-              className="border-line text-ink-700 px-space-3 hover:bg-paper h-9 shrink-0 rounded-md border text-[12.5px] font-semibold"
-            >
-              Upgrade Plan
-            </button>
+          {isLiveBilled && (
+            <div className="gap-space-2 flex shrink-0 items-center">
+              {plan && (
+                <button
+                  type="button"
+                  onClick={() => setUpgradeOpen(true)}
+                  className="border-line text-ink-700 px-space-3 hover:bg-paper h-9 shrink-0 rounded-md border text-[12.5px] font-semibold"
+                >
+                  Change Plan
+                </button>
+              )}
+              {/* Opens the ConfirmDialog below, which carries the full
+                  "stops future charges, access continues this cycle"
+                  explanation. */}
+              <button
+                type="button"
+                onClick={() => setConfirmingCancel(true)}
+                disabled={cancelling}
+                className="border-error/40 text-error hover:bg-error/5 px-space-3 h-9 shrink-0 rounded-md border text-[12.5px] font-semibold disabled:opacity-60"
+              >
+                {cancelling ? "Cancelling…" : "Cancel Plan"}
+              </button>
+            </div>
           )}
         </div>
 
@@ -274,16 +306,28 @@ export function BillingTab() {
         {plan && (
           <div className="gap-space-4 border-line mt-space-4 pt-space-4 grid grid-cols-1 border-t sm:grid-cols-2">
             <div>
-              <p className="text-hint mb-1">Staff Users</p>
+              <p className="text-hint mb-1">Doctors &amp; Staff</p>
               <p className="text-ink-900 text-[13.5px] font-semibold">
                 {plan.max_users == null ? "Unlimited" : `${seatsUsed} / ${plan.max_users}`}
               </p>
+              <p className="text-hint mt-0.5">
+                Deactivating someone doesn&apos;t free a slot — deleting does.
+              </p>
             </div>
             <div>
-              <p className="text-hint mb-1">Bookings this period</p>
+              <p className="text-hint mb-1">Bookings this month</p>
               <p className="text-ink-900 text-[13.5px] font-semibold">
                 {plan.max_bookings == null ? "Unlimited" : `${bookingsUsed} / ${plan.max_bookings}`}
               </p>
+              {plan.max_bookings != null && bookingsUsed >= plan.max_bookings && (
+                <p className="text-error mt-0.5 text-[12px]">
+                  Limit reached — new bookings are paused
+                  {bookingsResetOn ? ` until ${formatDate(bookingsResetOn)}` : ""}.
+                </p>
+              )}
+              {bookingsResetOn && (
+                <p className="text-hint mt-0.5">Resets on {formatDate(bookingsResetOn)}</p>
+              )}
               {plan.max_bookings != null && (
                 <div className="bg-paper mt-space-2 h-1.5 w-full overflow-hidden rounded-full">
                   <div
@@ -406,36 +450,15 @@ export function BillingTab() {
               </thead>
               <tbody>
                 {history.map((payment) => (
-                  <PaymentHistoryRow key={payment.id} payment={payment} />
+                  <PaymentHistoryRow
+                    key={payment.id}
+                    payment={payment}
+                    onViewInvoice={(id) => void viewHistoryInvoice(id)}
+                  />
                 ))}
               </tbody>
             </table>
           )}
-        </Card>
-      )}
-
-      {isLiveBilled && (
-        <Card className="p-space-5">
-          <SectionHeader
-            icon={ShieldOff}
-            tint="error"
-            title="Cancellation"
-            subtitle="Stop billing for this hospital's CareConnect subscription."
-          />
-          <div className="flex items-center justify-between">
-            <p className="text-ink-600 text-[13px]">
-              Cancel plan -- this stops future charges. Your team keeps access through what
-              you&apos;ve already paid for in the current cycle.
-            </p>
-            <button
-              type="button"
-              onClick={() => setConfirmingCancel(true)}
-              disabled={cancelling}
-              className="bg-error hover:bg-error/90 px-space-4 h-9 shrink-0 rounded-md text-[13px] font-semibold text-white disabled:opacity-60"
-            >
-              {cancelling ? "Cancelling…" : "Cancel"}
-            </button>
-          </div>
         </Card>
       )}
 

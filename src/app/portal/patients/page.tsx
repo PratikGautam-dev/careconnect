@@ -158,7 +158,7 @@ export default function PortalPatientsPage() {
               getRowId={(p) => String(p.id)}
               onRowClick={selectPatient}
               // rowClassName={(p) => (p.id === selectedPatient?.id ? "bg-brand-50" : "")}
-              enableColumnVisibility
+              // enableColumnVisibility
               tableId="patients"
               pageSize={patientsPageSize}
               loading={!patients}
@@ -210,7 +210,7 @@ export default function PortalPatientsPage() {
                 pendingDelete.length > 1
                   ? `${pendingDelete.length} patient records`
                   : pendingDelete[0].name || pendingDelete[0].phone
-              }. This action is irreversible.`
+              }. They will no longer appear anywhere or be able to book, and upcoming appointments are cancelled (refunded if paid). Past appointments, billing and medical records are kept. This action is irreversible.`
             : ""
         }
         confirmLabel="Delete"

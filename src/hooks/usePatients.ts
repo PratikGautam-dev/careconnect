@@ -6,6 +6,26 @@ import { unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { useCursorPage, type CursorPageResult } from "@/hooks/useCursorPage";
 
+/** Permanent delete of ONE patient from /portal/patients/[id] -- same
+ * endpoint and behavior as the list's bulk delete: a soft delete that makes
+ * the patient unreachable (hidden everywhere, WhatsApp/CareConnect links
+ * removed, upcoming appointments cancelled and refunded) while their
+ * appointments, billing and medical records are kept. */
+export function useDeletePatient() {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: async (patientId: number) => {
+      const result = await portalFetch("/api/portal/patients/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patient_ids: [patientId] }),
+      });
+      return unwrapPortalResult<{ deleted: number[] }>(router, result);
+    },
+  });
+}
+
 export type Patient = {
   id: number;
   phone: string;

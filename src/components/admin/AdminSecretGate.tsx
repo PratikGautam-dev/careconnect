@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
-import { getAdminToken, setAdminToken } from "@/lib/adminAuth";
+import { getAdminToken, setAdminToken, tryAdminRefresh } from "@/lib/adminAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -30,8 +30,21 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
     // sessionStorage directly during render would desync server/client
     // output and trip a hydration mismatch, and deferring the correction
     // is exactly what this effect exists to do.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setStatus(getAdminToken() ? "unlocked" : "gate");
+    if (getAdminToken()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStatus("unlocked");
+      return;
+    }
+    // No token in this tab (a new tab, or the browser was reopened): the
+    // 12-hour refresh cookie can sign the admin straight back in. Only when
+    // that's missing or expired does the sign-in form show.
+    let cancelled = false;
+    tryAdminRefresh().then((token) => {
+      if (!cancelled) setStatus(token ? "unlocked" : "gate");
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -41,6 +54,8 @@ export function AdminSecretGate({ title, children }: { title: string; children: 
     try {
       const res = await fetch(`${API_BASE_URL}/api/admin/super/login`, {
         method: "POST",
+        // Lets the browser keep the refresh cookie the login response sets.
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });

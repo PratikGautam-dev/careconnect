@@ -17,6 +17,7 @@ import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StaffAttendanceHistoryDialog } from "@/components/portal/StaffAttendanceHistoryDialog";
 import { StaffLeaveHistoryDialog } from "@/components/portal/StaffLeaveHistoryDialog";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
 import { CursorPaginationControls } from "@/components/portal/CursorPaginationControls";
@@ -27,6 +28,7 @@ import { useAttendanceOverview } from "@/hooks/useAttendanceOverview";
 import { useDepartments } from "@/hooks/useDepartments";
 import {
   EMPTY_STAFF_FILTERS,
+  useDeleteStaff,
   useResetStaffPassword,
   useStaff,
   useToggleStaffActive,
@@ -45,6 +47,7 @@ export default function StaffManagementPage() {
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("staff", "view");
   const canManage = usePermission("staff", "write");
+  const canDelete = usePermission("staff", "delete");
   const canViewAttendance = usePermission("attendance_overview", "view");
   const canViewLeaveHistory = usePermission("leave_requests", "view");
   const canManageLeave = usePermission("leave_requests", "write");
@@ -67,6 +70,7 @@ export default function StaffManagementPage() {
     goPrev,
   } = useStaff(canView, staffFilters, staffPageSize);
   const toggleStaffActive = useToggleStaffActive();
+  const deleteStaff = useDeleteStaff();
   const resetStaffPassword = useResetStaffPassword();
 
   const [togglingId, setTogglingId] = useState<number | null>(null);
@@ -85,6 +89,21 @@ export default function StaffManagementPage() {
       if (isPortalMutationError(err)) toast.error("Couldn't update staff member", err.message);
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  const [deleteTarget, setDeleteTarget] = useState<StaffRow | null>(null);
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteStaff.mutateAsync(deleteTarget.id);
+      toast.success(`${deleteTarget.name} was permanently deleted`);
+      setDeleteTarget(null);
+      load();
+    } catch (err) {
+      setDeleteTarget(null);
+      if (isPortalMutationError(err)) toast.error("Couldn't delete staff member", err.message);
     }
   }
 
@@ -280,6 +299,8 @@ export default function StaffManagementPage() {
                 todayAttendance={selectedTodayAttendance}
                 togglingId={togglingId}
                 onToggleActive={handleToggleActive}
+                canDelete={canDelete}
+                onDelete={setDeleteTarget}
                 onResetPassword={openResetPassword}
                 onEdit={setEditingStaff}
                 onViewAttendanceHistory={(s) => setAttendanceHistoryStaffId(s.id)}
@@ -290,6 +311,17 @@ export default function StaffManagementPage() {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete staff member permanently?"
+        message={`This permanently deletes ${deleteTarget?.name ?? "this person"}'s account and all their data — leave, attendance and tickets. It can't be undone. This is the only way to free a user slot on your plan; to just stop their access, use Deactivate instead.`}
+        confirmLabel="Delete permanently"
+        destructive
+        busy={deleteStaff.isPending}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
 
       <AddStaffDialog open={addStaffOpen} onOpenChange={setAddStaffOpen} onCreated={load} />
 

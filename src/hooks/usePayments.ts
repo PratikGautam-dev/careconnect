@@ -25,6 +25,12 @@ export type PaymentRow = {
   base_amount: number | null;
   gst_amount: number | null;
   platform_fee_amount: number | null;
+  // Razorpay's own invoice for this attempt (inv_... id, hosted page,
+  // Razorpay's status vocabulary: issued/paid/expired/cancelled) -- all
+  // null for a pay-at-hospital/cash row, which never had a gateway invoice.
+  razorpay_invoice_id: string | null;
+  invoice_short_url: string | null;
+  invoice_status: string | null;
   // Set once a cancellation refund against this row completes -- see
   // /api/portal/refunds for the full approval-queue workflow.
   refund_amount: number | null;
