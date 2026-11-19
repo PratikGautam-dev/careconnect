@@ -136,14 +136,16 @@ export default function AttendancePage() {
   }, [monthRecords]);
 
   const breakdown = useMemo(() => {
-    const counts: Record<AttendanceStatus, number> = { present: 0, late: 0, leave: 0, absent: 0 };
+    const counts: Record<AttendanceStatus, number> = { present: 0, leave: 0, absent: 0, late: 0 };
     for (const r of monthRecords) {
       if (r.status === "on_time" || r.status === "half_day") counts.present += 1;
       else if (r.status === "late") counts.late += 1;
       else if (r.status === "leave") counts.leave += 1;
       else if (r.status === "absent") counts.absent += 1;
     }
-    return (Object.keys(counts) as AttendanceStatus[])
+    // Present, Leave, Absent, Late -- matches the reference design's legend
+    // order (not insertion/enum order, which reads Present/Late/Leave/Absent).
+    return (["present", "leave", "absent", "late"] as AttendanceStatus[])
       .map((status) => ({ status, label: STATUS_LABELS[status], count: counts[status] }))
       .filter((slice) => slice.count > 0);
   }, [monthRecords]);
@@ -204,15 +206,10 @@ export default function AttendancePage() {
       />
 
       <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={CalendarDays} tint="brand" label="Present days" value={stats.presentDays} />
-        <StatCard icon={UserX} tint="error" label="Absent days" value={stats.absentDays} />
-        <StatCard icon={Clock} tint="clay" label="Late check-ins" value={stats.lateCheckIns} />
-        <StatCard
-          icon={BarChart3}
-          tint="success"
-          label="Overtime hours"
-          value={stats.overtimeHours}
-        />
+        <StatCard icon={CalendarDays} label="Present days" value={stats.presentDays} />
+        <StatCard icon={UserX} label="Absent days" value={stats.absentDays} />
+        <StatCard icon={Clock} label="Late check-ins" value={stats.lateCheckIns} />
+        <StatCard icon={BarChart3} label="Overtime hours" value={stats.overtimeHours} />
       </div>
 
       <div className="mt-space-4 gap-space-4 grid grid-cols-1 lg:grid-cols-2">
@@ -404,30 +401,20 @@ export default function AttendancePage() {
 
 function StatCard({
   icon: Icon,
-  tint,
   label,
   value,
 }: {
   icon: typeof CalendarDays;
-  tint: "brand" | "error" | "clay" | "success";
   label: string;
   value: number | string;
 }) {
-  const tintClasses: Record<string, string> = {
-    brand: "bg-brand-50 text-brand-600",
-    error: "bg-error-tint text-error",
-    clay: "bg-clay-100 text-clay-700",
-    success: "bg-success-tint text-success",
-  };
+  // Reference design: all four stat tiles share the same pale-teal
+  // rounded-square icon badge (not per-stat semantic colors) -- the color
+  // coding lives on the donut/table pills instead, not here.
   return (
     <Card className="p-space-4">
       <div className="gap-space-3 flex items-center">
-        <span
-          className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
-            tintClasses[tint],
-          )}
-        >
+        <span className="bg-brand-50 text-brand-600 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg">
           <Icon size={20} strokeWidth={2} />
         </span>
         <div className="min-w-0">

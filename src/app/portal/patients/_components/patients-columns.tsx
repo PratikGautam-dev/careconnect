@@ -1,6 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { Flag, Phone } from "lucide-react";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { formatDate } from "@/lib/formatDate";
@@ -45,7 +46,6 @@ type CreatePatientColumnsOptions = {
   toggleSelectAll: (checked: boolean) => void;
   allSelected: boolean;
   onDelete: (patient: Patient) => void;
-  onSelect: (patient: Patient) => void;
 };
 
 /** Column definitions for the /portal/patients DataTable. The Status pill
@@ -57,7 +57,6 @@ export function createPatientColumns({
   toggleSelectAll,
   allSelected,
   onDelete,
-  onSelect,
 }: CreatePatientColumnsOptions): ColumnDef<Patient>[] {
   return [
     {
@@ -102,11 +101,16 @@ export function createPatientColumns({
       header: "Name",
       cell: ({ row }) => {
         const p = row.original;
+        // Navigates straight to the full /portal/patients/[id] record --
+        // same behavior as clicking a patient in the appointment tables
+        // (Doctor/Daycare/Lab & Diagnostic Appointments), rather than this
+        // page's own side panel (still reachable via row-click elsewhere,
+        // or the Actions menu's "View Details").
         return (
-          <button
-            type="button"
-            onClick={() => onSelect(p)}
-            className="gap-space-2 flex items-center text-left"
+          <Link
+            href={`/portal/patients/${p.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="gap-space-2 flex items-center hover:opacity-80"
           >
             <span
               className={cn(
@@ -117,7 +121,7 @@ export function createPatientColumns({
               {initials(p.name)}
             </span>
             <span className="text-ink-900 truncate font-semibold">{p.name || "—"}</span>
-          </button>
+          </Link>
         );
       },
     },

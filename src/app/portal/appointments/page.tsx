@@ -34,7 +34,7 @@ import { portalFetch, portalFetchBlob } from "@/lib/portalAuth";
 import { usePermission, useStaffSession } from "@/lib/staffAuth";
 import { useCsvExport, useExportHistory } from "@/hooks/useExport";
 import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
-import { createAppointmentColumns, STATUS_LABELS } from "./_components/appointments-columns";
+import { createAppointmentColumns, SOURCE_LABELS, STATUS_LABELS } from "./_components/appointments-columns";
 import { RescheduleDialog } from "./_components/RescheduleDialog";
 
 // This page is doctor-appointments-only (see useAppointments(ready, "doctor")
@@ -48,6 +48,9 @@ const APPOINTMENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, la
   value,
   label,
 }));
+// Booking Channels filter options -- labels match SOURCE_LABELS exactly so
+// the dropdown and the Channel column read the same way.
+const SOURCE_OPTIONS = Object.entries(SOURCE_LABELS).map(([value, label]) => ({ value, label }));
 // Coarser split on top of DOCTOR_TYPE_OPTIONS -- "Walk-in" groups New +
 // Follow-up (both in-person; there's no single appointment_type_id for
 // "not tele"), "Tele" is the same "tele" type again but picked as a mode
@@ -138,6 +141,8 @@ export default function PortalAppointmentsPage() {
     setStatusFilter,
     typeFilter,
     setTypeFilter,
+    sourceFilter,
+    setSourceFilter,
     modeFilter,
     setModeFilter,
     applyFilters,
@@ -433,11 +438,21 @@ export default function PortalAppointmentsPage() {
               allLabel="All Status"
               options={APPOINTMENT_STATUS_OPTIONS}
             />
+            <FilterSelect
+              value={sourceFilter}
+              onChange={setSourceFilter}
+              allLabel="All Channels"
+              options={SOURCE_OPTIONS}
+            />
             <FilterActions
               onApply={applyFilters}
               onReset={resetFilters}
               showReset={
-                filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all"
+                filtersDirty ||
+                !!searchQuery ||
+                statusFilter !== "all" ||
+                typeFilter !== "all" ||
+                sourceFilter !== "all"
               }
               disabled={!filtersDirty}
             />

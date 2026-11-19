@@ -1,6 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatShortDateTime } from "@/lib/formatDate";
@@ -82,7 +83,7 @@ export function createDaycareAppointmentColumns({
       header: "Patient",
       cell: ({ row }) => {
         const a = row.original;
-        return (
+        const content = (
           <div className="gap-space-2 flex items-center">
             <span
               className={cn(
@@ -99,6 +100,17 @@ export function createDaycareAppointmentColumns({
               </p>
             </div>
           </div>
+        );
+        return a.patient_id ? (
+          <Link
+            href={`/portal/patients/${a.patient_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="hover:opacity-80"
+          >
+            {content}
+          </Link>
+        ) : (
+          content
         );
       },
     },
