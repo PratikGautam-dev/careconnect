@@ -23,7 +23,7 @@ export const STATUS_LABELS: Record<string, string> = {
   attended: "Attended",
   no_show: "No-show",
 };
-const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in" };
+const SOURCE_LABELS: Record<string, string> = { whatsapp: "WhatsApp", staff: "Walk-in", website: "Website" };
 // "Follow-up" is a doctor-consultation-only appointment_type_id (no
 // test-category equivalent in the fixed catalog) -- a resource-bound
 // (Diagnostics/Lab) visit has no doctor at all, so offering "Follow-up…"

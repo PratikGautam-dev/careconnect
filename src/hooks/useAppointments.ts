@@ -28,6 +28,11 @@ export type Appointment = {
   source: string;
   reference_id: string | null;
   patient_display_id: string | null;
+  // The internal numeric patients.id -- distinct from patient_display_id
+  // above. Used to link the appointment tables' Patient cell straight to
+  // /portal/patients/{this}, the same record patients-cellaction.tsx's own
+  // "View Details" navigates to.
+  patient_id: number | null;
   appointment_type_id: string | null;
   video_link: string | null;
   created_at: string | null;
@@ -280,10 +285,14 @@ export function useAppointments(
   // filters, not one merged "Status" cell). Harmless no-op for every other
   // page's hook call, which just never sets it away from "all".
   const [labStatusFilter, setLabStatusFilter] = useState("all");
+  // Booking Channels (WhatsApp/Website/Walk-in) -- filters on appointments.
+  // source, same staged-then-Apply pattern as statusFilter/typeFilter above.
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [appliedStatus, setAppliedStatus] = useState("all");
   const [appliedType, setAppliedType] = useState("all");
   const [appliedLabStatus, setAppliedLabStatus] = useState("all");
+  const [appliedSource, setAppliedSource] = useState("all");
 
   // "all" | "walk_in" | "tele" -- Doctor appointments page's own coarser
   // split on top of typeFilter's new/followup/tele. "walk_in" means
@@ -317,22 +326,25 @@ export function useAppointments(
   // the next render. Passing it here updates draft + applied together in
   // one go.
   const applyFilters = useCallback(
-    (overrides?: { search?: string; status?: string; type?: string; labStatus?: string }) => {
+    (overrides?: { search?: string; status?: string; type?: string; labStatus?: string; source?: string }) => {
       const nextSearch = overrides?.search ?? searchQuery;
       const nextStatus = overrides?.status ?? statusFilter;
       const nextType = overrides?.type ?? typeFilter;
       const nextLabStatus = overrides?.labStatus ?? labStatusFilter;
+      const nextSource = overrides?.source ?? sourceFilter;
       if (overrides?.search !== undefined) setSearchQuery(nextSearch);
       if (overrides?.status !== undefined) setStatusFilter(nextStatus);
       if (overrides?.type !== undefined) setTypeFilter(nextType);
       if (overrides?.labStatus !== undefined) setLabStatusFilter(nextLabStatus);
+      if (overrides?.source !== undefined) setSourceFilter(nextSource);
       setAppliedSearch(nextSearch.trim());
       setAppliedStatus(nextStatus);
       setAppliedType(nextType);
       setAppliedLabStatus(nextLabStatus);
+      setAppliedSource(nextSource);
       setPage(1);
     },
-    [searchQuery, statusFilter, typeFilter, labStatusFilter],
+    [searchQuery, statusFilter, typeFilter, labStatusFilter, sourceFilter],
   );
 
   const resetFilters = useCallback(() => {
@@ -340,11 +352,13 @@ export function useAppointments(
     setStatusFilter("all");
     setTypeFilter("all");
     setLabStatusFilter("all");
+    setSourceFilter("all");
     setModeFilterState("all");
     setAppliedSearch("");
     setAppliedStatus("all");
     setAppliedType("all");
     setAppliedLabStatus("all");
+    setAppliedSource("all");
     setPage(1);
   }, []);
 
@@ -352,7 +366,8 @@ export function useAppointments(
     searchQuery.trim() !== appliedSearch ||
     statusFilter !== appliedStatus ||
     typeFilter !== appliedType ||
-    labStatusFilter !== appliedLabStatus;
+    labStatusFilter !== appliedLabStatus ||
+    sourceFilter !== appliedSource;
 
   // A tab pill switch changes which rows exist at all -- staying on page 3
   // of the old tab would otherwise render an empty table under the new one.
@@ -372,6 +387,7 @@ export function useAppointments(
     appliedStatus,
     appliedType,
     appliedLabStatus,
+    appliedSource,
     modeFilter,
     tab,
   ] as const;
@@ -395,6 +411,7 @@ export function useAppointments(
       if (status) params.set("status", status);
       if (type) params.set("type", type);
       if (appliedLabStatus !== "all") params.set("lab_status", appliedLabStatus);
+      if (appliedSource !== "all") params.set("source", appliedSource);
       if (tabParams.when) params.set("when", tabParams.when);
       if (appliedSearch) params.set("search", appliedSearch);
       const result = await portalFetch(`/api/portal/bookings?${params.toString()}`);
@@ -745,6 +762,8 @@ export function useAppointments(
     setTypeFilter,
     labStatusFilter,
     setLabStatusFilter,
+    sourceFilter,
+    setSourceFilter,
     modeFilter,
     setModeFilter,
     applyFilters,

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { CalendarCheck, RotateCcw, Video, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PermissionGate } from "@/components/portal/PermissionGate";
@@ -46,6 +47,14 @@ export const TYPE_STYLES: Record<string, string> = {
 export const SOURCE_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
   staff: "Walk-in",
+  website: "Website",
+};
+// Same tone vocabulary as STATUS_STYLES above -- one color per booking
+// channel so the Source column/filter reads apart at a glance.
+export const SOURCE_STYLES: Record<string, string> = {
+  whatsapp: "bg-success-tint text-success",
+  staff: "bg-black/[0.04] text-ink-600",
+  website: "bg-brand-50 text-brand-700",
 };
 // report_ready is only reached automatically (by uploading a lab_report
 // document), never advanced from here, so it has no "next" label.
@@ -172,7 +181,7 @@ export function createAppointmentColumns({
       header: "Patient",
       cell: ({ row }) => {
         const a = row.original;
-        return (
+        const content = (
           <div className="gap-space-2 flex items-center">
             <span
               className={cn(
@@ -187,6 +196,20 @@ export function createAppointmentColumns({
               {a.patient_name && <p className="text-ink-400 truncate text-[11.5px]">{a.phone}</p>}
             </div>
           </div>
+        );
+        // Opens the same /portal/patients/[id] record patients-cellaction.tsx's
+        // own "View Details" navigates to -- clicking the patient here is
+        // equivalent to looking them up on the Patients page directly.
+        return a.patient_id ? (
+          <Link
+            href={`/portal/patients/${a.patient_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="hover:opacity-80"
+          >
+            {content}
+          </Link>
+        ) : (
+          content
         );
       },
     },
@@ -236,6 +259,20 @@ export function createAppointmentColumns({
           )}
         >
           {STATUS_LABELS[row.original.status] || row.original.status}
+        </span>
+      ),
+    },
+    {
+      id: "source",
+      header: "Channel",
+      cell: ({ row }) => (
+        <span
+          className={cn(
+            "px-space-2 rounded-full py-0.5 text-[11px] font-semibold",
+            SOURCE_STYLES[row.original.source] || "text-ink-600 bg-black/4",
+          )}
+        >
+          {SOURCE_LABELS[row.original.source] || row.original.source}
         </span>
       ),
     },

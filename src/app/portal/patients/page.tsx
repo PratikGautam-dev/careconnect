@@ -73,7 +73,6 @@ export default function PortalPatientsPage() {
         toggleSelectAll,
         allSelected,
         onDelete: (p: Patient) => setPendingDelete([p]),
-        onSelect: selectPatient,
       }),
     [selected, toggleSelected, toggleSelectAll, allSelected, setPendingDelete],
   );
