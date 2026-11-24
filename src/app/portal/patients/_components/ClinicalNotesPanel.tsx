@@ -10,7 +10,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Textarea } from "@/components/ui/Input";
 import { StatTile } from "@/components/portal/StatTile";
-import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { PatientStatTileRow } from "./PatientStatTileRow";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { portalFetch } from "@/lib/portalAuth";
 import {
@@ -94,12 +94,12 @@ export function ClinicalNotesPanel({ notes, flags, onAdd, saving }: Props) {
 
   return (
     <>
-      <StatTileGrid cols={4} className="mb-space-4">
+      <PatientStatTileRow>
         <StatTile label="Total Notes" value={notes.length} icon={FileText} />
         <StatTile label="Doctor Notes" value={doctorNotes} icon={Stethoscope} tint="clay" />
         <StatTile label="Follow-up Notes" value={followUpNotes} icon={ClipboardList} tint="success" />
         <StatTile label="Critical Alerts" value={criticalAlerts} icon={AlertTriangle} tint="error" />
-      </StatTileGrid>
+      </PatientStatTileRow>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-space-4">

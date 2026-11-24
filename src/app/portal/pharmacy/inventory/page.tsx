@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Boxes, Calendar, CheckCircle2, Plus, Wallet } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Boxes, Calendar, CheckCircle2, Plus, Upload, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { MedicineCsvImport } from "@/components/portal/MedicineCsvImport";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
@@ -31,6 +34,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function InventoryPage() {
   const { hospital, ready } = usePortalGuard();
+  const queryClient = useQueryClient();
   const canView = usePermission("pharmacy", "view");
   const canWrite = usePermission("pharmacy", "write");
   const { inventory, isLoading, addStock, addingStock } = usePharmacyInventory(ready);
@@ -38,6 +42,7 @@ export default function InventoryPage() {
   const { suppliers } = usePharmacySuppliers(ready);
   const { nearExpiryBatches } = useNearExpiryBatches(ready);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
 
   const nearExpiryMedicineIds = new Set(nearExpiryBatches.map((b) => b.medicine_id));
@@ -87,6 +92,9 @@ export default function InventoryPage() {
           canWrite && (
             <div className="gap-space-2 flex">
               <Button href="/portal/pharmacy/medicines" variant="secondary">Manage Medicines</Button>
+              <Button variant="secondary" onClick={() => setCsvImportOpen(true)}>
+                <Upload size={15} /> Bulk Import
+              </Button>
               <Button onClick={() => setDialogOpen(true)}>
                 <Plus size={15} /> Add Stock
               </Button>
@@ -156,6 +164,21 @@ export default function InventoryPage() {
         onSubmit={addStock}
         submitting={addingStock}
       />
+
+      <Dialog open={csvImportOpen} onOpenChange={setCsvImportOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogTitle>Bulk import stock from CSV</DialogTitle>
+          <MedicineCsvImport
+            onImported={() => {
+              queryClient.invalidateQueries({ queryKey: ["portal-pharmacy-inventory"] });
+              queryClient.invalidateQueries({ queryKey: ["portal-pharmacy-medicines"] });
+              queryClient.invalidateQueries({ queryKey: ["portal-pharmacy-suppliers"] });
+              queryClient.invalidateQueries({ queryKey: ["portal-pharmacy-near-expiry"] });
+              setCsvImportOpen(false);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </PortalShell>
   );
 }

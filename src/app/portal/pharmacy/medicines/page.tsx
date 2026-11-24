@@ -10,6 +10,7 @@ import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
 import { useMedicines, type Medicine } from "@/hooks/usePharmacyMedicines";
+import { usePharmacyInventory } from "@/hooks/usePharmacyInventory";
 import { createMedicineColumns } from "./_components/medicines-columns";
 import { MedicineFormDialog } from "./_components/MedicineFormDialog";
 
@@ -20,6 +21,7 @@ export default function MedicinesPage() {
   const canView = usePermission("pharmacy", "view");
   const canWrite = usePermission("pharmacy", "write");
   const { medicines, isLoading, createMedicine, creating, updateMedicine, updating, setActive } = useMedicines(ready);
+  const { addStock } = usePharmacyInventory(ready);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
@@ -78,6 +80,16 @@ export default function MedicinesPage() {
         medicine={editingMedicine}
         submitting={editingMedicine ? updating : creating}
         onSubmit={(form) => (editingMedicine ? updateMedicine(editingMedicine.id, form) : createMedicine(form))}
+        onAddInitialStock={(medicineId, stock) =>
+          addStock({
+            medicine_id: String(medicineId),
+            batch_number: stock.batch_number,
+            expiry_date: stock.expiry_date,
+            quantity: stock.quantity,
+            cost_price: stock.cost_price,
+            supplier_id: "",
+          })
+        }
       />
     </PortalShell>
   );

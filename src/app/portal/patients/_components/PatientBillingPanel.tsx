@@ -9,7 +9,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Textarea } from "@/components/ui/Input";
 import { StatTile } from "@/components/portal/StatTile";
-import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { PatientStatTileRow } from "./PatientStatTileRow";
 import { usePermission } from "@/lib/staffAuth";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { formatINR } from "@/lib/formatCurrency";
@@ -59,13 +59,13 @@ export function PatientBillingPanel({ patientId, billing, billingNotes, onCollec
 
   return (
     <>
-      <StatTileGrid cols={5} className="mb-space-4">
+      <PatientStatTileRow>
         <StatTile label="Total Billed" value={billing ? billing.stats.total_amount : null} icon={IndianRupee} prefix="₹" />
         <StatTile label="Total Paid" value={billing ? billing.stats.total_paid : null} icon={Wallet} prefix="₹" tint="success" />
         <StatTile label="Pending" value={billing ? billing.stats.pending_dues : null} icon={FileText} prefix="₹" tint="clay" />
         <StatTile label="Appointment Bills" value={billing ? billing.stats.appointment_bills_total : null} icon={Stethoscope} prefix="₹" tint="clay" />
         <StatTile label="Pharmacy Bills" value={billing ? billing.stats.pharmacy_bills_total : null} icon={Pill} prefix="₹" />
-      </StatTileGrid>
+      </PatientStatTileRow>
 
       <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-space-4">

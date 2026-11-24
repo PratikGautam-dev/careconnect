@@ -14,6 +14,7 @@ import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
 import { fetchPrescription, usePharmacyPrescriptions } from "@/hooks/usePharmacyPrescriptions";
+import { toast } from "@/lib/toast";
 import { PRESCRIPTION_STATUS_LABELS, PRESCRIPTION_STATUS_TONES } from "../_components/prescriptions-columns";
 
 export default function PrescriptionDetailPage() {
@@ -30,6 +31,24 @@ export default function PrescriptionDetailPage() {
     queryFn: () => fetchPrescription(Number(params.id)),
   });
   const [dispenseQty, setDispenseQty] = useState<Record<number, string>>({});
+  // Pre-fills each item's input with its own full remaining quantity the
+  // moment this prescription's data loads, so clicking "Dispense Medicine"
+  // works immediately for the common "dispense everything" case -- the
+  // "Up to N" placeholder text alone wasn't enough of a cue: staff read it
+  // as the box already holding that amount, typed nothing, and the dispense
+  // call silently found zero quantities to act on. Re-keyed off the
+  // prescription id (not every render) so a staff member's own edits mid-
+  // session are never clobbered by a background refetch.
+  const [prefilledForId, setPrefilledForId] = useState<number | null>(null);
+  if (prescription && prefilledForId !== prescription.id) {
+    const defaults: Record<number, string> = {};
+    for (const item of prescription.items) {
+      const remaining = item.quantity_prescribed - item.quantity_dispensed;
+      if (remaining > 0) defaults[item.id] = String(remaining);
+    }
+    setDispenseQty(defaults);
+    setPrefilledForId(prescription.id);
+  }
 
   function load() {
     queryClient.invalidateQueries({ queryKey });
@@ -45,7 +64,10 @@ export default function PrescriptionDetailPage() {
     const items = prescription.items
       .map((item) => ({ prescription_item_id: item.id, quantity: Number(dispenseQty[item.id] || 0) }))
       .filter((i) => i.quantity > 0);
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      toast.error("Enter at least one quantity to dispense", "Every item's quantity is empty or zero.");
+      return;
+    }
     try {
       await dispense(prescription.id, items);
       setDispenseQty({});

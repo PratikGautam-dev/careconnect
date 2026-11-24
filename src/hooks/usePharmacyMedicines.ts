@@ -80,6 +80,7 @@ export function useMedicines(ready: boolean) {
         body: JSON.stringify(toPayload(form)),
       });
       if (!result.ok) throw new Error(result.unauthorized ? "Session expired." : result.error);
+      return (result.data as { medicine: Medicine }).medicine;
     },
     onSuccess: () => {
       toast.success("Medicine added");
@@ -121,7 +122,7 @@ export function useMedicines(ready: boolean) {
     medicines: data ?? [],
     error: error instanceof Error ? error.message : null,
     isLoading,
-    createMedicine: (form: MedicineForm) => createMutation.mutateAsync(form),
+    createMedicine: (form: MedicineForm): Promise<Medicine> => createMutation.mutateAsync(form),
     creating: createMutation.isPending,
     updateMedicine: (id: number, form: MedicineForm) => updateMutation.mutateAsync({ id, form }),
     updating: updateMutation.isPending,

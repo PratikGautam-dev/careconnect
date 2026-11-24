@@ -9,7 +9,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Textarea } from "@/components/ui/Input";
 import { StatTile } from "@/components/portal/StatTile";
-import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { PatientStatTileRow } from "./PatientStatTileRow";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
 import { portalFetch } from "@/lib/portalAuth";
 import { toast } from "@/lib/toast";
@@ -112,13 +112,13 @@ export function PatientDocumentsPanel({
 
   return (
     <>
-      <StatTileGrid cols={5} className="mb-space-4">
+      <PatientStatTileRow>
         <StatTile label="Total Documents" value={documents.length} icon={FileText} />
         <StatTile label="Prescriptions" value={countByType("prescription")} icon={FileText} tint="clay" />
         <StatTile label="Lab Reports" value={countByType("lab_report")} icon={FileText} tint="success" />
         <StatTile label="Diagnostic Reports" value={countByType("diagnostic_report")} icon={FileText} />
         <StatTile label="Other" value={countByType("other")} icon={FileText} tint="clay" />
-      </StatTileGrid>
+      </PatientStatTileRow>
 
       <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-3">
       <div className="lg:col-span-2 space-y-space-4">
