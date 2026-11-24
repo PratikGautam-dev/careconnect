@@ -30,6 +30,7 @@ import {
   STATUS_STYLES,
 } from "../_components/appointments-columns";
 import { RecordPaymentDialog } from "../_components/RecordPaymentDialog";
+import { PrescriptionsWorkspace } from "../_components/PrescriptionsWorkspace";
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   paid: "Paid",
@@ -378,6 +379,14 @@ export default function AppointmentDetailPage() {
               )}
             </Section>
           </Card>
+
+          <PrescriptionsWorkspace
+            appointmentId={Number(appointmentId)}
+            patientId={patient?.id ?? null}
+            patientName={appointment.patient_name || appointment.phone}
+            doctorId={appointment.doctor_id}
+            wardOrOpd={appointment.department_name ?? undefined}
+          />
         </>
       )}
 

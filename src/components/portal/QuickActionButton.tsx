@@ -48,7 +48,7 @@ export function QuickActionButton({
   className,
 }: Props) {
   const classes = cn(
-    "flex w-full items-center rounded-sm border-2 font-extrabold",
+    "flex w-full items-center overflow-hidden rounded-sm border-2 font-extrabold",
     "transition-colors duration-150 ease-[var(--ease-standard)]",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2",
     "disabled:pointer-events-none disabled:opacity-50",
@@ -73,7 +73,7 @@ export function QuickActionButton({
   const content = (
     <>
       <Icon size={ICON_SIZE[size]} strokeWidth={2} className="shrink-0" />
-      {label}
+      <span className="truncate">{label}</span>
     </>
   );
 

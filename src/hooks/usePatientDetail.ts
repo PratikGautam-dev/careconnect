@@ -5,6 +5,7 @@ import { portalFetch } from "@/lib/portalAuth";
 import { isPortalMutationError, unwrapPortalResult } from "@/lib/portalMutation";
 import { toast } from "@/lib/toast";
 import { fetchSlotsByDate, type SlotsByDate, TYPE_LABELS } from "@/hooks/useAppointments";
+import type { BillingRow } from "@/hooks/useBillingOverview";
 
 function visitTypeBucket(v: { appointment_type_id: string | null }) {
   return v.appointment_type_id && v.appointment_type_id in TYPE_LABELS
@@ -23,6 +24,7 @@ export type Patient = {
   address: string | null;
   created_at: string;
   status: "active" | "blocked" | "inactive";
+  billing_notes: string | null;
 };
 
 export type Visit = {
@@ -68,6 +70,7 @@ export type PatientDocument = {
   uploaded_by_session_id: string | null;
   sent_to_whatsapp_at: string | null;
   document_type: string;
+  remarks: string | null;
 };
 
 // Patient detail page's Consent management section -- DPDP/Privacy Policy/
@@ -90,12 +93,87 @@ export const CONSENT_LABELS: Record<ConsentType, string> = {
 };
 export const CONSENT_TYPE_ORDER: ConsentType[] = ["dpdp", "privacy_policy", "marketing"];
 
+// Patient detail page's "Billing" tab + sidebar Billing Summary -- the same
+// row shape the hospital-wide /portal/billing ledger uses (see
+// useBillingOverview.ts), just pre-filtered server-side to this one
+// patient's own appointment + pharmacy bills (db/repositories/
+// billing_overview.py's get_patient_billing()). null for a doctor-scoped
+// caller, who has no billing view of their own on any page.
+export type PatientBillingStats = {
+  appointment_bills_total: number;
+  appointment_bills_count: number;
+  pharmacy_bills_total: number;
+  pharmacy_bills_count: number;
+  total_amount: number;
+  total_paid: number;
+  pending_dues: number;
+};
+// Transactions tab -- one row per payment ATTEMPT/collection event, unlike
+// PatientBilling.transactions above (one row per invoice, latest attempt
+// only). See db/repositories/billing_overview.py's _payment_event_row().
+export type PaymentEvent = {
+  transaction_id: string;
+  appointment_id: number | null;
+  reference_id: string;
+  bill_no: string;
+  method: string | null;
+  amount: number;
+  status: string;
+  notes: string | null;
+  date: string;
+};
+export type PatientBilling = {
+  stats: PatientBillingStats;
+  transactions: BillingRow[];
+  payment_events: PaymentEvent[];
+};
+
+// Clinical Notes tab -- structured note, separate from the plain free-text
+// Note type above (General Notes / per-visit notes).
+export type NoteType = "consultation" | "follow_up" | "tele_consult" | "discharge" | "other";
+export const NOTE_TYPE_ORDER: NoteType[] = ["consultation", "follow_up", "tele_consult", "discharge", "other"];
+export const NOTE_TYPE_LABELS: Record<NoteType, string> = {
+  consultation: "Consultation Note",
+  follow_up: "Follow-up Note",
+  tele_consult: "Tele-consult Note",
+  discharge: "Discharge Note",
+  other: "Other",
+};
+export type ClinicalNote = {
+  id: number;
+  patient_id: number;
+  appointment_id: number | null;
+  doctor_id: string | null;
+  doctor_name: string | null;
+  department_name: string | null;
+  note_type: NoteType;
+  summary: string | null;
+  diagnosis: string | null;
+  advice: string | null;
+  follow_up_plan: string | null;
+  follow_up_date: string | null;
+  created_at: string;
+};
+
+export type FlagSeverity = "critical" | "warning" | "info";
+export type ClinicalFlag = {
+  id: number;
+  flag_type: string;
+  title: string;
+  description: string | null;
+  severity: FlagSeverity;
+  created_at: string;
+};
+
 export type DetailData = {
   patient: Patient;
   visit_history: Visit[];
   notes: Note[];
   documents: PatientDocument[];
   consent: Consent;
+  billing: PatientBilling | null;
+  clinical_notes: ClinicalNote[];
+  clinical_flags: ClinicalFlag[];
 };
 
 // Visit history table's top-level category selector (Doctor appointment /
@@ -304,6 +382,74 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     }
   }
 
+  const addClinicalNoteMutation = useMutation({
+    mutationFn: async (body: {
+      note_type: NoteType; diagnosis?: string; advice?: string; follow_up_plan?: string;
+      follow_up_date?: string; department_name?: string; doctor_id?: string;
+    }) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/clinical-notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  async function handleAddClinicalNote(body: {
+    note_type: NoteType; diagnosis?: string; advice?: string; follow_up_plan?: string;
+    follow_up_date?: string; department_name?: string; doctor_id?: string;
+  }) {
+    try {
+      await addClinicalNoteMutation.mutateAsync(body);
+      toast.success("Clinical note saved");
+      refetch();
+      return true;
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't save clinical note", err.message);
+      return false;
+    }
+  }
+
+  const updateBillingNotesMutation = useMutation({
+    mutationFn: async (billingNotes: string) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/billing-notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ billing_notes: billingNotes }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  async function handleSaveBillingNotes(billingNotes: string) {
+    try {
+      await updateBillingNotesMutation.mutateAsync(billingNotes);
+      toast.success("Payment notes saved");
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't save payment notes", err.message);
+    }
+  }
+
+  const updateDocumentRemarksMutation = useMutation({
+    mutationFn: async ({ documentId, remarks }: { documentId: number; remarks: string }) => {
+      const result = await portalFetch(`/api/portal/patients/${patientId}/documents/${documentId}/remarks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remarks }),
+      });
+      return unwrapPortalResult<unknown>(router, result);
+    },
+  });
+  async function handleSaveDocumentRemarks(documentId: number, remarks: string) {
+    try {
+      await updateDocumentRemarksMutation.mutateAsync({ documentId, remarks });
+      toast.success("Remarks saved");
+      refetch();
+    } catch (err) {
+      if (isPortalMutationError(err)) toast.error("Couldn't save remarks", err.message);
+    }
+  }
+
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
       const result = await portalFetch(`/api/portal/patients/${patientId}/documents`, {
@@ -479,6 +625,10 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   return {
     data: data ?? null,
     error,
+    // Exposed for the Billing tab -- a collect-payment action there goes
+    // through each domain's own existing mutation (not this hook's), so it
+    // has no other way to make this query's "billing" slice re-fetch.
+    refetchDetail: refetch,
     dob,
     setDob,
     gender,
@@ -512,6 +662,12 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     setGeneralNoteDraft,
     savingGeneralNote,
     handleAddNote,
+    handleAddClinicalNote,
+    savingClinicalNote: addClinicalNoteMutation.isPending,
+    handleSaveBillingNotes,
+    savingBillingNotes: updateBillingNotesMutation.isPending,
+    handleSaveDocumentRemarks,
+    savingDocumentRemarks: updateDocumentRemarksMutation.isPending,
     fileInputRef,
     uploading: uploadMutation.isPending,
     handleUpload,

@@ -48,7 +48,9 @@ const REFUNDS_QUERY_KEY = ["portal-refunds"] as const;
  * hospital that turned auto_refund_enabled off (Settings -> Appointments).
  * `statusFilter` defaults to the pending_approval tab, the only one staff
  * actually act on; pass "" for every status. */
-export function useRefunds(canView: boolean, statusFilter: RefundStatus | "" = "pending_approval") {
+export function useRefunds(
+  canView: boolean, statusFilter: RefundStatus | "" = "pending_approval", appointmentId?: number,
+) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -57,12 +59,13 @@ export function useRefunds(canView: boolean, statusFilter: RefundStatus | "" = "
     error: queryError,
     isFetching,
   } = useQuery({
-    queryKey: [...REFUNDS_QUERY_KEY, statusFilter],
+    queryKey: [...REFUNDS_QUERY_KEY, statusFilter, appointmentId ?? null],
     enabled: canView,
     retry: false,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
+      if (appointmentId) params.set("appointment_id", String(appointmentId));
       const result = await portalFetch(`/api/portal/refunds?${params.toString()}`);
       return unwrapPortalResult<RefundRequest[]>(router, result);
     },
