@@ -21,6 +21,9 @@ type Props = {
   href?: string;
   prefix?: string;
   mock?: boolean;
+  /** Optional small "+12% vs yesterday"-style sub-line under the value --
+   * backward compatible, every existing caller keeps rendering unchanged. */
+  delta?: { value: string; direction: "up" | "down" } | null;
 };
 
 export function StatTile({
@@ -31,6 +34,7 @@ export function StatTile({
   href,
   prefix,
   mock = false,
+  delta,
 }: Props) {
   const body = (
     <div className="gap-space-3 relative flex items-center">
@@ -60,6 +64,16 @@ export function StatTile({
                 ? formatINR(value)
                 : `${prefix ?? ""}${value.toLocaleString()}`}
         </span>
+        {delta && (
+          <p
+            className={cn(
+              "mt-space-1 text-[11.5px] font-semibold",
+              delta.direction === "up" ? "text-success" : "text-error",
+            )}
+          >
+            {delta.direction === "up" ? "↑" : "↓"} {delta.value} vs yesterday
+          </p>
+        )}
       </div>
       {href && <ChevronRight size={18} className="text-ink-300 shrink-0" />}
     </div>

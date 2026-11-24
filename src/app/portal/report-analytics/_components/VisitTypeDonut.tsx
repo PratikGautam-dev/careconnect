@@ -27,15 +27,17 @@ const SLOT_COLORS = [
 function DonutTooltip({
   active,
   payload,
+  unitLabel,
 }: {
   active?: boolean;
   payload?: { name: string; value: number }[];
+  unitLabel: string;
 }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="border-line bg-card px-space-3 py-space-2 rounded-md border text-[12.5px] shadow-[var(--shadow-md)]">
       <p className="text-ink-900 font-semibold">{payload[0].name}</p>
-      <p className="text-ink-600">{payload[0].value} visits</p>
+      <p className="text-ink-600">{payload[0].value} {unitLabel}</p>
     </div>
   );
 }
@@ -45,14 +47,18 @@ type Props = {
   data: Slice[];
   emptyMessage?: string;
   className?: string;
+  /** Tooltip's trailing word, e.g. "items" for an inventory breakdown --
+   * defaults to "visits" (this component's original/only wording) so
+   * every existing caller keeps rendering unchanged. */
+  unitLabel?: string;
 };
 
 /** Patient Visit Types panel -- same donut-plus-legend visual as
  * DepartmentDonut.tsx (identical inner/outer radius, center total,
  * scrollable legend with count+% rows), generalized over a plain
  * {label,count} slice instead of department_name so it can plot any
- * breakdown (visit types here; nothing today needs a third caller). */
-export function VisitTypeDonut({ title, data, emptyMessage, className }: Props) {
+ * breakdown (visit types here, inventory status elsewhere). */
+export function VisitTypeDonut({ title, data, emptyMessage, className, unitLabel = "visits" }: Props) {
   const total = data.reduce((sum, d) => sum + d.count, 0);
 
   return (
@@ -80,7 +86,7 @@ export function VisitTypeDonut({ title, data, emptyMessage, className }: Props) 
                     <Cell key={entry.label} fill={SLOT_COLORS[i % SLOT_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip content={<DonutTooltip />} />
+                <Tooltip content={<DonutTooltip unitLabel={unitLabel} />} />
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">

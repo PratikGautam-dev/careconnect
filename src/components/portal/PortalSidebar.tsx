@@ -14,11 +14,15 @@ import {
   LayoutDashboard,
   LogIn,
   MessageCircle,
+  Pill,
   Plane,
   Receipt,
+  RotateCcw,
   Settings,
   ShieldCheck,
   Stethoscope,
+  Boxes,
+  Truck,
   UserCheck,
   UserCog,
   UserPlus,
@@ -50,9 +54,9 @@ import { hasCapability, hasPermission, useStaffSession } from "@/lib/staffAuth";
 // Settings). Pinning the whole admin-tools group here squeezed the
 // scrollable area down to nearly nothing on short/mobile viewports, since
 // the pinned footer's height comes out of the same fixed-height sidebar.
-type NavGroup = "Main" | "Booking Channels" | "Workforce" | "Admin" | "Settings";
+type NavGroup = "Main" | "Booking Channels" | "Workforce" | "Pharmacy" | "Admin" | "Settings";
 const GROUP_ORDER: NavGroup[] = [
-  "Main", "Booking Channels", "Workforce", "Admin", "Settings",
+  "Main", "Booking Channels", "Workforce", "Pharmacy", "Admin", "Settings",
 ];
 
 const NAV_ITEMS: {
@@ -226,6 +230,102 @@ const NAV_ITEMS: {
     href: "/portal/holiday-application",
     pageKey: "holiday_application",
     group: "Workforce",
+  },
+
+  // Pharmacy: catalog/inventory/suppliers/purchase-orders/prescriptions all
+  // share the "pharmacy" page_key; billing gets its own "pharmacy_billing"
+  // page_key so a role can be granted "collect payment" without catalog/
+  // stock write access (portal/permissions.py, migration 20261119100400).
+  // Medicines catalog editing has no standalone nav entry -- reachable from
+  // the Inventory page, same as how Report analytics/Report review each
+  // only got their own entry for being genuinely independent destinations.
+  {
+    key: "pharmacy-dashboard",
+    label: "Pharmacy",
+    icon: Pill,
+    href: "/portal/pharmacy",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-prescriptions",
+    label: "Prescriptions",
+    icon: ClipboardList,
+    href: "/portal/pharmacy/prescriptions",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-dispensing",
+    label: "Dispensing",
+    icon: Pill,
+    href: "/portal/pharmacy/dispensing",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-inventory",
+    label: "Inventory",
+    icon: Boxes,
+    href: "/portal/pharmacy/inventory",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-alerts",
+    label: "Stock Alerts",
+    icon: CalendarClock,
+    href: "/portal/pharmacy/alerts",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-suppliers",
+    label: "Suppliers",
+    icon: Truck,
+    href: "/portal/pharmacy/suppliers",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-purchase-orders",
+    label: "Purchase Orders",
+    icon: ClipboardCheck,
+    href: "/portal/pharmacy/purchase-orders",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-returns",
+    label: "Returns & Adjustments",
+    icon: RotateCcw,
+    href: "/portal/pharmacy/returns",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-reports",
+    label: "Reports & Analytics",
+    icon: BarChart3,
+    href: "/portal/pharmacy/reports",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-settings",
+    label: "Pharmacy Settings",
+    icon: Settings,
+    href: "/portal/pharmacy/settings",
+    pageKey: "pharmacy",
+    group: "Pharmacy",
+  },
+  {
+    key: "pharmacy-billing",
+    label: "Pharmacy Billing",
+    icon: Receipt,
+    href: "/portal/pharmacy-billing",
+    pageKey: "pharmacy_billing",
+    group: "Pharmacy",
   },
 
   {
