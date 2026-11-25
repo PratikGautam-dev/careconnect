@@ -10,7 +10,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
 import { StatTile } from "@/components/portal/StatTile";
-import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { PatientStatTileRow } from "./PatientStatTileRow";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
 import { fetchPrescription, usePharmacyPrescriptions, type Prescription } from "@/hooks/usePharmacyPrescriptions";
@@ -70,13 +70,13 @@ export function PatientPrescriptionsPanel({ patientId, patientName, onViewBillin
 
   return (
     <>
-      <StatTileGrid cols={5} className="mb-space-4">
+      <PatientStatTileRow>
         <StatTile label="Total Prescriptions" value={own.length} icon={ClipboardList} />
         <StatTile label="Sent to Pharmacy" value={sentToPharmacy} icon={Send} tint="clay" />
         <StatTile label="Dispensed" value={dispensed} icon={PackageCheck} tint="success" />
         <StatTile label="Pending Pharmacy" value={pendingPharmacy} icon={Timer} tint="clay" />
         <StatTile label="Active Medicines" value={full ? full.items.length : null} icon={Pill} />
-      </StatTileGrid>
+      </PatientStatTileRow>
 
       <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-3">
         <div className="lg:col-span-2">

@@ -107,18 +107,30 @@ export type PatientBillingStats = {
   total_amount: number;
   total_paid: number;
   pending_dues: number;
+  total_transactions: number;
+  total_credits: number;
+  credits_appointment: number;
+  credits_pharmacy: number;
+  total_debits: number;
+  net_amount: number;
+  failed_pending_count: number;
 };
-// Transactions tab -- one row per payment ATTEMPT/collection event, unlike
-// PatientBilling.transactions above (one row per invoice, latest attempt
-// only). See db/repositories/billing_overview.py's _payment_event_row().
+// Transactions tab -- one row per payment ATTEMPT/collection/refund event,
+// unlike PatientBilling.transactions above (one row per invoice, latest
+// attempt only). See db/repositories/billing_overview.py's
+// _payment_event_row()/_refund_event_row().
+export type TransactionType = "payment" | "refund";
 export type PaymentEvent = {
   transaction_id: string;
   appointment_id: number | null;
+  related_to: "appointment" | "pharmacy";
+  transaction_type: TransactionType;
   reference_id: string;
   bill_no: string;
   method: string | null;
   amount: number;
   status: string;
+  gateway_ref: string | null;
   notes: string | null;
   date: string;
 };

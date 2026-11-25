@@ -23,7 +23,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { StatTile } from "@/components/portal/StatTile";
-import { StatTileGrid } from "@/components/portal/StatTileGrid";
+import { PatientStatTileRow } from "../_components/PatientStatTileRow";
 import { useDeletePatient } from "@/hooks/usePatients";
 import { usePharmacyPrescriptions } from "@/hooks/usePharmacyPrescriptions";
 import { usePermission } from "@/lib/staffAuth";
@@ -35,7 +35,7 @@ import { Textarea } from "@/components/ui/Input";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { cn } from "@/lib/cn";
-import { formatDate, formatDateTime, formatShortDateTime } from "@/lib/formatDate";
+import { formatDate, formatDateTime, formatShortDateTime, formatTimeOnly } from "@/lib/formatDate";
 import { formatINR } from "@/lib/formatCurrency";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
 import {
@@ -52,7 +52,9 @@ import { createVisitHistoryColumns, STATUS_LABELS } from "./_components/visit-hi
 import { PatientPrescriptionsPanel } from "../_components/PatientPrescriptionsPanel";
 import { PatientBillingPanel, CreateBillButton } from "../_components/PatientBillingPanel";
 import { PatientDocumentsPanel } from "../_components/PatientDocumentsPanel";
+import { PatientTransactionsPanel } from "../_components/PatientTransactionsPanel";
 import { ClinicalNotesPanel } from "../_components/ClinicalNotesPanel";
+import { VisitTimelinePanel } from "../_components/VisitTimelinePanel";
 
 const VISIT_STATUS_BADGE_TONE: Record<string, "success" | "clay" | "neutral"> = {
   booked: "success",
@@ -62,11 +64,12 @@ const VISIT_STATUS_BADGE_TONE: Record<string, "success" | "clay" | "neutral"> = 
   no_show: "neutral",
 };
 
-type Tab = "overview" | "appointments" | "prescriptions" | "billing" | "transactions" | "documents" | "clinical_notes" | "settings";
+type Tab = "overview" | "appointments" | "visit_timeline" | "prescriptions" | "billing" | "transactions" | "documents" | "clinical_notes" | "settings";
 type TabCounts = { visits: number; prescriptions: number; bills: number; clinicalNotes: number };
 const TABS: { id: Tab; label: string; count?: (ctx: TabCounts) => number }[] = [
   { id: "overview", label: "Overview" },
   { id: "appointments", label: "Appointments", count: (c) => c.visits },
+  { id: "visit_timeline", label: "Visit Timeline" },
   { id: "prescriptions", label: "Prescriptions", count: (c) => c.prescriptions },
   { id: "billing", label: "Billing", count: (c) => c.bills },
   { id: "transactions", label: "Transactions" },
@@ -482,13 +485,13 @@ export default function PatientDetailPage() {
 
       {tab === "appointments" && (
         <>
-          <StatTileGrid cols={5} className="mb-space-4">
+          <PatientStatTileRow>
             <StatTile label="Total Appointments" value={visit_history.length} icon={CalendarDays} />
             <StatTile label="Upcoming" value={visit_history.filter((v) => v.status === "booked" && new Date(v.scheduled_at) > new Date()).length} icon={CalendarDays} tint="clay" />
             <StatTile label="Completed" value={visit_history.filter((v) => v.status === "attended").length} icon={CheckCircle2} tint="success" />
             <StatTile label="Cancelled" value={visit_history.filter((v) => v.status === "cancelled").length} icon={AlertTriangle} tint="error" />
             <StatTile label="Tele-consultations" value={visit_history.filter((v) => v.appointment_type_id === "tele").length} icon={Stethoscope} />
-          </StatTileGrid>
+          </PatientStatTileRow>
 
           <div className="gap-space-4 grid grid-cols-1 items-start lg:grid-cols-3">
           <div className="lg:col-span-2">
@@ -695,6 +698,22 @@ export default function PatientDetailPage() {
         </>
       )}
 
+      {tab === "visit_timeline" && (
+        <VisitTimelinePanel
+          patientId={patient.id}
+          patientName={patient.name || patient.phone}
+          visitHistory={visit_history}
+          notes={notes}
+          prescriptions={patientPrescriptions}
+          bills={billing?.transactions ?? []}
+          generalNoteDraft={generalNoteDraft}
+          setGeneralNoteDraft={setGeneralNoteDraft}
+          savingGeneralNote={savingGeneralNote}
+          onAddNote={() => handleAddNote(null)}
+          onOpenFollowup={openFollowupPanel}
+        />
+      )}
+
       {tab === "prescriptions" && (
         <PatientPrescriptionsPanel
           patientId={patient.id}
@@ -715,42 +734,14 @@ export default function PatientDetailPage() {
       )}
 
       {tab === "transactions" && (
-        <Card className="p-space-4">
-          <h3 className="text-label mb-space-3 text-ink-900 font-bold">Transactions</h3>
-          <p className="text-hint mb-space-3">Every payment attempt and collection event for this patient, newest first.</p>
-          {!billing || billing.payment_events.length === 0 ? (
-            <p className="py-space-4 text-ink-400 text-center text-[13px]">No transactions yet.</p>
-          ) : (
-            <table className="w-full text-[12.5px]">
-              <thead>
-                <tr className="text-hint text-left">
-                  <th className="py-space-2 font-semibold">Transaction ID</th>
-                  <th className="py-space-2 font-semibold">Date & Time</th>
-                  <th className="py-space-2 font-semibold">Reference</th>
-                  <th className="py-space-2 font-semibold">Bill No.</th>
-                  <th className="py-space-2 font-semibold">Payment Mode</th>
-                  <th className="py-space-2 text-right font-semibold">Amount</th>
-                  <th className="py-space-2 text-right font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-line divide-y">
-                {billing.payment_events.map((e) => (
-                  <tr key={e.transaction_id}>
-                    <td className="py-space-2 text-brand-700 font-mono font-semibold">{e.transaction_id}</td>
-                    <td className="py-space-2 text-ink-600">{formatShortDateTime(e.date)}</td>
-                    <td className="py-space-2 text-ink-600 font-mono">{e.reference_id}</td>
-                    <td className="py-space-2 text-ink-600 font-mono">{e.bill_no}</td>
-                    <td className="py-space-2 text-ink-600">{e.method || "—"}</td>
-                    <td className="py-space-2 text-ink-900 text-right font-semibold">{formatINR(e.amount)}</td>
-                    <td className="py-space-2 text-right">
-                      <Badge tone={e.status === "paid" ? "success" : e.status === "failed" || e.status === "expired" || e.status === "cancelled" ? "neutral" : "clay"}>{e.status}</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </Card>
+        <PatientTransactionsPanel
+          patientId={patient.id}
+          billing={billing}
+          billingNotes={patient.billing_notes}
+          onChanged={() => refetchDetail()}
+          onSaveBillingNotes={handleSaveBillingNotes}
+          savingBillingNotes={savingBillingNotes}
+        />
       )}
 
       {tab === "clinical_notes" && (
@@ -929,16 +920,17 @@ function OverviewTab({
 }) {
   const pendingDues = billing?.stats.pending_dues ?? 0;
   const recentBills = (billing?.transactions ?? []).slice(0, 5);
+  const [released, setReleased] = useState(false);
 
   return (
     <>
-      <StatTileGrid cols={5} className="mb-space-4">
+      <PatientStatTileRow>
         <StatTile label="Total Appointments" value={visitHistory.length} icon={CalendarDays} />
         <StatTile label="Total Prescriptions" value={totalPrescriptions} icon={ClipboardList} tint="clay" />
         <StatTile label="Pharmacy Bills" value={billing ? billing.stats.pharmacy_bills_total : null} icon={Pill} prefix="₹" />
         <StatTile label="Appointment Bills" value={billing ? billing.stats.appointment_bills_total : null} icon={Stethoscope} prefix="₹" tint="clay" />
         <StatTile label="Total Amount" value={billing ? billing.stats.total_amount : null} icon={IndianRupee} prefix="₹" tint="success" />
-      </StatTileGrid>
+      </PatientStatTileRow>
 
       <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-space-4 min-w-0">
@@ -947,28 +939,26 @@ function OverviewTab({
             {visitHistory.length === 0 ? (
               <p className="py-space-4 text-ink-400 text-center text-[13px]">No visits yet.</p>
             ) : (
-              <ol className="space-y-space-4 border-line relative ml-1.5 border-l pl-space-4">
+              <ol className="space-y-space-4 relative ml-1.5 border-l-2 border-brand-100 pl-space-4">
                 {visitHistory.slice(0, 6).map((v, i) => (
                   <li key={v.id} className="relative">
                     <span
                       className={cn(
-                        "absolute top-1 h-2.5 w-2.5 rounded-full",
-                        i === 0 ? "bg-brand-600" : "bg-line",
+                        "absolute top-0.5 rounded-full",
+                        i === 0 ? "h-4 w-4 bg-brand-600 ring-4 ring-brand-100" : "h-2.5 w-2.5 bg-brand-400",
                       )}
-                      style={{ left: "-1.3125rem" }}
+                      style={{ left: i === 0 ? "-1.5625rem" : "-1.3125rem" }}
                     />
                     <div className="gap-space-2 flex flex-wrap items-center">
-                      <p className="text-ink-900 text-[13px] font-semibold">
-                        {formatDateTime(v.scheduled_at)}
+                      <p className="text-ink-900 text-[12.5px] font-semibold">
+                        {formatDate(v.scheduled_at)} | {formatTimeOnly(v.scheduled_at)}
                       </p>
                       {i === 0 && <Badge tone="brand">Current</Badge>}
-                      <Badge tone={VISIT_STATUS_BADGE_TONE[v.status] ?? "neutral"}>
-                        {STATUS_LABELS[v.status] ?? v.status}
-                      </Badge>
                     </div>
-                    <p className="text-hint">
-                      {v.department_name} · {v.doctor_name}
-                      {v.appointment_type_id ? ` · ${TYPE_LABELS[v.appointment_type_id] ?? v.appointment_type_id}` : ""}
+                    <p className="text-hint text-[12px]">
+                      {v.appointment_type_id === "tele" ? "Tele-consultation" : v.appointment_type_id === "daycare" ? "Daycare" : "OPD"}
+                      {" · "}{v.doctor_name}
+                      {v.department_name ? ` (${v.department_name})` : ""}
                     </p>
                   </li>
                 ))}
@@ -979,25 +969,29 @@ function OverviewTab({
           {currentVisit && (
             <Card className="p-space-4">
               <h3 className="text-label mb-space-3 text-ink-900 font-bold">Current Visit Details</h3>
-              <div className="gap-space-3 grid grid-cols-2 sm:grid-cols-4">
-                <div>
-                  <p className="text-hint">Appointment ID</p>
-                  <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.reference_id || `APT-${currentVisit.id}`}</p>
+              <div className="gap-space-3 flex flex-wrap items-center justify-between">
+                <div className="gap-space-4 flex flex-wrap">
+                  <div>
+                    <p className="text-hint">Appointment ID</p>
+                    <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.reference_id || `APT-${currentVisit.id}`}</p>
+                  </div>
+                  <div>
+                    <p className="text-hint">Date & Time</p>
+                    <p className="text-ink-900 text-[13px] font-semibold">{formatShortDateTime(currentVisit.scheduled_at)}</p>
+                  </div>
+                  <div>
+                    <p className="text-hint">Doctor</p>
+                    <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.doctor_name || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-hint">Department</p>
+                    <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.department_name || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-hint">Type</p>
+                    <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.appointment_type_id ? (TYPE_LABELS[currentVisit.appointment_type_id] ?? currentVisit.appointment_type_id) : "—"}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-hint">Date & Time</p>
-                  <p className="text-ink-900 text-[13px] font-semibold">{formatShortDateTime(currentVisit.scheduled_at)}</p>
-                </div>
-                <div>
-                  <p className="text-hint">Doctor</p>
-                  <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.doctor_name || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-hint">Department</p>
-                  <p className="text-ink-900 text-[13px] font-semibold">{currentVisit.department_name || "—"}</p>
-                </div>
-              </div>
-              <div className="mt-space-3">
                 <Badge tone={VISIT_STATUS_BADGE_TONE[currentVisit.status] ?? "neutral"}>
                   {STATUS_LABELS[currentVisit.status] ?? currentVisit.status}
                 </Badge>
@@ -1009,7 +1003,7 @@ function OverviewTab({
             <div className="mb-space-3 flex items-center justify-between">
               <h3 className="text-label text-ink-900 font-bold">Prescriptions (This Visit)</h3>
               <Button size="md" variant="secondary" onClick={() => onGoToTab("prescriptions")}>
-                View all
+                <Plus size={14} /> Add Prescription
               </Button>
             </div>
             {currentVisitPrescriptions.length === 0 ? (
@@ -1032,9 +1026,12 @@ function OverviewTab({
           <Card className="p-space-4">
             <div className="mb-space-3 flex items-center justify-between">
               <h3 className="text-label text-ink-900 font-bold">Billing & Transactions (This Patient)</h3>
-              <Button size="md" variant="secondary" onClick={() => onGoToTab("billing")}>
-                View all
-              </Button>
+              <div className="gap-space-2 flex items-center">
+                <Button size="md" variant="secondary" onClick={() => onGoToTab("billing")}>
+                  View all
+                </Button>
+                <CreateBillButton />
+              </div>
             </div>
             {recentBills.length === 0 ? (
               <p className="py-space-3 text-ink-400 text-center text-[13px]">No bills yet.</p>
@@ -1141,7 +1138,7 @@ function OverviewTab({
           </Card>
 
           <Card className="p-space-4 h-fit">
-            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Billing Summary</h3>
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Billing Summary (All Visits)</h3>
             {!billing ? (
               <p className="text-hint text-[12.5px]">Loading…</p>
             ) : (
@@ -1162,21 +1159,71 @@ function OverviewTab({
                 </dl>
                 <div
                   className={cn(
-                    "mt-space-3 p-space-3 gap-space-2 flex items-center rounded-md",
+                    "mt-space-3 p-space-3 rounded-md",
                     pendingDues > 0 ? "bg-clay-100" : "bg-success-tint",
                   )}
                 >
-                  {pendingDues > 0 ? (
-                    <AlertTriangle size={16} className="text-clay-700 shrink-0" />
-                  ) : (
-                    <CheckCircle2 size={16} className="text-success shrink-0" />
+                  <div className="flex justify-between text-[12.5px]">
+                    <span className="text-ink-700 font-semibold">Total Paid</span>
+                    <span className="text-ink-900 font-bold">{formatINR(billing.stats.total_paid)}</span>
+                  </div>
+                  <div className="mt-space-1 flex justify-between text-[12.5px]">
+                    <span className="text-ink-700 font-semibold">Pending Dues</span>
+                    <span className={cn("font-bold", pendingDues > 0 ? "text-clay-700" : "text-ink-900")}>{formatINR(pendingDues)}</span>
+                  </div>
+                  {pendingDues === 0 && (
+                    <div className="gap-space-1 mt-space-2 flex items-center">
+                      <CheckCircle2 size={14} className="text-success shrink-0" />
+                      <p className="text-success text-[11.5px] font-bold">All dues are cleared</p>
+                    </div>
                   )}
+                </div>
+              </>
+            )}
+          </Card>
+
+          <Card className="p-space-4 h-fit">
+            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Release / Discharge</h3>
+            {!billing ? (
+              <p className="text-hint text-[12.5px]">Loading…</p>
+            ) : released ? (
+              <div className="bg-success-tint gap-space-2 flex items-center rounded-md p-3">
+                <CheckCircle2 size={16} className="text-success shrink-0" />
+                <p className="text-success text-[12.5px] font-bold">Patient released</p>
+              </div>
+            ) : pendingDues > 0 ? (
+              <>
+                <div className="bg-clay-100 gap-space-2 mb-space-3 flex items-center rounded-md p-3">
+                  <AlertTriangle size={16} className="text-clay-700 shrink-0" />
+                  <p className="text-clay-700 text-[12.5px] font-bold">{formatINR(pendingDues)} in dues must be cleared before release.</p>
+                </div>
+                <Button size="md" disabled className="w-full">
+                  <CheckCircle2 size={14} /> Release Patient
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="bg-success-tint gap-space-2 mb-space-3 flex items-center rounded-md p-3">
+                  <CheckCircle2 size={16} className="text-success shrink-0" />
                   <div>
-                    <p className={cn("text-[12.5px] font-bold", pendingDues > 0 ? "text-clay-700" : "text-success")}>
-                      {pendingDues > 0 ? `${formatINR(pendingDues)} pending dues` : "All dues are cleared"}
-                    </p>
+                    <p className="text-success text-[12.5px] font-bold">Eligible for Release</p>
+                    <p className="text-hint">All dues are cleared for this visit.</p>
                   </div>
                 </div>
+                <Button
+                  size="md"
+                  className="w-full"
+                  onClick={() => {
+                    // No admission/discharge record exists in this product's
+                    // data model (OPD/daycare/diagnostic visits only, no
+                    // inpatient stay to formally discharge from) -- this is
+                    // a session-only UI confirmation, not a persisted status
+                    // change, same honesty constraint the rest of this tab holds to.
+                    setReleased(true);
+                  }}
+                >
+                  <CheckCircle2 size={14} /> Release Patient
+                </Button>
               </>
             )}
           </Card>
