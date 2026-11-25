@@ -39,7 +39,12 @@ export function AddStockDialog({ open, onOpenChange, medicines, suppliers, onSub
     if (!form.medicine_id) return setError("Choose a medicine.");
     if (!form.batch_number.trim()) return setError("A batch number is required.");
     if (!form.expiry_date) return setError("An expiry date is required.");
-    if (!form.quantity || Number(form.quantity) <= 0) return setError("Quantity must be greater than zero.");
+    if (!form.quantity || !Number.isInteger(Number(form.quantity)) || Number(form.quantity) <= 0) {
+      return setError("Quantity must be a whole number greater than zero.");
+    }
+    if (form.cost_price && (!Number.isFinite(Number(form.cost_price)) || Number(form.cost_price) < 0)) {
+      return setError("Cost price can't be negative.");
+    }
     setError(null);
     try {
       await onSubmit(form);
@@ -76,7 +81,7 @@ export function AddStockDialog({ open, onOpenChange, medicines, suppliers, onSub
           </div>
           <div className="gap-space-3 grid grid-cols-2">
             <Field label="Quantity" required>
-              <Input type="number" min="1" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
+              <Input type="number" min="1" step="1" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
             </Field>
             <Field label="Cost Price (₹)">
               <Input type="number" min="0" step="0.01" value={form.cost_price} onChange={(e) => setForm((f) => ({ ...f, cost_price: e.target.value }))} />

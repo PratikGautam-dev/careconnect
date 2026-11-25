@@ -79,7 +79,11 @@ export function useMedicines(ready: boolean) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(toPayload(form)),
       });
-      if (!result.ok) throw new Error(result.unauthorized ? "Session expired." : result.error);
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired." : (result.body?.errors as string[] | undefined)?.join(" ") || result.error,
+        );
+      }
       return (result.data as { medicine: Medicine }).medicine;
     },
     onSuccess: () => {
@@ -96,7 +100,11 @@ export function useMedicines(ready: boolean) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(toPayload(form)),
       });
-      if (!result.ok) throw new Error(result.unauthorized ? "Session expired." : result.error);
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired." : (result.body?.errors as string[] | undefined)?.join(" ") || result.error,
+        );
+      }
     },
     onSuccess: () => {
       toast.success("Medicine updated");

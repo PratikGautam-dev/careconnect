@@ -75,10 +75,21 @@ export function MedicineFormDialog({ open, onOpenChange, medicine, onSubmit, onA
       setError("Medicine name is required.");
       return;
     }
+    if (form.unit_price && (!Number.isFinite(Number(form.unit_price)) || Number(form.unit_price) < 0)) {
+      return setError("Unit price can't be negative.");
+    }
+    if (form.reorder_level && (!Number.isInteger(Number(form.reorder_level)) || Number(form.reorder_level) < 0)) {
+      return setError("Reorder level must be a non-negative whole number.");
+    }
     if (showInitialStock && stockTouched) {
       if (!stock.batch_number.trim()) return setError("A batch number is required for the initial stock.");
       if (!stock.expiry_date) return setError("An expiry date is required for the initial stock.");
-      if (!stock.quantity || Number(stock.quantity) <= 0) return setError("Initial stock quantity must be greater than zero.");
+      if (!stock.quantity || !Number.isInteger(Number(stock.quantity)) || Number(stock.quantity) <= 0) {
+        return setError("Initial stock quantity must be a whole number greater than zero.");
+      }
+      if (stock.cost_price && (!Number.isFinite(Number(stock.cost_price)) || Number(stock.cost_price) < 0)) {
+        return setError("Initial stock cost price can't be negative.");
+      }
     }
     setError(null);
     try {
@@ -119,7 +130,7 @@ export function MedicineFormDialog({ open, onOpenChange, medicine, onSubmit, onA
               <Input type="number" min="0" step="0.01" value={form.unit_price} onChange={(e) => setForm((f) => ({ ...f, unit_price: e.target.value }))} />
             </Field>
             <Field label="Reorder Level">
-              <Input type="number" min="0" value={form.reorder_level} onChange={(e) => setForm((f) => ({ ...f, reorder_level: e.target.value }))} />
+              <Input type="number" min="0" step="1" value={form.reorder_level} onChange={(e) => setForm((f) => ({ ...f, reorder_level: e.target.value }))} />
             </Field>
           </div>
 
@@ -141,7 +152,7 @@ export function MedicineFormDialog({ open, onOpenChange, medicine, onSubmit, onA
               </div>
               <div className="gap-space-3 grid grid-cols-2">
                 <Field label="Quantity">
-                  <Input type="number" min="1" value={stock.quantity} onChange={(e) => setStock((s) => ({ ...s, quantity: e.target.value }))} />
+                  <Input type="number" min="1" step="1" value={stock.quantity} onChange={(e) => setStock((s) => ({ ...s, quantity: e.target.value }))} />
                 </Field>
                 <Field label="Cost Price (₹)">
                   <Input type="number" min="0" step="0.01" value={stock.cost_price} onChange={(e) => setStock((s) => ({ ...s, cost_price: e.target.value }))} />

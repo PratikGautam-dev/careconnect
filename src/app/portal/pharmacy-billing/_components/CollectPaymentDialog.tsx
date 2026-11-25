@@ -35,7 +35,7 @@ export function CollectPaymentDialog({ open, onOpenChange, sale, onSubmit, submi
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!amount || Number(amount) <= 0) return setError("Enter a valid amount.");
+    if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) return setError("Enter a valid amount.");
     setError(null);
     try {
       await onSubmit(method, Number(amount));
