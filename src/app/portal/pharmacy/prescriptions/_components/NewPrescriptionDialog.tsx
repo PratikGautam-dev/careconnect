@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import type { Medicine } from "@/hooks/usePharmacyMedicines";
 import type { NewPrescriptionItem, NewPrescriptionPayload } from "@/hooks/usePharmacyPrescriptions";
+import type { PharmacyUnit } from "@/hooks/usePharmacySettings";
 import { formatDate } from "@/lib/formatDate";
 
 type Line = { medicine_id: string; dosage: string; frequency: string; duration: string; dosage_instructions: string };
@@ -41,6 +42,11 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   medicines: Medicine[];
+  /** Settings > Units & Dosage's "Dosage Form" kind (kind="dosage_form")
+   * -- e.g. "500 mg", "5 ml" -- drives the Dosage dropdown below instead
+   * of free text, same reasoning as the Add Medicine dialog's Category/
+   * Unit dropdowns. */
+  dosageForms: PharmacyUnit[];
   onSubmit: (payload: NewPrescriptionPayload) => Promise<void>;
   submitting: boolean;
   prefill?: PrescriptionPrefill;
@@ -57,7 +63,7 @@ type Props = {
  * writes. "Save Draft" creates with status="draft"; "Sign & Send to
  * Pharmacy" creates with status="pending" directly (skipping the draft
  * stage in one call rather than create-then-sign in two). */
-export function NewPrescriptionDialog({ open, onOpenChange, medicines, onSubmit, submitting, prefill }: Props) {
+export function NewPrescriptionDialog({ open, onOpenChange, medicines, dosageForms, onSubmit, submitting, prefill }: Props) {
   const [patientName, setPatientName] = useState(prefill?.patientName || "");
   const [wardOrOpd, setWardOrOpd] = useState(prefill?.wardOrOpd || "");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
@@ -81,6 +87,16 @@ export function NewPrescriptionDialog({ open, onOpenChange, medicines, onSubmit,
 
   function updateLine(index: number, patch: Partial<Line>) {
     setLines((ls) => ls.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  }
+
+  const dosageFormNames = dosageForms.map((d) => d.name);
+  // Each line can have its own already-set value (e.g. prefill, or a
+  // dosage form since removed from Settings) -- always include it so
+  // selecting a line's dropdown never silently blanks what's already there.
+  function dosageOptionsFor(line: Line): string[] {
+    return line.dosage && !dosageFormNames.includes(line.dosage)
+      ? [...dosageFormNames, line.dosage]
+      : dosageFormNames;
   }
 
   async function handleSubmit(status: "draft" | "pending") {
@@ -192,7 +208,16 @@ export function NewPrescriptionDialog({ open, onOpenChange, medicines, onSubmit,
                       </select>
                     </td>
                     <td className="py-space-1 pr-space-2">
-                      <Input placeholder="500 mg" value={line.dosage} onChange={(e) => updateLine(i, { dosage: e.target.value })} className="h-9" />
+                      <select
+                        value={line.dosage}
+                        onChange={(e) => updateLine(i, { dosage: e.target.value })}
+                        className="border-line bg-card px-space-2 text-ink-900 h-9 w-full rounded-md border text-[12.5px]"
+                      >
+                        <option value="">Dosage…</option>
+                        {dosageOptionsFor(line).map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="py-space-1 pr-space-2">
                       <Input placeholder="1-0-1" value={line.frequency} onChange={(e) => updateLine(i, { frequency: e.target.value })} className="h-9" />

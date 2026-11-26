@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { emptyMedicineForm, type Medicine, type MedicineForm } from "@/hooks/usePharmacyMedicines";
+import type { PharmacyCategory, PharmacyUnit } from "@/hooks/usePharmacySettings";
 
 type InitialStock = { batch_number: string; expiry_date: string; quantity: string; cost_price: string };
 
@@ -17,6 +18,12 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   medicine?: Medicine | null;
+  /** Configured in Settings > Categories / Settings > Units & Dosage
+   * (usePharmacyCategories/usePharmacyUnits) -- drives the Category/Unit
+   * dropdowns below instead of free text, so every medicine's catalog
+   * fields line up with whatever this hospital has actually configured. */
+  categories: PharmacyCategory[];
+  units: PharmacyUnit[];
   /** Returns the created/updated medicine so a new medicine's id is known
    * for the optional initial-stock batch below (edit path returns the same
    * shape too, but this dialog only shows/uses the batch fields for a new
@@ -44,7 +51,7 @@ function formFromMedicine(m: Medicine): MedicineForm {
 /** Add/Edit Medicine -- presentational only, the create/update mutations
  * live in usePharmacyMedicines.ts, same template as every other
  * NewXDialog in this app (form state + submit logic in a paired hook). */
-export function MedicineFormDialog({ open, onOpenChange, medicine, onSubmit, onAddInitialStock, submitting }: Props) {
+export function MedicineFormDialog({ open, onOpenChange, medicine, categories, units, onSubmit, onAddInitialStock, submitting }: Props) {
   const [form, setForm] = useState<MedicineForm>(emptyMedicineForm());
   const [stock, setStock] = useState<InitialStock>(emptyInitialStock());
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +68,16 @@ export function MedicineFormDialog({ open, onOpenChange, medicine, onSubmit, onA
       setError(null);
     }
   }
+
+  // Pack units only (kind="unit") -- dosage forms are a separate concept
+  // this form doesn't collect. Current value is always included even if
+  // it's since been removed from Settings, or (pre-this-change) was typed
+  // free text -- so opening an existing medicine never silently blanks a
+  // value that isn't in today's configured list.
+  const categoryNames = Array.from(new Set([...categories.map((c) => c.name), ...(form.category ? [form.category] : [])]));
+  const unitNames = Array.from(
+    new Set([...units.filter((u) => u.kind === "unit").map((u) => u.name), ...(form.unit ? [form.unit] : [])]),
+  );
 
   const showInitialStock = !medicine && !!onAddInitialStock;
   // The whole section is optional -- a medicine can be cataloged with no
@@ -115,16 +132,34 @@ export function MedicineFormDialog({ open, onOpenChange, medicine, onSubmit, onA
             <Input value={form.generic_name} onChange={(e) => setForm((f) => ({ ...f, generic_name: e.target.value }))} />
           </Field>
           <div className="gap-space-3 grid grid-cols-2">
-            <Field label="Category">
-              <Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Tablet, Syrup…" />
+            <Field label="Category" hint={categoryNames.length === 0 ? "None configured -- add some in Settings > Categories." : undefined}>
+              <select
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
+              >
+                <option value="">Choose…</option>
+                {categoryNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Manufacturer">
               <Input value={form.manufacturer} onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))} />
             </Field>
           </div>
           <div className="gap-space-3 grid grid-cols-3">
-            <Field label="Unit">
-              <Input value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} placeholder="strip, bottle…" />
+            <Field label="Unit" hint={unitNames.length === 0 ? "None configured -- add some in Settings > Units & Dosage." : undefined}>
+              <select
+                value={form.unit}
+                onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
+              >
+                <option value="">Choose…</option>
+                {unitNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Unit Price (₹)">
               <Input type="number" min="0" step="0.01" value={form.unit_price} onChange={(e) => setForm((f) => ({ ...f, unit_price: e.target.value }))} />

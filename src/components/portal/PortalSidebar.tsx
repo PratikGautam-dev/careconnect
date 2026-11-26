@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { UIEvent } from "react";
 import { SidebarUserMenu } from "@/components/account/SidebarUserMenu";
 import { cn } from "@/lib/cn";
 import { clearPortalSession, type PortalHospital } from "@/lib/portalAuth";
@@ -386,6 +387,16 @@ type Props = {
   onClose?: () => void;
 };
 
+// Every /portal/* page currently renders its own PortalShell/PortalSidebar
+// (there's no single shared layout wrapping the whole section), so the
+// sidebar fully unmounts and remounts on every navigation -- without this,
+// its nav list's scroll position resets to the top on every click, which
+// is jarring once the list is long enough to scroll (exactly what was
+// reported: "I click on anything and the sidebar jumps up"). A plain
+// module-level variable (not state) survives that remount within the same
+// tab, and resets naturally on a real page reload, which is fine here.
+let savedNavScrollTop = 0;
+
 export function PortalSidebar({ hospital, active, open = false, onClose }: Props) {
   const router = useRouter();
   // Resolved once, here, via the real hook -- hasPermission below is a
@@ -484,7 +495,15 @@ export function PortalSidebar({ hospital, active, open = false, onClose }: Props
           </button>
         </div>
 
-        <nav className="scrollbar-hide flex-1 space-y-0.5 overflow-y-auto">
+        <nav
+          ref={(el) => {
+            if (el) el.scrollTop = savedNavScrollTop;
+          }}
+          onScroll={(e: UIEvent<HTMLElement>) => {
+            savedNavScrollTop = e.currentTarget.scrollTop;
+          }}
+          className="scrollbar-hide flex-1 space-y-0.5 overflow-y-auto"
+        >
           {renderItems(scrollItems, true)}
         </nav>
 

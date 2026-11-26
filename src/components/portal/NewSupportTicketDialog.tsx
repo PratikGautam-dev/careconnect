@@ -6,18 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
-import { useSupportTicketCategories, type TicketPriority } from "@/hooks/useSupportTickets";
+import { useSupportTicketCategories } from "@/hooks/useSupportTickets";
 import { staffFetch } from "@/lib/staffAuth";
 import { toast } from "@/lib/toast";
 
 const QUESTION_MAX = 2000;
-
-const PRIORITY_OPTIONS: { value: TicketPriority; label: string }[] = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
-];
 
 type Props = {
   open: boolean;
@@ -39,7 +32,6 @@ export function NewSupportTicketDialog({ open, onOpenChange, onCreated }: Props)
 
   const [subject, setSubject] = useState("");
   const [categoryId, setCategoryId] = useState<string>("");
-  const [priority, setPriority] = useState<TicketPriority>("medium");
   const [question, setQuestion] = useState("");
   const [problemReference, setProblemReference] = useState("");
   const [image, setImage] = useState<File | null>(null);
@@ -49,7 +41,6 @@ export function NewSupportTicketDialog({ open, onOpenChange, onCreated }: Props)
   function resetForm() {
     setSubject("");
     setCategoryId("");
-    setPriority("medium");
     setQuestion("");
     setProblemReference("");
     setImage(null);
@@ -72,7 +63,6 @@ export function NewSupportTicketDialog({ open, onOpenChange, onCreated }: Props)
     const formData = new FormData();
     formData.append("subject", subject.trim());
     formData.append("question", question.trim());
-    formData.append("priority", priority);
     if (categoryId) formData.append("category_id", categoryId);
     if (problemReference.trim()) formData.append("problem_reference", problemReference.trim());
     if (image) formData.append("image", image);
@@ -118,37 +108,21 @@ export function NewSupportTicketDialog({ open, onOpenChange, onCreated }: Props)
             />
           </Field>
 
-          <div className="gap-x-space-4 grid grid-cols-1 sm:grid-cols-2">
-            <Field label="Category" htmlFor="ticket_category">
-              <select
-                id="ticket_category"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
-              >
-                <option value="">Not specified</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Priority" htmlFor="ticket_priority" required>
-              <select
-                id="ticket_priority"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TicketPriority)}
-                className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
-              >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
+          <Field label="Category" htmlFor="ticket_category">
+            <select
+              id="ticket_category"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
+            >
+              <option value="">Not specified</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
           <Field label="Problem reference" htmlFor="ticket_reference" hint="Optional">
             <Input

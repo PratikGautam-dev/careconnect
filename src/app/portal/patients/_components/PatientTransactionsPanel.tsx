@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
+import { QuickActions } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { PatientStatTileRow } from "./PatientStatTileRow";
 import { formatShortDateTime } from "@/lib/formatDate";
@@ -235,31 +236,27 @@ export function PatientTransactionsPanel({ patientId, billing, billingNotes, onC
             )}
           </Card>
 
-          <Card className="p-space-4">
-            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Quick Actions</h3>
-            <div className="gap-space-2 grid grid-cols-2">
-              <Button size="md" variant="secondary" onClick={() => window.print()} disabled={!selected}>
-                <Printer size={14} /> Print Receipt
-              </Button>
-              <Button size="md" variant="secondary" href={`/portal/patients/${patientId}/statement`}>
-                <Printer size={14} /> Download Statement
-              </Button>
-              <Button
-                size="md" variant="secondary"
-                disabled={!selected || selected.status !== "pending" || selected.transaction_type !== "payment" || collectCash.isPending}
-                onClick={() => selected && handleRetry(selected)}
-              >
-                <RotateCcw size={14} /> Retry Payment
-              </Button>
-              <Button
-                size="md" variant="secondary"
-                disabled={!canWriteBilling || !selected || selected.transaction_type !== "refund" || !latestRefund || latestRefund.status !== "pending_approval" || approvingId === latestRefund?.id}
-                onClick={handleProcessRefund}
-              >
-                <RotateCcw size={14} /> Process Refund
-              </Button>
-            </div>
-          </Card>
+          <QuickActions
+            title="Quick Actions"
+            actions={[
+              { label: "Print Receipt", icon: Printer, onClick: () => window.print(), disabled: !selected },
+              { label: "Download Statement", icon: Printer, href: `/portal/patients/${patientId}/statement` },
+              {
+                label: "Retry Payment",
+                icon: RotateCcw,
+                disabled: !selected || selected.status !== "pending" || selected.transaction_type !== "payment" || collectCash.isPending,
+                onClick: () => selected && handleRetry(selected),
+              },
+              {
+                label: "Process Refund",
+                icon: RotateCcw,
+                disabled:
+                  !canWriteBilling || !selected || selected.transaction_type !== "refund" ||
+                  !latestRefund || latestRefund.status !== "pending_approval" || approvingId === latestRefund?.id,
+                onClick: handleProcessRefund,
+              },
+            ]}
+          />
         </div>
       </div>
     </>

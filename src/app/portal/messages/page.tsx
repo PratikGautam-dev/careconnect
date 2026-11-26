@@ -3,18 +3,14 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Building2,
   Check,
   MessageCircle,
   MoreVertical,
   Paperclip,
   Search,
   Send,
-  Settings,
   Smile,
   Trash2,
-  UserRound,
-  Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -40,14 +36,13 @@ import { FILTERS, useMessages } from "@/hooks/useMessages";
 import { MessagePatientPanel } from "./_components/MessagePatientPanel";
 
 // "Patients" is the only tab with a real data source -- handoffs are always
-// patient-initiated WhatsApp conversations. Doctors/Staff/System have no
-// messaging model in this app (no doctor<->staff chat, no system
-// notification inbox), so they show an honest "not built yet" empty state.
+// patient-initiated WhatsApp conversations. Doctors/Staff have no messaging
+// model in this app (no doctor<->staff chat), so they show an honest
+// "not built yet" empty state.
 const CONVERSATION_TABS = [
-  { key: "patients", label: "Patients", icon: UserRound },
-  { key: "doctors", label: "Doctors", icon: Building2 },
-  { key: "staff", label: "Staff", icon: Users },
-  { key: "system", label: "System", icon: Settings },
+  { key: "patients", label: "Patients" },
+  { key: "doctors", label: "Doctors" },
+  { key: "staff", label: "Staff" },
 ] as const;
 type ConversationTab = (typeof CONVERSATION_TABS)[number]["key"];
 
@@ -158,10 +153,10 @@ export default function PortalMessagesPage() {
       {!handoffs ? (
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
-        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[320px_1fr_320px]">
+        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_320px] lg:items-stretch">
           {/* --- Conversation list --- */}
-          <Card className="p-space-3 flex max-h-[calc(100vh-220px)] flex-col overflow-hidden">
-            <div className="mb-space-3 bg-paper grid grid-cols-4 gap-1 rounded-md p-1">
+          <Card className="p-space-3 flex h-[calc(100vh-220px)] flex-col overflow-hidden">
+            <div className="mb-space-3 bg-paper grid grid-cols-3 gap-1 rounded-md p-1">
               {CONVERSATION_TABS.map((t) => (
                 <button
                   key={t.key}
@@ -171,13 +166,13 @@ export default function PortalMessagesPage() {
                     t.key !== "patients" ? "Not built yet — no data source for this tab" : undefined
                   }
                   className={cn(
-                    "px-space-2 py-space-2 flex items-center justify-center gap-1 rounded-md text-[11px] font-semibold transition-colors duration-150",
+                    "px-space-2 py-space-2 flex items-center justify-center rounded-md text-[11px] font-semibold transition-colors duration-150",
                     conversationTab === t.key
                       ? "bg-brand-600 text-white"
                       : "text-ink-600 hover:bg-black/[0.04]",
                   )}
                 >
-                  <t.icon size={13} /> {t.label}
+                  {t.label}
                 </button>
               ))}
             </div>
@@ -320,7 +315,7 @@ export default function PortalMessagesPage() {
           </Card>
 
           {/* --- Conversation thread --- */}
-          <Card className="flex flex-col p-0">
+          <Card className="flex h-[calc(100vh-220px)] min-w-0 flex-col overflow-hidden p-0">
             {conversationTab !== "patients" || !selected ? (
               <p className="text-ink-400 m-auto text-[13px]">
                 {conversationTab !== "patients"
@@ -499,8 +494,8 @@ export default function PortalMessagesPage() {
               onBookDaycare={() => setDaycareBookingOpen(true)}
             />
           ) : (
-            <Card className="p-space-4 hidden lg:block">
-              <p className="py-space-4 text-ink-400 text-center text-[13px]">
+            <Card className="h-[calc(100vh-220px)] hidden items-center justify-center p-space-4 lg:flex">
+              <p className="text-ink-400 text-center text-[13px]">
                 Select a conversation to see patient details.
               </p>
             </Card>

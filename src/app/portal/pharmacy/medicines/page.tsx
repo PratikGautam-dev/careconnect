@@ -11,6 +11,7 @@ import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { usePermission } from "@/lib/staffAuth";
 import { useMedicines, type Medicine } from "@/hooks/usePharmacyMedicines";
 import { usePharmacyInventory } from "@/hooks/usePharmacyInventory";
+import { usePharmacyCategories, usePharmacyUnits } from "@/hooks/usePharmacySettings";
 import { createMedicineColumns } from "./_components/medicines-columns";
 import { MedicineFormDialog } from "./_components/MedicineFormDialog";
 
@@ -22,6 +23,8 @@ export default function MedicinesPage() {
   const canWrite = usePermission("pharmacy", "write");
   const { medicines, isLoading, createMedicine, creating, updateMedicine, updating, setActive } = useMedicines(ready);
   const { addStock } = usePharmacyInventory(ready);
+  const { categories } = usePharmacyCategories(ready);
+  const { units } = usePharmacyUnits(ready);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
@@ -78,6 +81,8 @@ export default function MedicinesPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         medicine={editingMedicine}
+        categories={categories}
+        units={units}
         submitting={editingMedicine ? updating : creating}
         onSubmit={(form) => (editingMedicine ? updateMedicine(editingMedicine.id, form) : createMedicine(form))}
         onAddInitialStock={(medicineId, stock) =>
