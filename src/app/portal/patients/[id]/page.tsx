@@ -7,10 +7,12 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Eye,
   IndianRupee,
   Pill,
   Plus,
   Printer,
+  Receipt,
   Search,
   Stethoscope,
   Trash2,
@@ -22,6 +24,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
+import { QuickActions } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { PatientStatTileRow } from "../_components/PatientStatTileRow";
 import { useDeletePatient } from "@/hooks/usePatients";
@@ -631,24 +634,18 @@ export default function PatientDetailPage() {
               )}
             </Card>
 
-            <Card className="p-space-4">
-              <h3 className="text-label mb-space-3 text-ink-900 font-bold">Quick Actions</h3>
-              <div className="gap-space-2 grid grid-cols-2">
-                {canWriteAppointments && (
-                  <Button size="md" variant="secondary" onClick={() => setNewBookingOpen(true)}>
-                    <CalendarDays size={14} /> Book Appointment
-                  </Button>
-                )}
-                {currentVisit && (
-                  <Button size="md" variant="secondary" href={`/portal/appointments/${currentVisit.id}`}>
-                    View Appointment
-                  </Button>
-                )}
-                <Button size="md" variant="secondary" onClick={() => window.print()} className="col-span-2">
-                  <Printer size={14} /> Print Slip
-                </Button>
-              </div>
-            </Card>
+            <QuickActions
+              title="Quick Actions"
+              actions={[
+                ...(canWriteAppointments
+                  ? [{ label: "Book Appointment", icon: CalendarDays, onClick: () => setNewBookingOpen(true) }]
+                  : []),
+                ...(currentVisit
+                  ? [{ label: "View Appointment", icon: Eye, href: `/portal/appointments/${currentVisit.id}` }]
+                  : []),
+                { label: "Print Slip", icon: Printer, onClick: () => window.print() },
+              ]}
+            />
 
             {(() => {
               const now = new Date();
@@ -921,6 +918,7 @@ function OverviewTab({
   const pendingDues = billing?.stats.pending_dues ?? 0;
   const recentBills = (billing?.transactions ?? []).slice(0, 5);
   const [released, setReleased] = useState(false);
+  const canWriteBilling = usePermission("billing", "write");
 
   return (
     <>
@@ -1228,23 +1226,20 @@ function OverviewTab({
             )}
           </Card>
 
-          <Card className="p-space-4 h-fit">
-            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Other Actions</h3>
-            <div className="gap-space-2 grid grid-cols-2">
-              {canWriteAppointments && (
-                <Button size="md" variant="secondary" onClick={onNewAppointment} className="w-full">
-                  <CalendarDays size={14} /> New Appointment
-                </Button>
-              )}
-              <Button size="md" variant="secondary" onClick={() => onGoToTab("prescriptions")} className="w-full">
-                <Plus size={14} /> Add Prescription
-              </Button>
-              <CreateBillButton />
-              <Button size="md" variant="secondary" onClick={() => window.print()} className="w-full">
-                <Printer size={14} /> Print Summary
-              </Button>
-            </div>
-          </Card>
+          <QuickActions
+            title="Other Actions"
+            cardClassName="h-fit"
+            actions={[
+              ...(canWriteAppointments
+                ? [{ label: "New Appointment", icon: CalendarDays, onClick: onNewAppointment }]
+                : []),
+              { label: "Add Prescription", icon: Plus, onClick: () => onGoToTab("prescriptions") },
+              ...(canWriteBilling
+                ? [{ label: "Create Bill", icon: Receipt, href: "/portal/pharmacy-billing" }]
+                : []),
+              { label: "Print Summary", icon: Printer, onClick: () => window.print() },
+            ]}
+          />
         </div>
       </div>
     </>

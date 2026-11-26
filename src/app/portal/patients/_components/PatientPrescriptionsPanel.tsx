@@ -2,19 +2,21 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ClipboardList, PackageCheck, Pill, Plus, Printer, Send, Timer } from "lucide-react";
+import { ClipboardList, PackageCheck, Pill, Plus, Printer, Receipt, Send, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
+import { QuickActions } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { PatientStatTileRow } from "./PatientStatTileRow";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { usePermission } from "@/lib/staffAuth";
 import { fetchPrescription, usePharmacyPrescriptions, type Prescription } from "@/hooks/usePharmacyPrescriptions";
 import { useMedicines } from "@/hooks/usePharmacyMedicines";
+import { usePharmacyUnits } from "@/hooks/usePharmacySettings";
 import { NewPrescriptionDialog, type PrescriptionPrefill } from "../../pharmacy/prescriptions/_components/NewPrescriptionDialog";
 import { PRESCRIPTION_STATUS_LABELS, PRESCRIPTION_STATUS_TONES } from "../../pharmacy/prescriptions/_components/prescriptions-columns";
 
@@ -41,6 +43,8 @@ export function PatientPrescriptionsPanel({ patientId, patientName, onViewBillin
   const canPrescribe = usePermission("prescriptions", "write");
   const { prescriptions, createPrescription, creating, signPrescription, signing } = usePharmacyPrescriptions(true);
   const { medicines } = useMedicines(true);
+  const { units } = usePharmacyUnits(true);
+  const dosageForms = units.filter((u) => u.kind === "dosage_form");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -167,28 +171,21 @@ export function PatientPrescriptionsPanel({ patientId, patientName, onViewBillin
             )}
           </Card>
 
-          <Card className="p-space-4">
-            <h3 className="text-label mb-space-3 text-ink-900 font-bold">Quick Actions</h3>
-            <div className="gap-space-2 grid grid-cols-2">
-              <Button size="md" variant="secondary" onClick={() => window.print()} disabled={!selected}>
-                <Printer size={14} /> Print
-              </Button>
-              {canPrescribe && full?.status === "draft" ? (
-                <Button size="md" variant="secondary" disabled={signing} onClick={() => signPrescription(full.id)}>
-                  <Send size={14} /> {signing ? "Sending…" : "Send to Pharmacy"}
-                </Button>
-              ) : (
-                <Button size="md" variant="secondary" disabled className="w-full">
-                  <Send size={14} /> Send to Pharmacy
-                </Button>
-              )}
-              {onViewBilling && (
-                <Button size="md" variant="secondary" onClick={onViewBilling} disabled={!selected} className="col-span-2">
-                  View Billing
-                </Button>
-              )}
-            </div>
-          </Card>
+          <QuickActions
+            title="Quick Actions"
+            actions={[
+              { label: "Print", icon: Printer, onClick: () => window.print(), disabled: !selected },
+              {
+                label: signing ? "Sending…" : "Send to Pharmacy",
+                icon: Send,
+                disabled: !(canPrescribe && full?.status === "draft") || signing,
+                onClick: () => signPrescription(full!.id),
+              },
+              ...(onViewBilling
+                ? [{ label: "View Billing", icon: Receipt, onClick: onViewBilling, disabled: !selected }]
+                : []),
+            ]}
+          />
         </div>
       </div>
 
@@ -209,6 +206,7 @@ export function PatientPrescriptionsPanel({ patientId, patientName, onViewBillin
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         medicines={medicines}
+        dosageForms={dosageForms}
         onSubmit={createPrescription}
         submitting={creating}
         prefill={prefill}

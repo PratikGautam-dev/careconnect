@@ -79,7 +79,11 @@ export function useMedicines(ready: boolean) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(toPayload(form)),
       });
-      if (!result.ok) throw new Error(result.unauthorized ? "Session expired." : result.error);
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired." : (result.body?.errors as string[] | undefined)?.join(" ") || result.error,
+        );
+      }
       return (result.data as { medicine: Medicine }).medicine;
     },
     onSuccess: () => {
@@ -96,7 +100,11 @@ export function useMedicines(ready: boolean) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(toPayload(form)),
       });
-      if (!result.ok) throw new Error(result.unauthorized ? "Session expired." : result.error);
+      if (!result.ok) {
+        throw new Error(
+          result.unauthorized ? "Session expired." : (result.body?.errors as string[] | undefined)?.join(" ") || result.error,
+        );
+      }
     },
     onSuccess: () => {
       toast.success("Medicine updated");
@@ -131,5 +139,8 @@ export function useMedicines(ready: boolean) {
 }
 
 export function emptyMedicineForm(): MedicineForm {
-  return { name: "", generic_name: "", category: "", manufacturer: "", unit: "unit", unit_price: "", reorder_level: "10" };
+  // unit starts blank (a real "Choose..." in the dropdown), not a
+  // hardcoded "unit" default -- the backend still falls back to "unit"
+  // server-side if this is left empty (portal_create_medicine).
+  return { name: "", generic_name: "", category: "", manufacturer: "", unit: "", unit_price: "", reorder_level: "10" };
 }

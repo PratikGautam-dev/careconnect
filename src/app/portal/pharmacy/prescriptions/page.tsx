@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Boxes, CheckCircle2, Clock, MoreHorizontal, Pill, Plus, Printer, RotateCcw, Search,
+  Boxes, CheckCircle2, Clock, Eye, MoreHorizontal, Pill, Plus, Printer, RotateCcw, Search, XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -18,11 +19,12 @@ import { usePermission } from "@/lib/staffAuth";
 import { portalFetch } from "@/lib/portalAuth";
 import { formatShortDateTime } from "@/lib/formatDate";
 import { useMedicines } from "@/hooks/usePharmacyMedicines";
+import { usePharmacyUnits } from "@/hooks/usePharmacySettings";
 import {
   fetchPrescription, usePharmacyPrescriptions, type Prescription,
 } from "@/hooks/usePharmacyPrescriptions";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NewPrescriptionDialog } from "./_components/NewPrescriptionDialog";
 
@@ -52,6 +54,7 @@ const TABS: { key: Tab; label: string }[] = [
 type BookingContext = { doctors_by_department: Record<string, { id: string; name: string }[]> };
 
 export default function PrescriptionsPage() {
+  const router = useRouter();
   const { hospital, ready } = usePortalGuard();
   const canView = usePermission("pharmacy", "view");
   const canWrite = usePermission("pharmacy", "write");
@@ -64,6 +67,8 @@ export default function PrescriptionsPage() {
 
   const { prescriptions, isLoading, createPrescription, creating, cancelPrescription } = usePharmacyPrescriptions(ready);
   const { medicines } = useMedicines(ready);
+  const { units } = usePharmacyUnits(ready);
+  const dosageForms = units.filter((u) => u.kind === "dosage_form");
 
   const { data: ctx } = useQuery({
     queryKey: ["portal-new-booking-context"],
@@ -190,23 +195,26 @@ export default function PrescriptionsPage() {
                   const label = p.status === "pending" ? "Dispense" : p.status === "in_progress" ? "Continue" : "View";
                   const cancellable = p.status === "pending" || p.status === "in_progress";
                   return (
-                    <div className="gap-space-1 flex items-center" onClick={(e) => e.stopPropagation()}>
-                      <Button size="md" variant={p.status === "pending" || p.status === "in_progress" ? "primary" : "secondary"} href={`/portal/pharmacy/prescriptions/${p.id}`}>
-                        {label}
-                      </Button>
+                    <div onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger className="text-ink-600 hover:text-ink-900 inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-black/4" aria-label={`More actions for RX-${p.id}`}>
                           <MoreHorizontal size={16} />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => window.print()}>
-                            <Printer size={14} /> Print
-                          </DropdownMenuItem>
-                          {canWrite && cancellable && (
-                            <DropdownMenuItem onClick={() => cancelPrescription(p.id)}>
-                              <RotateCcw size={14} /> Cancel Prescription
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => router.push(`/portal/pharmacy/prescriptions/${p.id}`)}>
+                              <Eye size={14} /> {label}
                             </DropdownMenuItem>
-                          )}
+                            <DropdownMenuItem onClick={() => window.print()}>
+                              <Printer size={14} /> Print
+                            </DropdownMenuItem>
+                            {canWrite && cancellable && (
+                              <DropdownMenuItem variant="destructive" onClick={() => cancelPrescription(p.id)}>
+                                <XCircle size={14} /> Cancel Prescription
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuGroup>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -300,7 +308,7 @@ export default function PrescriptionsPage() {
         </div>
       </div>
 
-      <NewPrescriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} medicines={medicines} onSubmit={createPrescription} submitting={creating} />
+      <NewPrescriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} medicines={medicines} dosageForms={dosageForms} onSubmit={createPrescription} submitting={creating} />
     </PortalShell>
   );
 }

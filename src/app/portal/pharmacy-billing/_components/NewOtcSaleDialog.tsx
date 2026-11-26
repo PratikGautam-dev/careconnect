@@ -45,10 +45,12 @@ export function NewOtcSaleDialog({ open, onOpenChange, medicines, submitting, on
   }
 
   async function handleSubmit() {
-    const items = lines
-      .filter((l) => l.medicine_id && l.quantity)
+    const touched = lines.filter((l) => l.medicine_id || l.quantity);
+    const items = touched
+      .filter((l) => l.medicine_id && Number.isInteger(Number(l.quantity)) && Number(l.quantity) > 0)
       .map((l) => ({ medicine_id: Number(l.medicine_id), quantity: Number(l.quantity) }));
-    if (items.length === 0) return setError("Add at least one medicine.");
+    if (items.length === 0) return setError("Add at least one medicine with a quantity greater than zero.");
+    if (items.length !== touched.length) return setError("Every line needs a medicine and a whole-number quantity greater than zero.");
     setError(null);
     try {
       await onSubmit({ sale_type: saleType, items });
@@ -95,7 +97,7 @@ export function NewOtcSaleDialog({ open, onOpenChange, medicines, submitting, on
                   ))}
                 </select>
                 <Input
-                  type="number" min="1" placeholder="Qty" value={line.quantity}
+                  type="number" min="1" step="1" placeholder="Qty" value={line.quantity}
                   onChange={(e) => updateLine(i, { quantity: e.target.value })}
                   className="w-24"
                 />

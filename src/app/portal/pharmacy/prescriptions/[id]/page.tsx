@@ -61,11 +61,19 @@ export default function PrescriptionDetailPage() {
 
   async function handleDispense() {
     if (!prescription) return;
-    const items = prescription.items
-      .map((item) => ({ prescription_item_id: item.id, quantity: Number(dispenseQty[item.id] || 0) }))
-      .filter((i) => i.quantity > 0);
+    const remainingById = new Map(
+      prescription.items.map((item) => [item.id, item.quantity_prescribed - item.quantity_dispensed]),
+    );
+    const touched = prescription.items.filter((item) => (dispenseQty[item.id] || "").trim());
+    const items = touched
+      .map((item) => ({ prescription_item_id: item.id, quantity: Number(dispenseQty[item.id]) }))
+      .filter((i) => Number.isInteger(i.quantity) && i.quantity > 0 && i.quantity <= (remainingById.get(i.prescription_item_id) ?? 0));
     if (items.length === 0) {
       toast.error("Enter at least one quantity to dispense", "Every item's quantity is empty or zero.");
+      return;
+    }
+    if (items.length !== touched.length) {
+      toast.error("Check the quantities entered", "Each one must be a whole number, greater than zero, and not more than what's remaining.");
       return;
     }
     try {
@@ -129,7 +137,7 @@ export default function PrescriptionDetailPage() {
                     </div>
                     {canWrite && active && remaining > 0 && (
                       <Input
-                        type="number" min="1" max={remaining} placeholder={`Up to ${remaining}`}
+                        type="number" min="1" max={remaining} step="1" placeholder={`Up to ${remaining}`}
                         value={dispenseQty[item.id] || ""}
                         onChange={(e) => setDispenseQty((q) => ({ ...q, [item.id]: e.target.value }))}
                         className="w-28"
