@@ -97,6 +97,8 @@ export default function PatientDetailPage() {
     data,
     error,
     refetchDetail,
+    name,
+    setName,
     dob,
     setDob,
     gender,
@@ -772,7 +774,10 @@ export default function PatientDetailPage() {
         <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
           <Card className="p-space-4 h-fit">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Demographics</h3>
-            <div className="mb-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
+            <Field label="Name" htmlFor="patient_name" required>
+              <Input id="patient_name" value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <div className="mt-space-3 mb-space-3 gap-space-3 grid grid-cols-1 sm:grid-cols-2">
               <Field label="Date of birth" htmlFor="dob">
                 <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
               </Field>
