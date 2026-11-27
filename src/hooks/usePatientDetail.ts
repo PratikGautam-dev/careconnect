@@ -246,11 +246,13 @@ export function usePatientDetail(patientId: string, ready: boolean) {
   // after a successful save already holds these same values, so there's
   // nothing to re-sync there.
   const [seededPatientId, setSeededPatientId] = useState<number | null>(null);
+  const [name, setName] = useState("");
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("");
   const [address, setAddress] = useState("");
   if (data && data.patient.id !== seededPatientId) {
     setSeededPatientId(data.patient.id);
+    setName(data.patient.name || "");
     setDob(data.patient.date_of_birth || "");
     setGender(data.patient.gender || "");
     setAddress(data.patient.address || "");
@@ -348,12 +350,16 @@ export function usePatientDetail(patientId: string, ready: boolean) {
       const result = await portalFetch(`/api/portal/patients/${patientId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date_of_birth: dob, gender, address }),
+        body: JSON.stringify({ name, date_of_birth: dob, gender, address }),
       });
       return unwrapPortalResult<unknown>(router, result);
     },
   });
   async function handleSaveDemographics() {
+    if (!name.trim()) {
+      toast.error("Couldn't save patient details", "Name cannot be empty.");
+      return;
+    }
     try {
       await saveDemographicsMutation.mutateAsync();
       toast.success("Patient details saved");
@@ -641,6 +647,8 @@ export function usePatientDetail(patientId: string, ready: boolean) {
     // through each domain's own existing mutation (not this hook's), so it
     // has no other way to make this query's "billing" slice re-fetch.
     refetchDetail: refetch,
+    name,
+    setName,
     dob,
     setDob,
     gender,
