@@ -26,7 +26,15 @@ export function FilterActions({
 }: Props) {
   return (
     <>
-      <Button type="button" size="md" onClick={onApply} disabled={disabled}>
+      {/* Wrapped, not `onClick={onApply}` directly -- onApply() here is
+       * useAppointments.ts's applyFilters(overrides?), which treats a
+       * truthy `overrides` as real staged values to apply immediately.
+       * Passed directly as the handler, React hands it the click's own
+       * SyntheticEvent as that first argument instead -- and a DOM event
+       * always has a `.type` property (e.g. "click"), so
+       * `overrides?.type ?? typeFilter` silently read "click" as the type
+       * filter on every single Apply click, not the user's actual pick. */}
+      <Button type="button" size="md" onClick={() => onApply()} disabled={disabled}>
         <SlidersHorizontal size={14} /> {applyLabel}
       </Button>
       {showReset && (

@@ -89,13 +89,14 @@ const columns: ColumnDef<Appointment>[] = [
     header: "Appointment type",
     cell: ({ row }) => {
       const a = row.original;
-      const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+      // No type recorded at all (a legacy booking) reads as "new" for
+      // display, same fallback the appointments table itself uses.
+      const effectiveType = a.appointment_type_id || "new";
+      const Icon = TYPE_ICONS[effectiveType] || CalendarCheck;
       return (
         <span className="gap-space-2 text-ink-600 inline-flex items-center">
           <Icon size={14} strokeWidth={2} className="text-ink-400 shrink-0" />
-          {a.appointment_type_id
-            ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
-            : "Consultation"}
+          {TYPE_LABELS[effectiveType] || effectiveType}
         </span>
       );
     },

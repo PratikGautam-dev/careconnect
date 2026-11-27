@@ -32,6 +32,14 @@ import {
 
 const EMPTY_CELL: OverrideCell = { view: null, write: null, delete: null };
 
+// Kept in sync with the backend's own ALL_PAGES (careconnect-backend's
+// portal/permissions.py) -- every page_key the backend actually enforces
+// needs an entry here too, or an admin has no way to grant/restrict it at
+// all (it silently defaults to all-False for every non-Admin role, with no
+// toggle anywhere to change that). This list previously went stale as new
+// modules (Pharmacy, Booking Channels, Billing, Support, the doctor-facing
+// Prescriptions grant, the Attendance settings tab) were added over several
+// sessions without a matching update here.
 const PAGE_KEYS = [
   "dashboard",
   "appointments",
@@ -41,7 +49,14 @@ const PAGE_KEYS = [
   "schedule",
   "doctors",
   "diagnostic_tests",
+  "prescriptions",
   "messages",
+  "channels_whatsapp",
+  "channels_website",
+  "channels_walkin",
+  "pharmacy",
+  "pharmacy_billing",
+  "billing",
   "settings",
   "staff",
   "roles",
@@ -49,9 +64,11 @@ const PAGE_KEYS = [
   "holiday_application",
   "attendance",
   "check_in_out",
+  "attendance_settings",
   "attendance_overview",
   "report-review",
   "report-analytics",
+  "raise_ticket",
 ];
 const PAGE_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
@@ -62,7 +79,14 @@ const PAGE_LABEL: Record<string, string> = {
   schedule: "Schedule",
   doctors: "Doctors",
   diagnostic_tests: "Diagnostic Tests",
+  prescriptions: "Prescriptions (Doctor)",
   messages: "Messages",
+  channels_whatsapp: "Booking Channels: WhatsApp",
+  channels_website: "Booking Channels: Website",
+  channels_walkin: "Booking Channels: Walk-in",
+  pharmacy: "Pharmacy",
+  pharmacy_billing: "Pharmacy Billing",
+  billing: "Billing",
   settings: "Settings",
   staff: "Staff",
   roles: "Roles & Permissions",
@@ -70,9 +94,11 @@ const PAGE_LABEL: Record<string, string> = {
   holiday_application: "Holiday Application",
   attendance: "Attendance",
   check_in_out: "Check-in / Check-out",
+  attendance_settings: "Attendance Settings",
   attendance_overview: "Attendance Overview",
   "report-review": "Report Review",
   "report-analytics": "Report Analytics",
+  raise_ticket: "Support",
 };
 
 type RoleFormState = { name: string; description: string; cloneFromRoleId: string };

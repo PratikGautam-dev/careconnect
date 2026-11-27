@@ -41,6 +41,7 @@ import { cn } from "@/lib/cn";
 import { formatDate, formatDateTime, formatShortDateTime, formatTimeOnly } from "@/lib/formatDate";
 import { formatINR } from "@/lib/formatCurrency";
 import { TYPE_LABELS } from "@/hooks/useAppointments";
+import { GENDER_VALUES } from "@/lib/validation/patientInfo";
 import {
   CATEGORY_TYPE_TABS,
   CONSENT_LABELS,
@@ -776,12 +777,19 @@ export default function PatientDetailPage() {
                 <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
               </Field>
               <Field label="Gender" htmlFor="gender">
-                <Input
+                <select
                   id="gender"
                   value={gender}
                   onChange={(e) => setGender(e.target.value)}
-                  placeholder="Optional"
-                />
+                  className="border-line bg-card px-space-3 text-ink-900 h-11 w-full rounded-md border text-[14px]"
+                >
+                  <option value="">Not specified</option>
+                  {GENDER_VALUES.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
               </Field>
             </div>
             <Field label="Address" htmlFor="address">

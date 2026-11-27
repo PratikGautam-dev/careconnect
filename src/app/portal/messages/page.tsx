@@ -153,7 +153,7 @@ export default function PortalMessagesPage() {
       {!handoffs ? (
         <p className="text-ink-400 text-[13px]">Loading…</p>
       ) : (
-        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_320px] lg:items-stretch">
+        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)_320px] lg:items-stretch">
           {/* --- Conversation list --- */}
           <Card className="p-space-3 flex h-[calc(100vh-220px)] flex-col overflow-hidden">
             <div className="mb-space-3 bg-paper grid grid-cols-3 gap-1 rounded-md p-1">
