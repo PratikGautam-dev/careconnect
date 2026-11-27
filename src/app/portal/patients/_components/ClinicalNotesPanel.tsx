@@ -144,9 +144,6 @@ export function ClinicalNotesPanel({ notes, flags, onAdd, saving }: Props) {
                   { id: "note_type", header: "Note Type", cell: ({ row }: { row: { original: ClinicalNote } }) => (
                     <Badge tone="brand">{NOTE_TYPE_LABELS[row.original.note_type]}</Badge>
                   ) },
-                  { id: "summary", header: "Summary", cell: ({ row }: { row: { original: ClinicalNote } }) => (
-                    <span className="text-ink-600 line-clamp-1">{row.original.diagnosis || row.original.advice || "—"}</span>
-                  ) },
                   { id: "follow_up_date", header: "Follow-up", cell: ({ row }: { row: { original: ClinicalNote } }) => (
                     <span className="text-ink-600">{row.original.follow_up_date || "—"}</span>
                   ) },

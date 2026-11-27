@@ -41,9 +41,11 @@ export type PharmacySaleItem = {
 
 export type PharmacySaleFull = PharmacySale & { items: PharmacySaleItem[] };
 
-export function usePharmacyBilling(ready: boolean, paymentStatus?: string, page: number = 1, saleType?: SaleType) {
+export function usePharmacyBilling(
+  ready: boolean, paymentStatus?: string, page: number = 1, saleType?: SaleType, search?: string,
+) {
   const queryClient = useQueryClient();
-  const queryKey = ["portal-pharmacy-billing-sales", paymentStatus ?? "all", saleType ?? "all", page];
+  const queryKey = ["portal-pharmacy-billing-sales", paymentStatus ?? "all", saleType ?? "all", page, search ?? ""];
 
   const { data, error, isLoading } = useQuery({
     queryKey,
@@ -53,6 +55,7 @@ export function usePharmacyBilling(ready: boolean, paymentStatus?: string, page:
       const params = new URLSearchParams({ page: String(page), limit: "20" });
       if (paymentStatus) params.set("payment_status", paymentStatus);
       if (saleType) params.set("sale_type", saleType);
+      if (search && search.trim()) params.set("search", search.trim());
       const result = await portalFetch(`/api/portal/pharmacy-billing/sales?${params.toString()}`);
       if (!result.ok) throw new Error(result.unauthorized ? "Session expired." : result.error);
       return result.data as { sales: PharmacySale[]; total: number; page: number; limit: number };

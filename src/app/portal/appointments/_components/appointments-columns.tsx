@@ -230,16 +230,19 @@ export function createAppointmentColumns({
       header: "Appointment type",
       cell: ({ row }) => {
         const a = row.original;
-        const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
-        const label = a.appointment_type_id
-          ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
-          : "Consultation";
+        // No type recorded at all (a legacy booking from before this page
+        // always collected one) reads as "new" for display purposes only --
+        // same label/icon/style a real New Consultation gets, not a
+        // separate generic "Consultation" placeholder that looked like a
+        // different type to a reader scanning the column.
+        const effectiveType = a.appointment_type_id || "new";
+        const Icon = TYPE_ICONS[effectiveType] || CalendarCheck;
+        const label = TYPE_LABELS[effectiveType] || effectiveType;
         return (
           <span
             className={cn(
               "gap-space-1 px-space-2 inline-flex items-center rounded-full py-0.5 text-[11px] font-semibold",
-              (a.appointment_type_id && TYPE_STYLES[a.appointment_type_id]) ||
-                "text-ink-600 bg-black/4",
+              TYPE_STYLES[effectiveType] || "text-ink-600 bg-black/4",
             )}
           >
             <Icon size={12} strokeWidth={2} className="shrink-0" />

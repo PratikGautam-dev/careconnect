@@ -97,7 +97,9 @@ const TYPE_DOT: Record<string, string> = {
   tele: "bg-success",
 };
 function typeLabel(id: string | null): string {
-  return (id && APPT_TYPE_LABELS[id]) || "Consultation";
+  // No type recorded at all (a legacy booking) reads as "new" for display,
+  // same fallback the appointments table itself uses.
+  return APPT_TYPE_LABELS[id || "new"] || "New Consultation";
 }
 
 /** A doctor's own self-service schedule -- a real weekly/monthly calendar of

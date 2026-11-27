@@ -51,7 +51,7 @@ export default function PharmacyBillingPage() {
   const [tab, setTab] = useState<SaleType>("prescription");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const { sales, total, isLoading, createOtcSale, creatingOtcSale, collectPayment, collecting } = usePharmacyBilling(ready, undefined, page, tab);
+  const { sales, total, isLoading, createOtcSale, creatingOtcSale, collectPayment, collecting } = usePharmacyBilling(ready, undefined, page, tab, search);
   const { stats } = usePharmacyBillingStats(ready);
   const { medicines } = useMedicines(ready);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -66,16 +66,9 @@ export default function PharmacyBillingPage() {
     );
   }
 
-  const filtered = search.trim()
-    ? sales.filter((s) => {
-        const q = search.trim().toLowerCase();
-        return s.sale_number.toLowerCase().includes(q) || (s.patient_name || "").toLowerCase().includes(q) || String(s.prescription_id ?? "").includes(q);
-      })
-    : sales;
-
-  // Recent Transactions -- last 4 bills across every type, independent of
-  // the tab/search filters above (same "always-on recent feed" shape as
-  // the reference, not scoped to whatever's currently filtered).
+  // Recent Transactions -- last 4 bills from whatever's currently loaded
+  // (still scoped by the active tab/search, same as `sales` itself -- there's
+  // no separate "every type, unfiltered" fetch backing this card).
   const recent = [...sales].sort((a, b) => b.id - a.id).slice(0, 4);
 
   return (
@@ -120,7 +113,7 @@ export default function PharmacyBillingPage() {
             <Search size={14} className="left-space-3 text-ink-400 pointer-events-none absolute top-1/2 -translate-y-1/2" />
             <input
               type="text" placeholder="Search by Bill No., Patient, Prescription ID…"
-              value={search} onChange={(e) => setSearch(e.target.value)}
+              value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               className="border-line bg-card pl-space-8 pr-space-3 text-ink-900 focus:border-brand-400 h-10 w-full rounded-md border text-[13px] outline-none"
             />
           </div>
@@ -180,7 +173,7 @@ export default function PharmacyBillingPage() {
               );
             } },
           ]}
-          data={filtered}
+          data={sales}
           getRowId={(s: PharmacySale) => String(s.id)}
           loading={isLoading}
           emptyMessage="No bills in this category yet."

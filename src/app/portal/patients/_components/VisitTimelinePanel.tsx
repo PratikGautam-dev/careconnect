@@ -41,7 +41,9 @@ const FILTERS: { key: FilterKey; label: string; icon: typeof CalendarCheck }[] =
 function visitTitle(v: Visit): string {
   if (v.appointment_type_id === "tele") return "Tele-consultation";
   if (v.appointment_type_id === "daycare") return "Daycare Visit";
-  return `OPD Visit – ${v.appointment_type_id ? (TYPE_LABELS[v.appointment_type_id] ?? "Consultation") : "Consultation"}`;
+  // No type recorded at all (a legacy booking) reads as "new" for display,
+  // same as the appointments table's own TYPE_ICONS/TYPE_STYLES fallback.
+  return `OPD Visit – ${TYPE_LABELS[v.appointment_type_id || "new"] ?? "New Consultation"}`;
 }
 
 type VisitItem = { kind: "visit"; date: Date; visit: Visit; prescription: Prescription | null; bill: BillingRow | null; note: Note | null };

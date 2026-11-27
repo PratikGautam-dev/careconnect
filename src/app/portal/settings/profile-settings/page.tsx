@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { IdCard, Mail, MapPin, Pencil, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -7,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AccountDetailRow } from "@/components/account/AccountDetailRow";
 import { ChangePasswordCard } from "@/components/account/ChangePasswordCard";
+import { EditProfileDialog } from "@/components/portal/EditProfileDialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { useStaffSession } from "@/lib/staffAuth";
 import { useChangePassword } from "@/hooks/useChangePassword";
@@ -21,13 +23,14 @@ function initials(name: string): string {
  * entry and the account dropdown alike (PortalSidebar.tsx). Just two cards:
  * Profile (useStaffProfile -> GET /api/portal/staff/me ->
  * db.get_own_profile()) showing only fields with a real backing column, and
- * Change Password. Edit Profile has no self-service editing flow yet, so
- * it's disabled with a "Coming soon" title, same convention as every other
- * not-yet-built action elsewhere in the portal. */
+ * Change Password. "Edit Profile" lets a staff member change their own
+ * name (PUT /api/portal/staff/me) -- every other field here stays
+ * admin-managed via the Staff page's own edit dialog. */
 export default function ProfileSettingsPage() {
   const session = useStaffSession();
   const { profile, error: profileError } = useStaffProfile();
   const changePassword = useChangePassword();
+  const [editOpen, setEditOpen] = useState(false);
 
   return (
     <PortalShell hospital={session?.hospital || null} active="profile-settings">
@@ -58,12 +61,7 @@ export default function ProfileSettingsPage() {
                   )}
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled
-                title="Coming soon — self-service profile editing isn't built yet"
-              >
+              <Button type="button" variant="secondary" onClick={() => setEditOpen(true)}>
                 <Pencil size={13} /> Edit Profile
               </Button>
             </div>
@@ -78,6 +76,14 @@ export default function ProfileSettingsPage() {
 
           <ChangePasswordCard form={changePassword} />
         </div>
+      )}
+
+      {profile && (
+        <EditProfileDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          currentName={profile.name}
+        />
       )}
     </PortalShell>
   );

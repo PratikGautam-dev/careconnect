@@ -228,8 +228,10 @@ function DashboardBody({ data }: { data: DashboardData }) {
                 </thead>
                 <tbody>
                   {todayByTime.map((a) => {
-                    const TypeIcon =
-                      (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+                    // No type recorded at all (a legacy booking) reads as
+                    // "new" for display, same fallback the appointments
+                    // table itself uses.
+                    const TypeIcon = TYPE_ICONS[a.appointment_type_id || "new"] || CalendarCheck;
                     return (
                       <tr key={a.id} className="border-line border-b last:border-0">
                         <td className="py-space-3 pr-space-3 text-ink-600 whitespace-nowrap tabular-nums">
@@ -253,8 +255,7 @@ function DashboardBody({ data }: { data: DashboardData }) {
                         <td className="py-space-3 pr-space-3">
                           <span className="gap-space-1.5 text-ink-600 inline-flex items-center whitespace-nowrap">
                             <TypeIcon size={14} className="text-ink-400 shrink-0" />
-                            {(a.appointment_type_id && TYPE_LABELS[a.appointment_type_id]) ||
-                              "Consultation"}
+                            {TYPE_LABELS[a.appointment_type_id || "new"] || "New Consultation"}
                           </span>
                         </td>
                         <td className="py-space-3 pr-space-3">

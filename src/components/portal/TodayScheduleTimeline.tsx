@@ -49,7 +49,10 @@ export function TodayScheduleTimeline({ appointments }: { appointments: Timeline
                 {formatTime(a.scheduled_at)}
               </p>
               <p className="text-ink-900 truncate text-[13px] font-semibold">
-                {(a.appointment_type_id && TYPE_LABELS[a.appointment_type_id]) || "Consultation"}
+                {/* No type recorded at all (a legacy booking) reads as
+                 * "new" for display, same fallback the appointments table
+                 * itself uses. */}
+                {TYPE_LABELS[a.appointment_type_id || "new"] || "New Consultation"}
               </p>
               <p className="text-ink-600 truncate text-[12px]">{a.department_name}</p>
             </div>
