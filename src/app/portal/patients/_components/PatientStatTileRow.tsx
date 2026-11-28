@@ -1,19 +1,26 @@
 "use client";
 
-import { Children, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-/** The Patient Details page's own compact stat-tile row -- unlike the
- * shared StatTileGrid (equal-width grid columns stretched to fill the
- * whole row, used everywhere else in the app: Billing page, Pharmacy
- * dashboard, etc., each already matched to its own reference design and
- * left untouched), these tiles keep their natural content width and wrap,
- * so a 4-5 tile row stays small instead of stretching across the page. */
+/** The Patient Details page's own stat-tile row -- a 200px-minimum grid
+ * (repeat(auto-fit, minmax(200px, 1fr))) so every tile is always the same
+ * width as its neighbors (a longer label like "Tele-consultations" never
+ * leaves that one tile wider) AND the row always fills its container
+ * (no leftover blank space trailing the last tile on a 4-5 tile row),
+ * unlike a plain flex-wrap row where each tile's own natural/fixed width
+ * leaves a gap once the tiles don't divide the row evenly. Still wraps
+ * onto a second line on a narrow viewport once tiles can't fit at
+ * 200px each. This is deliberately not the shared StatTileGrid (used
+ * everywhere else -- Billing page, Pharmacy dashboard, etc., each already
+ * matched to its own reference design and left untouched); this one is
+ * specific to the Patient Details page's own tabs. */
 export function PatientStatTileRow({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-space-4 flex flex-wrap gap-3">
-      {Children.map(children, (child) => (
-        <div className="w-fit min-w-[170px] shrink-0">{child}</div>
-      ))}
+    <div
+      className="mb-space-4 grid gap-3"
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
+    >
+      {children}
     </div>
   );
 }
