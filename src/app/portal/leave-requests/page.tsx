@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { NewLeaveRequestDialog } from "@/components/portal/NewLeaveRequestDialog";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
@@ -156,7 +157,7 @@ export default function LeaveRequestsPage() {
             <div className="lg:col-span-2">
               <Card className="p-space-4">
                 {!requests ? (
-                  <p className="text-ink-400 text-[13px]">Loading…</p>
+                  <SkeletonTable />
                 ) : (
                   <>
                     <div className="mb-space-3 gap-space-1 flex flex-wrap">

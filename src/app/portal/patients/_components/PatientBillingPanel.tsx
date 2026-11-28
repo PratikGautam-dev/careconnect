@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Textarea } from "@/components/ui/Input";
+import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { StatTile } from "@/components/portal/StatTile";
 import { PatientStatTileRow } from "./PatientStatTileRow";
 import { usePermission } from "@/lib/staffAuth";
@@ -87,7 +88,7 @@ export function PatientBillingPanel({ patientId, billing, billingNotes, onCollec
             </div>
 
             {!billing ? (
-              <p className="text-hint py-space-4 text-center text-[13px]">Loading…</p>
+              <SkeletonTable rows={4} />
             ) : rows.length === 0 ? (
               <p className="text-hint py-space-4 text-center text-[13px]">No bills match.</p>
             ) : (
@@ -154,7 +155,11 @@ export function PatientBillingPanel({ patientId, billing, billingNotes, onCollec
           <Card className="p-space-4">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Billing Summary</h3>
             {!billing ? (
-              <p className="text-hint text-[12.5px]">Loading…</p>
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-3 w-full" />
+                ))}
+              </div>
             ) : (
               <dl className="space-y-space-2 text-[12.5px]">
                 <div className="flex justify-between"><dt className="text-ink-600">Appointment Charges</dt><dd className="text-ink-900 font-semibold">{formatINR(billing.stats.appointment_bills_total)}</dd></div>

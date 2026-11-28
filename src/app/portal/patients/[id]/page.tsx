@@ -21,6 +21,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Skeleton, SkeletonCard, SkeletonStatTileRow } from "@/components/ui/Skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
@@ -173,7 +174,23 @@ export default function PatientDetailPage() {
         {error ? (
           <p className="text-error text-[13px]">{error}</p>
         ) : (
-          <p className="text-ink-400 text-[13px]">Loading…</p>
+          <>
+            <div className="mb-space-4 gap-space-3 flex items-center">
+              <Skeleton className="h-14 w-14 shrink-0 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-48" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+            </div>
+            <Skeleton className="mb-space-4 h-10 w-full" />
+            <SkeletonStatTileRow count={5} />
+            <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <SkeletonCard lines={6} />
+              </div>
+              <SkeletonCard lines={6} />
+            </div>
+          </>
         )}
       </PortalShell>
     );
@@ -1151,7 +1168,11 @@ function OverviewTab({
           <Card className="p-space-4 h-fit">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Billing Summary (All Visits)</h3>
             {!billing ? (
-              <p className="text-hint text-[12.5px]">Loading…</p>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-full" />
+              </div>
             ) : (
               <>
                 <dl className="space-y-space-2 text-[12.5px]">
@@ -1196,7 +1217,7 @@ function OverviewTab({
           <Card className="p-space-4 h-fit">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Release / Discharge</h3>
             {!billing ? (
-              <p className="text-hint text-[12.5px]">Loading…</p>
+              <Skeleton className="h-10 w-full" />
             ) : released ? (
               <div className="bg-success-tint gap-space-2 flex items-center rounded-md p-3">
                 <CheckCircle2 size={16} className="text-success shrink-0" />

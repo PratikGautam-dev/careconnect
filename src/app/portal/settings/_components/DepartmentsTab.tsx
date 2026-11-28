@@ -226,6 +226,7 @@ export function DepartmentsTab() {
     id: d.id,
     label: d.name,
     sublabel: `${d.specialization || "—"} · currently ${d.department_name}`,
+    isAssigned: d.department_name === assignDoctorDepartment?.name,
   }));
   // GET /api/portal/staff already excludes doctors server-side (see
   // staff.py's own docstring) -- this list is implicitly support-staff-only
@@ -234,6 +235,7 @@ export function DepartmentsTab() {
     id: String(s.id),
     label: s.name,
     sublabel: `${s.role_name} · currently ${s.department_name || "no department"}`,
+    isAssigned: s.department_name === manageStaffDepartment?.name,
   }));
 
   if (error) {

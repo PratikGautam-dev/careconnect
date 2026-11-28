@@ -16,6 +16,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
@@ -233,7 +234,14 @@ export default function BillingPage() {
             <Card className="p-space-4">
               <h3 className="text-label text-ink-900 mb-space-3 font-bold">Collection by Service</h3>
               {!overview ? (
-                <p className="text-hint text-[12.5px]">Loading…</p>
+                <div className="space-y-space-3">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i}>
+                      <Skeleton className="mb-space-1 h-3 w-32" />
+                      <Skeleton className="h-2 w-full rounded-full" />
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="space-y-space-3">
                   {overview.collection_by_service.map((s) => {
@@ -257,7 +265,11 @@ export default function BillingPage() {
             <Card className="p-space-4">
               <h3 className="text-label text-ink-900 mb-space-3 font-bold">Patient Clearance & Outstanding</h3>
               {!overview ? (
-                <p className="text-hint text-[12.5px]">Loading…</p>
+                <div className="space-y-space-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full rounded-md" />
+                  ))}
+                </div>
               ) : overview.patient_clearance.length === 0 ? (
                 <p className="text-hint text-[12.5px]">No patients have an outstanding balance.</p>
               ) : (

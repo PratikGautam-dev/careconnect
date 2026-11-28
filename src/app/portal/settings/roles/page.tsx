@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { QuickActionList } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
@@ -282,7 +283,7 @@ export default function RolesPermissionsPage() {
       </StatTileGrid>
 
       {!matrix ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <SkeletonTable />
       ) : (
         <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[1fr_360px]">
           <div className="space-y-space-4">
@@ -412,7 +413,11 @@ export default function RolesPermissionsPage() {
                 whatever this role itself grants them.
               </p>
               {loadingRoleUsers ? (
-                <p className="text-ink-400 text-[12.5px]">Loading…</p>
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-full" />
+                  ))}
+                </div>
               ) : !roleUsers || roleUsers.length === 0 ? (
                 <p className="text-ink-400 text-[12.5px]">No staff members are on this role yet.</p>
               ) : (

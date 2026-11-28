@@ -128,7 +128,14 @@ export function ToggleRow({
   return (
     <div className="gap-space-3 py-space-2 flex items-center justify-between">
       <div className="min-w-0">
-        <p className="text-ink-900 text-[13px] font-semibold">{label}</p>
+        <p
+          className={cn(
+            "text-[13px] font-semibold",
+            disabled ? "text-ink-400" : "text-ink-900",
+          )}
+        >
+          {label}
+        </p>
         <p className="text-hint truncate">{subtitle}</p>
       </div>
       <Switch checked={checked} onChange={onChange} disabled={disabled} />

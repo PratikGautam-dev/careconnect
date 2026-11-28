@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { AccountDetailRow } from "@/components/account/AccountDetailRow";
 import { ChangePasswordCard } from "@/components/account/ChangePasswordCard";
 import { EditProfileDialog } from "@/components/portal/EditProfileDialog";
@@ -42,7 +43,10 @@ export default function ProfileSettingsPage() {
       {profileError ? (
         <p className="text-error text-[13px]">{profileError}</p>
       ) : !profile ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={3} />
+        </div>
       ) : (
         <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
           <Card className="p-space-4">

@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
+import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { QuickActions } from "@/components/portal/QuickActions";
 import { StatTile } from "@/components/portal/StatTile";
 import { PatientStatTileRow } from "./PatientStatTileRow";
@@ -138,7 +139,7 @@ export function PatientTransactionsPanel({ patientId, billing, billingNotes, onC
             </div>
 
             {!billing ? (
-              <p className="text-hint py-space-4 text-center text-[13px]">Loading…</p>
+              <SkeletonTable rows={4} />
             ) : filtered.length === 0 ? (
               <p className="text-hint py-space-4 text-center text-[13px]">No transactions match.</p>
             ) : (
@@ -220,7 +221,11 @@ export function PatientTransactionsPanel({ patientId, billing, billingNotes, onC
           <Card className="p-space-4">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Payment Breakdown</h3>
             {!billing ? (
-              <p className="text-hint text-[12.5px]">Loading…</p>
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-3 w-full" />
+                ))}
+              </div>
             ) : (
               <>
                 <dl className="space-y-space-2 text-[12.5px]">

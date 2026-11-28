@@ -5,7 +5,16 @@ import { Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 
-export type PersonOption = { id: string; label: string; sublabel: string };
+export type PersonOption = {
+  id: string;
+  label: string;
+  sublabel: string;
+  /** Already assigned to the department this dialog is picking for --
+   * shown as a checked (disabled, display-only) checkbox so it's obvious
+   * at a glance who's already there, separate from the click-to-select
+   * row highlight used to pick who to assign next. */
+  isAssigned?: boolean;
+};
 
 type Props = {
   open: boolean;
@@ -71,12 +80,22 @@ export function AssignPersonDialog({ open, title, people, saving, onClose, onAss
                 type="button"
                 onClick={() => setSelectedId(p.id)}
                 className={cn(
-                  "px-space-3 py-space-2 flex w-full flex-col items-start rounded-md text-left",
+                  "gap-space-2 px-space-3 py-space-2 flex w-full items-start rounded-md text-left",
                   selectedId === p.id ? "bg-brand-50" : "hover:bg-black/[0.03]",
                 )}
               >
-                <span className="text-ink-900 text-[13.5px] font-semibold">{p.label}</span>
-                <span className="text-ink-400 text-[12px]">{p.sublabel}</span>
+                <input
+                  type="checkbox"
+                  checked={!!p.isAssigned}
+                  disabled
+                  readOnly
+                  className="accent-brand-600 mt-0.5 h-4 w-4 shrink-0"
+                  aria-label={p.isAssigned ? "Already assigned" : "Not assigned"}
+                />
+                <span className="flex min-w-0 flex-col items-start">
+                  <span className="text-ink-900 text-[13.5px] font-semibold">{p.label}</span>
+                  <span className="text-ink-400 text-[12px]">{p.sublabel}</span>
+                </span>
               </button>
             ))
           )}
