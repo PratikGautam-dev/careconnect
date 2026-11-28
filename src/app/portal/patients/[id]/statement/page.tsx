@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatDate, formatShortDateTime } from "@/lib/formatDate";
@@ -48,7 +49,9 @@ export default function PatientStatementPage() {
       />
 
       {!data ? (
-        <p className="text-hint text-[13px]">Loading…</p>
+        <div className="mx-auto max-w-3xl">
+          <SkeletonCard lines={8} />
+        </div>
       ) : (
         <Card className="p-space-6 mx-auto max-w-3xl">
           <div className="mb-space-5 flex items-start justify-between">

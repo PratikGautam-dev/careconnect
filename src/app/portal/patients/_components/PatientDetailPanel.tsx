@@ -18,6 +18,7 @@ import {
   Stethoscope,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { Skeleton } from "@/components/ui/Skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -222,7 +223,10 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
 
           <Section icon={Calendar} title="Latest Visit">
             {loading ? (
-              <p className="text-ink-400 text-[12px]">Loading…</p>
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-36" />
+              </div>
             ) : latestVisit ? (
               <>
                 <p className="text-ink-900 text-[13px] font-semibold">
@@ -267,7 +271,11 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
       {tab === "Medical History" && (
         <div className="space-y-space-2">
           {loading ? (
-            <p className="text-ink-400 text-[12px]">Loading…</p>
+            <div className="space-y-space-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-md" />
+              ))}
+            </div>
           ) : (summary?.notes.length ?? 0) === 0 ? (
             <p className="py-space-3 text-ink-400 text-center text-[12.5px]">
               No notes recorded yet.
@@ -297,7 +305,11 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
       {tab === "Appointments" && (
         <div className="space-y-space-2">
           {loading ? (
-            <p className="text-ink-400 text-[12px]">Loading…</p>
+            <div className="space-y-space-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-md" />
+              ))}
+            </div>
           ) : (summary?.visit_history.length ?? 0) === 0 ? (
             <p className="py-space-3 text-ink-400 text-center text-[12.5px]">
               No appointments yet.
@@ -341,7 +353,11 @@ export function PatientDetailPanel({ patient, index, onBookAppointment }: Props)
       {tab === "Reports" && (
         <div className="space-y-space-2">
           {loading ? (
-            <p className="text-ink-400 text-[12px]">Loading…</p>
+            <div className="space-y-space-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-md" />
+              ))}
+            </div>
           ) : (summary?.documents.length ?? 0) === 0 ? (
             <p className="py-space-3 text-ink-400 text-center text-[12.5px]">
               No documents uploaded yet.

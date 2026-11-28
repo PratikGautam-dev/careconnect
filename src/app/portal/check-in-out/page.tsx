@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatDateTime, formatHeaderDateDayMonth, formatTimeOnly } from "@/lib/formatDate";
@@ -262,7 +263,11 @@ export default function CheckInOutPage() {
         <Card className="p-space-4">
           <h3 className="text-label mb-space-4 text-ink-900 font-bold">Today&apos;s activity</h3>
           {!loaded ? (
-            <p className="text-ink-400 text-[12.5px]">Loading…</p>
+            <div className="space-y-space-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-full" />
+              ))}
+            </div>
           ) : activity.length === 0 ? (
             <p className="text-ink-400 text-[12.5px]">No activity yet today.</p>
           ) : (

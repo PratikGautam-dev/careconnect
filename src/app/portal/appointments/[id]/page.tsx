@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Textarea } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { PermissionGate } from "@/components/portal/PermissionGate";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
@@ -141,7 +142,10 @@ export default function AppointmentDetailPage() {
       {error && <p className="mb-space-4 text-error text-[13px]">{error}</p>}
 
       {!appointment ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <div className="space-y-3">
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={3} />
+        </div>
       ) : (
         <>
           <PageHeader

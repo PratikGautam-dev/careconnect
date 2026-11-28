@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatShortDateTime } from "@/lib/formatDate";
@@ -55,7 +56,12 @@ export default function PharmacySaleDetailPage() {
           </div>
         }
       />
-      {loading && <p className="text-hint text-[13px]">Loading…</p>}
+      {loading && (
+        <div className="space-y-3">
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={3} />
+        </div>
+      )}
       {!loading && !sale && <p className="text-hint text-[13px]">No such sale.</p>}
       {sale && (
         <div className="space-y-space-4">

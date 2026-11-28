@@ -11,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard, SkeletonStatTileRow } from "@/components/ui/Skeleton";
 import { DashboardActivityFeed } from "@/components/portal/DashboardActivityFeed";
 import { DashboardPendingApprovals } from "@/components/portal/DashboardPendingApprovals";
 import { DashboardQuickActions } from "@/components/portal/DashboardQuickActions";
@@ -93,7 +94,13 @@ function HospitalDashboard() {
       />
 
       {!data ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <>
+          <SkeletonStatTileRow count={4} />
+          <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
+            <SkeletonCard lines={5} />
+            <SkeletonCard lines={5} />
+          </div>
+        </>
       ) : (
         <>
           <StatTileGrid cols={4} className="mb-space-4">

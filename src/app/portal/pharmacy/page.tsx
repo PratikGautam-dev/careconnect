@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BedDouble, ClipboardCheck, PackageCheck, Pill, Truck } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard, SkeletonStatTileRow } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { QuickActions } from "@/components/portal/QuickActions";
@@ -51,7 +52,15 @@ export default function PharmacyDashboardPage() {
     <PortalShell hospital={hospital} active="pharmacy-dashboard">
       <PageHeader title="Pharmacy Portal Dashboard" description="Safe Medicines. Better Care. Always." />
 
-      {isLoading && <p className="text-hint mb-space-4 text-[13px]">Loading…</p>}
+      {isLoading && (
+        <>
+          <SkeletonStatTileRow count={5} />
+          <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
+            <SkeletonCard lines={5} />
+            <SkeletonCard lines={5} />
+          </div>
+        </>
+      )}
 
       {dashboard && (
         <>

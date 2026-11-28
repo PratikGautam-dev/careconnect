@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { usePortalGuard } from "@/components/portal/usePortalGuard";
 import { formatHeaderDateDayMonth, formatTimeOnly } from "@/lib/formatDate";
@@ -342,7 +343,7 @@ export default function AttendancePage() {
         </div>
 
         {allRecords === null ? (
-          <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
+          <SkeletonTable />
         ) : rows.length === 0 ? (
           <p className="py-space-4 text-ink-400 text-center text-[13px]">
             No attendance records for this filter.

@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonStatTileRow, SkeletonTable } from "@/components/ui/Skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PortalShell } from "@/components/portal/PortalShell";
@@ -320,7 +321,10 @@ export default function PortalDoctorsPage() {
       )}
 
       {!departments ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <>
+          <SkeletonStatTileRow count={5} />
+          <SkeletonTable />
+        </>
       ) : (
         <>
           <StatTileGrid cols={5} className="mb-space-4">

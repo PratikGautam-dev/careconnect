@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { ExportDialog } from "@/components/export/ExportDialog";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard, SkeletonStatTileRow } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
@@ -147,7 +148,13 @@ export default function ReportAnalyticsPage() {
       {!ready ? null : error ? (
         <p className="text-error text-[14px]">{error}</p>
       ) : !data ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <>
+          <SkeletonStatTileRow count={4} />
+          <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-2">
+            <SkeletonCard lines={5} />
+            <SkeletonCard lines={5} />
+          </div>
+        </>
       ) : (
         <>
           <StatTileGrid cols={4} className="mb-space-4">

@@ -127,8 +127,9 @@ export function NotificationsTab() {
           <ToggleRow
             label="Marketing Communications"
             subtitle="Send health tips and newsletters"
-            checked={notifications.marketingCommunications}
-            onChange={() => patchNotification("marketingCommunications")}
+            checked={false}
+            onChange={() => {}}
+            disabled
           />
         </div>
         <div className="mt-space-3 flex justify-end">

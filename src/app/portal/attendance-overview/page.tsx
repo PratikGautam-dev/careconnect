@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { StatTile } from "@/components/portal/StatTile";
 import { StatTileGrid } from "@/components/portal/StatTileGrid";
@@ -277,7 +278,7 @@ export default function AttendanceOverviewPage() {
             </div>
 
             {records === null ? (
-              <p className="py-space-4 text-ink-400 text-center text-[13px]">Loading…</p>
+              <SkeletonTable />
             ) : filteredRows.length === 0 ? (
               <p className="py-space-4 text-ink-400 text-center text-[13px]">
                 {rows.length === 0

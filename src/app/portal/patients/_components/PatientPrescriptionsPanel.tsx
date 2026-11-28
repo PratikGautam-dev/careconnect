@@ -6,6 +6,7 @@ import { ClipboardList, PackageCheck, Pill, Plus, Printer, Receipt, Send, Timer 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { DataTable } from "@/components/ui/DataTable";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { Input } from "@/components/ui/Input";
@@ -142,7 +143,15 @@ export function PatientPrescriptionsPanel({ patientId, patientName, onViewBillin
           <Card className="p-space-4">
             <h3 className="text-label mb-space-3 text-ink-900 font-bold">Selected Prescription Details</h3>
             {!selected || !full ? (
-              <p className="text-hint text-[12.5px]">{selected ? "Loading…" : "No prescriptions yet."}</p>
+              selected ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-3 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-hint text-[12.5px]">No prescriptions yet.</p>
+              )
             ) : (
               <>
                 <dl className="space-y-space-2 text-[12.5px]">

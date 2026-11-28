@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PlanPickerGrid } from "@/components/plans/PlanPickerGrid";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { usePublicPlans } from "@/hooks/usePublicPlans";
 
 type Props = {
@@ -57,7 +58,11 @@ export function ChangePlanModal({
         {error && <p className="text-error mb-space-4 text-[13px]">{error}</p>}
 
         {!plans ? (
-          <p className="text-ink-400 text-[13px]">Loading…</p>
+          <div className="gap-space-4 grid grid-cols-1 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-64 w-full rounded-lg" />
+            ))}
+          </div>
         ) : (
           <PlanPickerGrid
             plans={plans.filter((p) => p.id !== currentPlanId)}

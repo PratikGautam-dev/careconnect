@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CreditCard, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { SkeletonCard, SkeletonStatTileRow, SkeletonTable } from "@/components/ui/Skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useBillingSubscription, type SubscriptionPayment } from "@/hooks/useBillingSubscription";
 import { cn } from "@/lib/cn";
@@ -142,7 +143,12 @@ export function BillingTab() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   if (error) return <p className="text-error text-[13px]">{error}</p>;
-  if (!data) return <p className="text-ink-400 text-[13px]">Loading…</p>;
+  if (!data) return (
+    <div className="space-y-space-4">
+      <SkeletonStatTileRow count={3} />
+      <SkeletonCard lines={5} />
+    </div>
+  );
 
   const {
     subscription,
@@ -435,7 +441,7 @@ export function BillingTab() {
             subtitle="Every charge recorded against this subscription."
           />
           {!history ? (
-            <p className="text-ink-400 text-[13px]">Loading…</p>
+            <SkeletonTable rows={3} />
           ) : history.length === 0 ? (
             <p className="text-ink-400 text-[13px]">No charges recorded yet.</p>
           ) : (

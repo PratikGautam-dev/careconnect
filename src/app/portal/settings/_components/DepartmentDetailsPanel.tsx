@@ -13,8 +13,8 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { QuickActionList, type QuickAction } from "@/components/portal/QuickActions";
 import type { DepartmentDetail } from "@/hooks/useDepartments";
 import { StatusBadge } from "./department-columns";
 import { ToggleRow } from "./settings-ui";
@@ -170,38 +170,23 @@ export function DepartmentDetailsPanel({
 
       <div className="mt-space-4 border-line pt-space-4 border-t">
         <h4 className="mb-space-2 text-ink-900 text-[13px] font-bold">Quick Actions</h4>
-        <div className="gap-space-2 grid grid-cols-2">
-          <Button type="button" variant="secondary" size="md" onClick={() => onEdit(department)}>
-            <Pencil size={13} /> Edit Department
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={() => onAssignDoctor(department)}
-          >
-            <UserPlus size={13} /> Assign Doctor
-          </Button>
-          <Button type="button" variant="secondary" size="md" onClick={() => onEdit(department)}>
-            <Clock size={13} /> Manage Timings
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={() => onManageStaff(department)}
-          >
-            <UserCog size={13} /> Manage Staff
-          </Button>
-        </div>
-        <button
-          type="button"
-          onClick={() => onToggleActive(department)}
-          className="mt-space-2 gap-space-2 border-error/30 bg-error-tint px-space-3 py-space-2 text-error hover:bg-error/15 flex w-full items-center justify-center rounded-md border text-[13px] font-semibold"
-        >
-          <XCircle size={14} />
-          {department.is_active ? "Deactivate Department" : "Activate Department"}
-        </button>
+        <QuickActionList
+          columns={2}
+          size="sm"
+          actions={[
+            { label: "Edit Department", icon: Pencil, onClick: () => onEdit(department) },
+            { label: "Assign Doctor", icon: UserPlus, onClick: () => onAssignDoctor(department) },
+            { label: "Manage Timings", icon: Clock, onClick: () => onEdit(department) },
+            { label: "Manage Staff", icon: UserCog, onClick: () => onManageStaff(department) },
+            {
+              label: department.is_active ? "Deactivate Department" : "Activate Department",
+              icon: XCircle,
+              onClick: () => onToggleActive(department),
+              destructive: true,
+              fullWidth: true,
+            },
+          ] satisfies QuickAction[]}
+        />
       </div>
     </Card>
   );

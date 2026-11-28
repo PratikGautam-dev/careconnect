@@ -4,6 +4,7 @@ import { CalendarClock, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/Field";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import type { Appointment, SlotsByDate } from "@/hooks/useAppointments";
 
@@ -68,7 +69,10 @@ export function RescheduleDialog({
             </div>
 
             {!slotsByDate ? (
-              <p className="text-ink-400 text-[13px]">Loading…</p>
+              <div className="space-y-2">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-9 w-full" />
+              </div>
             ) : (
               <>
                 <Field label="Date" required>

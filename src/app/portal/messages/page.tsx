@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { NewBookingDialog } from "@/components/portal/NewBookingDialog";
 import { NewTestBookingDialog } from "@/components/portal/NewTestBookingDialog";
 import { NewDaycareBookingDialog } from "@/components/portal/NewDaycareBookingDialog";
@@ -151,7 +152,18 @@ export default function PortalMessagesPage() {
       {bulkError && <p className="mb-space-4 text-error text-[13px]">{bulkError}</p>}
 
       {!handoffs ? (
-        <p className="text-ink-400 text-[13px]">Loading…</p>
+        <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)_320px]">
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="h-[calc(100vh-220px)] p-space-3 space-y-3">
+              {Array.from({ length: 6 }).map((_, j) => (
+                <div key={j} className="gap-space-2 flex items-center">
+                  <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+                  <Skeleton className="h-3 flex-1" />
+                </div>
+              ))}
+            </Card>
+          ))}
+        </div>
       ) : (
         <div className="gap-space-4 grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)_320px] lg:items-stretch">
           {/* --- Conversation list --- */}
